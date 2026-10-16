@@ -33,9 +33,9 @@ apply to that runner. This separately recorded Linux operational profile uses:
   container runs with the host output owner's UID/GID and checks a real
   directory/file create, write, fsync, read and deletion before starting a worker.
 
-These limits are prospective. Linux pretrained loading and four-update training
-have not yet been measured. The earlier Linux image build and no-model offline
-preflight do not prove that FP32 training fits this runner. The first-four job
+These limits are prospective. Linux loading has reached the resource guards;
+no four-update training gate has passed. The earlier Linux image build and
+no-model offline preflight do not prove that FP32 training fits this runner. The first-four job
 must stop on resource failure; it must not switch precision, model, examples,
 group size, or objective to obtain a passing result.
 
@@ -47,6 +47,34 @@ records a same-container filesystem receipt before any model work. No permission
 broadening, capability addition, frozen-source change, or scientific adjustment
 is part of this correction. The failed run is retained; a new manual dispatch is
 an explicitly recorded infrastructure attempt, not continuation of a trajectory.
+
+The second run, `38882469176`, passed the UID check but both arms stopped during
+base-weight loading, before generation or optimizer updates. GRPO exceeded the
+12 GiB process-tree guard at 14.1163 seconds (sampled peak 13,230,313,472 bytes).
+The dr_GRPO arm stopped on observed **host swap growth** at 13.4178 seconds; that
+does not establish container swap or a kernel OOM. Both failed attempts remain
+preserved and ineligible for comparison or continuation.
+
+The third prospective attempt adds `scripts/aircraft_cpu_loader.py`, separately
+hashed in the descriptor and each phase receipt. Pinned Transformers 5.20 keeps
+all memory-mapped BF16 source shards until conversion completes: the 4.1146 GiB
+source plus 8.2291 GiB FP32 destination exceeds the RSS guard before libraries.
+The bootstrap uses safetensors 0.8.0's official `pread` backend and Transformers'
+`HF_DEACTIVATE_ASYNC_LOAD=1` serial-loading switch. It intercepts only
+`transformers.modeling_utils.safe_open`, only on Linux CPU, and only for the two
+exact base-shard paths from the unchanged frozen plan. It checks installed
+package versions and source hashes, then restores the alias and environment on
+exit. Installed package files and the global safetensors alias are unchanged.
+
+An actual tiny CPU test on macOS produced identical 32 FP32 tensors and outputs
+and preserved Torch, Python and NumPy RNG states. The separate 64 MiB synthetic
+diagnosis measured OS peak RSS of 577,323,008 bytes for asynchronous mmap and
+518,045,696 bytes for serial pread. Neither test establishes Linux 2B capacity or
+training throughput. Pread still uses kernel file cache. The next Linux attempt
+keeps every RSS, swap, disk, output and time guard, and additionally records
+cgroup anonymous/file/swap memory alongside host swap for attribution. There is
+no change to precision, weights, frozen source archive, numerical conversions,
+training examples or objectives. Failed-phase costs remain recorded separately.
 
 The committed JSON descriptor pins a 1,658,880-byte source/metadata archive and
 a separately reviewed small warm-adapter archive. The source archive contains
@@ -74,12 +102,12 @@ No validation or sealed test images are downloaded.
 Each job builds `Dockerfile.vlm` from the hash-pinned lock and frozen source,
 then calls the original `run.worker` under a Linux resource supervisor. The Mac
 plan, watcher and local training remain untouched. The job records CPU hardware,
-image ID, source/input identities, resource samples, native receipts, and actual
+image ID, source/input and loader identities, resource samples, native receipts, and actual
 outputs, including failures. Artifacts retain only the output directory for one
 day; no base weights or input JPEGs are uploaded.
 
-Continuation is intentionally not exposed in this first workflow release.
-After both first-four gates pass, a later reviewed manual stage must restore both
+Continuation is intentionally not exposed in this first workflow.
+After both first-four gates pass, the [separate manual continuation](aircraft-cpu-continuation.md) must restore both
 native checkpoints from these exact repository/workflow runs, verify every
 artifact and source hash, collect the fresh shared Linux warm assay, and resume
 the original trajectories to 64 without resetting optimizer, reference, RNG,

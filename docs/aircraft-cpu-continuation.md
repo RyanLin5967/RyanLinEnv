@@ -4,7 +4,10 @@ This manual workflow continues the **same** two CPU7946 trajectories after both
 remote first-four hardware gates pass. It does not restart those updates or make
 a held-out claim. No continuation has been dispatched by this implementation.
 The first failed run, `38881659770`, stopped before either model worker started;
-it is ineligible. A successful replacement run must be reviewed and pinned.
+it is ineligible. The second run, `38882469176`, hit the unchanged memory guard
+while loading weights, before generation or updates; it is also ineligible.
+A successful replacement using the prospective CPU loader amendment must be
+reviewed and pinned.
 
 The workflow has four finite jobs: shared warm assay, parallel `grpo` and
 `dr_grpo` continuation, and offline comparison. Every job uses a standard public
@@ -22,6 +25,7 @@ Before dispatch, provide a reviewed JSON envelope containing:
   "parent_commit": "EXACT_40_HEX_PARENT_COMMIT",
   "first4_files": {
     "scripts/aircraft_ci_experiment.py": "EXACT_SHA256",
+    "scripts/aircraft_cpu_loader.py": "EXACT_SHA256",
     ".github/workflows/aircraft-cpu-experiment.yml": "EXACT_SHA256",
     "docs/aircraft-cpu-experiment-plan.json": "EXACT_SHA256"
   },
@@ -34,10 +38,22 @@ Before dispatch, provide a reviewed JSON envelope containing:
 
 The placeholders deliberately cannot run. `validate --plan FILE` checks only the
 schema and performs no network or model work. The parent commit may precede the
-continuation workflow commit, but all three first-four files must match that
+continuation workflow commit, but all four first-four files must match that
 parent and the current checkout exactly. The original source archive, every
 member, native worker, 37-module frozen package, task metadata and descriptor
-remain unchanged. Current project sources are not substituted into the image.
+remain unchanged between that successful parent and its continuation. Current
+project sources are not substituted into the image.
+
+Before any API download or checkpoint restoration, the actual loader bootstrap
+must match both its direct source pin and the complete policy in the pinned
+descriptor. There is no fallback for older envelopes without the loader pin.
+The parent CI state, every phase guard and each `loader.json` must agree on this
+identity. Receipts must show completed CPU `pread` calls for both fixed base
+shards, the reviewed package versions and implementation hashes, and restored
+process-local alias/environment state. Missing, partial or changed receipts fail
+closed even when an artifact's file inventory has been recalculated. The same
+checks apply to warm and continued-arm handoffs; the descriptor and loader are
+mounted read-only for every container stage.
 
 The controller verifies the parent repository, workflow path, manual first
 attempt, successful conclusion, commit, artifact names/IDs, archive hashes and

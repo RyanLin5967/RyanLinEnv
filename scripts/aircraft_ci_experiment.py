@@ -1,14 +1,16 @@
 """Bounded manual Linux reproduction of CPU7946; importing performs no work.
 
 The frozen worker, trainer, comparison, inputs and scientific gates are reused
-byte for byte. Only the operating-system resource supervisor is replaced. The
-original absolute paths exist inside an isolated container, never on the runner.
+byte for byte. Linux resource supervision and a separately pinned CPU loader
+bootstrap are operational amendments. Original absolute paths exist inside an
+isolated container, never on the runner.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -42,6 +44,18 @@ LIMITS = {
     "assay_wall_seconds": 3600,
     "swap_growth_bytes": 0,
 }
+
+
+def loader_module():
+    path = Path(__file__).with_name("aircraft_cpu_loader.py")
+    spec = importlib.util.spec_from_file_location("aircraft_cpu_loader", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def loader_identity():
+    return loader_module().identity()
 
 
 def digest(path):
@@ -191,6 +205,7 @@ def pack(root, destination, descriptor, warm_receipt):
                 for name in ("Dockerfile.vlm", "requirements-vlm-local.lock", "pyproject.toml")
             },
             "limits": LIMITS,
+            "loader": loader_identity(),
             "model_bytes": sum(row["size_bytes"] for row in model["files"]),
             "jpeg_bytes": sum(row["bytes"] for row in downloads if row["path"].endswith(".jpg")),
             "scientific_choices_changed": False,
@@ -282,6 +297,25 @@ def completed_phases(output):
     return results
 
 
+def cgroup_memory(root=Path("/sys/fs/cgroup")):
+    """Attribution telemetry only; host RSS/swap guards remain authoritative."""
+    result = {}
+    for name in ("memory.current", "memory.peak", "memory.swap.current", "memory.swap.max"):
+        try:
+            value = (root / name).read_text().strip()
+            result[name] = int(value) if value != "max" else value
+        except (OSError, ValueError):
+            result[name] = None
+    try:
+        values = dict(line.split() for line in (root / "memory.stat").read_text().splitlines())
+        result["memory.stat"] = {
+            name: int(values[name]) for name in ("anon", "file", "kernel") if name in values
+        }
+    except (OSError, ValueError):
+        result["memory.stat"] = None
+    return result
+
+
 def supervise_phase(phase, limits):
     """Container-local supervisor, no model imports; preserve every terminal failure."""
     import psutil
@@ -313,6 +347,9 @@ def supervise_phase(phase, limits):
         "platform": "Linux CPU, separate from Mac study",
         "peak_tree_rss_bytes": 0,
         "prior_physical_phase_seconds": prior_seconds,
+        "loader": loader_identity(),
+        "initial_host_swap_used_bytes": initial_swap,
+        "peak_host_swap_growth_bytes": 0,
     }
 
     def interrupt(signum, frame):
@@ -338,10 +375,14 @@ def supervise_phase(phase, limits):
                 free = shutil.disk_usage(output).free
                 elapsed = time.monotonic() - start
                 size = runner.output_size()
+                swap = psutil.swap_memory().used
                 receipt.update(
                     elapsed_seconds=elapsed,
                     output_bytes=size,
                     peak_tree_rss_bytes=max(receipt["peak_tree_rss_bytes"], rss),
+                    peak_host_swap_growth_bytes=max(
+                        receipt["peak_host_swap_growth_bytes"], swap - initial_swap
+                    ),
                 )
                 runner.append(
                     phase_dir / "resources.jsonl",
@@ -350,11 +391,14 @@ def supervise_phase(phase, limits):
                         "tree_rss_bytes": rss,
                         "host_available_bytes": available,
                         "disk_free_bytes": free,
+                        "host_swap_used_bytes": swap,
+                        "host_swap_growth_bytes": swap - initial_swap,
+                        "cgroup_memory": cgroup_memory(),
                     },
                 )
                 if rss > limits["tree_rss_bytes"] or available < limits["running_available_bytes"]:
                     raise RuntimeError("Memory resource guard")
-                if psutil.swap_memory().used - initial_swap > limits["swap_growth_bytes"]:
+                if swap - initial_swap > limits["swap_growth_bytes"]:
                     raise RuntimeError("Swap resource guard")
                 if free < limits["disk_reserve_bytes"] or size > limits["output_bytes"]:
                     raise RuntimeError("Disk/output resource guard")
@@ -449,6 +493,8 @@ def host_run(root, descriptor, arm):
     contract = read(descriptor)
     if contract["limits"] != LIMITS or contract["original_plan_sha256"] != PLAN_SHA:
         raise ValueError("Prospective Linux contract differs")
+    if contract.get("loader") != loader_identity():
+        raise ValueError("Prospective Linux loader contract differs")
     repository = api_json("")
     if repository["private"]:
         raise ValueError("This experiment permits only standard public-repository runners")
@@ -524,6 +570,7 @@ def host_run(root, descriptor, arm):
         "container_gid": os.getgid(),
         "cpu_hardware": json.loads(subprocess.check_output(["lscpu", "--json"], text=True)),
         "platform": "Linux x86_64 CPU, independent of Mac experiments",
+        "loader": loader_identity(),
     }
     write(output / "ci-state.json", state)
     command = docker_command(inputs, output, image_id, arm)
@@ -591,12 +638,18 @@ def docker_command(inputs, output, image_id, arm):
         "HF_HOME=/tmp/huggingface",
         "-e",
         "PYTORCH_ENABLE_MPS_FALLBACK=0",
+        "-e",
+        "HF_DEACTIVATE_ASYNC_LOAD=1",
+        "-e",
+        f"AIRCRAFT_LOADER_SHA256={loader_identity()['sha256']}",
         "-v",
         f"{inputs.resolve()}:{ORIGINAL}:ro",
         "-v",
         f"{output.resolve()}:{ORIGINAL / OUTPUT_REL}:rw",
         "-v",
         f"{Path(__file__).resolve()}:/ci/experiment.py:ro",
+        "-v",
+        f"{Path(__file__).with_name('aircraft_cpu_loader.py').resolve()}:/ci/aircraft_cpu_loader.py:ro",
         image_id,
         "python",
         "/ci/experiment.py",
@@ -604,6 +657,24 @@ def docker_command(inputs, output, image_id, arm):
         "--arm",
         arm,
     ]
+
+
+def run_worker(phase):
+    runner = import_runner()
+    if phase not in runner.PHASES:
+        raise ValueError("Unknown frozen worker phase")
+    plan_path = ORIGINAL / PLAN_REL / "plan.json"
+    if digest(plan_path) != PLAN_SHA:
+        raise ValueError("Frozen plan differs before loader setup")
+    plan = read(plan_path)
+    # The unchanged worker verifies every source/input byte before loading.
+    loader = loader_module()
+    with loader.scoped_loader(
+        Path(plan["paths"]["model"]),
+        ORIGINAL / OUTPUT_REL / "phases" / phase / "loader.json",
+        expected_sha256=os.environ["AIRCRAFT_LOADER_SHA256"],
+    ):
+        runner.worker(PLAN_SHA, phase)
 
 
 def main():
@@ -627,7 +698,7 @@ def main():
     elif args.command == "container-stage":
         container_stage(args.arm)
     else:
-        import_runner().worker(PLAN_SHA, args.phase)
+        run_worker(args.phase)
 
 
 if __name__ == "__main__":

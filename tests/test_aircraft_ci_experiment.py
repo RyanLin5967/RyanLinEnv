@@ -82,6 +82,19 @@ def test_failed_phase_never_becomes_continuation(tmp_path):
         ci.completed_phases(tmp_path)
 
 
+def test_cgroup_attribution_distinguishes_file_anon_and_swap_without_guard_changes(tmp_path):
+    (tmp_path / "memory.current").write_text("8192\n")
+    (tmp_path / "memory.swap.current").write_text("0\n")
+    (tmp_path / "memory.swap.max").write_text("max\n")
+    (tmp_path / "memory.stat").write_text("anon 4096\nfile 2048\nkernel 1024\n")
+    observed = ci.cgroup_memory(tmp_path)
+    assert observed["memory.current"] == 8192
+    assert observed["memory.peak"] is None
+    assert observed["memory.swap.current"] == 0
+    assert observed["memory.swap.max"] == "max"
+    assert observed["memory.stat"] == {"anon": 4096, "file": 2048, "kernel": 1024}
+
+
 def test_run_cannot_execute_locally_or_without_manual_event(tmp_path, monkeypatch):
     monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     with pytest.raises(ValueError, match="manual attempt"):
@@ -99,6 +112,9 @@ def test_docker_preserves_worker_parent_and_resource_contract(tmp_path):
     assert command[command.index("--memory") + 1] == str(13 * ci.GIB)
     assert command[command.index("--memory-swap") + 1] == str(13 * ci.GIB)
     assert command[command.index("--cpus") + 1] == "2"
+    assert "HF_DEACTIVATE_ASYNC_LOAD=1" in command
+    assert f"AIRCRAFT_LOADER_SHA256={ci.loader_identity()['sha256']}" in command
+    assert any(item.endswith(":/ci/aircraft_cpu_loader.py:ro") for item in command)
     assert "--read-only" in command
     assert not any("TOKEN" in item or "docker.sock" in item for item in command)
     assert command[-4:] == ["/ci/experiment.py", "container-stage", "--arm", "grpo"]
@@ -143,6 +159,7 @@ def test_contract_retains_exact_science_and_public_payload_bounds():
     assert contract["original_plan_sha256"] == ci.PLAN_SHA
     assert contract["limits"] == ci.LIMITS
     assert contract["scientific_choices_changed"] is False
+    assert contract["loader"] == ci.loader_identity()
     assert len([r for r in contract["downloads"] if r["path"].endswith(".jpg")]) == 96
     assert all(
         "/development/images/train/" in r["path"]

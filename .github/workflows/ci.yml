@@ -54,10 +54,12 @@ jobs:
       - name: Check the pinned TRL stack without loading a model
         run: .venv/bin/python -m vision_rl.vlm_local_training --preflight --device cpu
       - name: Verify local training, continuation and grading contracts
+        env:
+          AIRCRAFT_LOADER_PARITY: "1"
         run: >-
           .venv/bin/pytest -q tests/test_vlm_local_training.py tests/test_vlm.py
           tests/test_aircraft_recipe.py tests/test_aircraft_evaluator.py
-          tests/test_vlm_local_task_builder.py
+          tests/test_vlm_local_task_builder.py tests/test_aircraft_cpu_loader.py
       - run: docker build -f Dockerfile.vlm -t vision-rl:vlm-local .
       - name: Check the installed container with networking disabled
         run: docker run --rm --network none vision-rl:vlm-local

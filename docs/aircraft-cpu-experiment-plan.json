@@ -733,6 +733,35 @@
     "tree_rss_bytes": 12884901888
   },
   "linux_execution_verified": false,
+  "loader": {
+    "amendment": "linux-cpu-serial-pread-v1",
+    "backend": "pread",
+    "device": "cpu",
+    "environment": {
+      "HF_DEACTIVATE_ASYNC_LOAD": "1"
+    },
+    "file": "scripts/aircraft_cpu_loader.py",
+    "patched_alias": "transformers.modeling_utils.safe_open",
+    "platform": "linux",
+    "schema_version": 1,
+    "scientific_choices_changed": false,
+    "sha256": "03ed98659e51134109ecdaa98753270833de36d9590b301e6a1fa0c0a0167c35",
+    "shards": [
+      "model-00001-of-00002.safetensors",
+      "model-00002-of-00002.safetensors"
+    ],
+    "source_sha256": {
+      "safetensors/__init__.pyi": "88467818dfbb7a6e4e2d1c085efb1d07cee365d87350ebe85d1d76f9ced6325d",
+      "transformers/core_model_loading.py": "c365aea4e8e9db375a56d1c80b01d92439554fdf63561a08b0d537fad2eef6b5",
+      "transformers/modeling_utils.py": "553412f58334f65abba617f3b344828698dbf63615e109159fd03dafd3422d38"
+    },
+    "torch_cpu_wheel_version": "2.14.1+cpu",
+    "versions": {
+      "safetensors": "0.8.0",
+      "torch": "2.14.1",
+      "transformers": "5.20.0"
+    }
+  },
   "model_bytes": 4429621382,
   "original_plan_sha256": "7946c228ceede564600ac540706a0fc2020808b163c0543af84dcb6a97cc7b99",
   "publication_status": "prepared locally; not uploaded by this script",

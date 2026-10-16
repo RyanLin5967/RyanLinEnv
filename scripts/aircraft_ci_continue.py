@@ -35,7 +35,8 @@ ARMS = ("grpo", "dr_grpo")
 FIRST4_WORKFLOW = ".github/workflows/aircraft-cpu-experiment.yml"
 CONTINUATION_WORKFLOW = ".github/workflows/aircraft-cpu-continue.yml"
 DESCRIPTOR = Path("docs/aircraft-cpu-experiment-plan.json")
-FIRST4_FILES = ("scripts/aircraft_ci_experiment.py", FIRST4_WORKFLOW, str(DESCRIPTOR))
+LOADER_FILE = "scripts/aircraft_cpu_loader.py"
+FIRST4_FILES = ("scripts/aircraft_ci_experiment.py", LOADER_FILE, FIRST4_WORKFLOW, str(DESCRIPTOR))
 ASSAYS = ("greedy", "sample42", "sample314")
 JOB_SECONDS = 6 * 3600
 
@@ -94,8 +95,83 @@ def envelope(raw):
     return raw
 
 
+def descriptor_path():
+    # The container must receive the exact reviewed descriptor, never a fallback.
+    return Path("/ci/experiment-plan.json") if Path(__file__).parent == Path("/ci") else DESCRIPTOR
+
+
+def checked_loader(plan):
+    contract = ci.read(descriptor_path())
+    identity = ci.loader_identity()
+    if (
+        contract.get("loader") != identity
+        or identity.get("file") != LOADER_FILE
+        or identity.get("sha256") != plan["first4_files"].get(LOADER_FILE)
+        or ci.digest(ci.regular(descriptor_path())) != plan["first4_files"][str(DESCRIPTOR)]
+    ):
+        raise ValueError("Frozen descriptor/envelope loader identity differs from actual bootstrap")
+    return identity, contract
+
+
+def loader_model_directory(identity, contract):
+    shards = [
+        Path(row["path"])
+        for row in contract["downloads"]
+        if Path(row["path"]).name in identity["shards"]
+    ]
+    if len(shards) != len(identity["shards"]) or len({p.parent for p in shards}) != 1:
+        raise ValueError("Frozen descriptor does not identify the exact loader base shards")
+    return str(ci.ORIGINAL / shards[0].parent)
+
+
+def verify_loader_phases(output, identity, contract):
+    for phase, guard in ci.completed_phases(output).items():
+        if (
+            guard.get("loader") != identity
+            or guard.get("phase") != phase
+            or guard.get("exit_code") != 0
+        ):
+            raise ValueError("Phase guard loader identity differs from the prospective descriptor")
+        record = ci.read(output / "phases" / phase / "loader.json")
+        if (
+            any(record.get(key) != value for key, value in identity.items())
+            or record.get("status") != "completed"
+            or "error_type" in record
+            or record.get("aliases_restored") is not True
+            or record.get("environment_restored") is not True
+            or record.get("installed_files_modified") is not False
+            or record.get("global_safetensors_alias_modified") is not False
+            or record.get("runtime_sources") != identity["source_sha256"]
+            or record.get("model_directory") != loader_model_directory(identity, contract)
+        ):
+            raise ValueError("Loader receipt lacks matching completed/restored scoped execution")
+        versions = record.get("runtime_versions", {})
+        if set(versions) != set(identity["versions"]) or any(
+            versions[name]
+            not in (
+                {version, identity["torch_cpu_wheel_version"]} if name == "torch" else {version}
+            )
+            for name, version in identity["versions"].items()
+        ):
+            raise ValueError("Loader receipt runtime differs from its pinned policy")
+        opens = record.get("opens")
+        if (
+            not isinstance(opens, list)
+            or not 1 <= len(opens) <= 64
+            or any(
+                not isinstance(item, dict)
+                or item != {"file": item.get("file"), "device": "cpu", "backend": "pread"}
+                or item.get("file") not in identity["shards"]
+                for item in opens
+            )
+            or {item["file"] for item in opens} != set(identity["shards"])
+        ):
+            raise ValueError("Loader receipt does not show bounded CPU pread of both pinned shards")
+
+
 def verify_parent(plan):
     """All API metadata is checked before downloading or restoring any pickle."""
+    checked_loader(plan)  # Before API downloads, extraction, or trusted pickle restoration.
     repo = ci.api_json("")
     run = ci.api_json(f"actions/runs/{plan['parent_run_id']}")
     if (
@@ -220,6 +296,7 @@ def inventory(root, *, exclude=()):
 
 
 def verify_first4(root, arm, plan):
+    loader, contract = checked_loader(plan)
     state = ci.read(root / "ci-state.json")
     if any(
         state.get(k) != v
@@ -231,11 +308,13 @@ def verify_first4(root, arm, plan):
             "run_id": str(plan["parent_run_id"]),
             "descriptor_sha256": plan["first4_files"][str(DESCRIPTOR)],
             "original_plan_sha256": ci.PLAN_SHA,
+            "loader": loader,
         }.items()
     ) or state["file_sha256"] != inventory(root, exclude=("ci-state.json",)):
         raise ValueError("First-four artifact attribution or complete file inventory differs")
     if set(ci.completed_phases(root)) != {f"{arm}-first4"}:
         raise ValueError("Only the single original first-four phase can be restored")
+    verify_loader_phases(root, loader, contract)
     result = ci.read(root / f"phases/{arm}-first4/result.json")
     if (
         result.get("committed_steps") != 4
@@ -321,6 +400,7 @@ def write_handoff(output, plan, group, *, allocation=None):
 
 
 def verify_handoff(output, plan, group):
+    loader, contract = checked_loader(plan)
     record = ci.read(output / "handoff.json")
     if (
         record["status"] != "completed"
@@ -332,6 +412,7 @@ def verify_handoff(output, plan, group):
         or record["file_sha256"] != inventory(output, exclude=("handoff.json",))
     ):
         raise ValueError("Handoff does not belong to this exact reviewed continuation invocation")
+    verify_loader_phases(output, loader, contract)
     if group == "warm" and record["allocation"] != remaining_allocation(output):
         raise ValueError("Original aggregate budget allocation changed")
     return record
@@ -393,6 +474,7 @@ def container_stage(group, plan_path):
     if sys.platform != "linux" or os.environ.get("ACCELERATE_USE_CPU") != "true":
         raise ValueError("Only offline CPU container execution is permitted")
     plan = envelope(ci.read(plan_path))
+    loader, contract = checked_loader(plan)
     output = ci.ORIGINAL / ci.OUTPUT_REL
     if group in ARMS:
         verify_handoff(output, plan, "warm")
@@ -401,6 +483,7 @@ def container_stage(group, plan_path):
     ci.filesystem_preflight(preflight)
     runner, _ = ci.check_inputs()
     runner._require_hardware_pair()
+    verify_loader_phases(output, loader, contract)
     if group == "warm":
         if set(ci.completed_phases(output)) != {f"{a}-first4" for a in ARMS}:
             raise ValueError("Warm assay is single-use; preserve all prior partial work")
@@ -429,6 +512,7 @@ def container_stage(group, plan_path):
         allocation = ci.read(output / "continuations/grpo.json")["allocation"]
     else:
         raise ValueError("No first-four or arbitrary worker phase is exposed here")
+    verify_loader_phases(output, loader, contract)
     write_handoff(output, plan, group, allocation=allocation)
 
 
@@ -483,6 +567,8 @@ def docker_command(inputs, output, image_id, group, plan_path):
         f"{Path(__file__).resolve()}:/ci/continue.py:ro",
         "-v",
         f"{plan_path.resolve()}:/ci/continuation-plan.json:ro",
+        "-v",
+        f"{DESCRIPTOR.resolve()}:/ci/experiment-plan.json:ro",
         "-e",
         "GITHUB_RUN_ID=" + os.environ["GITHUB_RUN_ID"],
         "-e",
