@@ -1,0 +1,136 @@
+name: Aircraft CPU controlled continuation
+run-name: aircraft-cpu-continue parent-${{ inputs.parent_run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      parent_run_id:
+        description: Root-reviewed first-four workflow run ID
+        type: string
+        required: true
+      plan:
+        description: Reviewed JSON envelope with exact parent commit and both artifact ZIP hashes
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: aircraft-cpu-continue-${{ inputs.parent_run_id }}
+  cancel-in-progress: false
+jobs:
+  warm:
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Execute the reviewed warm stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTINUATION_PLAN: ${{ inputs.plan }}
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+        run: python3 scripts/aircraft_ci_continue.py run --group warm
+      - name: Preserve only outputs and failures for one day
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-cpu-continuation-warm
+          path: runs/aircraft-ci-continuation/output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
+  grpo:
+    needs: warm
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Execute the reviewed grpo stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTINUATION_PLAN: ${{ inputs.plan }}
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          WARM_ARTIFACT_ID: ${{ needs.warm.outputs.artifact_id }}
+          WARM_ARTIFACT_SHA: ${{ needs.warm.outputs.artifact_sha }}
+        run: python3 scripts/aircraft_ci_continue.py run --group grpo
+      - name: Preserve only outputs and failures for one day
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-cpu-continuation-grpo
+          path: runs/aircraft-ci-continuation/output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
+  dr_grpo:
+    needs: warm
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Execute the reviewed dr_grpo stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTINUATION_PLAN: ${{ inputs.plan }}
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          WARM_ARTIFACT_ID: ${{ needs.warm.outputs.artifact_id }}
+          WARM_ARTIFACT_SHA: ${{ needs.warm.outputs.artifact_sha }}
+        run: python3 scripts/aircraft_ci_continue.py run --group dr_grpo
+      - name: Preserve only outputs and failures for one day
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-cpu-continuation-dr_grpo
+          path: runs/aircraft-ci-continuation/output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
+  compare:
+    needs: [grpo, dr_grpo]
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Execute the reviewed compare stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTINUATION_PLAN: ${{ inputs.plan }}
+          PARENT_RUN_ID: ${{ inputs.parent_run_id }}
+          GRPO_ARTIFACT_ID: ${{ needs.grpo.outputs.artifact_id }}
+          GRPO_ARTIFACT_SHA: ${{ needs.grpo.outputs.artifact_sha }}
+          DR_GRPO_ARTIFACT_ID: ${{ needs.dr_grpo.outputs.artifact_id }}
+          DR_GRPO_ARTIFACT_SHA: ${{ needs.dr_grpo.outputs.artifact_sha }}
+        run: python3 scripts/aircraft_ci_continue.py run --group compare
+      - name: Preserve only outputs and failures for one day
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-cpu-continuation-compare
+          path: runs/aircraft-ci-continuation/output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
