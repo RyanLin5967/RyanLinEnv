@@ -28,6 +28,24 @@ GENERATION = {
     "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0,
     "enable_thinking": True,
 }
+INSTRUCT_GENERATION = {
+    **GENERATION, "temperature": 0.7, "top_p": 0.8,
+    "presence_penalty": 1.5, "enable_thinking": False,
+}
+
+
+def native_profile(profile="xhigh"):
+    """Return an explicit author-supported profile; never mutate the frozen defaults."""
+    if profile not in {"xhigh", "instruct"}:
+        raise ValueError("Native profile must be xhigh or instruct")
+    thinking = profile == "xhigh"
+    return {
+        "profile": profile, "native_profile": f"qwen3.8-native-{profile}-v1",
+        "generation": dict(GENERATION if thinking else INSTRUCT_GENERATION),
+        "enable_thinking": thinking, "reasoning_effort": "xhigh" if thinking else None,
+        "preserve_thinking": True,
+        "assistant_prefill": "<think>\n" if thinking else "<think>\n\n</think>\n\n",
+    }
 
 
 def model_image(path, preprocessing_id=None):
@@ -99,11 +117,19 @@ def verify_snapshot(directory, integrity):
             "quantization": record["quantization"], "files": files}
 
 
-def final_answer(raw_text, finish_reason):
+def final_answer(raw_text, finish_reason, *, profile="xhigh"):
     """Separate the explicit reasoning close marker without repairing the answer."""
+    mode = native_profile(profile)
     result = {"response": "", "finish_reason": finish_reason}
     if finish_reason != "stop":
         result["error"] = "Local generation did not finish normally"
+    elif not mode["enable_thinking"]:
+        if not isinstance(raw_text, str) or not raw_text.strip():
+            result["error"] = "Local model returned no final answer"
+        else:
+            # The native template already closed its empty thinking block.
+            # Preserve all generated prose; the shared task parser decides validity.
+            result["response"] = raw_text.strip()
     elif not isinstance(raw_text, str) or raw_text.count("</think>") != 1:
         result["error"] = "Missing or ambiguous explicit reasoning close marker"
     else:
@@ -171,12 +197,19 @@ class MLXBackend:
         mx.clear_cache()
         mx.reset_peak_memory()
         mx.random.seed(seed)
+        mode = native_profile(self.config.get("profile", "xhigh"))
+        template_kwargs = {"enable_thinking": mode["enable_thinking"],
+                           "preserve_thinking": True}
+        if mode["reasoning_effort"] is not None:
+            template_kwargs["reasoning_effort"] = mode["reasoning_effort"]
         prompt = apply_chat_template(
             self.processor, self.model.config, row["prompt"], num_images=1,
-            enable_thinking=True, reasoning_effort="xhigh", preserve_thinking=True,
+            **template_kwargs,
         )
-        if "Reasoning effort is set to xhigh." not in prompt or not prompt.endswith("<think>\n"):
-            raise ValueError("Pinned template did not enable xhigh thinking")
+        if not prompt.endswith("<|im_start|>assistant\n" + mode["assistant_prefill"]):
+            raise ValueError("Pinned template does not match the native profile prefill")
+        if mode["enable_thinking"] != ("Reasoning effort is set to xhigh." in prompt):
+            raise ValueError("Pinned template does not match the native reasoning profile")
         # MLX's path loader applies EXIF transposition. Native COCO boxes and the
         # shared pixel hash use encoded pixel order, so pass that exact RGB image.
         with model_image(row["image_path"], self.config.get("preprocessing_id")) as rgb:
@@ -193,6 +226,8 @@ class MLXBackend:
             "implicit_external_resize": False,
             "exif_orientation_transform": False,
             "preprocessing_id": self.config.get("preprocessing_id"),
+            "native_profile": mode["native_profile"], "template_kwargs": template_kwargs,
+            "assistant_prefill": mode["assistant_prefill"],
         }
         extra = {key: value for key, value in inputs.items()
                  if key not in {"input_ids", "pixel_values", "attention_mask"}}
@@ -235,13 +270,14 @@ def run_local(
     rows, output, *, model_directory, integrity, phase, seed=1729,
     memory_limit_bytes=32 * 1024**3, resume=False, backend_factory=None,
     image_root=None, task_contract=None, preprocessing_id=None,
-    stop_after_completions=None, stream_progress=False,
+    stop_after_completions=None, stream_progress=False, profile="xhigh",
 ):
     """One image at a time; completed and ambiguous attempts are never repeated."""
     if phase not in {"train_probe", "validation"}:
         raise ValueError("Local development runner cannot access final-test images")
     if (Path(output) / "cancelled.json").exists():
         raise ValueError("Cancelled local runs cannot be resumed or retried")
+    mode = native_profile(profile)
     if type(stream_progress) is not bool:
         raise ValueError("stream_progress must be explicit boolean")
     # Validate before model verification, loading, or output mutation. The limit
@@ -280,8 +316,7 @@ def run_local(
     from . import local_vlm_execution
 
     config = {
-        "phase": phase, "seed": seed, "generation": GENERATION,
-        "reasoning_effort": "xhigh", "enable_thinking": True, "preserve_thinking": True,
+        "phase": phase, "seed": seed, **mode,
         "memory_limit_bytes": memory_limit_bytes, "cache_limit_bytes": 512 * 1024**2,
         "runtime_versions": runtime_versions(), "coordinate_format": "xyxy_1000",
         "concurrency": 1, "fewshot_training_images": 0, "resize_shape": None,
@@ -399,11 +434,15 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
                     raise ValueError("Image changed after the local run was recorded")
                 native = backend.infer(row, item_seed)
                 result = native["native_response"]
-                prediction = final_answer(result["text"], result.get("finish_reason"))
+                prediction = final_answer(result["text"], result.get("finish_reason"),
+                                          profile=config["profile"])
                 if config.get("task_contract", {}).get("task") == "classification":
                     # The native template prefills this opener. Retain the complete
                     # completion for the same bounded shared grammar as other arms.
-                    prediction["classification_response"] = "<think>" + result["text"]
+                    prediction["classification_response"] = (
+                        "<think>" + result["text"] if config["enable_thinking"]
+                        else result["text"]
+                    )
                 prediction["usage"] = {key: result.get(key) for key in (
                     "prompt_tokens", "generation_tokens", "total_tokens",
                     "prompt_tps", "generation_tps", "peak_memory",

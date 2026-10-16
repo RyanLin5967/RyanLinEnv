@@ -1,0 +1,70 @@
+{
+  "0122393": {
+    "completion_ids": [
+      22,
+      18,
+      22,
+      12,
+      19,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 8,
+    "latency_seconds": 0.3772757080005249,
+    "prompt_tokens": 989,
+    "raw_response": "737-400<|im_end|>",
+    "response": "737-400",
+    "terminated": true
+  },
+  "1154960": {
+    "completion_ids": [
+      37,
+      46214,
+      220,
+      24,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 7,
+    "latency_seconds": 0.3778359589923639,
+    "prompt_tokens": 996,
+    "raw_response": "Falcon 900<|im_end|>",
+    "response": "Falcon 900",
+    "terminated": true
+  },
+  "1347237": {
+    "completion_ids": [
+      34,
+      433,
+      3376,
+      220,
+      17,
+      15,
+      23,
+      151645
+    ],
+    "completion_tokens": 8,
+    "latency_seconds": 0.37674287499976344,
+    "prompt_tokens": 977,
+    "raw_response": "Cessna 208<|im_end|>",
+    "response": "Cessna 208",
+    "terminated": true
+  },
+  "1833904": {
+    "completion_ids": [
+      38,
+      14308,
+      4027,
+      647,
+      151645
+    ],
+    "completion_tokens": 5,
+    "latency_seconds": 0.3416934580018278,
+    "prompt_tokens": 996,
+    "raw_response": "Gulfstream V<|im_end|>",
+    "response": "Gulfstream V",
+    "terminated": true
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "activated": true,
+  "assay_seeds": [
+    42,
+    314
+  ],
+  "beta": 0.04,
+  "budget": {
+    "command_timeout_seconds": 14400,
+    "max_wall_seconds": 43200
+  },
+  "device": "mps",
+  "initial_adapter_precision_transfer": null,
+  "max_active_seconds": 10800,
+  "max_steps": 400,
+  "profile": {
+    "dtype": "float32",
+    "lora_rank": 8,
+    "max_completion_length": 256,
+    "max_pixels": 200704,
+    "max_prompt_tokens": 2048,
+    "min_pixels": 50176,
+    "num_generations": 4,
+    "response_format": "answer_only",
+    "temperature": 1.0
+  },
+  "rl_learning_rate": 1e-05,
+  "save_steps": 25,
+  "schema_version": 2,
+  "scope": "train_controlled_diagnostic",
+  "seed": 42,
+  "sft_controls": [
+    {
+      "id": "sft-1e5",
+      "learning_rate": 1e-05,
+      "response_format": "answer_only"
+    },
+    {
+      "id": "sft-5e5",
+      "learning_rate": 5e-05,
+      "response_format": "answer_only"
+    },
+    {
+      "id": "sft-1e4",
+      "learning_rate": 0.0001,
+      "response_format": "answer_only"
+    }
+  ],
+  "sft_max_active_seconds": 10800,
+  "sft_max_steps": 6000,
+  "stop_after_steps": 400,
+  "study_id": "aircraft-warm-answer400-v1"
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-16T08:15:03.508590+00:00",
+  "scope": "Execution-only continuation of unattempted SFT4 and GRPO2+2 phases; no scientific setting, source, reward, seed or initialization change",
+  "original_plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+  "original_plan": "runs/aircraft-four-update-v1-plan/plan.json",
+  "original_failed_supervisor": "runs/aircraft-four-update-v1-guard/supervisor.json",
+  "original_failed_supervisor_sha256": "d8a4b565011540f9b983c8f97ef3a5b708ad692b8f7dc4ccf7aca520cf2122b5",
+  "completed_grpo4_receipt_sha256": "ecb509de5053215230dcd3499cfe598385080be19e53dacd12ad3027f26408fe",
+  "completed_phase_preserved": true,
+  "remaining_phase_indices": [
+    1,
+    2,
+    3
+  ],
+  "execution_change": "Run each remaining phase in a fresh process with PYTORCH_ENABLE_MPS_FALLBACK=0 before torch import; preserve failed supervisor and fullGRPO output. No retry after a guard. Original snapshot remains exact.",
+  "cause": "Accelerate1.15.0 state.py:732 sets environment flag1 during default MPS selection; subsequent preflight rejects it. Torch generic fallback was registered statically at torch import before this mutation, so mutation does not change process dispatch registration.",
+  "source_evidence": {
+    "accelerate_state_sha256": "8af1fe9a518f46bc771076abe3572cdd32bded2ff6fdc0021643c01212d4f5a9",
+    "torch_primary_url": "https://raw.githubusercontent.com/pytorch/pytorch/v2.14.1/aten/src/ATen/mps/MPSFallback.mm",
+    "torch_registration_lines": [
+      91,
+      97
+    ]
+  },
+  "launcher_sha256": "f06e5ccfd12f30c5c3d2924c1c3e86a5449068eb657752ce0dfb70ebc5514e51",
+  "new_guards_root": "runs/aircraft-four-update-v1-continuation-guard",
+  "resource_caps": "Sameoriginal24GiB/2GiB/30min/10GiB caps per remaining process; per-phase costs retained, totalphysicaltime summed."
+}

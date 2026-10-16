@@ -3,7 +3,9 @@
 import argparse
 import hashlib
 import json
+import math
 import os
+import signal
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -39,13 +41,19 @@ def metal_sample(path):
 
 
 def supervise(command, status_path, log_path, rss_limit_bytes, *, interval=0.25,
-              metal_telemetry=None, metal_limit_bytes=None):
+              metal_telemetry=None, metal_limit_bytes=None, wall_limit_seconds=None):
     if not command or not 1024**3 <= rss_limit_bytes <= 48 * 1024**3:
         raise ValueError("Require a command and an explicit RSS limit between1GiB and48GiB")
     if (metal_telemetry is None) != (metal_limit_bytes is None) or (
         metal_limit_bytes is not None and not 1024**3 <= metal_limit_bytes <= 48 * 1024**3
     ):
         raise ValueError("Native Metal monitoring requires both telemetry and an explicit limit")
+    if wall_limit_seconds is not None and (
+        isinstance(wall_limit_seconds, bool)
+        or not isinstance(wall_limit_seconds, (int, float))
+        or not math.isfinite(wall_limit_seconds) or wall_limit_seconds <= 0
+    ):
+        raise ValueError("Wall limit must be an explicit positive finite number of seconds")
     status_path, log_path = Path(status_path), Path(log_path)
     status_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,6 +64,7 @@ def supervise(command, status_path, log_path, rss_limit_bytes, *, interval=0.25,
         os.fsync(handle.fileno())
     telemetry_path = status_path.with_name("process-memory.jsonl")
     with log_path.open("x") as log, telemetry_path.open("x") as telemetry:
+        started_monotonic = time.monotonic()
         child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log,
                                  stderr=subprocess.STDOUT, start_new_session=True)
         status = {
@@ -68,10 +77,16 @@ def supervise(command, status_path, log_path, rss_limit_bytes, *, interval=0.25,
             "scope": "Only this supervisor's own child; no automatic retries",
             "metal_telemetry": str(metal_telemetry) if metal_telemetry else None,
             "metal_active_plus_cache_limit_bytes": metal_limit_bytes,
+            "wall_limit_seconds": wall_limit_seconds,
+            "wall_limit_semantics": "Sampled own-child deadline including startup and loading",
         }
         write(status_path, status)
         peak, metal_peak = 0, 0
         while child.poll() is None:
+            elapsed = time.monotonic() - started_monotonic
+            if wall_limit_seconds is not None and elapsed >= wall_limit_seconds:
+                status.update(stop_reason="wall_safety_limit_exceeded",
+                              observed_wall_seconds_at_stop=elapsed)
             result = subprocess.run(
                 ["/bin/ps", "-o", "rss=", "-p", str(child.pid)],
                 capture_output=True, text=True, check=False,
@@ -93,7 +108,16 @@ def supervise(command, status_path, log_path, rss_limit_bytes, *, interval=0.25,
                                   metal_sample_at_stop=native)
             if status.get("stop_reason"):
                 write(status_path, status)
-                child.terminate()
+                # A wall boundary may interrupt a current reservation. Preserve
+                # it as unknown; never synthesize a completion or restart it.
+                if status["stop_reason"] == "wall_safety_limit_exceeded":
+                    child.send_signal(signal.SIGINT)
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.terminate()
+                else:
+                    child.terminate()
                 try:
                     child.wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -102,7 +126,8 @@ def supervise(command, status_path, log_path, rss_limit_bytes, *, interval=0.25,
                 break
             time.sleep(interval)
         status.update(finished_at=now(), exit_code=child.wait(), peak_observed_rss_bytes=peak,
-                      peak_observed_metal_active_plus_cache_bytes=metal_peak)
+                      peak_observed_metal_active_plus_cache_bytes=metal_peak,
+                      wall_seconds=time.monotonic() - started_monotonic)
         write(status_path, status)
         return status
 
@@ -114,6 +139,7 @@ def main():
     parser.add_argument("--rss-limit-gib", type=float, default=36)
     parser.add_argument("--metal-telemetry", type=Path)
     parser.add_argument("--metal-limit-gib", type=float)
+    parser.add_argument("--wall-limit-seconds", type=float)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -122,6 +148,7 @@ def main():
         metal_telemetry=args.metal_telemetry,
         metal_limit_bytes=(int(args.metal_limit_gib * 1024**3)
                            if args.metal_limit_gib is not None else None),
+        wall_limit_seconds=args.wall_limit_seconds,
     )
     raise SystemExit(status["exit_code"])
 

@@ -218,8 +218,9 @@ def test_prepare_probe_reads_training_only_and_deterministically_stresses_larges
 
 
 @pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("profile", ["xhigh", "instruct"])
 def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
-    tmp_path, monkeypatch, streaming,
+    tmp_path, monkeypatch, streaming, profile,
 ):
     import dataclasses
     import sys
@@ -235,7 +236,9 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
 
     def template(processor, config, prompt, **kwargs):
         calls["template"] = kwargs
-        return "Reasoning effort is set to xhigh.\n<think>\n"
+        if profile == "xhigh":
+            return "Reasoning effort is set to xhigh.\n<|im_start|>assistant\n<think>\n"
+        return "<|im_start|>assistant\n<think>\n\n</think>\n\n"
 
     def prepare(processor, **kwargs):
         image = kwargs["images"][0]
@@ -269,7 +272,7 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
 
         monkeypatch.setattr(local_vlm_execution, "generate_with_progress", streamed)
     backend = local_vlm.MLXBackend.__new__(local_vlm.MLXBackend)
-    backend.config = {"generation": local_vlm.GENERATION, "stream_progress": streaming,
+    backend.config = {**local_vlm.native_profile(profile), "stream_progress": streaming,
                       "generation_progress_path": str(tmp_path / "progress.jsonl"),
                       "identity_sha256": "frozen_identity"}
     backend.model = SimpleNamespace(config=SimpleNamespace(image_token_index=99))
@@ -282,12 +285,16 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
     )
     result = backend.infer({"id": "one", "image_path": str(path), "prompt": "Find wheat."}, 123)
     assert calls["seed"] == 123
-    assert calls["template"]["enable_thinking"] is True
-    assert calls["template"]["reasoning_effort"] == "xhigh"
-    assert calls["generation"]["enable_thinking"] is True
+    assert calls["template"]["enable_thinking"] is (profile == "xhigh")
+    assert calls["template"].get("reasoning_effort") == (
+        "xhigh" if profile == "xhigh" else None)
+    assert calls["generation"]["enable_thinking"] is (profile == "xhigh")
+    for key, value in local_vlm.native_profile(profile)["generation"].items():
+        assert calls["generation"][key] == value
     assert calls["generation"]["max_tokens"] == 16384
     assert result["native_response"]["text"] == "reasoning</think>[]"
     assert result["preprocessing"]["exif_orientation_transform"] is False
+    assert result["preprocessing"]["native_profile"] == f"qwen3.8-native-{profile}-v1"
     if streaming:
         observations = [json.loads(line) for line in (
             tmp_path / "progress.jsonl").read_text().splitlines()]
@@ -344,3 +351,59 @@ def test_fixed16_journal_chunks_resume_without_changing_identity_or_repeating(lo
     kwargs["stream_progress"] = False
     with pytest.raises(ValueError, match="identity differs"):
         local_vlm.run_local(rows, output, resume=True, **kwargs)
+
+
+def test_native_profiles_are_explicit_independent_and_bind_resume(local_run):
+    rows, output, kwargs = local_run
+    expected = {"max_tokens": 16384, "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+                "min_p": 0.0, "presence_penalty": 1.5, "repetition_penalty": 1.0,
+                "enable_thinking": False}
+    profile = local_vlm.native_profile("instruct")
+    assert profile["generation"] == expected and profile["reasoning_effort"] is None
+    profile["generation"]["temperature"] = 99
+    assert local_vlm.native_profile("instruct")["generation"] == expected
+    assert local_vlm.native_profile()["generation"] == local_vlm.GENERATION
+    local_vlm.run_local(rows, output, profile="instruct", backend_factory=Backend, **kwargs)
+    config = json.loads((output / "run.json").read_text())["identity"]["config"]
+    assert config["generation"] == expected
+    assert config["assistant_prefill"] == "<think>\n\n</think>\n\n"
+    with pytest.raises(ValueError, match="identity differs"):
+        local_vlm.run_local(rows, output, profile="xhigh", resume=True,
+                            backend_factory=Backend, **kwargs)
+
+
+def test_unknown_native_profile_rejected_before_model_or_output(local_run, monkeypatch):
+    rows, output, kwargs = local_run
+
+    def forbidden(*args):
+        raise AssertionError("Unknown profile reached model verification")
+
+    monkeypatch.setattr(local_vlm, "verify_snapshot", forbidden)
+    with pytest.raises(ValueError, match="profile"):
+        local_vlm.run_local(rows, output, profile="forced-zero-thinking", **kwargs)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("text", [
+    "Saab 340", "Explanation.\nSaab 340", "<answer>Saab 340</answer>",
+])
+def test_native_instruct_retains_complete_answer_without_forced_thinking(text):
+    result = local_vlm.final_answer(text, "stop", profile="instruct")
+    assert result == {"response": text, "finish_reason": "stop"}
+    assert local_vlm.final_answer(text, "length", profile="instruct").get("error")
+    assert local_vlm.final_answer(text, "stop").get("error")
+
+
+def test_instruct_classification_never_fabricates_open_thinking(local_run):
+    rows, output, kwargs = local_run
+
+    class Direct(Backend):
+        def infer(self, row, seed):
+            native = super().infer(row, seed)
+            native["native_response"]["text"] = "Saab 340"
+            return native
+
+    result = local_vlm.run_local(rows, output, profile="instruct", backend_factory=Direct,
+                                 task_contract={"task": "classification"}, **kwargs)
+    assert all(row["classification_response"] == row["response"] == "Saab 340"
+               and not row.get("error") for row in result.values())

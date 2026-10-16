@@ -1,0 +1,211 @@
+{
+  "adapter_precision_contract": "Use exact same saved FP32 warm LoRA values. Pinned PEFT upcasts adapterlayers toFP32 before loading; compareeveryloadedtensor bitexact with safetensors beforeupdates. Frozenbase usesBF16; recordactualdtypes. Initial policy numerics may change, so initialgreedypredictiongate is required.",
+  "authorization": "Root explicitly authorized one four-step BF16 trial after original2+2 natural completion, with prospective promotion gates; otherwise retain provenFP32 without an optimization loop",
+  "created_at": "2026-10-16T08:20:59.171175+00:00",
+  "diagnostic_weights_policy": "Never adopt these diagnostic weights as final-study initialization; subsequent arms begin from the same completed400-step warm adapter.",
+  "environment": {
+    "ACCELERATE_TORCH_DEVICE": "mps",
+    "HF_HUB_OFFLINE": "1",
+    "PYTORCH_ENABLE_MPS_FALLBACK": "0",
+    "cpu_threads": 2
+  },
+  "full_vocabulary_count": 100,
+  "guard": {
+    "minimum_free_bytes": 10737418240,
+    "mps_driver_limit_bytes": 25769803776,
+    "output_limit_bytes": 2147483648,
+    "rss_limit_bytes": 25769803776,
+    "wall_limit_seconds": 900
+  },
+  "ids": [
+    "1154960",
+    "0122393",
+    "1347237",
+    "1833904"
+  ],
+  "initial_adapter_precision_transfer": "float32-to-bfloat16",
+  "initial_adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+  "inputs": {
+    "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+    "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/provenance.json": "c525dd2a03c10b4a84acbc33d940d093e782ee2721d07090f76583dd0be3e6c4",
+    "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/train400.jsonl": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+    "docs/aircraft-warmstart-assay-amendment-v1.json": "161352de55f5271cecaf44268e296432bd3915587e7074ac8e1018327e6cfadc",
+    "runs/aircraft-bf16-four-update-v1-plan/train4.jsonl": "7ce3f5bab7a6c8e241dbe03bea282fab74f2b5e076c276befa3e5384561f20a5",
+    "runs/aircraft-four-update-v1/grpo-full/before_train_diagnostic_predictions.json": "320bce98f13b3d509d188e28b6ffb48fa70239e5c08adccef6f06b6c4a1eacec",
+    "runs/aircraft-four-update-v1/grpo-full/local_training.json": "d3ea3bd444e1efc6c572478dea5c3391a0589e8af0e363220275bbb9e62a357b",
+    "runs/aircraft-mechanism32-warm-v1/gate-result.json": "a3cca0f50266eb01d489f79e6ea8365b83ff4e03bf9012c8fe4eee54cc623372",
+    "runs/aircraft-warmstart-v1/final_adapter/adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+    "runs/aircraft-warmstart-v1/final_adapter/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+    "runs/aircraft-warmstart-v1/local_training.json": "d7f2f59664abb2f819d491402e422d6e65cc7ba4c639411758207f1e1077e2be"
+  },
+  "interpretation": "Require actual EOS-valid correct-and-wrong task groups, initial current/ref parity, finite nonzero gradient, actual adapter changes and exact saved/reload check. Scalar on-policy loss can be zero with a nonzero gradient. Report all-zero steps honestly. SFT4 is a mechanism control at same LR, not strongest matched SFT evidence.",
+  "launcher_sha256": "8d053f63c5eb63944afec90071451713acb68b00d9e0a21349c62978811e0063",
+  "model_directory": "data/models/Qwen2-VL-2B-Instruct-895c3a49",
+  "model_source_sha256": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc",
+  "model_visible_pixels": {
+    "0122393": "8db77e79e5eb7a93428b2789f61fbea651b37d11d98dae93d65ac29e7e77de21",
+    "1154960": "4c4c48bf9874c78fca14cacac7dc3a67e0534518b9dbb10d01eab8a5bce28e66",
+    "1347237": "5b9346bbae35715a1f19c8df36480b615fa34b16e8efbbca9cb9ef3e56c634fb",
+    "1833904": "fe61ef28ccd130b68fc1271ffa0eed007832394ea70bde8d1e60023ff3c864ca"
+  },
+  "optimizer": {
+    "beta_grpo": 0.04,
+    "gradient_accumulation_grpo": 4,
+    "learning_rate": 1e-05,
+    "loss_type": "grpo",
+    "max_active_seconds": 900,
+    "max_steps": 4,
+    "num_iterations": 1,
+    "one_distinct_prompt_per_update": true,
+    "save_steps": 2,
+    "scale_rewards": "group",
+    "seed": 42,
+    "weight_decay": 0
+  },
+  "output_grammar": "canonical-label-v2/optional-tags",
+  "outputs": {
+    "guard": "runs/aircraft-bf16-four-update-v1-guard",
+    "root": "runs/aircraft-bf16-four-update-v1"
+  },
+  "parser_allow_reasoning": true,
+  "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca",
+  "phases": [
+    {
+      "mode": "grpo",
+      "name": "bf16-grpo-4",
+      "resume_from": null,
+      "stop_after_steps": 4,
+      "trajectory": "grpo"
+    }
+  ],
+  "physical_compute": "Exactly4GRPOupdates; noSFT/noresume/noadditionalcapacity. SamefourTRAINimages, sameprompt/reward/LoRA/optimizer settings exceptexplicitbaseprecisiontransfer.",
+  "precision_transfer_identity": {
+    "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+    "parent_data_identity": {
+      "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+      "train": {
+        "count": 400,
+        "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+        "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+        "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+      },
+      "validation": null
+    },
+    "parent_profile": {
+      "dtype": "float32",
+      "lora_rank": 8,
+      "max_completion_length": 256,
+      "max_pixels": 200704,
+      "max_prompt_tokens": 2048,
+      "min_pixels": 50176,
+      "num_generations": 4,
+      "response_format": "answer_only",
+      "temperature": 1.0
+    },
+    "path": "/Users/idide/RyanLinEnv/runs/aircraft-warmstart-v1/final_adapter",
+    "precision_transfer": {
+      "adapter_dtype": "float32",
+      "adapter_weights_changed": false,
+      "initial_policy_numerics_changed": true,
+      "parent_base_dtype": "float32",
+      "profile": "float32-to-bfloat16",
+      "target_base_dtype": "bfloat16"
+    },
+    "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"
+  },
+  "preflight": {
+    "adapter_source_sha256": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49",
+    "device": "cpu",
+    "model_downloads": false,
+    "model_execution": "not tested by preflight",
+    "package_versions": {
+      "accelerate": "1.15.0",
+      "datasets": "5.1.0",
+      "fsspec": "2026.7.0",
+      "peft": "0.21.2",
+      "torch": "2.14.1",
+      "torchvision": "0.29.1",
+      "transformers": "5.20.0",
+      "trl": "1.16.0"
+    },
+    "python": "3.12.13",
+    "trl_source_sha256": {
+      "GRPOConfig": "fa6d620785f63f6e8c6e42ec41f38faf249198f0eb182bf0808dde8cd76a6819",
+      "GRPOTrainer": "1c3dc2253fb3653269c11dfce4f946f74201a4cb63e0887a37e8e3bb4a3f5503",
+      "SFTConfig": "4a18512fbdc83c9d16be09ee68529cd4cc07e4243c9ad733686fd3cb70984d6b",
+      "SFTTrainer": "a93001470796c6502a4cf8886a13abbd8280e653357b5a95eb1abd53c6868205"
+    }
+  },
+  "profile": {
+    "dtype": "bfloat16",
+    "lora_rank": 8,
+    "max_completion_length": 256,
+    "max_pixels": 200704,
+    "max_prompt_tokens": 2048,
+    "min_pixels": 50176,
+    "num_generations": 4,
+    "response_format": "answer_only",
+    "temperature": 1.0
+  },
+  "promotion_gate": {
+    "active_speedup_minimum": 1.3,
+    "baseline_active_seconds": 69.7556102519884,
+    "baseline_path": "runs/aircraft-four-update-v1/grpo-full/local_training.json",
+    "failure_rule": "RetainprovenFP32, noextraoptimizationloop; diagnosticweights neveradopted asstudyinit",
+    "finite_nonzero_task_gradient_with_recognition_mixed_group": true,
+    "fp32_original_sampler_tolerance_unchanged": 0.001,
+    "initial_current_reference_max_abs_logprob_difference_maximum": 0.001,
+    "initial_greedy_four_canonical_predictions_equal_fp32": true,
+    "reload_nll_existing_tolerance": {
+      "abs_tol": 1e-05,
+      "rel_tol": 1e-05
+    },
+    "suppression_matched_sampler_teacher_max_abs_logprob_difference_maximum": 0.02
+  },
+  "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+  "reference": "Released TRL copies exactly the common final warm adapter into frozen ref, shares base; beta0.04. Reference is never rebased on resume.",
+  "resume_comparison": "Notperformedinthistrial. OriginalFP32proof and allfailedoutputs remainpreserved.",
+  "schema_version": 1,
+  "scope": "Bounded precision engineering trial, not a new algorithm/capacity or accuracy-win claim",
+  "selection": {
+    "adaptive": true,
+    "all_within_frozen400": true,
+    "eligible_ids": [
+      "0122393",
+      "0143389",
+      "0345781",
+      "0604668",
+      "0728571",
+      "0830001",
+      "1154960",
+      "1255008",
+      "1347237",
+      "1465847",
+      "1833904",
+      "2091929",
+      "2115085",
+      "2259021"
+    ],
+    "rule": "sha256('aircraft-first-task-gradient-v1:42:' + id), ascending hexadecimal; first four IDs from answer-only recognition-mixed union across seeds42/314",
+    "selected_ids_in_manifest_order": [
+      "1154960",
+      "0122393",
+      "1347237",
+      "1833904"
+    ],
+    "source": "runs/aircraft-mechanism32-warm-v1/gate-result.json",
+    "source_sha256": "a3cca0f50266eb01d489f79e6ea8365b83ff4e03bf9012c8fe4eee54cc623372"
+  },
+  "source_files_sha256": {
+    "source/vision_rl/__init__.py": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
+    "source/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+    "source/vision_rl/data.py": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb",
+    "source/vision_rl/evaluation.py": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735",
+    "source/vision_rl/spatial.py": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7",
+    "source/vision_rl/training.py": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd",
+    "source/vision_rl/vlm.py": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+    "source/vision_rl/vlm_local_training.py": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49"
+  },
+  "source_provenance_caveat": "Pinned mirror LFS verified; original-author byte equivalence and cross-split audit remain required before held-out claims. No validation/test opened.",
+  "status": "prospectively_frozen_not_executed"
+}

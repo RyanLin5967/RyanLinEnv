@@ -30,6 +30,32 @@ jobs:
         run: uv pip install --no-deps --require-hashes --no-build-isolation -r requirements-wheat-eval.lock
       - run: uv pip check
       - run: .venv/bin/pytest -q
+  local-vlm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --extra harbor --locked
+      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
+      - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip check
+      - name: Check the pinned TRL stack without loading a model
+        run: .venv/bin/python -m vision_rl.vlm_local_training --preflight --device cpu
+      - name: Verify local training, continuation and grading contracts
+        run: >-
+          .venv/bin/pytest -q tests/test_vlm_local_training.py tests/test_vlm.py
+          tests/test_aircraft_recipe.py tests/test_aircraft_evaluator.py
+          tests/test_vlm_local_task_builder.py
+      - run: docker build -f Dockerfile.vlm -t vision-rl:vlm-local .
+      - name: Check the installed container with networking disabled
+        run: docker run --rm --network none vision-rl:vlm-local
   harbor:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

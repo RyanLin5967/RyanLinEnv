@@ -1,0 +1,39 @@
+{
+  "scope": "Independent artifact-only verification; no model construction/generation/training",
+  "resume": {
+    "tensor_count": 112,
+    "every_adapter_tensor_bitexact": true,
+    "maximum_absolute_difference": 0.0,
+    "actual_completion_ids_text_rewards_masks_equal": true,
+    "actual_prompt_ids_equal_including_sft": true,
+    "reference_identity_and_saved_reference_bytes_equal": true,
+    "all_endpoint_receipts_and_hashes_validated": true,
+    "summary_matches_raw_artifacts": true
+  },
+  "bf16": {
+    "frozen_plan_sha256": "4fdff0d3bb32d38d0efa43a0a6bf79feea2a14aa85dbcc2863479b93400c9003",
+    "observed_logprob_error": 0.0724753737449646,
+    "frozen_limit": 0.02,
+    "correctly_rejected": true,
+    "speedup": 2.044238735673456,
+    "decision": "retain proven FP32; no additional optimization loop"
+  },
+  "control_result": {
+    "grpo-full": {
+      "active_seconds": 69.7556102519884,
+      "after_train_gold_nll": 0.08214585491805337,
+      "greedy_accuracy": 0.75
+    },
+    "grpo-resumed": {
+      "active_seconds": 68.69263595902885,
+      "after_train_gold_nll": 0.08214585491805337,
+      "greedy_accuracy": 0.75
+    },
+    "sft-control": {
+      "active_seconds": 11.126192876021378,
+      "after_train_gold_nll": 0.08192062927992083,
+      "greedy_accuracy": 0.75
+    }
+  },
+  "interpretation": "Measured pretrained MPS four-step continuation exact. RL task updates are real; SFT is slightly better on four-TRAIN goldNLL and greedy accuracy is tied. NoRL-over-SFT/generalization claim. BF16 remains rejected despite speedup."
+}

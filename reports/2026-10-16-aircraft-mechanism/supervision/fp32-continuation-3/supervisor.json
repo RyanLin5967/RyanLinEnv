@@ -1,0 +1,35 @@
+{
+  "supervisor_pid": 55495,
+  "status": "completed",
+  "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+  "command": [
+    "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+    "-B",
+    "/Users/idide/RyanLinEnv/runs/aircraft-four-update-v1-continuation-plan/launch.py",
+    "--worker",
+    "--phase",
+    "3",
+    "--expected-amendment-sha256",
+    "c5e6759d5dceb35e0032ec62ff10d741b9119f32d7f9e5e1539bbb98fdb4ccd2",
+    "--expected-plan-sha256",
+    "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+  ],
+  "limits": {
+    "minimum_free_bytes": 10737418240,
+    "mps_driver_limit_bytes": 25769803776,
+    "output_limit_bytes": 2147483648,
+    "rss_limit_bytes": 25769803776,
+    "wall_limit_seconds": 1800
+  },
+  "peak_rss_bytes": 9411248128,
+  "no_hidden_cpu_fallback": true,
+  "former_owner_pids_absent": [
+    16682,
+    16683
+  ],
+  "child_pid": 55496,
+  "elapsed_seconds": 51.59907654199924,
+  "output_bytes": 222830786,
+  "exit_code": 0,
+  "finished": true
+}

@@ -1,0 +1,2444 @@
+"""Offline, single-device TRL token-GRPO and matched completion-only VLM SFT.
+
+This adapter does not implement an RL loss. Released TRL owns sampling, token
+log-probabilities, group advantages, clipping, masks, and optimizer checkpoints.
+Importing this module neither imports torch nor loads/downloads a model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import inspect
+import json
+import math
+import os
+import pickle
+import re
+import sys
+import time
+from collections import Counter
+from contextlib import contextmanager, nullcontext
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from importlib import import_module, metadata
+from pathlib import Path
+from typing import Any
+
+from .aircraft_data import PREPROCESSING_ID, aircraft_pixel_sha256, load_aircraft_rgb
+from .data import assert_disjoint, image_hash
+from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_lora_config
+
+DEFAULT_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
+OUTPUT_GRAMMAR = "canonical-label-v2/optional-tags"
+# Study controllers freeze finite original budgets before execution. The TRAIN
+# diagnostic bounds RL updates, while a matched-time SFT trajectory may need
+# more updates. None means no additional step cap, not an unbounded run.
+TRAIN_ONLY_STEP_CAPS = {"grpo": 400, "sft": None}
+MODEL_REVISIONS = {
+    DEFAULT_MODEL: "895c3a49bc3fa70a340399125c650a463535e71c",
+    "Qwen/Qwen2.5-VL-3B-Instruct": "66285546d2b821cf421d4f5eb2576359d3770cd3",
+}
+STACK = {
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "trl": "1.16.0",
+    "transformers": "5.20.0",
+    "peft": "0.21.2",
+    "accelerate": "1.15.0",
+    "datasets": "5.1.0",
+    "fsspec": "2026.7.0",
+}
+TRL_SOURCES = {
+    "GRPOConfig": "fa6d620785f63f6e8c6e42ec41f38faf249198f0eb182bf0808dde8cd76a6819",
+    "GRPOTrainer": "1c3dc2253fb3653269c11dfce4f946f74201a4cb63e0887a37e8e3bb4a3f5503",
+    "SFTConfig": "4a18512fbdc83c9d16be09ee68529cd4cc07e4243c9ad733686fd3cb70984d6b",
+    "SFTTrainer": "a93001470796c6502a4cf8886a13abbd8280e653357b5a95eb1abd53c6868205",
+}
+
+
+class LocalVLMError(RuntimeError):
+    """An offline dependency, data, or device contract failed."""
+
+
+@dataclass(frozen=True)
+class Profile:
+    response_format: str = "think_then_answer"
+    dtype: str = "float32"
+    min_pixels: int = 64 * 28 * 28
+    max_pixels: int = 256 * 28 * 28
+    max_prompt_tokens: int = 2048
+    max_completion_length: int = 256
+    num_generations: int = 4
+    lora_rank: int = 8
+    temperature: float = 1.0
+
+    def validate(self) -> None:
+        if self.response_format not in {"answer_only", "think_then_answer"}:
+            raise ValueError("response_format must be answer_only or think_then_answer")
+        if self.dtype not in {"float32", "bfloat16"}:
+            raise ValueError("dtype must be float32 or bfloat16")
+        for name, value in asdict(self).items():
+            if name not in {"dtype", "temperature", "response_format"}:
+                if type(value) is not int or value < 1:
+                    raise ValueError(f"{name} must be a positive integer")
+        if not 2 <= self.num_generations <= 16 or not 1 <= self.lora_rank <= 64:
+            raise ValueError("num_generations must be 2..16 and lora_rank 1..64")
+        if not 28 * 28 <= self.min_pixels <= self.max_pixels <= 1024 * 28 * 28:
+            raise ValueError("invalid bounded Qwen image pixel profile")
+        if not 4 <= self.max_completion_length <= 512 or self.max_prompt_tokens > 8192:
+            raise ValueError("invalid bounded token profile")
+        if not math.isfinite(self.temperature) or not 0 < self.temperature <= 2:
+            raise ValueError("temperature must be finite and in (0, 2]")
+
+
+def _write(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    temporary.replace(path)
+
+
+def _archive_source(output: Path, expected_sha256: str) -> None:
+    source = Path(__file__).read_bytes()
+    if hashlib.sha256(source).hexdigest() != expected_sha256:
+        raise LocalVLMError("adapter source changed after preflight")
+    (output / "adapter-source.py").write_bytes(source)
+
+
+def preflight(device: str = "mps") -> dict[str, Any]:
+    """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
+    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps or cpu")
+    if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
+        raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
+    try:
+        versions = {package: metadata.version(package) for package in STACK}
+    except metadata.PackageNotFoundError as exc:
+        raise LocalVLMError(
+            "Missing local VLM dependencies; see requirements-vlm-local.in"
+        ) from exc
+    for package, expected in STACK.items():
+        if versions[package].split("+")[0] != expected:
+            raise LocalVLMError(f"Expected {package}=={expected}, found {versions[package]}")
+    try:
+        torch = import_module("torch")
+        for package in STACK:
+            import_module(package)
+        trl = import_module("trl")
+        sources = {
+            name: _file_sha256(Path(inspect.getfile(getattr(trl, name)))) for name in TRL_SOURCES
+        }
+        import_module("datasets").Dataset.from_dict({"preflight": ["local-only"]})
+    except (ImportError, OSError, RuntimeError, pickle.PicklingError) as exc:
+        raise LocalVLMError(f"Pinned stack import failed: {type(exc).__name__}: {exc}") from exc
+    if sources != TRL_SOURCES:
+        raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise LocalVLMError("MPS is unavailable; no model files have been opened")
+    return {
+        "device": device,
+        "python": sys.version.split()[0],
+        "package_versions": versions,
+        "trl_source_sha256": sources,
+        "adapter_source_sha256": _file_sha256(Path(__file__)),
+        "model_execution": "not tested by preflight",
+        "model_downloads": False,
+    }
+
+
+def load_spec(path: Path) -> dict[str, Any]:
+    spec = json.loads(Path(path).read_text())
+    if spec.get("schema_version") != 1:
+        raise ValueError("classification data spec requires schema_version 1")
+    for key in ("benchmark", "question", "split_policy", "preprocessing"):
+        if not isinstance(spec.get(key), str) or not spec[key].strip():
+            raise ValueError(f"data spec requires {key}")
+    if spec.get("preprocessing_id") not in (None, PREPROCESSING_ID):
+        raise ValueError("unknown preprocessing_id; use the shared audited image transform")
+    labels = spec.get("labels")
+    if not isinstance(labels, list) or not 2 <= len(labels) <= 1000:
+        raise ValueError("data spec requires the full ordered list of 2..1000 labels")
+    if any(
+        not isinstance(x, str)
+        or x != x.strip()
+        or not 1 <= len(x) <= 128
+        or re.search(r"[<>\r\n\t]", x)
+        for x in labels
+    ) or len(set(labels)) != len(labels):
+        raise ValueError("labels must be unique, trimmed canonical strings without markup")
+    sources = spec.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("data spec requires pinned sources")
+    for source in sources:
+        if (
+            not isinstance(source, dict)
+            or not isinstance(source.get("url"), str)
+            or not source["url"]
+            or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("sha256", "")))
+        ):
+            raise ValueError("every source requires url and immutable sha256")
+    return spec
+
+
+def load_classification(
+    path: Path,
+    split: str,
+    labels: list[str],
+    *,
+    preprocessing_id: str | None = None,
+    require_all_classes: bool = True,
+) -> list[dict[str, Any]]:
+    """Only immutable task-wide text enters the prompt; rows cannot override it."""
+    path = Path(path).resolve()
+    if preprocessing_id not in (None, PREPROCESSING_ID):
+        raise ValueError("unknown preprocessing_id")
+    rows, seen = [], set()
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not isinstance(row, dict) or set(row) != {"id", "split", "image", "label"}:
+            raise ValueError(f"{path.name}:{number}: require only id, split, image, label")
+        if row["split"] != split or split not in {"train", "validation"}:
+            raise ValueError(f"expected {split} split; training adapter never opens test")
+        if not isinstance(row["id"], str) or not row["id"] or row["id"] in seen:
+            raise ValueError("classification IDs must be unique nonempty strings")
+        if row["label"] not in labels or not isinstance(row["image"], str):
+            raise ValueError("unknown canonical label or invalid image path")
+        row["image"] = str((path.parent / row["image"]).resolve())
+        row["image_sha256"] = (
+            aircraft_pixel_sha256(row["image"])
+            if preprocessing_id == PREPROCESSING_ID
+            else image_hash(row["image"])
+        )
+        seen.add(row["id"])
+        rows.append(row)
+    if not rows:
+        raise ValueError("manifest is empty")
+    if require_all_classes and {row["label"] for row in rows} != set(labels):
+        raise ValueError(f"{split} must represent every declared class")
+    return rows
+
+
+def prompt_text(spec: dict[str, Any], response_format: str = "think_then_answer") -> str:
+    if response_format == "answer_only":
+        instruction = (
+            "Return one label copied exactly from the allowed list on its own line. "
+            "Do not add a prefix, quotes, explanations, or any text after that label."
+        )
+    elif response_format == "think_then_answer":
+        instruction = (
+            "Inspect the aircraft’s visible distinguishing features. First give a brief "
+            "explanation of the visible details, enclosed by <think> and </think>. Then "
+            "write one label copied exactly from the allowed list on its own line. Do not "
+            "add a prefix, quotes, or any text after that label."
+        )
+    else:
+        raise ValueError("unknown response_format")
+    return (
+        spec["question"]
+        + "\nAllowed labels (the complete class list):\n"
+        + "\n".join(spec["labels"])
+        + "\n"
+        + instruction
+    )
+
+
+def parse_label(completion: Any, labels: list[str], *, allow_reasoning: bool = True) -> str | None:
+    # Angle brackets inside thinking are forbidden: no nested answers, injected
+    # markup, multiple blocks, text after the answer, or answer-repair fallback.
+    thinking = r"(?:<think>[^<>]{0,32768}</think>\s*)?" if allow_reasoning else ""
+    match = re.fullmatch(
+        thinking + r"(?:<answer>([^<>\r\n]+)</answer>|([^<>\r\n]+))",
+        _completion_text(completion).strip(),
+    )
+    answer = (match[1] or match[2]) if match else None
+    return answer if answer in labels else None
+
+
+def training_records(
+    rows: list[dict], spec: dict, mode: str, response_format: str = "think_then_answer"
+) -> list[dict]:
+    prompt = prompt_text(spec, response_format)
+    records = []
+    for row in rows:
+        record = {
+            "id": row["id"],
+            "image": row["image"],
+            "label": row["label"],
+            "prompt": [{"role": "user", "content": prompt}],
+        }
+        if mode == "sft":
+            record["completion"] = [{"role": "assistant", "content": row["label"]}]
+        records.append(record)
+    return records
+
+
+def _dataset(rows: list[dict], spec: dict, mode: str, profile: Profile) -> Any:
+    datasets = import_module("datasets")
+    dataset = datasets.Dataset.from_list(
+        training_records(rows, spec, mode, profile.response_format)
+    ).cast_column("image", datasets.Image(mode="RGB", decode=False))
+
+    def decode(batch):
+        batch["image"] = [_load_rgb(entry["path"], spec) for entry in batch["image"]]
+        return batch
+
+    return dataset.with_transform(decode, columns=["image"], output_all_columns=True)
+
+
+def _load_rgb(path: str | Path, spec: dict):
+    """One image path for audit, rollout, SFT, and inference; no transformed cache."""
+    if spec.get("preprocessing_id") == PREPROCESSING_ID:
+        return load_aircraft_rgb(path)
+    pil = import_module("PIL.Image")
+    with pil.open(path) as source:
+        return source.convert("RGB")
+
+
+def _classification_identity(path: Path, rows: list[dict]) -> dict:
+    identity = _dataset_identity(path, rows)
+    pixels = {row["id"]: row["image_sha256"] for row in rows}
+    identity["model_visible_pixel_sha256"] = hashlib.sha256(
+        json.dumps(pixels, sort_keys=True).encode()
+    ).hexdigest()
+    return identity
+
+
+def make_reward(
+    labels: list[str],
+    group_size: int,
+    eos_ids: list[int],
+    journal: Path,
+    *,
+    allow_reasoning: bool = True,
+    journal_io_context=None,
+    observe_prompt=None,
+):
+    """Exact task reward with journaled groups; never inject synthetic variance."""
+    stats = {"groups": 0, "mixed_groups": 0, "all_correct_groups": 0, "all_zero_groups": 0}
+    stats.update(
+        unique_prompt_ids=0,
+        prompt_presentations=0,
+        sampled_completions=0,
+        generated_tokens=0,
+        terminated_completions=0,
+        nonterminated_completions=0,
+        complete_think_blocks=0,
+        task_correct_with_think=0,
+        task_correct_without_think=0,
+        canonical_completions=0,
+        recognition_mixed_groups=0,
+    )
+    seen_ids = set()
+
+    def exact_label_accuracy(completions, label, id, completion_ids, **_):
+        if not len(completions) == len(label) == len(id) == len(completion_ids):
+            raise ValueError("reward batch lengths differ")
+        if len(completions) % group_size:
+            raise ValueError("reward batch does not contain complete groups")
+        rewards = [
+            float(
+                bool(tokens)
+                and tokens[-1] in eos_ids
+                and parse_label(text, labels, allow_reasoning=allow_reasoning) == expected
+            )
+            for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
+        ]
+        serialized = []
+        for start in range(0, len(rewards), group_size):
+            stop = start + group_size
+            if len(set(id[start:stop])) != 1 or len(set(label[start:stop])) != 1:
+                raise ValueError("TRL reward group mixes different examples")
+            if observe_prompt is not None:
+                observe_prompt(id[start])
+            group = rewards[start:stop]
+            mixed = min(group) != max(group)
+            texts = [_completion_text(x) for x in completions[start:stop]]
+            terminated = [
+                bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
+            ]
+            thinking = [
+                bool(re.match(r"<think>[^<>]{0,32768}</think>", text.strip())) for text in texts
+            ]
+            canonical = [
+                parse_label(text, labels, allow_reasoning=allow_reasoning) if ended else None
+                for text, ended in zip(texts, terminated, strict=True)
+            ]
+            recognition_mixed = any(group) and any(
+                value is not None and value != label[start] for value in canonical
+            )
+            lengths = [len(tokens) for tokens in completion_ids[start:stop]]
+            seen_ids.add(id[start])
+            stats["groups"] += 1
+            stats["mixed_groups"] += int(mixed)
+            stats["all_correct_groups"] += int(all(group))
+            stats["all_zero_groups"] += int(not any(group))
+            stats["unique_prompt_ids"] = len(seen_ids)
+            stats["prompt_presentations"] += 1
+            stats["sampled_completions"] += len(group)
+            stats["generated_tokens"] += sum(lengths)
+            stats["terminated_completions"] += sum(terminated)
+            stats["nonterminated_completions"] += len(group) - sum(terminated)
+            stats["complete_think_blocks"] += sum(thinking)
+            stats["canonical_completions"] += sum(value is not None for value in canonical)
+            stats["recognition_mixed_groups"] += int(recognition_mixed)
+            stats["task_correct_with_think"] += sum(
+                int(value) for value, thought in zip(group, thinking, strict=True) if thought
+            )
+            stats["task_correct_without_think"] += sum(
+                int(value) for value, thought in zip(group, thinking, strict=True) if not thought
+            )
+            serialized.append(
+                json.dumps(
+                    {
+                        "id": id[start],
+                        "label": label[start],
+                        "rewards": group,
+                        "mixed": mixed,
+                        "recognition_mixed": recognition_mixed,
+                        "canonical_predictions": canonical,
+                        "completions": texts,
+                        "completion_ids": completion_ids[start:stop],
+                        "completion_tokens": lengths,
+                        "terminated": terminated,
+                        "complete_think_block": thinking,
+                    }
+                )
+                + "\n"
+            )
+        with (
+            journal_io_context() if journal_io_context else nullcontext(),
+            journal.open("a", encoding="utf-8") as handle,
+        ):
+            handle.write("".join(serialized))
+            handle.flush()
+        return rewards
+
+    exact_label_accuracy.stats = stats
+    return exact_label_accuracy
+
+
+def trainer_kwargs(
+    mode: str,
+    output: Path,
+    profile: Profile,
+    *,
+    device: str,
+    max_steps: int,
+    learning_rate: float,
+    seed: int,
+    save_steps: int,
+    beta: float = 0.04,
+) -> dict:
+    """Explicit comparable defaults; one unique prompt per optimizer update."""
+    common = dict(
+        output_dir=str(output),
+        max_steps=max_steps,
+        seed=seed,
+        data_seed=seed,
+        learning_rate=learning_rate,
+        lr_scheduler_type="constant",
+        warmup_steps=0,
+        weight_decay=0.0,
+        max_grad_norm=1.0,
+        optim="adamw_torch",
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        bf16=False,
+        fp16=False,
+        use_cpu=device == "cpu",
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
+        eval_strategy="no",
+        save_strategy="steps",
+        save_steps=save_steps,
+        save_total_limit=3,
+        save_only_model=False,
+        logging_steps=1,
+        report_to="none",
+        push_to_hub=False,
+        remove_unused_columns=False,
+        dataloader_num_workers=0,
+        dataloader_pin_memory=False,
+        torch_compile=False,
+        disable_tqdm=True,
+    )
+    if mode == "grpo":
+        common.update(
+            gradient_accumulation_steps=profile.num_generations,
+            generation_batch_size=profile.num_generations,
+            num_generations=profile.num_generations,
+            num_generations_eval=1,
+            num_iterations=1,
+            max_completion_length=profile.max_completion_length,
+            temperature=profile.temperature,
+            top_p=1.0,
+            top_k=0,
+            use_vllm=False,
+            use_transformers_continuous_batching=False,
+            beta=beta,
+            sync_ref_model=False,
+            loss_type="grpo",
+            scale_rewards="group",
+            epsilon=0.2,
+            importance_sampling_level="token",
+            mask_truncated_completions=True,
+            disable_dropout=True,
+        )
+    elif mode == "sft":
+        common.update(
+            gradient_accumulation_steps=1,
+            max_length=None,
+            packing=False,
+            padding_free=False,
+            completion_only_loss=True,
+            assistant_only_loss=False,
+            loss_type="nll",
+        )
+    else:
+        raise ValueError("mode must be grpo or sft")
+    return common
+
+
+def _verified_model_directory(directory: Path, model: str) -> dict:
+    """Verify the single-copy downloader's immutable manifest, sizes, and file hashes."""
+    source_path = directory / "model-source.json"
+    marker = json.loads((directory / ".pinned-download.json").read_text())
+    spec = json.loads(source_path.read_text())
+    if (
+        marker["repository"] != model
+        or marker["revision"] != MODEL_REVISIONS[model]
+        or marker["manifest_sha256"] != _file_sha256(source_path)
+        or spec["model_repository"] != model
+        or spec["revision"] != MODEL_REVISIONS[model]
+    ):
+        raise ValueError("local snapshot provenance differs from the pinned model")
+    observed = {}
+    for entry in spec["files"]:
+        name = entry["path"]
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("snapshot file escapes model directory")
+        path = directory / relative
+        if not path.is_file() or path.is_symlink() or path.stat().st_size != entry["size_bytes"]:
+            raise ValueError(f"snapshot file size/type differs: {name}")
+        digest = _file_sha256(path)
+        if entry.get("sha256"):
+            matches = digest == entry["sha256"]
+        else:
+            if path.stat().st_size > 32 * 1024**2:
+                raise ValueError("large snapshot files require SHA256 pins")
+            header = f"blob {entry['size_bytes']}\0".encode()
+            matches = hashlib.sha1(header + path.read_bytes()).hexdigest() == entry["git_blob_id"]
+        if not matches:
+            raise ValueError(f"snapshot hash differs: {name}")
+        observed[name] = digest
+    index = json.loads((directory / "model.safetensors.index.json").read_text())
+    if not set(index["weight_map"].values()).issubset(observed):
+        raise ValueError("snapshot index refers to unverified weights")
+    return {
+        "manifest_sha256": _file_sha256(source_path),
+        "file_sha256": observed,
+        "total_bytes": sum(entry["size_bytes"] for entry in spec["files"]),
+    }
+
+
+def _processor(model_directory: Path, profile: Profile):
+    transformers = import_module("transformers")
+    processor = transformers.AutoProcessor.from_pretrained(
+        str(model_directory),
+        trust_remote_code=False,
+        local_files_only=True,
+        padding_side="left",
+        min_pixels=profile.min_pixels,
+        max_pixels=profile.max_pixels,
+    )
+    if not hasattr(processor, "image_processor"):
+        raise LocalVLMError("selected processor has no image processor")
+    return processor
+
+
+def _inputs(processor, row: dict, spec: dict, profile: Profile):
+    image = _load_rgb(row["image"], spec)
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image},
+                {"type": "text", "text": prompt_text(spec, profile.response_format)},
+            ],
+        }
+    ]
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    return processor(images=[image], text=[text], return_tensors="pt", add_special_tokens=False)
+
+
+def _audit_processor(processor, rows: list[dict], spec: dict, profile: Profile) -> dict:
+    # Fail on long prompts instead of truncating away image tokens. CPU processing only.
+    lengths = [int(_inputs(processor, row, spec, profile)["input_ids"].shape[-1]) for row in rows]
+    gold_lengths = [
+        len(processor.tokenizer.encode(f"<answer>{label}</answer>", add_special_tokens=False)) + 1
+        for label in spec["labels"]
+    ]
+    if max(lengths) > profile.max_prompt_tokens:
+        raise ValueError("untruncated prompt exceeds max_prompt_tokens; revise frozen profile")
+    if max(gold_lengths) > profile.max_completion_length:
+        raise ValueError("a canonical answer plus EOS exceeds max_completion_length")
+    return {
+        "max_prompt_tokens_observed": max(lengths),
+        "max_gold_tokens_plus_eos": max(gold_lengths),
+        "chat_template_sha256": hashlib.sha256(
+            json.dumps(processor.chat_template, sort_keys=True).encode()
+        ).hexdigest(),
+        "image_processor": processor.image_processor.to_dict(),
+    }
+
+
+def classification_metrics(
+    rows: list[dict],
+    predictions: dict[str, Any],
+    labels: list[str],
+    *,
+    allow_reasoning: bool = True,
+    decoding_protocol: str = "greedy/pass@1",
+) -> dict:
+    if not rows or len({row["id"] for row in rows}) != len(rows):
+        raise ValueError("evaluation requires nonempty unique IDs")
+    if any(row["label"] not in labels for row in rows):
+        raise ValueError("evaluation contains an unknown canonical label")
+    if not isinstance(decoding_protocol, str) or not decoding_protocol.strip():
+        raise ValueError("decoding_protocol must describe the actual generation protocol")
+    if set(predictions) != {r["id"] for r in rows}:
+        raise ValueError("predictions must cover exactly the evaluation IDs")
+    counts, correct = Counter(), Counter()
+    invalid = 0
+    for row in rows:
+        response = predictions[row["id"]]
+        if isinstance(response, dict):
+            predicted = (
+                parse_label(response["response"], labels, allow_reasoning=allow_reasoning)
+                if response["terminated"]
+                else None
+            )
+        else:
+            predicted = parse_label(response, labels, allow_reasoning=allow_reasoning)
+        counts[row["label"]] += 1
+        correct[row["label"]] += int(predicted == row["label"])
+        invalid += int(predicted is None)
+    per_class = {label: correct[label] / counts[label] for label in counts}
+    return {
+        "n": len(rows),
+        "accuracy": sum(correct.values()) / len(rows),
+        "mean_class_accuracy": sum(per_class.values()) / len(per_class),
+        "invalid_answers": invalid,
+        "per_class_accuracy": per_class,
+        "protocol": OUTPUT_GRAMMAR + "/" + decoding_protocol,
+    }
+
+
+def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -> tuple[dict, dict]:
+    torch = import_module("torch")
+    predictions = {}
+    was_training = policy.training
+    policy.eval()
+    eos = policy.generation_config.eos_token_id
+    eos = [eos] if isinstance(eos, int) else list(eos or [])
+    eos = set(eos + [processor.tokenizer.eos_token_id])
+    with torch.inference_mode():
+        for row in rows:
+            started = time.monotonic()
+            inputs = _inputs(processor, row, spec, profile).to(device)
+            tokens = policy.generate(
+                **inputs,
+                max_new_tokens=profile.max_completion_length,
+                do_sample=False,
+                use_cache=True,
+            )
+            tail = tokens[:, inputs["input_ids"].shape[1] :]
+            predictions[row["id"]] = {
+                "response": processor.batch_decode(tail, skip_special_tokens=True)[0],
+                "raw_response": processor.batch_decode(tail, skip_special_tokens=False)[0],
+                "terminated": bool(tail.shape[-1] and int(tail[0, -1].item()) in eos),
+                "completion_ids": tail[0].tolist(),
+                "prompt_tokens": int(inputs["input_ids"].shape[-1]),
+                "completion_tokens": int(tail.shape[-1]),
+                "latency_seconds": time.monotonic() - started,
+            }
+            if journal is not None:
+                _write(journal, predictions)
+    policy.train(was_training)
+    return classification_metrics(
+        rows,
+        predictions,
+        spec["labels"],
+        allow_reasoning=True,
+    ), predictions
+
+
+def _task_group_generation_config(policy, processor, profile):
+    """Released TRL ordinary-generate settings, for frozen-policy diagnostics only."""
+    eos = policy.generation_config.eos_token_id
+    eos = [eos] if isinstance(eos, int) else list(eos or [])
+    if processor.tokenizer.eos_token_id not in eos:
+        eos.insert(0, processor.tokenizer.eos_token_id)
+    return import_module("transformers").GenerationConfig(
+        max_new_tokens=profile.max_completion_length,
+        do_sample=True,
+        pad_token_id=processor.tokenizer.pad_token_id,
+        bos_token_id=processor.tokenizer.bos_token_id,
+        eos_token_id=eos,
+        temperature=profile.temperature,
+        top_p=1.0,
+        top_k=0,
+        min_p=None,
+        repetition_penalty=1.0,
+        cache_implementation=None,
+        suppress_tokens=[policy.config.image_token_id],
+        disable_compile=True,
+    )
+
+
+def _sample_task_groups(policy, processor, rows, spec, profile, device, output, reward, config):
+    """Serial independent draws; no weights, optimizer, advantage or loss update."""
+    torch = import_module("torch")
+    groups = {}
+    policy.eval()
+    with torch.inference_mode():
+        for row in rows:
+            inputs = _inputs(processor, row, spec, profile).to(device)
+            samples = []
+            groups[row["id"]] = samples
+            for _ in range(profile.num_generations):
+                started = time.monotonic()
+                tokens = policy.generate(**inputs, generation_config=config)
+                tail = tokens[0, inputs["input_ids"].shape[-1] :].tolist()
+                # Match released TRL's first-EOS-inclusive completion mask.
+                for index, token in enumerate(tail):
+                    if token in config.eos_token_id:
+                        tail = tail[: index + 1]
+                        break
+                samples.append(
+                    {
+                        "response": processor.tokenizer.decode(tail, skip_special_tokens=True),
+                        "raw_response": processor.tokenizer.decode(tail, skip_special_tokens=False),
+                        "completion_ids": tail,
+                        "terminated": bool(tail and tail[-1] in config.eos_token_id),
+                        "prompt_tokens": int(inputs["input_ids"].shape[-1]),
+                        "completion_tokens": len(tail),
+                        "latency_seconds": time.monotonic() - started,
+                    }
+                )
+                _write(output / "sampled_completions.json", groups)
+            reward(
+                completions=[sample["response"] for sample in samples],
+                completion_ids=[sample["completion_ids"] for sample in samples],
+                label=[row["label"]] * profile.num_generations,
+                id=[row["id"]] * profile.num_generations,
+            )
+    return groups
+
+
+def predict_train_subset(
+    manifest: Path,
+    data_spec: Path,
+    output: Path,
+    *,
+    model_directory: Path,
+    model: str = DEFAULT_MODEL,
+    device: str = "mps",
+    profile: Profile = Profile(),
+    sample_groups: bool = False,
+    seed: int = 42,
+    init_adapter: Path | None = None,
+) -> dict:
+    """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
+
+    This permits a prospectively selected subset of classes while retaining the
+    complete task vocabulary. Its mean-class score covers only represented
+    classes and is explicitly not a held-out benchmark result.
+    """
+    profile.validate()
+    if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
+        raise ValueError("sample_groups must be boolean and seed a nonnegative integer")
+    if model not in MODEL_REVISIONS:
+        raise ValueError("choose one of the explicitly pinned Qwen models")
+    spec = load_spec(data_spec)
+    rows = load_classification(
+        manifest,
+        "train",
+        spec["labels"],
+        preprocessing_id=spec.get("preprocessing_id"),
+        require_all_classes=False,
+    )
+    if len(rows) > 32:
+        raise ValueError("TRAIN feasibility inference is limited to 32 images")
+    output = Path(output).resolve()
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("output is not empty; use a new directory")
+    environment = preflight(device)
+    model_directory = Path(model_directory).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    prompt = prompt_text(spec, profile.response_format)
+    record = {
+        "schema_version": 1,
+        "status": "running",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model": model,
+        "model_revision": MODEL_REVISIONS[model],
+        "processor_model": model,
+        "processor_revision": MODEL_REVISIONS[model],
+        "profile": asdict(profile),
+        "output_grammar": OUTPUT_GRAMMAR,
+        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "data_spec_sha256": _file_sha256(Path(data_spec)),
+        "data_identity": _classification_identity(Path(manifest), rows),
+        "image_transform_source_sha256": (
+            _file_sha256(Path(inspect.getfile(load_aircraft_rgb)))
+            if spec.get("preprocessing_id") == PREPROCESSING_ID
+            else None
+        ),
+        "declared_classes": len(spec["labels"]),
+        "represented_classes": len({row["label"] for row in rows}),
+        "sources": spec["sources"],
+        "environment": environment,
+        "generation": {
+            "do_sample": sample_groups,
+            "max_new_tokens": profile.max_completion_length,
+            "samples_per_image": profile.num_generations if sample_groups else 1,
+            "seed": seed if sample_groups else None,
+            "concurrent_generation_batch_size": 1,
+        },
+        "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
+        "optimizer_steps": 0,
+    }
+    initial = (
+        _inference_adapter_identity(Path(init_adapter).resolve(), record, profile)
+        if init_adapter
+        else None
+    )
+    record["initial_adapter"] = initial
+    record["policy_identity"] = "saved_adapter" if initial else "pinned_base"
+    metadata_path = output / (
+        "train_subset_groups.json" if sample_groups else "train_subset_inference.json"
+    )
+    _write(metadata_path, record)
+    _archive_source(output, environment["adapter_source_sha256"])
+    (output / "prompt.txt").write_text(prompt + "\n")
+    reward = None
+    try:
+        torch = import_module("torch")
+        torch.set_num_threads(2)
+        transformers = import_module("transformers")
+        if sample_groups:
+            transformers.set_seed(seed)
+        record["model_source"] = _verified_model_directory(model_directory, model)
+        processor = _processor(model_directory, profile)
+        record["processor_audit"] = _audit_processor(processor, rows, spec, profile)
+        _write(metadata_path, record)
+        policy = transformers.AutoModelForImageTextToText.from_pretrained(
+            str(model_directory),
+            trust_remote_code=False,
+            local_files_only=True,
+            use_safetensors=True,
+            dtype=getattr(torch, profile.dtype),
+            attn_implementation="sdpa",
+        )
+        if policy.config.model_type not in {"qwen2_vl", "qwen2_5_vl"}:
+            raise LocalVLMError("unexpected cached model architecture")
+        if initial:
+            policy = import_module("peft").PeftModel.from_pretrained(
+                policy, str(init_adapter), is_trainable=False
+            )
+        policy.requires_grad_(False).to(device).eval()
+        if sample_groups:
+            config = _task_group_generation_config(policy, processor, profile)
+            record["generation_config"] = config.to_dict()
+            record["sampling_scope"] = (
+                "serial frozen-policy draws with released-TRL generation settings; "
+                "no proof of batched generation memory or optimizer execution"
+            )
+            _write(metadata_path, record)
+            reward = make_reward(
+                spec["labels"],
+                profile.num_generations,
+                config.eos_token_id,
+                output / "reward_groups.jsonl",
+                allow_reasoning=True,
+            )
+            _sample_task_groups(
+                policy, processor, rows, spec, profile, device, output, reward, config
+            )
+            record["reward_audit"] = reward.stats
+        else:
+            metrics, _ = _evaluate(
+                policy,
+                processor,
+                rows,
+                spec,
+                profile,
+                device,
+                journal=output / "predictions.json",
+            )
+            record["metrics"] = metrics
+        record.update(status="completed", elapsed_seconds=time.monotonic() - started)
+    except BaseException as exc:
+        if sample_groups:
+            sampled_path = output / "sampled_completions.json"
+            samples = json.loads(sampled_path.read_text()) if sampled_path.exists() else {}
+            record["unfinished_samples_per_id"] = {
+                row["id"]: profile.num_generations - len(samples.get(row["id"], [])) for row in rows
+            }
+            record["reward_audit"] = reward.stats if reward else None
+        else:
+            predictions_path = output / "predictions.json"
+            predictions = (
+                json.loads(predictions_path.read_text()) if predictions_path.exists() else {}
+            )
+            record["completed_prediction_ids"] = list(predictions)
+            for row in rows:
+                predictions.setdefault(
+                    row["id"],
+                    {
+                        "response": "",
+                        "terminated": False,
+                        "error": f"Generation not completed: {type(exc).__name__}",
+                    },
+                )
+            _write(predictions_path, predictions)
+        record.update(
+            status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            elapsed_seconds=time.monotonic() - started,
+        )
+        _write(metadata_path, record)
+        raise
+    _write(metadata_path, record)
+    return record
+
+
+def sample_train_groups(manifest: Path, **kwargs) -> dict:
+    """Inference-only real-task reward support; always use a fresh output path."""
+    return predict_train_subset(manifest, sample_groups=True, **kwargs)
+
+
+def _gold_nll(policy, processor, rows, spec, profile, device) -> float:
+    torch = import_module("torch")
+    collator = import_module("trl.trainer.sft_trainer").DataCollatorForVisionLanguageModeling(
+        processor,
+        completion_only_loss=True,
+        max_length=None,
+    )
+    total_loss, total_tokens = 0.0, 0
+    was_training = policy.training
+    policy.eval()
+    with torch.inference_mode():
+        for record in training_records(rows, spec, "sft", profile.response_format):
+            record["image"] = _load_rgb(record["image"], spec)
+            batch = {k: v.to(device) for k, v in collator([record]).items()}
+            count = int((batch["labels"][:, 1:] != -100).sum().item())
+            loss = float(policy(**batch).loss.item())
+            if not count or not math.isfinite(loss):
+                raise LocalVLMError("nonfinite gold loss or empty completion mask")
+            total_loss += loss * count
+            total_tokens += count
+    policy.train(was_training)
+    return total_loss / total_tokens
+
+
+def _sampler_parity(trainer, processor, row, spec, profile, device) -> dict:
+    """Diagnostic only: compare real generated-token scores with teacher forcing.
+
+    TRL suppresses the image token during sampling but its teacher probabilities
+    cover the full vocabulary. Report that normalization difference separately.
+    This function never constructs or modifies the training loss.
+    """
+    import copy
+
+    torch = import_module("torch")
+    policy = trainer.model
+    config = copy.deepcopy(trainer.generation_config)
+    config.max_new_tokens = min(16, profile.max_completion_length)
+    inputs = _inputs(processor, row, spec, profile).to(device)
+    prompt_length = inputs["input_ids"].shape[-1]
+    was_training = policy.training
+    policy.eval()
+    with torch.inference_mode():
+        generated = policy.generate(
+            **inputs, generation_config=config, return_dict_in_generate=True, output_scores=True
+        )
+        tokens = generated.sequences[:, prompt_length:]
+        forward = dict(inputs)
+        forward["input_ids"] = generated.sequences
+        forward["attention_mask"] = torch.cat(
+            (inputs["attention_mask"], torch.ones_like(tokens)), dim=1
+        )
+        for key in ("mm_token_type_ids", "token_type_ids"):
+            if key in forward:
+                forward[key] = torch.cat((forward[key], torch.zeros_like(tokens)), dim=1)
+        logits = policy(**forward, use_cache=False).logits[:, prompt_length - 1 : -1].float()
+        logits = logits / profile.temperature
+        raw_logps = logits.log_softmax(-1).gather(-1, tokens.unsqueeze(-1)).squeeze(-1)
+        for token in config.suppress_tokens or []:
+            logits[..., token] = -torch.inf
+        processed_logps = logits.log_softmax(-1).gather(-1, tokens.unsqueeze(-1)).squeeze(-1)
+        sampled_logps = torch.stack(
+            [
+                score.float().log_softmax(-1).gather(-1, tokens[:, index : index + 1]).squeeze(-1)
+                for index, score in enumerate(generated.scores)
+            ],
+            dim=1,
+        )
+        error = float((processed_logps - sampled_logps).abs().max().item())
+        raw_error = float((raw_logps - sampled_logps).abs().max().item())
+        reference_error, reference_kl = None, None
+        if "ref" in getattr(policy, "peft_config", {}):
+            use_adapter = import_module("trl.trainer.utils").use_adapter
+            with use_adapter(policy, "ref"):
+                reference_logits = (
+                    policy(**forward, use_cache=False).logits[:, prompt_length - 1 : -1].float()
+                    / profile.temperature
+                )
+                reference_logps = (
+                    reference_logits.log_softmax(-1).gather(-1, tokens.unsqueeze(-1)).squeeze(-1)
+                )
+            difference = reference_logps - raw_logps
+            reference_error = float(difference.abs().max().item())
+            reference_kl = float((difference.exp() - difference - 1).mean().item())
+    policy.train(was_training)
+    if not math.isfinite(error):
+        raise LocalVLMError("nonfinite sampler/teacher log-probability diagnostic")
+    return {
+        "sampled_tokens": tokens[0].tolist(),
+        "token_count": tokens.shape[-1],
+        "max_abs_logprob_error_after_same_suppression": error,
+        "max_abs_raw_teacher_vs_sampler_logprob_error": raw_error,
+        "sampling_suppressed_token_ids": config.suppress_tokens,
+        "initial_reference_max_abs_logprob_difference": reference_error,
+        "initial_reference_sampled_kl": reference_kl,
+        "tolerance": 0.001 if profile.dtype == "float32" else 0.02,
+        "within_tolerance": error <= (0.001 if profile.dtype == "float32" else 0.02),
+    }
+
+
+def _adapter_tensor_identity(model, name: str) -> dict:
+    """Fingerprint only a named LoRA adapter, with names normalized for comparison."""
+    torch = import_module("torch")
+    digest, count, size, trainable = hashlib.sha256(), 0, 0, 0
+    for key, parameter in sorted(model.named_parameters()):
+        if "lora_" not in key or f".{name}." not in key:
+            continue
+        value = parameter.detach().contiguous().cpu()
+        raw = value.view(torch.uint8).numpy().tobytes()
+        header = {
+            "name": key.replace(f".{name}.", ".adapter."),
+            "shape": list(value.shape),
+            "dtype": str(value.dtype),
+        }
+        digest.update(json.dumps(header, sort_keys=True).encode() + b"\0" + raw)
+        count += 1
+        size += len(raw)
+        trainable += int(parameter.requires_grad)
+    if not count:
+        raise LocalVLMError(f"missing {name} LoRA tensors")
+    return {
+        "sha256": digest.hexdigest(),
+        "tensor_count": count,
+        "bytes": size,
+        "trainable_tensors": trainable,
+    }
+
+
+def _reference_identity(trainer, *, init_adapter: dict | None, model: str) -> dict:
+    """Verify released TRL's small copied reference; never create another base."""
+    policy = trainer.model
+    if trainer.ref_model is not None or set(policy.peft_config) != {"default", "ref"}:
+        raise LocalVLMError("expected one shared base with default and copied ref adapters")
+    reference = _adapter_tensor_identity(policy, "ref")
+    current = _adapter_tensor_identity(policy, "default")
+    if reference["sha256"] != current["sha256"] or reference["trainable_tensors"]:
+        raise LocalVLMError("reference must be the frozen exact initial adapter")
+    if policy.active_adapters != ["default"]:
+        raise LocalVLMError("only the default adapter may be active outside reference inference")
+    if init_adapter is None:
+        torch = import_module("torch")
+        if any(
+            torch.count_nonzero(p).item()
+            for n, p in policy.named_parameters()
+            if "lora_B.default." in n
+        ):
+            raise LocalVLMError("fresh reference requires zero-initialized LoRA B")
+    return {
+        "kind": "initial_saved_adapter" if init_adapter else "pinned_base_with_zero_lora",
+        "model": model,
+        "model_revision": MODEL_REVISIONS[model],
+        "initial_adapter_weights_sha256": init_adapter["weights_sha256"] if init_adapter else None,
+        "adapter": reference,
+        "separate_base_model_allocated": False,
+        "reference_name": "ref",
+        "beta": trainer.beta,
+    }
+
+
+def _assert_reference_anchor(policy, expected: dict) -> dict:
+    """Reject rebasing, activation or training of an immutable initial adapter."""
+    if set(policy.peft_config) != {"default", "ref"} or policy.active_adapters != ["default"]:
+        raise LocalVLMError("reference checkpoint requires default active and frozen ref")
+    actual = _adapter_tensor_identity(policy, "ref")
+    if actual != expected or actual["trainable_tensors"]:
+        raise LocalVLMError("reference adapter differs from the pinned initial anchor")
+    return actual
+
+
+ACTIVE_TIME_SCOPE = (
+    "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/"
+    "optimizer included; data prefetch/decode, evaluation, external logging/reward journal "
+    "and checkpoint IO excluded"
+)
+ACTIVE_CHECKPOINT_FILES = (
+    "trainer_state.json",
+    "optimizer.pt",
+    "scheduler.pt",
+    "adapter_model.safetensors",
+)
+
+
+def _load_active_time(
+    checkpoint: Path, total_budget_seconds: float | None, *, allow_exhausted: bool = False
+) -> dict:
+    """Bind committed compute to the exact complete optimizer checkpoint."""
+    path = checkpoint / "active_time.json"
+    if not path.is_file():
+        raise LocalVLMError("resume requires checkpoint active_time.json")
+    saved = json.loads(path.read_text())
+    state = json.loads((checkpoint / "trainer_state.json").read_text())
+    used = saved.get("committed_active_seconds")
+    if (
+        saved.get("schema_version") != 1
+        or saved.get("scope") != ACTIVE_TIME_SCOPE
+        or saved.get("total_budget_seconds") != total_budget_seconds
+        or saved.get("global_step") != state["global_step"]
+        or type(used) not in (int, float)
+        or not math.isfinite(used)
+        or used < 0
+        or saved.get("checkpoint_file_sha256")
+        != {name: _file_sha256(checkpoint / name) for name in ACTIVE_CHECKPOINT_FILES}
+    ):
+        raise LocalVLMError("checkpoint active time does not match budget/state/optimizer files")
+    if total_budget_seconds is not None and used >= total_budget_seconds and not allow_exhausted:
+        raise LocalVLMError("checkpoint has already exhausted the committed active-time budget")
+    if saved.get("exposure_sha256") is not None and (
+        not (checkpoint / "exposure.json").is_file()
+        or _file_sha256(checkpoint / "exposure.json") != saved["exposure_sha256"]
+    ):
+        raise LocalVLMError("checkpoint exposure identity differs")
+    return saved
+
+
+class _ExposureLedger:
+    """Actual execution events; checkpoint ancestry selects committed presentations."""
+
+    def __init__(self, output, allowed_ids, resume_state=None):
+        self.output = Path(output)
+        self.allowed = set(allowed_ids)
+        self.invocation_id = str(time.time_ns())
+        self.entries = list((resume_state or {}).get("entries", []))
+        self.pending = None
+        self.target_step = None
+        for step, entry in enumerate(self.entries, 1):
+            if entry["global_step"] != step or entry["id"] not in self.allowed:
+                raise LocalVLMError("checkpoint exposure sequence differs from TRAIN identity")
+
+    def begin(self, step):
+        if step != len(self.entries) + 1:
+            raise LocalVLMError("exposure step does not continue committed checkpoint ancestry")
+        self.target_step, self.pending = step, None
+
+    def observe(self, identifier):
+        if self.target_step is None or identifier not in self.allowed or self.pending is not None:
+            raise LocalVLMError("expected exactly one actual TRAIN prompt per optimizer update")
+        self.pending = {
+            "invocation_id": self.invocation_id,
+            "global_step": self.target_step,
+            "id": identifier,
+        }
+        with (self.output / "physical_prompt_events.jsonl").open("a") as handle:
+            handle.write(json.dumps(self.pending) + "\n")
+
+    def end(self, step):
+        if self.pending is None or self.pending["global_step"] != step:
+            raise LocalVLMError("optimizer update lacks an actual prompt exposure event")
+        self.entries.append(self.pending)
+        self.target_step, self.pending = None, None
+
+    def save(self, checkpoint, step):
+        if len(self.entries) != step or self.pending is not None:
+            raise LocalVLMError("cannot save an incomplete prompt exposure lineage")
+        _write(checkpoint / "exposure.json", {"schema_version": 1, "entries": self.entries})
+
+
+def _sft_collator_with_ids(collator):
+    def with_ids(examples):
+        batch = collator(examples)
+        batch["_vision_rl_prompt_ids"] = [example["id"] for example in examples]
+        return batch
+
+    return with_ids
+
+
+def _trainer_with_sft_exposure(base, audit):
+    class ExposureTrainer(base):
+        def training_step(self, model, inputs, num_items_in_batch=None):
+            identifiers = inputs.pop("_vision_rl_prompt_ids")
+            if len(identifiers) != 1:
+                raise LocalVLMError("SFT exposure contract requires one actual prompt per update")
+            audit.observe_prompt(identifiers[0])
+            return super().training_step(model, inputs, num_items_in_batch)
+
+    return ExposureTrainer
+
+
+class _ActiveStepTimer:
+    """Commit complete update spans; preserve observed discarded work separately."""
+
+    def __init__(self, output, total_budget_seconds, device, resume_state=None):
+        self.output = Path(output)
+        self.total_budget = total_budget_seconds
+        self.device = device
+        self.initial_committed = (resume_state or {}).get("committed_active_seconds", 0.0)
+        self.durable_committed = self.initial_committed
+        self.durable_global_step = (resume_state or {}).get("global_step", 0)
+        self.completed = 0.0
+        self.interrupted = 0.0
+        self.journal_io = 0.0
+        self.step_journal_io = 0.0
+        self.started = None
+        self.path = self.output / "active_time" / f"invocation-{time.time_ns()}.json"
+        self.in_progress = False
+
+    @property
+    def committed(self):
+        return self.initial_committed + self.completed
+
+    def _sync(self):
+        if self.device == "mps":
+            import_module("torch").mps.synchronize()
+
+    def _persist(self):
+        _write(
+            self.path,
+            {
+                "schema_version": 1,
+                "scope": ACTIVE_TIME_SCOPE,
+                "device": self.device,
+                "resume_committed_active_seconds": self.initial_committed,
+                "completed_active_seconds": self.completed,
+                "observed_interrupted_active_seconds": self.interrupted,
+                "observed_journal_io_seconds": self.journal_io,
+                "in_progress": self.in_progress,
+            },
+        )
+
+    def check_remaining(self):
+        if self.total_budget is not None and self.committed >= self.total_budget:
+            raise LocalVLMError("committed active-time budget is already exhausted")
+
+    def begin(self):
+        self.check_remaining()
+        if self.started is not None:
+            raise LocalVLMError("active optimizer step was not closed")
+        self.in_progress = True
+        self._persist()
+        self._sync()
+        self.started = time.monotonic()
+        self.step_journal_io = 0.0
+
+    @contextmanager
+    def exclude_journal_io(self):
+        if self.started is None:
+            yield
+            return
+        self._sync()
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            elapsed = time.monotonic() - started
+            self.step_journal_io += elapsed
+            self.journal_io += elapsed
+
+    def end(self):
+        if self.started is None:
+            raise LocalVLMError("active optimizer step was not started")
+        self._sync()
+        self.completed += time.monotonic() - self.started - self.step_journal_io
+        self.started = None
+        self.in_progress = False
+        self._persist()
+
+    def interrupt(self):
+        # A hard process kill can leave in_progress=true; no duration is invented.
+        if self.started is not None:
+            self._sync()
+            self.interrupted += time.monotonic() - self.started - self.step_journal_io
+            self.started = None
+            self.in_progress = False
+            self._persist()
+
+    def save(self, checkpoint: Path, global_step: int):
+        if self.started is not None:
+            raise LocalVLMError("cannot checkpoint a partial active optimizer step")
+        _write(
+            checkpoint / "active_time.json",
+            {
+                "schema_version": 1,
+                "scope": ACTIVE_TIME_SCOPE,
+                "device": self.device,
+                "global_step": global_step,
+                "total_budget_seconds": self.total_budget,
+                "committed_active_seconds": self.committed,
+                "checkpoint_file_sha256": {
+                    name: _file_sha256(checkpoint / name) for name in ACTIVE_CHECKPOINT_FILES
+                },
+                "exposure_sha256": _file_sha256(checkpoint / "exposure.json")
+                if (checkpoint / "exposure.json").is_file()
+                else None,
+            },
+        )
+        self.durable_committed = self.committed
+        self.durable_global_step = global_step
+
+    def summary(self):
+        invocations = [
+            json.loads(path.read_text()) for path in (self.output / "active_time").glob("*.json")
+        ]
+        observed = sum(
+            item["completed_active_seconds"] + item["observed_interrupted_active_seconds"]
+            for item in invocations
+        )
+        return {
+            "scope": ACTIVE_TIME_SCOPE,
+            "total_budget_seconds": self.total_budget,
+            "resumed_committed_active_seconds": self.initial_committed,
+            "invocation_active_seconds": self.completed,
+            "completed_state_active_seconds": self.committed,
+            "committed_active_seconds": self.durable_committed,
+            "committed_global_step": self.durable_global_step,
+            "completed_not_checkpointed_active_seconds": self.committed - self.durable_committed,
+            "observed_physical_active_seconds": observed,
+            "observed_reward_journal_io_seconds": sum(
+                item.get("observed_journal_io_seconds", 0.0) for item in invocations
+            ),
+            "observed_discarded_or_uncheckpointed_active_seconds": max(
+                0.0, observed - self.durable_committed
+            ),
+            "unknown_partial_invocations": sum(bool(item["in_progress"]) for item in invocations),
+            "hard_total_physical_compute_cap": False,
+        }
+
+
+def _audit_callback(
+    output: Path,
+    max_active_seconds: float | None,
+    *,
+    device: str = "cpu",
+    resume_state: dict | None = None,
+    exposure: _ExposureLedger | None = None,
+    stop_after_steps: int | None = None,
+    stop_after_active_seconds: float | None = None,
+):
+    torch = import_module("torch")
+    base = import_module("transformers").TrainerCallback
+
+    class Audit(base):
+        def __init__(self):
+            self.initial = {}
+            self.expected_reference = None
+            self.timer = _ActiveStepTimer(output, max_active_seconds, device, resume_state)
+            self.summary = {
+                "optimizer_steps_observed": 0,
+                "nonzero_gradient_steps": 0,
+                "active_seconds": 0.0,
+                "max_gradient_norm_observed": 0.0,
+            }
+
+        def on_train_begin(self, args, state, control, model=None, **kwargs):
+            self.timer.check_remaining()
+            self.initial = {
+                n: p.detach().float().cpu().clone()
+                for n, p in model.named_parameters()
+                if p.requires_grad
+            }
+            if not self.initial or any(
+                "lora_" not in n or ".visual." in n or ".ref." in n for n in self.initial
+            ):
+                raise LocalVLMError("only language LoRA parameters may be trainable")
+            self.reference = (
+                _adapter_tensor_identity(model, "ref")
+                if "ref" in getattr(model, "peft_config", {})
+                else None
+            )
+            if self.expected_reference is not None:
+                self.reference = _assert_reference_anchor(model, self.expected_reference)
+
+        def on_step_begin(self, args, state, control, **kwargs):
+            if exposure is not None:
+                exposure.begin(state.global_step + 1)
+            self.timer.begin()
+
+        def observe_prompt(self, identifier):
+            if exposure is not None:
+                with self.timer.exclude_journal_io():
+                    exposure.observe(identifier)
+
+        def on_pre_optimizer_step(self, args, state, control, model=None, **kwargs):
+            norm_sq = 0.0
+            for parameter in model.parameters():
+                if parameter.requires_grad and parameter.grad is not None:
+                    norm_sq += float(parameter.grad.detach().float().square().sum().item())
+            if not math.isfinite(norm_sq):
+                raise LocalVLMError("nonfinite gradient; optimizer step rejected")
+            norm = math.sqrt(norm_sq)
+            self.summary["latest_gradient_norm"] = norm
+            self.summary["nonzero_gradient_steps"] += int(norm > 0)
+            self.summary["max_gradient_norm_observed"] = max(
+                self.summary["max_gradient_norm_observed"], norm
+            )
+
+        def on_step_end(self, args, state, control, model=None, **kwargs):
+            self.timer.end()
+            if exposure is not None:
+                exposure.end(state.global_step)
+            self.summary["optimizer_steps_observed"] += 1
+            self.summary["active_seconds"] = self.timer.completed
+            self.summary["completed_state_active_seconds"] = self.timer.committed
+            if (
+                model is not None
+                and self.summary.get("latest_gradient_norm", 0) > 0
+                and "first_nonzero_update" not in self.summary
+            ):
+                delta_sq, changed = 0.0, 0
+                for name, parameter in model.named_parameters():
+                    if name in self.initial:
+                        delta = parameter.detach().float().cpu() - self.initial[name]
+                        delta_sq += float(delta.square().sum().item())
+                        changed += int(bool(torch.count_nonzero(delta).item()))
+                self.summary["first_nonzero_update"] = {
+                    "global_step": state.global_step,
+                    "gradient_norm": self.summary["latest_gradient_norm"],
+                    "changed_tensors_since_invocation_start": changed,
+                    "parameter_delta_l2_since_invocation_start": math.sqrt(delta_sq),
+                }
+            with (output / "optimizer_audit.jsonl").open("a") as handle:
+                handle.write(json.dumps({"step": state.global_step, **self.summary}) + "\n")
+            if max_active_seconds is not None and self.timer.committed >= max_active_seconds:
+                control.should_training_stop = True
+                control.should_save = True
+            if (stop_after_steps is not None and state.global_step >= stop_after_steps) or (
+                stop_after_active_seconds is not None
+                and self.timer.committed >= stop_after_active_seconds
+            ):
+                control.should_training_stop = True
+                control.should_save = True
+            return control
+
+        def on_save(self, args, state, control, **kwargs):
+            if exposure is not None:
+                exposure.save(
+                    Path(args.output_dir) / f"checkpoint-{state.global_step}", state.global_step
+                )
+            self.timer.save(
+                Path(args.output_dir) / f"checkpoint-{state.global_step}", state.global_step
+            )
+
+        def on_train_end(self, args, state, control, model=None, **kwargs):
+            delta_sq, changed = 0.0, 0
+            for name, parameter in model.named_parameters():
+                if name in self.initial:
+                    delta = parameter.detach().float().cpu() - self.initial[name]
+                    delta_sq += float(delta.square().sum().item())
+                    changed += int(bool(torch.count_nonzero(delta).item()))
+            if not math.isfinite(delta_sq):
+                raise LocalVLMError("nonfinite final adapter parameters")
+            self.summary.update(parameter_delta_l2=math.sqrt(delta_sq), changed_tensors=changed)
+            if self.reference is not None:
+                final_reference = _adapter_tensor_identity(model, "ref")
+                if final_reference != self.reference or final_reference["trainable_tensors"]:
+                    raise LocalVLMError("reference adapter changed or became trainable")
+                self.summary["reference_unchanged"] = True
+                self.summary["reference_sha256"] = final_reference["sha256"]
+            self.initial.clear()
+            self.summary["active_time"] = self.timer.summary()
+
+    return Audit()
+
+
+def _adapter_identity(
+    path: Path, identity: dict, profile: Profile, *, precision_transfer: str | None = None
+) -> dict:
+    parent = json.loads((path.parent / "local_training.json").read_text())
+    source = parent["control_identity"]
+    matching_keys = ("model", "model_revision", "processor_model", "processor_revision")
+    profile_keys = ("dtype", "min_pixels", "max_pixels", "lora_rank")
+    transfer = None
+    if precision_transfer is not None:
+        if (
+            precision_transfer != "float32-to-bfloat16"
+            or source["profile"]["dtype"] != "float32"
+            or profile.dtype != "bfloat16"
+        ):
+            raise ValueError(
+                "only explicit float32-to-bfloat16 base precision transfer is supported"
+            )
+        profile_keys = tuple(key for key in profile_keys if key != "dtype")
+        transfer = {
+            "profile": precision_transfer,
+            "parent_base_dtype": "float32",
+            "target_base_dtype": "bfloat16",
+            "adapter_dtype": "float32",
+            "adapter_weights_changed": False,
+            "initial_policy_numerics_changed": True,
+        }
+    if (
+        parent["status"] != "completed"
+        or any(source[k] != identity[k] for k in matching_keys)
+        or any(source["profile"][k] != identity["profile"][k] for k in profile_keys)
+    ):
+        raise ValueError("warm start requires completed run with identical model/processor/profile")
+    config = json.loads((path / "adapter_config.json").read_text())
+    validated = _validated_lora_config(config)
+    if validated["r"] != profile.lora_rank or set(validated["target_modules"]) != {
+        "q_proj",
+        "v_proj",
+    }:
+        raise ValueError("warm start LoRA profile differs")
+    weights = path / "adapter_model.safetensors"
+    if not weights.is_file() or weights.is_symlink() or weights.stat().st_size > 2 * 1024**3:
+        raise ValueError("warm start requires regular bounded safetensors adapter")
+    result = {
+        "path": str(path),
+        "weights_sha256": _file_sha256(weights),
+        "config_sha256": _file_sha256(path / "adapter_config.json"),
+        "parent_profile": source["profile"],
+        "parent_data_identity": {k: source[k] for k in ("data_spec_sha256", "train", "validation")},
+    }
+    if transfer is not None:
+        result["precision_transfer"] = transfer
+    return result
+
+
+def _verify_initial_adapter_tensors(policy, path: Path) -> dict:
+    """Verify PEFT preserves each saved FP32 adapter value before any update."""
+    torch = import_module("torch")
+    expected = import_module("safetensors.torch").load_file(
+        str(path / "adapter_model.safetensors"), device="cpu"
+    )
+    actual = import_module("peft").get_peft_model_state_dict(policy, adapter_name="default")
+    if set(expected) != set(actual) or any(
+        expected[name].dtype != torch.float32
+        or actual[name].dtype != torch.float32
+        or not torch.equal(expected[name], actual[name].detach().cpu())
+        for name in expected
+    ):
+        raise LocalVLMError("loaded initial adapter differs from exact saved FP32 tensors")
+    return {"exact_saved_tensors": True, "tensor_count": len(expected), "dtype": "float32"}
+
+
+def _inference_adapter_identity(path: Path, identity: dict, profile: Profile) -> dict:
+    """Only a hash-bound completed endpoint may be used for a TRAIN assay."""
+    initial = _adapter_identity(path, identity, profile)
+    parent = json.loads((path.parent / "local_training.json").read_text())
+    if initial["parent_data_identity"]["data_spec_sha256"] != identity["data_spec_sha256"]:
+        raise ValueError("saved-adapter TRAIN inference requires the same pinned task data spec")
+    if (
+        parent.get("final_adapter_sha256") != initial["weights_sha256"]
+        or Path(parent.get("final_adapter", "")).name != path.name
+    ):
+        raise ValueError("saved adapter differs from the completed endpoint identity")
+    return initial
+
+
+def _trainer_with_mps_rng(base, device: str):
+    """Transformers 5.20 saves CPU/CUDA RNG but omits MPS; preserve it explicitly."""
+    if device != "mps":
+        return base
+    torch = import_module("torch")
+
+    class MPSRNGTrainer(base):
+        def _save_rng_state(self, output_dir):
+            super()._save_rng_state(output_dir)
+            torch.save(torch.mps.get_rng_state(), Path(output_dir) / "mps_rng_state.pth")
+
+        def _load_rng_state(self, checkpoint):
+            super()._load_rng_state(checkpoint)
+            if checkpoint is not None:
+                state = torch.load(
+                    Path(checkpoint) / "mps_rng_state.pth", map_location="cpu", weights_only=True
+                )
+                torch.mps.set_rng_state(state)
+
+    return MPSRNGTrainer
+
+
+def _trainer_with_active_time(base):
+    """Publish checkpoint time only after all native checkpoint writes succeed."""
+
+    class ActiveTimeTrainer(base):
+        def _save_checkpoint(self, model, trial):
+            checkpoint = Path(self.args.output_dir) / f"checkpoint-{self.state.global_step}"
+            (checkpoint / "active_time.json").unlink(missing_ok=True)
+            # The audit callback publishes a new hash-bound marker in on_save.
+            return super()._save_checkpoint(model, trial)
+
+    return ActiveTimeTrainer
+
+
+def _trainer_with_grpo_resume(base, *, expected_reference: dict | None = None):
+    """Restore both PEFT adapters and the released sampler's epoch permutation.
+
+    RepeatSampler owns a local generator without set_epoch; restarting Trainer
+    otherwise repeats epoch zero. Advance that same generator through the prior
+    native permutations, preserving the uninterrupted released sampler order.
+    """
+    torch = import_module("torch")
+    repeat_sampler = import_module("trl.trainer.utils").RepeatSampler
+
+    class EpochRepeatSampler(repeat_sampler):
+        def set_epoch(self, epoch):
+            self.epoch = epoch
+
+        def __iter__(self):
+            if self.shuffle:
+                self.generator.manual_seed(self.seed)
+                for _ in range(getattr(self, "epoch", 0)):
+                    torch.randperm(self.num_samples, generator=self.generator)
+            return super().__iter__()
+
+    class ResumeTrainer(base):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._initial_reference = None
+            if "ref" in getattr(self.model, "peft_config", {}):
+                self._initial_reference = (
+                    dict(expected_reference)
+                    if expected_reference is not None
+                    else _adapter_tensor_identity(self.model, "ref")
+                )
+                _assert_reference_anchor(self.model, self._initial_reference)
+            elif expected_reference is not None:
+                raise LocalVLMError("pinned reference adapter is missing")
+
+        def _get_train_sampler(self, dataset=None):
+            sampler = super()._get_train_sampler(dataset)
+            if not isinstance(sampler, repeat_sampler) or sampler.seed is None:
+                raise LocalVLMError("expected the pinned seeded TRL RepeatSampler")
+            return EpochRepeatSampler(
+                **{
+                    name: getattr(sampler, name)
+                    for name in (
+                        "data_source",
+                        "mini_repeat_count",
+                        "batch_size",
+                        "repeat_count",
+                        "shuffle",
+                        "seed",
+                    )
+                }
+            )
+
+        def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
+            super()._load_from_checkpoint(resume_from_checkpoint, model=model)
+            policy = self.model if model is None else model
+            if "ref" in policy.peft_config:
+                if set(policy.peft_config) != {"default", "ref"}:
+                    raise LocalVLMError("reference checkpoint requires default and ref adapters")
+                policy.load_adapter(resume_from_checkpoint, "default", is_trainable=True)
+                policy.set_adapter("default")
+                _assert_reference_anchor(policy, self._initial_reference)
+
+    return ResumeTrainer
+
+
+def _restore_endpoint_without_training(trainer, checkpoint, audit):
+    """Restore an already-complete optimization boundary; never call train or step."""
+    trainer._load_from_checkpoint(str(checkpoint))
+    trainer.state = import_module("transformers.trainer_callback").TrainerState.load_from_json(
+        str(checkpoint / "trainer_state.json")
+    )
+    trainer._load_rng_state(str(checkpoint))
+    if audit.expected_reference is not None:
+        restored = _assert_reference_anchor(trainer.model, audit.expected_reference)
+        audit.summary.update(reference_unchanged=True, reference_sha256=restored["sha256"])
+    audit.summary.update(
+        changed_tensors=0,
+        parameter_delta_l2=0.0,
+        active_time=audit.timer.summary(),
+        endpoint_recovery_only=True,
+    )
+
+
+def _object_sha256(value) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _checkpoint_receipt_files(checkpoint):
+    required = list(ACTIVE_CHECKPOINT_FILES) + [
+        "active_time.json",
+        "exposure.json",
+        "rng_state.pth",
+        "adapter_config.json",
+    ]
+    for optional in (
+        "mps_rng_state.pth",
+        "ref/adapter_model.safetensors",
+        "ref/adapter_config.json",
+    ):
+        if (checkpoint / optional).is_file():
+            required.append(optional)
+    return {name: _file_sha256(checkpoint / name) for name in required}
+
+
+def _publish_endpoint_receipt(output, record, global_step):
+    checkpoint = output / f"checkpoint-{global_step}"
+    active = json.loads((checkpoint / "active_time.json").read_text())
+    exposures = json.loads((checkpoint / "exposure.json").read_text())
+    settings = record["settings"]
+    exhausted = global_step >= settings["max_steps"] or (
+        settings["max_active_seconds"] is not None
+        and active["committed_active_seconds"] >= settings["max_active_seconds"]
+    )
+    adapter = output / "final_adapter"
+    receipt = {
+        "schema_version": 1,
+        "stage_id": record["stage_id"],
+        "status": "total_budget_exhausted" if exhausted else "boundary_reached",
+        "global_step": global_step,
+        "original_budgets": {k: settings[k] for k in ("max_steps", "max_active_seconds")},
+        "requested_boundary": record["requested_boundary"],
+        "committed_active_seconds": active["committed_active_seconds"],
+        "committed_prompt_presentations": len(exposures["entries"]),
+        "committed_prompt_ids": [entry["id"] for entry in exposures["entries"]],
+        "checkpoint": {"path": checkpoint.name, "sha256": _checkpoint_receipt_files(checkpoint)},
+        "final_adapter": {
+            "path": "final_adapter",
+            "weights_sha256": _file_sha256(adapter / "adapter_model.safetensors"),
+            "config_sha256": _file_sha256(adapter / "adapter_config.json"),
+        },
+        "reference_sha256": record["reference"]["adapter"]["sha256"]
+        if record["reference"]
+        else None,
+        "control_identity_sha256": _object_sha256(record["control_identity"]),
+        "settings_sha256": _object_sha256(settings),
+        "source_sha256": record["environment"]["adapter_source_sha256"],
+        "physical_work": record["optimizer_audit"]["active_time"],
+    }
+    _write(output / "endpoint_receipt.json", receipt)
+    read_endpoint_receipt(output, expected_stage_id=record["stage_id"])
+
+
+def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None) -> dict:
+    """Verify a completed staged endpoint without model allocation or native deserialization."""
+    output = Path(output).resolve()
+    receipt = json.loads((output / "endpoint_receipt.json").read_text())
+    record = json.loads((output / "local_training.json").read_text())
+    if (
+        receipt.get("schema_version") != 1
+        or record["status"] != "completed"
+        or receipt["stage_id"] != record["stage_id"]
+        or (expected_stage_id is not None and receipt["stage_id"] != expected_stage_id)
+        or receipt["control_identity_sha256"] != _object_sha256(record["control_identity"])
+        or receipt["settings_sha256"] != _object_sha256(record["settings"])
+        or receipt["source_sha256"] != _file_sha256(output / "adapter-source.py")
+        or receipt["source_sha256"] != record["environment"]["adapter_source_sha256"]
+        or receipt["physical_work"] != record["optimizer_audit"]["active_time"]
+    ):
+        raise LocalVLMError("endpoint receipt differs from completed run identity")
+    checkpoint = (output / receipt["checkpoint"]["path"]).resolve()
+    adapter = (output / receipt["final_adapter"]["path"]).resolve()
+    if not checkpoint.is_relative_to(output) or not adapter.is_relative_to(output):
+        raise LocalVLMError("endpoint artifact escapes trajectory directory")
+    if (
+        receipt["checkpoint"]["sha256"] != _checkpoint_receipt_files(checkpoint)
+        or receipt["final_adapter"]["weights_sha256"]
+        != _file_sha256(adapter / "adapter_model.safetensors")
+        or receipt["final_adapter"]["config_sha256"]
+        != _file_sha256(adapter / "adapter_config.json")
+        or receipt["final_adapter"]["weights_sha256"] != record["final_adapter_sha256"]
+    ):
+        raise LocalVLMError("endpoint checkpoint or saved adapter bytes differ")
+    active = json.loads((checkpoint / "active_time.json").read_text())
+    state = json.loads((checkpoint / "trainer_state.json").read_text())
+    exposures = json.loads((checkpoint / "exposure.json").read_text())
+    entries = exposures["entries"]
+    original = {k: record["settings"][k] for k in ("max_steps", "max_active_seconds")}
+    if (
+        active["scope"] != ACTIVE_TIME_SCOPE
+        or active["global_step"] != state["global_step"]
+        or active["global_step"] != receipt["global_step"]
+        or active["committed_active_seconds"] != receipt["committed_active_seconds"]
+        or active["total_budget_seconds"] != original["max_active_seconds"]
+        or receipt["original_budgets"] != original
+        or receipt["requested_boundary"] != record["requested_boundary"]
+        or active["exposure_sha256"] != _file_sha256(checkpoint / "exposure.json")
+        or active["checkpoint_file_sha256"]
+        != {name: _file_sha256(checkpoint / name) for name in ACTIVE_CHECKPOINT_FILES}
+        or len(entries) != receipt["global_step"]
+        or len(entries) != receipt["committed_prompt_presentations"]
+        or [entry["global_step"] for entry in entries] != list(range(1, len(entries) + 1))
+        or [entry["id"] for entry in entries] != receipt["committed_prompt_ids"]
+    ):
+        raise LocalVLMError("endpoint checkpoint time/exposure lineage differs")
+    boundary = receipt["requested_boundary"]
+    exhausted = receipt["global_step"] >= original["max_steps"] or (
+        original["max_active_seconds"] is not None
+        and receipt["committed_active_seconds"] >= original["max_active_seconds"]
+    )
+    reached = (
+        boundary["stop_after_steps"] is not None
+        and receipt["global_step"] >= boundary["stop_after_steps"]
+    ) or (
+        boundary["stop_after_active_seconds"] is not None
+        and receipt["committed_active_seconds"] >= boundary["stop_after_active_seconds"]
+    )
+    if receipt["status"] != ("total_budget_exhausted" if exhausted else "boundary_reached") or not (
+        exhausted or reached
+    ):
+        raise LocalVLMError("endpoint did not reach a declared boundary or total budget")
+    expected_ref = record["reference"]["adapter"]["sha256"] if record["reference"] else None
+    if receipt["reference_sha256"] != expected_ref:
+        raise LocalVLMError("endpoint reference identity differs")
+    return receipt
+
+
+def train_local(
+    train: Path,
+    validation: Path | None,
+    data_spec: Path,
+    output: Path,
+    *,
+    mode: str = "grpo",
+    model: str = DEFAULT_MODEL,
+    device: str = "mps",
+    model_directory: Path | None = None,
+    profile: Profile = Profile(),
+    max_steps: int = 64,
+    learning_rate: float = 1e-5,
+    beta: float = 0.04,
+    seed: int = 42,
+    save_steps: int = 8,
+    init_adapter: Path | None = None,
+    resume_from_checkpoint: Path | None = None,
+    max_active_seconds: float | None = None,
+    probe: bool = False,
+    train_only: bool = False,
+    stop_after_steps: int | None = None,
+    stop_after_active_seconds: float | None = None,
+    stage_id: str | None = None,
+    finalize_only: bool = False,
+    initial_adapter_precision_transfer: str | None = None,
+) -> dict:
+    """Run offline training. Validation is greedy inference only, never trainer input."""
+    profile.validate()
+    if type(seed) is not int or seed < 0:
+        raise ValueError("seed must be a nonnegative integer")
+    for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"{name} must be a valid nonnegative/positive integer")
+    if mode not in {"grpo", "sft"} or model not in MODEL_REVISIONS:
+        raise ValueError("choose sft/grpo and one of the explicitly pinned Qwen models")
+    if model_directory is None:
+        raise ValueError("model_directory must point to a verified local snapshot")
+    model_directory = Path(model_directory).resolve()
+    if not math.isfinite(learning_rate) or not 0 < learning_rate <= 1e-2:
+        raise ValueError("learning_rate must be finite and in (0, 0.01]")
+    if type(beta) not in (int, float) or not math.isfinite(beta) or not 0 <= beta <= 1:
+        raise ValueError("beta must be finite and in [0, 1]")
+    if max_active_seconds is not None and (
+        not math.isfinite(max_active_seconds) or max_active_seconds <= 0
+    ):
+        raise ValueError("max_active_seconds must be finite and positive")
+    if stop_after_steps is not None and (
+        type(stop_after_steps) is not int or not 1 <= stop_after_steps <= max_steps
+    ):
+        raise ValueError("stop_after_steps must be within the original total step budget")
+    if stop_after_active_seconds is not None and (
+        not math.isfinite(stop_after_active_seconds)
+        or stop_after_active_seconds <= 0
+        or max_active_seconds is None
+        or stop_after_active_seconds > max_active_seconds
+    ):
+        raise ValueError("stop_after_active_seconds must be within the original total time budget")
+    if stage_id is not None and (not isinstance(stage_id, str) or not stage_id.strip()):
+        raise ValueError("stage_id must be a nonempty string")
+    if type(finalize_only) is not bool or (finalize_only and not resume_from_checkpoint):
+        raise ValueError("finalize_only requires an explicit existing checkpoint")
+    if initial_adapter_precision_transfer is not None and not init_adapter:
+        raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
+    spec = load_spec(data_spec)
+    if type(train_only) is not bool:
+        raise ValueError("train_only must be boolean")
+    if train_only and (validation is not None or probe):
+        raise ValueError("TRAIN-only diagnostic forbids validation/probe")
+    if train_only:
+        step_cap = TRAIN_ONLY_STEP_CAPS[mode]
+        if step_cap is not None and max_steps > step_cap:
+            raise ValueError(f"TRAIN-only {mode} diagnostic exceeds {step_cap} steps")
+        if mode == "sft" and max_steps > 400 and max_active_seconds is None:
+            raise ValueError("extended TRAIN-only SFT requires an original finite active-time cap")
+    if not train_only and validation is None:
+        raise ValueError("validation is required unless train_only is explicit")
+    if probe and (not spec.get("diagnostic_only") or max_steps > 8):
+        raise ValueError("probe requires diagnostic_only data and at most eight optimizer steps")
+    train_rows = load_classification(
+        train,
+        "train",
+        spec["labels"],
+        preprocessing_id=spec.get("preprocessing_id"),
+        require_all_classes=not train_only,
+    )
+    if train_only and len(train_rows) > 400:
+        raise ValueError("TRAIN-only diagnostic is limited to 400 images")
+    validation_rows = (
+        load_classification(
+            validation, "validation", spec["labels"], preprocessing_id=spec.get("preprocessing_id")
+        )
+        if validation is not None
+        else []
+    )
+    if validation_rows:
+        assert_disjoint(train_rows, validation_rows)
+    diagnostic_rows = (
+        sorted(
+            train_rows,
+            key=lambda row: hashlib.sha256(
+                f"train-diagnostic-v1:{seed}:{row['id']}".encode()
+            ).hexdigest(),
+        )[:8]
+        if train_only
+        else train_rows
+    )
+    evaluation_rows = diagnostic_rows if train_only else validation_rows
+    evaluation_name = "train_diagnostic" if train_only else "validation"
+    output = Path(output).resolve()
+    identity = {
+        "model": model,
+        "model_revision": MODEL_REVISIONS[model],
+        "processor_model": model,
+        "processor_revision": MODEL_REVISIONS[model],
+        "profile": asdict(profile),
+        "output_grammar": OUTPUT_GRAMMAR,
+        "data_spec_sha256": _file_sha256(Path(data_spec)),
+        "train": _classification_identity(Path(train), train_rows),
+        "validation": _classification_identity(Path(validation), validation_rows)
+        if validation is not None
+        else None,
+        "image_transform_source_sha256": _file_sha256(Path(inspect.getfile(load_aircraft_rgb)))
+        if spec.get("preprocessing_id") == PREPROCESSING_ID
+        else None,
+    }
+    initial = (
+        _adapter_identity(
+            Path(init_adapter).resolve(),
+            identity,
+            profile,
+            precision_transfer=initial_adapter_precision_transfer,
+        )
+        if init_adapter
+        else None
+    )
+    settings = {
+        "mode": mode,
+        "max_steps": max_steps,
+        "learning_rate": learning_rate,
+        "beta": beta if mode == "grpo" else None,
+        "seed": seed,
+        "save_steps": save_steps,
+        "max_active_seconds": max_active_seconds,
+        "probe": probe,
+        "train_only": train_only,
+        "init_adapter": initial,
+        "device": device,
+        "initial_adapter_precision_transfer": initial_adapter_precision_transfer,
+    }
+    checkpoint, previous, active_state, exposure_state = None, None, None, None
+    if resume_from_checkpoint:
+        checkpoint = Path(resume_from_checkpoint).resolve()
+        if not checkpoint.is_relative_to(output) or any(
+            not (checkpoint / name).is_file()
+            for name in (
+                "trainer_state.json",
+                "optimizer.pt",
+                "scheduler.pt",
+                "rng_state.pth",
+                "adapter_model.safetensors",
+            )
+        ):
+            raise ValueError(
+                "resume requires complete optimizer/scheduler/RNG checkpoint in output"
+            )
+        if device == "mps" and not (checkpoint / "mps_rng_state.pth").is_file():
+            raise ValueError("MPS resume requires the saved mps_rng_state.pth")
+        if (
+            mode == "grpo"
+            and beta > 0
+            and not (checkpoint / "ref/adapter_model.safetensors").is_file()
+        ):
+            raise ValueError("positive-beta resume requires the frozen ref adapter checkpoint")
+        previous = json.loads((output / "local_training.json").read_text())
+        if previous["control_identity"] != identity or previous["settings"] != settings:
+            raise ValueError("resume must preserve exact model/data/profile/settings")
+        active_state = _load_active_time(
+            checkpoint, max_active_seconds, allow_exhausted=finalize_only
+        )
+        if active_state.get("exposure_sha256") is None:
+            raise LocalVLMError("resume requires checkpoint-bound actual prompt exposure")
+        exposure_state = json.loads((checkpoint / "exposure.json").read_text())
+        if len(exposure_state.get("entries", [])) != active_state["global_step"]:
+            raise LocalVLMError("checkpoint exposure count differs from optimizer global step")
+        boundary_reached = (
+            (stop_after_steps is not None and active_state["global_step"] >= stop_after_steps)
+            or (
+                stop_after_active_seconds is not None
+                and active_state["committed_active_seconds"] >= stop_after_active_seconds
+            )
+            or active_state["global_step"] >= max_steps
+            or (
+                max_active_seconds is not None
+                and active_state["committed_active_seconds"] >= max_active_seconds
+            )
+        )
+        if boundary_reached and not finalize_only:
+            raise LocalVLMError("requested cumulative stage boundary is already reached")
+        if finalize_only and not boundary_reached:
+            raise LocalVLMError("finalize_only requires an already-reached stage boundary or cap")
+    elif output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("output is not empty; use a new directory or complete checkpoint")
+    exposure = _ExposureLedger(output, [row["id"] for row in train_rows], exposure_state)
+    environment = preflight(device)
+    if previous and previous["environment"] != environment:
+        raise ValueError("resume requires the original environment and adapter source")
+    output.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": 1,
+        "status": "running",
+        "algorithm": f"TRL-{mode.upper()}",
+        "regularization_profile": ("initial-policy-KL" if beta else "beta-zero-ablation")
+        if mode == "grpo"
+        else "completion-only-SFT",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "control_identity": identity,
+        "settings": settings,
+        "environment": environment,
+        "sources": spec["sources"],
+        "resumed_from": str(checkpoint) if checkpoint else None,
+        "claim_scope": "TRAIN learning diagnostic only; no held-out result"
+        if train_only
+        else "diagnostic only"
+        if probe
+        else "development validation only",
+        "train_diagnostic_ids": [row["id"] for row in diagnostic_rows] if train_only else None,
+        "held_out_benchmark_improvement": "unmeasured",
+        "audit_scope": "current invocation; append-only journals retain earlier invocations",
+        "reference": previous.get("reference") if previous else None,
+        "stage_id": stage_id,
+        "finalize_only": finalize_only,
+        "requested_boundary": {
+            "stop_after_steps": stop_after_steps,
+            "stop_after_active_seconds": stop_after_active_seconds,
+        },
+    }
+    _write(output / "local_training.json", record)
+    _archive_source(output, environment["adapter_source_sha256"])
+    audit = None
+    try:
+        torch = import_module("torch")
+        torch.set_num_threads(2)
+        transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
+        transformers.set_seed(seed)
+        record["model_source"] = _verified_model_directory(model_directory, model)
+        processor = _processor(model_directory, profile)
+        record["processor_audit"] = _audit_processor(
+            processor, train_rows + validation_rows, spec, profile
+        )
+        dataset = _dataset(train_rows, spec, mode, profile)
+        policy = transformers.AutoModelForImageTextToText.from_pretrained(
+            str(model_directory),
+            trust_remote_code=False,
+            local_files_only=True,
+            use_safetensors=True,
+            dtype=getattr(torch, profile.dtype),
+            attn_implementation="sdpa",
+        )
+        if policy.config.model_type not in {"qwen2_vl", "qwen2_5_vl"}:
+            raise LocalVLMError("unexpected cached model architecture")
+        lora = peft.LoraConfig(
+            r=profile.lora_rank,
+            lora_alpha=2 * profile.lora_rank,
+            lora_dropout=0.0,
+            target_modules=["q_proj", "v_proj"],
+            task_type="CAUSAL_LM",
+            bias="none",
+        )
+        policy = (
+            peft.PeftModel.from_pretrained(policy, str(init_adapter), is_trainable=True)
+            if init_adapter
+            else peft.get_peft_model(policy, lora)
+        )
+        policy.to(device)
+        if initial:
+            record["initial_adapter_tensor_audit"] = _verify_initial_adapter_tensors(
+                policy, Path(init_adapter)
+            )
+        record["parameter_dtypes"] = {
+            "trainable": dict(
+                Counter(
+                    str(parameter.dtype)
+                    for parameter in policy.parameters()
+                    if parameter.requires_grad
+                )
+            ),
+            "frozen": dict(
+                Counter(
+                    str(parameter.dtype)
+                    for parameter in policy.parameters()
+                    if not parameter.requires_grad
+                )
+            ),
+        }
+        for layer in policy.modules():
+            if isinstance(layer, torch.nn.Dropout):
+                layer.p = 0.0
+        kwargs = trainer_kwargs(
+            mode,
+            output,
+            profile,
+            device=device,
+            max_steps=max_steps,
+            learning_rate=learning_rate,
+            seed=seed,
+            save_steps=save_steps,
+            beta=beta,
+        )
+        args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
+        if args.device.type != device:
+            raise LocalVLMError(f"Accelerate selected {args.device}, expected {device}")
+        audit = _audit_callback(
+            output,
+            max_active_seconds,
+            device=device,
+            resume_state=active_state,
+            exposure=exposure,
+            stop_after_steps=stop_after_steps,
+            stop_after_active_seconds=stop_after_active_seconds,
+        )
+        eos = policy.generation_config.eos_token_id
+        eos = [eos] if isinstance(eos, int) else list(eos or [])
+        eos = sorted(set(eos + [processor.tokenizer.eos_token_id]))
+        reward = make_reward(
+            spec["labels"],
+            profile.num_generations,
+            eos,
+            output / "reward_groups.jsonl",
+            allow_reasoning=True,
+            journal_io_context=audit.timer.exclude_journal_io,
+            observe_prompt=audit.observe_prompt,
+        )
+        constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
+        if mode == "grpo":
+            constructor = _trainer_with_grpo_resume(
+                constructor,
+                expected_reference=previous["reference"]["adapter"]
+                if previous and beta > 0
+                else None,
+            )
+        else:
+            constructor = _trainer_with_sft_exposure(constructor, audit)
+        constructor = _trainer_with_mps_rng(constructor, device)
+        constructor = _trainer_with_active_time(constructor)
+        trainer = constructor(
+            model=policy,
+            args=args,
+            processing_class=processor,
+            train_dataset=dataset,
+            callbacks=[audit],
+            **({"reward_funcs": reward} if mode == "grpo" else {}),
+        )
+        if mode == "sft":
+            trainer.data_collator = _sft_collator_with_ids(trainer.data_collator)
+        reference = (
+            _reference_identity(trainer, init_adapter=initial, model=model)
+            if mode == "grpo" and beta > 0
+            else None
+        )
+        if previous and reference != previous["reference"]:
+            raise LocalVLMError("resume reference identity differs from the original run")
+        record["reference"] = reference
+        audit.expected_reference = reference["adapter"] if reference else None
+        record["trainable_parameters"] = {
+            "count": sum(
+                parameter.numel() for parameter in policy.parameters() if parameter.requires_grad
+            ),
+            "names": [
+                name for name, parameter in policy.named_parameters() if parameter.requires_grad
+            ],
+        }
+        # Trainer owns restoration. Avoid labeling fresh initialization as a resumed pre-score.
+        if not checkpoint:
+            before, predictions = _evaluate(
+                policy, processor, evaluation_rows, spec, profile, device
+            )
+            record[f"before_{evaluation_name}"] = before
+            _write(output / f"before_{evaluation_name}_predictions.json", predictions)
+            if probe or train_only:
+                record["before_train_gold_nll"] = _gold_nll(
+                    policy, processor, diagnostic_rows, spec, profile, device
+                )
+                if mode == "grpo":
+                    record["sampler_teacher_logprob_parity"] = _sampler_parity(
+                        trainer, processor, train_rows[0], spec, profile, device
+                    )
+        else:
+            for key in (
+                "before_validation",
+                "before_train_diagnostic",
+                "before_train_gold_nll",
+                "sampler_teacher_logprob_parity",
+            ):
+                if key in previous:
+                    record[key] = previous[key]
+        _write(output / "local_training.json", record)
+        if finalize_only:
+            _restore_endpoint_without_training(trainer, checkpoint, audit)
+            train_metrics = {
+                "endpoint_recovery_only": True,
+                "optimizer_steps_this_invocation": 0,
+                "global_step": trainer.state.global_step,
+            }
+        else:
+            trained = trainer.train(resume_from_checkpoint=str(checkpoint) if checkpoint else None)
+            train_metrics = trained.metrics
+        after, predictions = _evaluate(policy, processor, evaluation_rows, spec, profile, device)
+        _write(output / f"after_{evaluation_name}_predictions.json", predictions)
+        adapter = output / "final_adapter"
+        trainer.save_model(str(adapter))
+        processor.save_pretrained(str(adapter))
+        trainer.save_state()
+        record.update(
+            status="completed",
+            train_metrics=train_metrics,
+            optimizer_audit=audit.summary,
+            reward_audit=reward.stats if mode == "grpo" else None,
+            final_adapter=str(adapter),
+            final_adapter_sha256=_file_sha256(adapter / "adapter_model.safetensors"),
+        )
+        record[f"after_{evaluation_name}"] = after
+        if probe or train_only:
+            after_nll = _gold_nll(policy, processor, diagnostic_rows, spec, profile, device)
+            # Reload the saved adapter into the same frozen base to verify persistence without
+            # allocating a second VLM. The optimizer is no longer used after this point.
+            base = policy.unload()
+            reloaded = peft.PeftModel.from_pretrained(base, str(adapter), is_trainable=False)
+            reload_nll = _gold_nll(reloaded, processor, diagnostic_rows, spec, profile, device)
+            record["probe"] = {
+                "after_train_gold_nll": after_nll,
+                "reloaded_train_gold_nll": reload_nll,
+                "reload_nll_agrees": math.isclose(
+                    after_nll, reload_nll, rel_tol=1e-5, abs_tol=1e-5
+                ),
+                "gold_nll_improved": after_nll < record["before_train_gold_nll"],
+                "gradient_and_weight_change": audit.summary["nonzero_gradient_steps"] > 0
+                and audit.summary["changed_tensors"] > 0,
+                "mixed_reward_groups": reward.stats["mixed_groups"] if mode == "grpo" else None,
+                "sampler_teacher_logprob_parity": record.get("sampler_teacher_logprob_parity"),
+                "held_out_benchmark_gain": "not measured by this diagnostic",
+            }
+        _write(output / "local_training.json", record)
+        _publish_endpoint_receipt(output, record, trainer.state.global_step)
+    except BaseException as exc:
+        if audit is not None:
+            try:
+                audit.timer.interrupt()
+                record["active_time_audit"] = audit.timer.summary()
+            except Exception as timing_exc:
+                record["active_time_error"] = str(timing_exc)
+        record.update(
+            status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        _write(output / "local_training.json", record)
+        raise
+    return record
+
+
+def make_probe_data(output: Path) -> dict:
+    """Deterministic synthetic diagnostic, explicitly excluded from benchmark claims."""
+    import random
+
+    pil = import_module("PIL.Image")
+    draw_module = import_module("PIL.ImageDraw")
+    output = Path(output)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("probe data output must be empty")
+    output.mkdir(parents=True, exist_ok=True)
+    spec = {
+        "schema_version": 1,
+        "benchmark": "synthetic-diagnostic-color-majority-v1",
+        "diagnostic_only": True,
+        "labels": ["blue", "red"],
+        "question": "Which color occupies more squares in the colored grid?",
+        "split_policy": "8 diagnostic train images, 4 diagnostic validation images; no test",
+        "preprocessing": "224x224 RGB grid; 36 versus 28 squares; no external images",
+        "sources": [
+            {
+                "url": "generated://vision_rl.vlm_local_training/make_probe_data",
+                "sha256": _file_sha256(Path(__file__)),
+            }
+        ],
+    }
+    for split, count, seed in (("train", 8, 1042), ("validation", 4, 2042)):
+        rng, rows = random.Random(seed), []
+        for index in range(count):
+            label = spec["labels"][index % 2]
+            other = spec["labels"][(index + 1) % 2]
+            colors = [label] * 36 + [other] * 28
+            rng.shuffle(colors)
+            image = pil.new("RGB", (224, 224), "gray")
+            draw = draw_module.Draw(image)
+            for cell, color in enumerate(colors):
+                x, y = 16 + cell % 8 * 24, 16 + cell // 8 * 24
+                draw.rectangle((x, y, x + 23, y + 23), fill=color)
+            identifier = f"{split}-{index}"
+            image.save(output / f"{identifier}.png")
+            rows.append(
+                {"id": identifier, "split": split, "image": f"{identifier}.png", "label": label}
+            )
+        (output / f"{split}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    _write(output / "data_spec.json", spec)
+    return {"path": str(output.resolve()), "diagnostic_only": True}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--make-probe-data", type=Path)
+    parser.add_argument(
+        "--predict-train",
+        type=Path,
+        help="Frozen-base inference on at most 32 TRAIN images; never fits",
+    )
+    parser.add_argument(
+        "--sample-train",
+        type=Path,
+        help="Frozen-base sampled reward groups on at most 32 TRAIN images; never fits",
+    )
+    parser.add_argument("--mode", choices=("grpo", "sft"), default="grpo")
+    for name in (
+        "train",
+        "validation",
+        "data-spec",
+        "output",
+        "model-directory",
+        "init-adapter",
+        "resume-from-checkpoint",
+    ):
+        parser.add_argument(f"--{name}", type=Path)
+    parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
+    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--max-steps", type=int, default=64)
+    parser.add_argument("--learning-rate", type=float, default=1e-5)
+    parser.add_argument(
+        "--beta",
+        type=float,
+        default=0.04,
+        help="GRPO KL coefficient; 0 explicitly selects the no-KL ablation",
+    )
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--save-steps", type=int, default=8)
+    parser.add_argument("--max-active-seconds", type=float)
+    parser.add_argument("--stop-after-steps", type=int)
+    parser.add_argument("--stop-after-active-seconds", type=float)
+    parser.add_argument("--stage-id")
+    parser.add_argument("--finalize-only", action="store_true")
+    parser.add_argument("--initial-adapter-precision-transfer", choices=("float32-to-bfloat16",))
+    parser.add_argument("--probe", action="store_true")
+    parser.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Bounded TRAIN learning diagnostic; no held-out data",
+    )
+    for name, value in asdict(Profile()).items():
+        parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
+    args = vars(parser.parse_args(argv))
+    try:
+        if args.pop("preflight"):
+            result = preflight(args["device"])
+        elif path := args.pop("make_probe_data"):
+            result = make_probe_data(path)
+        else:
+            predict_train = args.pop("predict_train")
+            sample_train = args.pop("sample_train")
+            if predict_train is not None and sample_train is not None:
+                parser.error("choose --predict-train or --sample-train")
+            args["profile"] = Profile(**{key: args.pop(key) for key in asdict(Profile())})
+            if predict_train is not None or sample_train is not None:
+                if not all(args[k] for k in ("data_spec", "output", "model_directory")):
+                    parser.error(
+                        "TRAIN inference requires --data-spec, --output, --model-directory"
+                    )
+                if any(
+                    args[k]
+                    for k in (
+                        "train",
+                        "validation",
+                        "resume_from_checkpoint",
+                        "probe",
+                        "train_only",
+                        "stop_after_steps",
+                        "stop_after_active_seconds",
+                        "stage_id",
+                        "finalize_only",
+                        "initial_adapter_precision_transfer",
+                    )
+                ):
+                    parser.error("TRAIN inference cannot be combined with training inputs")
+                function = sample_train_groups if sample_train is not None else predict_train_subset
+                result = function(
+                    sample_train if sample_train is not None else predict_train,
+                    **({"seed": args["seed"]} if sample_train is not None else {}),
+                    **{
+                        key: args[key]
+                        for key in (
+                            "data_spec",
+                            "output",
+                            "model_directory",
+                            "model",
+                            "device",
+                            "profile",
+                            "init_adapter",
+                        )
+                    },
+                )
+                print(json.dumps(result, indent=2, allow_nan=False))
+                return 0
+            if not all(args[k] for k in ("train", "data_spec", "output")) or (
+                not args["train_only"] and not args["validation"]
+            ):
+                parser.error(
+                    "--train, --data-spec, --output and --validation or --train-only required"
+                )
+            result = train_local(**args)
+        print(json.dumps(result, indent=2, allow_nan=False))
+        return 0
+    except (LocalVLMError, ValueError, OSError) as exc:
+        print(f"local VLM: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -4,9 +4,11 @@
 
 Train specialist vision models for tasks where general models struggle, then compare them on the same held-out examples. Docker supplies the environment, Harbor runs the training agent and independent verifier, and the training backends update model weights from correctness rewards.
 
-This is an **independent Roboflow Labs onboarding and learning project** inspired by its public work on visual capability gaps. Its detection pipeline fine-tunes a complete RF-DETR transformer, trains a reward-driven box refinement policy, and measures native COCO average precision against live frontier models. A small CPU exercise introduces the same training and verification workflow.
+This is an **independent Roboflow Labs onboarding and learning project** inspired by its public work on visual capability gaps. It includes pretrained vision-language GRPO, complete RF-DETR training, and controlled comparisons with supervised learning and named general models. A small CPU exercise introduces the training and verification workflow.
 
 The experiment controller journals candidate runs, resumes interrupted work, selects using validation, freezes model and inference settings, and reserves final evaluation once. Real training, inference, and pristine-container verification are required alongside the software tests.
+
+For the current pretrained RL path, start with the [local VLM walkthrough](docs/local-vlm-onboarding.md). It uses released TRL, a pinned Qwen2-VL snapshot, one common initialization, three supervised controls, and separate checkpoints at equal image exposure and equal active training time. The current Aircraft controller is a TRAIN-only diagnostic; it cannot declare a held-out win.
 
 ## Train a full vision specialist
 
@@ -53,6 +55,8 @@ The subsequent experiment uses [public wheat images with disjoint acquisition do
 The [wheat learning attempt](docs/wheat-direct-rl-outcome-2026-10-16.md) did not pass. After 20 saved RL updates, independently evaluated equal-domain accuracy decreased from **65.21% to 64.83%** on all 1,476 validation images under the same calibration search. The run then rejected a trust-region proposal; the independent drift check also failed. The planned 64-update comparison and matched controls were not completed. The observed training reward gain came from confidence changes, with no geometry-only reward gain on the fixed diagnostic images. This evidence ends the current Gaussian-detector experiment; it does not establish that other RL methods cannot improve wheat detection.
 
 The current experiment is token-based VLM reinforcement learning on public fine-grained Aircraft classification. Its [data preparation](docs/fgvc-aircraft-image-preparation-2026-10-16.md) fixes four native training images per class, **400 images across all 100 variants**, before training. A [completed 400-update supervised warm start](reports/2026-10-16-aircraft-warmstart/README.md) supplies the same initialization to subsequent RL and supervised controls. On the prospectively fixed 32-image TRAIN support assay, its direct-answer policy produced **181/256 correct samples (70.70%)**, **243/256 valid answers**, and useful correct-versus-incorrect reward groups on 14 images. It passed the preset support gate; the reasoning prompt failed its validity threshold. These are training diagnostics and supervised gains, not an RL or held-out win. The original-image and complete cross-split checks remain pending. The [strategy review](docs/rl-strategy-review-2026-10-16.md) distinguishes this adaptation from published experiments and documents why their permissive substring scorer is not directly comparable with our exact-label metric.
+
+The [real four-update mechanism experiment](reports/2026-10-16-aircraft-mechanism/README.md) produced task-reward gradients and changed 112 adapter tensors. Four uninterrupted GRPO updates and a two-plus-two continuation produced exactly identical samples and final weights on MPS. Greedy TRAIN accuracy remained **3/4**, and SFT had slightly lower final answer loss: **0.08192 versus 0.08215**. A separate BF16 trial ran **2.04× faster** but failed its frozen numerical tolerance and was rejected. The current [400-update controlled recipe](recipes/aircraft-controlled400-v1.json) retains FP32; these diagnostics establish neither RL superiority nor benchmark performance.
 
 ```mermaid
 flowchart LR
@@ -121,7 +125,8 @@ flowchart LR
 - **Roboflow:** list workspace projects, download a version, and import classification folders or COCO annotations as image questions. Credentials stay in your environment or ignored `.env`.
 - **Native object detection:** fine-tune RF-DETR on COCO data, train a contextual refinement policy, evaluate native detection AP, and package numeric model artifacts for the independent Harbor verifier. `make-detection-task` runs `DetectionTrainingAgent`.
 - **Real-image counting:** train a head over frozen ResNet18 features with a supervised warm start and REINFORCE. Runs on CPU, Apple MPS, or CUDA with the separate `requirements-vision.txt` environment; compare its RL and supervised checkpoints.
-- **VLM training:** run GRPO with LoRA on a supported pretrained vision-language model using a Linux NVIDIA GPU. The optional stack is in `requirements-vlm.txt`; `Dockerfile.gpu` packages it.
+- **Local pretrained VLM training:** run pinned TRL GRPO and completion-only SFT on CPU or Apple MPS, with actual prompt traces, immutable reference weights, cumulative compute budgets and checked continuation. See the [walkthrough](docs/local-vlm-onboarding.md) and [measured design](docs/local-vlm-rl-design.md). `Dockerfile.vlm` packages the CPU runtime; pretrained Harbor training still needs its separate dogfood run.
+- **CUDA VLM training:** the separate optional stack is in `requirements-vlm.txt`; `Dockerfile.gpu` packages it. Actual CUDA execution remains unvalidated.
 - **Custom Harbor tasks:** `make-count-task` runs `CountTrainingAgent` on CPU; `make-vlm-task` runs `VLMTrainingAgent` on GPU. Both keep test data outside the training image and use separate verifiers.
 - **Benchmarking:** evaluate a checkpoint, a VLM adapter, a multimodal `/chat/completions` endpoint, or saved predictions. Compare matched results with paired bootstrap intervals and retain request failures.
 - **Frontier models through Roboflow:** `python -m vision_rl.roboflow_inference` evaluates Gemini through Roboflow credits using `ROBOFLOW_API_KEY`, retaining native model identity and usage alongside scored predictions.
@@ -164,6 +169,7 @@ Discover weaknesses on validation, train on training data, freeze the candidate,
 
 - [Onboarding walkthrough](docs/onboarding.md): CPU exercise, Docker/Harbor, Roboflow import, GPU training, and comparisons.
 - [Full detector and RL walkthrough](docs/detection-onboarding.md): RF-DETR, native AP, resumable experiments, frozen comparisons, and safe Harbor submissions.
+- [Local VLM walkthrough](docs/local-vlm-onboarding.md): pinned Qwen2-VL, controlled GRPO/SFT trajectories, exact continuation and the numeric Harbor grading boundary.
 - [Detection research and design](docs/detection-research.md): primary sources, objective design, and dataset limitations.
 - [Research and benchmark choices](docs/research.md): verified Roboflow Labs/Agent announcements and official HSS/RF100-VL sources.
 - [Measured results and validation](docs/results.md): executed experiments, exact scope, and remaining hardware limitations.

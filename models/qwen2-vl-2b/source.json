@@ -1,0 +1,75 @@
+{
+  "model_repository": "Qwen/Qwen2-VL-2B-Instruct",
+  "revision": "895c3a49bc3fa70a340399125c650a463535e71c",
+  "quantization": "none; official pretrained safetensors",
+  "files": [
+    {
+      "path": "LICENSE",
+      "size_bytes": 11343,
+      "git_blob_id": "6634c8cc3133b3848ec74b9f275acaaa1ea618ab"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 17392,
+      "git_blob_id": "069d978f02c1c1eb03153ef9d986334b77168182"
+    },
+    {
+      "path": "chat_template.json",
+      "size_bytes": 1050,
+      "git_blob_id": "732bd68bc5427d1fb6c06a59b3bf2456b2155d24"
+    },
+    {
+      "path": "config.json",
+      "size_bytes": 1196,
+      "git_blob_id": "8e922d54443e7d2ad46c01baea1b772ecbc6228e"
+    },
+    {
+      "path": "generation_config.json",
+      "size_bytes": 272,
+      "git_blob_id": "896384ee102f9a2696e2f6eb02ba5a143f198fac"
+    },
+    {
+      "path": "merges.txt",
+      "size_bytes": 1671839,
+      "git_blob_id": "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0"
+    },
+    {
+      "path": "model-00001-of-00002.safetensors",
+      "size_bytes": 3988609112,
+      "git_blob_id": "85cc1b67c1a034c0be0f4500069cce629b1a7ca7",
+      "sha256": "994ac2b03f97de8bc647d0fe5eba2e4b632b3e28dc03574c29bdfc36cf47e1b9"
+    },
+    {
+      "path": "model-00002-of-00002.safetensors",
+      "size_bytes": 429441656,
+      "git_blob_id": "11541ce8d7bb033df9dfc9eaa891dd1c80d0fd52",
+      "sha256": "92540d8353c8d226a589a3b179bdb33851c970ee2cc2ac7ba035f79425e7b833"
+    },
+    {
+      "path": "model.safetensors.index.json",
+      "size_bytes": 56411,
+      "git_blob_id": "293d54cd8408e82d1bdd2eabd07d9311eb406b52"
+    },
+    {
+      "path": "preprocessor_config.json",
+      "size_bytes": 347,
+      "git_blob_id": "c8bf52bdaee98b049e28da3ef94119f896b03a8d"
+    },
+    {
+      "path": "tokenizer.json",
+      "size_bytes": 7029741,
+      "git_blob_id": "f5195cf97e3c90290b670d48a7c46fef5f145ebc"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size_bytes": 4190,
+      "git_blob_id": "ecbc13d75ff851c4f1e57990064f81303b2494f6"
+    },
+    {
+      "path": "vocab.json",
+      "size_bytes": 2776833,
+      "git_blob_id": "4783fe10ac3adce15ac8f358ef5462739852c569"
+    }
+  ],
+  "metadata_url": "https://huggingface.co/api/models/Qwen/Qwen2-VL-2B-Instruct/revision/895c3a49bc3fa70a340399125c650a463535e71c?blobs=true"
+}

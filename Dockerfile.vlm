@@ -1,0 +1,19 @@
+# CPU-only packaging for the exact local TRL path. No model download/build load.
+FROM python:3.12.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2 \
+    HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 TOKENIZERS_PARALLELISM=false
+WORKDIR /app
+RUN pip install --no-cache-dir torch==2.14.1 torchvision==0.29.1 \
+    --index-url https://download.pytorch.org/whl/cpu
+COPY requirements-vlm-local.lock /opt/requirements-vlm-local.lock
+RUN pip install --no-cache-dir --no-deps --require-hashes \
+    -r /opt/requirements-vlm-local.lock && pip check
+COPY pyproject.toml /opt/vision-rl/pyproject.toml
+COPY src /opt/vision-rl/src
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /opt/vision-rl \
+    && pip check
+# The task mounts the already verified public snapshot read-only. Each training
+# and independent grading process checks every actual mounted file's digest.
+# A 4 GiB demo VM is insufficient: the FP32 base alone occupies 8.23 GiB.
+CMD ["python", "-m", "vision_rl.vlm_local_training", "--preflight", "--device", "cpu"]

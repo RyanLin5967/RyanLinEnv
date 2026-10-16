@@ -43,16 +43,24 @@ PYTHONPATH=src python scripts/prepare_aircraft_probe.py \
   --metadata-archive runs/aircraft-audit/annotations.tar.gz \
   --output runs/aircraft-shared-probe16/prepared
 
+PYTHONPATH=src python scripts/fetch_aircraft_fourshot.py \
+  --metadata-archive runs/aircraft-audit/annotations.tar.gz
+
 PYTHONPATH=src python scripts/extract_aircraft.py \
   --metadata-archive runs/aircraft-audit/annotations.tar.gz \
   --reserve-gib 10 --remove-verified-archive
 
-# After the complete integrity gate passes:
+# After the author extraction completes, verify both frozen mirror candidates:
+PYTHONPATH=src python scripts/verify_aircraft_clearance.py \
+  --metadata-archive runs/aircraft-audit/annotations.tar.gz
+
+# Requires the preceding author-equivalence receipt and freshly rechecks it:
 PYTHONPATH=src python scripts/prepare_aircraft_manifests.py \
   --metadata-archive runs/aircraft-audit/annotations.tar.gz
 
 pytest tests/test_aircraft_data.py tests/test_aircraft_images.py \
-  tests/test_aircraft_extraction.py tests/test_aircraft_fourshot.py
+  tests/test_aircraft_extraction.py tests/test_aircraft_fourshot.py \
+  tests/test_aircraft_clearance.py
 ```
 
 The [published 16-image selection](fgvc-aircraft-probe16-plan-v1.json) is an exact byte copy of the prospectively frozen local selection. The acquisition validates its IDs and labels directly against the pinned author metadata; it does not need the ignored local metadata path recorded inside that historical selection. All examples above name the same metadata archive explicitly, so they do not depend on existing local run files. Install the project's existing development dependencies before running the tests.
@@ -60,6 +68,8 @@ The [published 16-image selection](fgvc-aircraft-probe16-plan-v1.json) is an exa
 Preparation validation: **33 tests passed**, covering training-only selection, full-vocabulary retention, immutable image copies, sealed test placement, duplicate gating, cropped-pixel identity, disk guards, preservation of partial downloads, and metric parity. The additional four-shot tests verify exact balanced selection, reject changes to the frozen plan, reuse a single image inode without network transfer, and reject incorrect mirror bytes. Re-running a completed extraction verifies all retained original-byte hashes and source manifests without downloading or decoding again. Changed originals fail explicitly and are preserved for investigation. Development manifest publication requires the complete integrity gate, emits no test rows, and refuses to silently replace changed experiment inputs. This is preparation evidence, not model validation.
 
 The data-only publication subset independently passes **24 tests** with only its own scripts, shared image helper, Pillow and pytest. This was verified in an isolated directory with the VLM trainer module physically absent and no dataset images or local audit artifacts copied into it. The other nine tests import `vision_rl.vlm_local_training.classification_metrics`; publish and run that optional Python replay test with the trainer module. The official Octave evidence and `.m` fixture have no dependency on the Python trainer.
+
+The later clearance hardening adds an explicit author-equivalence receipt before any native validation manifest can be published. It compares the immutable 16- and 400-image manifests, acquisition provenance and selection plans against the author labels and training membership, including their full vocabulary, preprocessing identity, exact original-JPEG paths and retained byte hashes. A consistently hashed but incorrect label or split fails this semantic check. Publication requires the receipt to equal freshly reconstructed evidence, including source and input hashes; an absent or stale receipt fails before any output is written. These checks preserve the candidate inputs and perform no image decoding or model calls. The current data-only suite passes **37 tests**, including synthetic regressions for those failures without accessing benchmark images.
 
 ## Executed official evaluator parity
 

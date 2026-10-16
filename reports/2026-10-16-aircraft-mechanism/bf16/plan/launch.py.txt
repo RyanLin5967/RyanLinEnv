@@ -1,0 +1,296 @@
+"""Frozen four-update real-task GRPO/SFT diagnostic plus measured MPS resume."""
+
+import argparse
+import gc
+import hashlib
+import json
+import os
+import shutil
+import signal
+import subprocess
+import threading
+import time
+from pathlib import Path
+
+import psutil
+
+PLAN = Path(__file__).resolve().parent
+ROOT = PLAN.parents[1]
+OUTPUT = ROOT / "runs/aircraft-bf16-four-update-v1"
+GUARD = ROOT / "runs/aircraft-bf16-four-update-v1-guard"
+PRIOR_PIDS = (55495, 55496)
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    temporary.replace(path)
+
+
+def verify(expected, require_release=False):
+    if sha(PLAN / "plan.json") != expected:
+        raise ValueError("prospective plan SHA256 differs")
+    plan = json.loads((PLAN / "plan.json").read_text())
+    if sha(Path(__file__)) != plan["launcher_sha256"]:
+        raise ValueError("launcher source differs")
+    for name, digest in plan["source_files_sha256"].items():
+        if sha(PLAN / name) != digest:
+            raise ValueError(f"frozen source differs: {name}")
+    for name, digest in plan["inputs"].items():
+        if sha(ROOT / name) != digest:
+            raise ValueError(f"frozen input differs: {name}")
+    manifest = PLAN / "train4.jsonl"
+    rows = [json.loads(line) for line in manifest.read_text().splitlines() if line.strip()]
+    provenance = json.loads((ROOT / "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/provenance.json").read_text())
+    images = {item["id"]: item for item in provenance["images"]}
+    if [row["id"] for row in rows] != plan["ids"]:
+        raise ValueError("frozen TRAIN ID order differs")
+    for row in rows:
+        if (
+            row["split"] != "train"
+            or sha(manifest.parent / row["image"]) != images[row["id"]]["encoded_sha256"]
+        ):
+            raise ValueError(f"frozen TRAIN image bytes differ: {row['id']}")
+    if sha(PLAN / "prompt.txt") != plan["prompt_sha256"]:
+        raise ValueError("frozen task text differs")
+    if sha(ROOT / plan["model_directory"] / "model-source.json") != plan["model_source_sha256"]:
+        raise ValueError("model source identity differs")
+    live = [pid for pid in PRIOR_PIDS if psutil.pid_exists(pid)]
+    if require_release and live:
+        raise RuntimeError(f"prior accelerator owner has not exited: {live}")
+    if shutil.disk_usage(ROOT).free < plan["guard"]["minimum_free_bytes"]:
+        raise RuntimeError("free-space reserve is below the frozen minimum")
+    return plan, live
+
+
+def worker(expected):
+    plan, _ = verify(expected, require_release=True)
+    import torch
+
+    from vision_rl import vlm_local_training as local
+
+    if Path(local.__file__).resolve() != PLAN / "source/vision_rl/vlm_local_training.py":
+        raise RuntimeError("worker did not import the frozen isolated adapter")
+    torch.set_num_threads(2)
+    limit = plan["guard"]["mps_driver_limit_bytes"]
+    recommended = torch.mps.recommended_max_memory()
+    torch.mps.set_per_process_memory_fraction(min(1.0, limit / recommended))
+    started, done = time.monotonic(), threading.Event()
+    stats = {
+        "pid": os.getpid(),
+        "phase": "load",
+        "peak_driver_allocated_bytes": 0,
+        "peak_current_allocated_bytes": 0,
+        "recommended_max_memory_bytes": recommended,
+        "driver_limit_bytes": limit,
+        "sampling_interval_seconds": 0.5,
+        "allocator_fraction": min(1.0, limit / recommended),
+        "phase_peaks": {},
+    }
+
+    def telemetry():
+        with (GUARD / "mps-telemetry.jsonl").open("a") as handle:
+            while not done.is_set():
+                try:
+                    driver = torch.mps.driver_allocated_memory()
+                    allocated = torch.mps.current_allocated_memory()
+                    stats["peak_driver_allocated_bytes"] = max(
+                        stats["peak_driver_allocated_bytes"], driver
+                    )
+                    stats["peak_current_allocated_bytes"] = max(
+                        stats["peak_current_allocated_bytes"], allocated
+                    )
+                    stats["phase_peaks"][stats["phase"]] = max(
+                        stats["phase_peaks"].get(stats["phase"], 0), driver
+                    )
+                    handle.write(
+                        json.dumps(
+                            {
+                                "elapsed_seconds": time.monotonic() - started,
+                                "phase": stats["phase"],
+                                "driver_allocated_bytes": driver,
+                                "current_allocated_bytes": allocated,
+                            }
+                        )
+                        + "\n"
+                    )
+                    handle.flush()
+                    write(GUARD / "mps-summary.json", stats)
+                    if driver > limit:
+                        raise RuntimeError("MPS driver memory limit exceeded")
+                except Exception as exc:
+                    stats["stop_reason"] = f"{type(exc).__name__}: {exc}"
+                    write(GUARD / "mps-summary.json", stats)
+                    os.kill(os.getpid(), signal.SIGINT)
+                    return
+                done.wait(0.5)
+
+    thread = threading.Thread(target=telemetry, daemon=True)
+    thread.start()
+    records = {}
+    try:
+        profile = local.Profile(**plan["profile"])
+        kwargs = dict(
+            data_spec=ROOT / "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json",
+            model_directory=ROOT / plan["model_directory"],
+            device="mps",
+            profile=profile,
+            init_adapter=ROOT / "runs/aircraft-warmstart-v1/final_adapter",
+        )
+        manifest = PLAN / "train4.jsonl"
+        spec = local.load_spec(kwargs["data_spec"])
+        rows = local.load_classification(
+            manifest,
+            "train",
+            spec["labels"],
+            preprocessing_id=spec["preprocessing_id"],
+            require_all_classes=False,
+        )
+        if {row["id"]: row["image_sha256"] for row in rows} != plan["model_visible_pixels"]:
+            raise RuntimeError("model-visible frozen pixel hashes differ")
+        if hashlib.sha256(local.prompt_text(spec, profile.response_format).encode()).hexdigest() != plan["prompt_sha256"]:
+            raise RuntimeError("rendered frozen task text differs")
+        common = dict(validation=None, train_only=True, max_steps=4, learning_rate=1e-5,
+                      beta=0.04, seed=42, save_steps=2, max_active_seconds=900, initial_adapter_precision_transfer="float32-to-bfloat16", **kwargs)
+        for phase in plan["phases"]:
+            name = phase["name"]
+            stats["phase"] = name
+            folder = OUTPUT / phase["trajectory"]
+            extra = dict(stop_after_steps=phase["stop_after_steps"], stage_id=name)
+            if phase["resume_from"]:
+                extra["resume_from_checkpoint"] = folder / phase["resume_from"]
+            record = local.train_local(manifest, output=folder, mode=phase["mode"], **extra, **common)
+            receipt = local.read_endpoint_receipt(folder, expected_stage_id=name)
+            if receipt["global_step"] != phase["stop_after_steps"]:
+                raise RuntimeError("Incomplete mechanism phase; no implicit retry")
+            write(OUTPUT / "phase-snapshots" / f"{name}.json", {"record": record, "receipt": receipt})
+            records[name] = {"status": record["status"], "receipt": receipt,
+                             "optimizer_audit": record["optimizer_audit"],
+                             "reward_audit": record["reward_audit"], "probe": record["probe"],
+                             "before_train_diagnostic": record["before_train_diagnostic"],
+                             "after_train_diagnostic": record["after_train_diagnostic"]}
+            write(OUTPUT / "phase-summary.json", records)
+            gc.collect()
+            torch.mps.synchronize()
+            torch.mps.empty_cache()
+        print(json.dumps(records, indent=2))
+    finally:
+        done.set()
+        thread.join(timeout=2)
+        write(GUARD / "mps-summary.json", stats)
+
+
+def supervise(expected):
+    plan, _ = verify(expected, require_release=True)
+    if GUARD.exists() or OUTPUT.exists():
+        raise ValueError("existing outputs are never overwritten or retried implicitly")
+    GUARD.mkdir(parents=True)
+    env = dict(os.environ)
+    env.update(
+        PYTHONPATH=f"{PLAN}/source:{ROOT}/runs/vlm-local-libs/site-packages",
+        OMP_NUM_THREADS="2",
+        VECLIB_MAXIMUM_THREADS="2",
+        OPENBLAS_NUM_THREADS="2",
+        HF_HUB_OFFLINE="1",
+        PYTORCH_ENABLE_MPS_FALLBACK="0",
+        ACCELERATE_TORCH_DEVICE="mps",
+    )
+    argv = [
+        str(ROOT / ".venv-detection/bin/python"),
+        "-B",
+        str(Path(__file__)),
+        "--worker",
+        "--expected-plan-sha256",
+        expected,
+    ]
+    record = {
+        "supervisor_pid": os.getpid(),
+        "status": "running",
+        "plan_sha256": expected,
+        "command": argv,
+        "limits": plan["guard"],
+        "peak_rss_bytes": 0,
+        "no_hidden_cpu_fallback": True,
+        "former_owner_pids_absent": list(PRIOR_PIDS),
+    }
+    start = time.monotonic()
+    with (GUARD / "actor.log").open("w") as log:
+        child = subprocess.Popen(
+            argv, cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log
+        )
+        record["child_pid"] = child.pid
+        write(GUARD / "supervisor.json", record)
+        process = psutil.Process(child.pid)
+        while child.poll() is None:
+            try:
+                rss = process.memory_info().rss
+            except psutil.NoSuchProcess:
+                break
+            record["peak_rss_bytes"] = max(record["peak_rss_bytes"], rss)
+            record["elapsed_seconds"] = time.monotonic() - start
+            record["output_bytes"] = sum(
+                p.stat().st_size
+                for folder in (GUARD, OUTPUT)
+                for p in folder.rglob("*")
+                if p.is_file()
+            )
+            limits = plan["guard"]
+            reason = (
+                "rss limit"
+                if rss > limits["rss_limit_bytes"]
+                else "output limit"
+                if record["output_bytes"] > limits["output_limit_bytes"]
+                else "disk reserve"
+                if shutil.disk_usage(ROOT).free < limits["minimum_free_bytes"]
+                else "wall limit"
+                if record["elapsed_seconds"] > limits["wall_limit_seconds"]
+                else None
+            )
+            if reason:
+                record["stop_reason"] = reason
+                child.send_signal(signal.SIGINT)
+                try:
+                    child.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                break
+            write(GUARD / "supervisor.json", record)
+            time.sleep(0.5)
+        record["exit_code"] = child.wait()
+    record.update(
+        status="completed" if record["exit_code"] == 0 else "failed",
+        elapsed_seconds=time.monotonic() - start,
+        finished=True,
+    )
+    write(GUARD / "supervisor.json", record)
+    print(json.dumps(record, indent=2))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--expected-plan-sha256", required=True)
+    parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--worker", action="store_true")
+    args = parser.parse_args()
+    if args.verify_only:
+        _, live = verify(args.expected_plan_sha256)
+        print(
+            json.dumps(
+                {
+                    "hashes_verified": True,
+                    "live_prior_owner_pids": live,
+                    "model_calls": 0,
+                    "prior_pids_absent": not live,
+                    "accelerator_reserved_for_this_authorized_diagnostic": True,
+                }
+            )
+        )
+    elif args.worker:
+        worker(args.expected_plan_sha256)
+    else:
+        supervise(args.expected_plan_sha256)

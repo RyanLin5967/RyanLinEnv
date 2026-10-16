@@ -1,0 +1,10 @@
+{
+  "completed_active_seconds": 11.126192876021378,
+  "device": "mps",
+  "in_progress": false,
+  "observed_interrupted_active_seconds": 0.0,
+  "observed_journal_io_seconds": 0.0003937909932574257,
+  "resume_committed_active_seconds": 0.0,
+  "schema_version": 1,
+  "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded"
+}

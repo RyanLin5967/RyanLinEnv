@@ -1,0 +1,534 @@
+{
+  "schema_version": 1,
+  "scope": "Adaptive TRAIN mechanism and precision diagnostics; no accuracy superiority",
+  "copies": [
+    {
+      "source": "runs/aircraft-four-update-v1/mechanism-summary.json",
+      "artifact": "mechanism-summary.json",
+      "bytes": 35408,
+      "sha256": "b9cf030f3fc75de061e830209a109f3c80034f929002fb4bfa8431817896982b"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/promotion-result.json",
+      "artifact": "bf16-promotion-result.json",
+      "bytes": 2338,
+      "sha256": "f26d7a3fcfaa2a23d78b2d36b0fb8627b5ccab6be18073b5f7f9ce4d67dc2d1b"
+    },
+    {
+      "source": "runs/architecture-audit/aircraft-resume-bf16-verification.json",
+      "artifact": "independent-review.json",
+      "bytes": 1555,
+      "sha256": "dfb35b34fe984549c06586be125ba2a8ba3d45daceff65fb521e823543e75d93"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/plan.json",
+      "artifact": "fp32/plan/plan.json",
+      "bytes": 8354,
+      "sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/prompt.txt",
+      "artifact": "fp32/plan/prompt.txt",
+      "bytes": 1088,
+      "sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/train4.jsonl",
+      "artifact": "fp32/plan/train4.jsonl",
+      "bytes": 628,
+      "sha256": "7ce3f5bab7a6c8e241dbe03bea282fab74f2b5e076c276befa3e5384561f20a5"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/launch.py",
+      "artifact": "fp32/plan/launch.py.txt",
+      "bytes": 12150,
+      "sha256": "e77014fbd6eb2828f67d0faa7d00d98f4b225494eae5773a202b2b946ea78121"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/__init__.py",
+      "artifact": "fp32/plan/source/vision_rl/__init__.py.txt",
+      "bytes": 85,
+      "sha256": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/aircraft_data.py",
+      "artifact": "fp32/plan/source/vision_rl/aircraft_data.py.txt",
+      "bytes": 2041,
+      "sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/data.py",
+      "artifact": "fp32/plan/source/vision_rl/data.py.txt",
+      "bytes": 3457,
+      "sha256": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/evaluation.py",
+      "artifact": "fp32/plan/source/vision_rl/evaluation.py.txt",
+      "bytes": 11689,
+      "sha256": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/spatial.py",
+      "artifact": "fp32/plan/source/vision_rl/spatial.py.txt",
+      "bytes": 3604,
+      "sha256": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/training.py",
+      "artifact": "fp32/plan/source/vision_rl/training.py.txt",
+      "bytes": 7485,
+      "sha256": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/vlm.py",
+      "artifact": "fp32/plan/source/vision_rl/vlm.py.txt",
+      "bytes": 23030,
+      "sha256": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-plan/source/vision_rl/vlm_local_training.py",
+      "artifact": "fp32/plan/source/vision_rl/vlm_local_training.py.txt",
+      "bytes": 103335,
+      "sha256": "8d77d31ac2a65cad259fe26c31b716b395707c4fcb68ab881b7e525508aefe3e"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/plan.json",
+      "artifact": "bf16/plan/plan.json",
+      "bytes": 10460,
+      "sha256": "4fdff0d3bb32d38d0efa43a0a6bf79feea2a14aa85dbcc2863479b93400c9003"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/prompt.txt",
+      "artifact": "bf16/plan/prompt.txt",
+      "bytes": 1088,
+      "sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/train4.jsonl",
+      "artifact": "bf16/plan/train4.jsonl",
+      "bytes": 628,
+      "sha256": "7ce3f5bab7a6c8e241dbe03bea282fab74f2b5e076c276befa3e5384561f20a5"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/launch.py",
+      "artifact": "bf16/plan/launch.py.txt",
+      "bytes": 12256,
+      "sha256": "8d053f63c5eb63944afec90071451713acb68b00d9e0a21349c62978811e0063"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/__init__.py",
+      "artifact": "bf16/plan/source/vision_rl/__init__.py.txt",
+      "bytes": 85,
+      "sha256": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/aircraft_data.py",
+      "artifact": "bf16/plan/source/vision_rl/aircraft_data.py.txt",
+      "bytes": 2041,
+      "sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/data.py",
+      "artifact": "bf16/plan/source/vision_rl/data.py.txt",
+      "bytes": 3457,
+      "sha256": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/evaluation.py",
+      "artifact": "bf16/plan/source/vision_rl/evaluation.py.txt",
+      "bytes": 11689,
+      "sha256": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/spatial.py",
+      "artifact": "bf16/plan/source/vision_rl/spatial.py.txt",
+      "bytes": 3604,
+      "sha256": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/training.py",
+      "artifact": "bf16/plan/source/vision_rl/training.py.txt",
+      "bytes": 7485,
+      "sha256": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/vlm.py",
+      "artifact": "bf16/plan/source/vision_rl/vlm.py.txt",
+      "bytes": 23030,
+      "sha256": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-plan/source/vision_rl/vlm_local_training.py",
+      "artifact": "bf16/plan/source/vision_rl/vlm_local_training.py.txt",
+      "bytes": 106935,
+      "sha256": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-plan/amendment.json",
+      "artifact": "fp32/continuation/amendment.json",
+      "bytes": 1888,
+      "sha256": "c5e6759d5dceb35e0032ec62ff10d741b9119f32d7f9e5e1539bbb98fdb4ccd2"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-plan/launch.py",
+      "artifact": "fp32/continuation/launch.py.txt",
+      "bytes": 13176,
+      "sha256": "f06e5ccfd12f30c5c3d2924c1c3e86a5449068eb657752ce0dfb70ebc5514e51"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/local_training.json",
+      "artifact": "arms/grpo-full/local_training.json",
+      "bytes": 124863,
+      "sha256": "d3ea3bd444e1efc6c572478dea5c3391a0589e8af0e363220275bbb9e62a357b"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/trainer_state.json",
+      "artifact": "arms/grpo-full/trainer_state.json",
+      "bytes": 4774,
+      "sha256": "436b729930b27a1af678238498732970bd44d57af28afdcf29ff58c22b541be8"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/before_train_diagnostic_predictions.json",
+      "artifact": "arms/grpo-full/before_train_diagnostic_predictions.json",
+      "bytes": 1286,
+      "sha256": "320bce98f13b3d509d188e28b6ffb48fa70239e5c08adccef6f06b6c4a1eacec"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/after_train_diagnostic_predictions.json",
+      "artifact": "arms/grpo-full/after_train_diagnostic_predictions.json",
+      "bytes": 1286,
+      "sha256": "1f2ae0fbbfbb84dbb72452a926fe7e7e9971fb67bc44ccfa71a1ac458bc6c261"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/optimizer_audit.jsonl",
+      "artifact": "arms/grpo-full/optimizer_audit.jsonl",
+      "bytes": 1824,
+      "sha256": "e291a0a12773745e622793e4750130f9526426f3fec3069e6d248e8f073a90ff"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/physical_prompt_events.jsonl",
+      "artifact": "arms/grpo-full/physical_prompt_events.jsonl",
+      "bytes": 304,
+      "sha256": "44f886e64d02b2bf3be8166cd4bff1d3c00b48ef63a08db27552056d9011abda"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/endpoint_receipt.json",
+      "artifact": "arms/grpo-full/endpoint_receipt.json",
+      "bytes": 3033,
+      "sha256": "ecb509de5053215230dcd3499cfe598385080be19e53dacd12ad3027f26408fe"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/reward_groups.jsonl",
+      "artifact": "arms/grpo-full/reward_groups.jsonl",
+      "bytes": 2294,
+      "sha256": "5c8907a4c71e0bec8ff5c51583b81b1db9c3031826c008408a54d2f35588903f"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/checkpoint-4/active_time.json",
+      "artifact": "arms/grpo-full/checkpoint-4/active_time.json",
+      "bytes": 852,
+      "sha256": "ff5f221736c67d4b054c08b0b745cd57e54cfdc43a47a91f5e42588f1170aed8"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/checkpoint-4/exposure.json",
+      "artifact": "arms/grpo-full/checkpoint-4/exposure.json",
+      "bytes": 465,
+      "sha256": "8b2b701981de61c96153a61e4a6d8b342b45053fbfd979f97412a153d8ef1b7a"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-full/active_time/invocation-1792138108601399000.json",
+      "artifact": "arms/grpo-full/active_time/invocation-1792138108601399000.json",
+      "bytes": 474,
+      "sha256": "3dd93a40cc653ed20e3dd11dc381db603a47bd6c33022bdf48c563e2f747d5b0"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/local_training.json",
+      "artifact": "arms/grpo-resumed/local_training.json",
+      "bytes": 124953,
+      "sha256": "4eb2f3483498336cc8527c80c2fc2bd0cd3c80e9432c3129a811bfab563916c2"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/trainer_state.json",
+      "artifact": "arms/grpo-resumed/trainer_state.json",
+      "bytes": 4775,
+      "sha256": "3ff9eaf6e1029116672e45cfce3f4597e8b2da4de8eebe89f739f323c60568f2"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/before_train_diagnostic_predictions.json",
+      "artifact": "arms/grpo-resumed/before_train_diagnostic_predictions.json",
+      "bytes": 1287,
+      "sha256": "9ba3c95082b0022d1a5d1f419e0d8dda7d1215e1ea52df06758eab660cbe2353"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/after_train_diagnostic_predictions.json",
+      "artifact": "arms/grpo-resumed/after_train_diagnostic_predictions.json",
+      "bytes": 1287,
+      "sha256": "ebe0dfeb26571a1325b65bcfd6613f324232a192aef72be9b98dbf6ef2f70299"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/optimizer_audit.jsonl",
+      "artifact": "arms/grpo-resumed/optimizer_audit.jsonl",
+      "bytes": 1821,
+      "sha256": "f1df0661e47114ad84d7fa3aad4d3ab2eeaa70c126ec957fb0065c6ea812b3ee"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/physical_prompt_events.jsonl",
+      "artifact": "arms/grpo-resumed/physical_prompt_events.jsonl",
+      "bytes": 304,
+      "sha256": "87a6286b85ff0b509fff20d2091747930f68beff1f357cbf3b64a33b7de306e2"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/endpoint_receipt.json",
+      "artifact": "arms/grpo-resumed/endpoint_receipt.json",
+      "bytes": 3051,
+      "sha256": "b65a1f7bcced420b0d99463fc8b18030df33b5bb772befef0df4799b29112723"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/reward_groups.jsonl",
+      "artifact": "arms/grpo-resumed/reward_groups.jsonl",
+      "bytes": 2294,
+      "sha256": "5c8907a4c71e0bec8ff5c51583b81b1db9c3031826c008408a54d2f35588903f"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/checkpoint-4/active_time.json",
+      "artifact": "arms/grpo-resumed/checkpoint-4/active_time.json",
+      "bytes": 853,
+      "sha256": "5b75117cb98a15e291ba5071600f9bfd3295b64943e0470df6bf0bedd885dc6b"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/checkpoint-4/exposure.json",
+      "artifact": "arms/grpo-resumed/checkpoint-4/exposure.json",
+      "bytes": 465,
+      "sha256": "c14030e21e5d478b57c6565f805e9a95c0aa7551b889ee6d7ac57e5b17d2e0db"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/active_time/invocation-1792138614025120000.json",
+      "artifact": "arms/grpo-resumed/active_time/invocation-1792138614025120000.json",
+      "bytes": 477,
+      "sha256": "712bf7d81e8e7f642909d4e13ec8c047f9c097b33b0266bbc6c115f2f0eeb7d3"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/grpo-resumed/active_time/invocation-1792138752340106000.json",
+      "artifact": "arms/grpo-resumed/active_time/invocation-1792138752340106000.json",
+      "bytes": 490,
+      "sha256": "98011803b99db1a7ff783221305143f7c1f163ec3cd053d4c55f201ba587f19c"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/local_training.json",
+      "artifact": "arms/sft-control/local_training.json",
+      "bytes": 122671,
+      "sha256": "1894adda0c1b6bace34b760f73faa3328daab5be57b5d9e123eeaa8956f1acfb"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/trainer_state.json",
+      "artifact": "arms/sft-control/trainer_state.json",
+      "bytes": 2027,
+      "sha256": "8720d3a6137416ff7e72b4154ce2b79175a656706cfca1ccb5cea8562f50e44c"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/before_train_diagnostic_predictions.json",
+      "artifact": "arms/sft-control/before_train_diagnostic_predictions.json",
+      "bytes": 1287,
+      "sha256": "c10bc598a5599b9b60efd35e8ceb7e305fbb295fb4a8ed828e35210b8f3f5d2b"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/after_train_diagnostic_predictions.json",
+      "artifact": "arms/sft-control/after_train_diagnostic_predictions.json",
+      "bytes": 1287,
+      "sha256": "5f1374eb78fd9f5aee5adf6a9a0602a079ee0f399e56411cbeb19bfdf6812fd2"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/optimizer_audit.jsonl",
+      "artifact": "arms/sft-control/optimizer_audit.jsonl",
+      "bytes": 1807,
+      "sha256": "5e507e959c016702b550ca3a4507a336ea9a0b8e3dcf20ce487ae6b2a4c8f96b"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/physical_prompt_events.jsonl",
+      "artifact": "arms/sft-control/physical_prompt_events.jsonl",
+      "bytes": 304,
+      "sha256": "d66ddb7b3d0db14abacd43b2e5097ba674a3311508bb13590faa6baceb8af406"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/endpoint_receipt.json",
+      "artifact": "arms/sft-control/endpoint_receipt.json",
+      "bytes": 2766,
+      "sha256": "36e87c35647dbc639bb43125fb2b5ed3953e54993152817aa630639a42726767"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/checkpoint-4/active_time.json",
+      "artifact": "arms/sft-control/checkpoint-4/active_time.json",
+      "bytes": 854,
+      "sha256": "1de2ad8e9768ec009cdfa614d2d3fc4f3e80f0587d9645d4890bda1b607d9dce"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/checkpoint-4/exposure.json",
+      "artifact": "arms/sft-control/checkpoint-4/exposure.json",
+      "bytes": 465,
+      "sha256": "99315add42e201a5fa6a372ac18425742b0477f4f763cbb3107fafd948b285f3"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1/sft-control/active_time/invocation-1792138523380918000.json",
+      "artifact": "arms/sft-control/active_time/invocation-1792138523380918000.json",
+      "bytes": 476,
+      "sha256": "789e90bd12727099637c87e0b03b969f04421bdadd95ac84ff93a5d5d99f6a87"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/local_training.json",
+      "artifact": "arms/bf16-grpo/local_training.json",
+      "bytes": 125453,
+      "sha256": "f0df0f0ac610e1983081a6fd36d216d89987bddea19b8b27b491e0cbfa005a45"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/trainer_state.json",
+      "artifact": "arms/bf16-grpo/trainer_state.json",
+      "bytes": 4808,
+      "sha256": "fd334439ed92c4808481bdc80925bccb03604d09481607125a1db369f198a655"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/before_train_diagnostic_predictions.json",
+      "artifact": "arms/bf16-grpo/before_train_diagnostic_predictions.json",
+      "bytes": 1285,
+      "sha256": "47b97cbb98762ca4177f5a244e1958ca1b7f69fb954621d2a7f0fb6eb77da5cc"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/after_train_diagnostic_predictions.json",
+      "artifact": "arms/bf16-grpo/after_train_diagnostic_predictions.json",
+      "bytes": 1288,
+      "sha256": "9f706d9298d3040750b478cafed8be3c309094ddc7530d60f29ef43479cf4261"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/optimizer_audit.jsonl",
+      "artifact": "arms/bf16-grpo/optimizer_audit.jsonl",
+      "bytes": 1824,
+      "sha256": "152ea27d3a812caa7b88b891a8f7648a00095acfb6a4ed86d59f4fdc5073fc7d"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/physical_prompt_events.jsonl",
+      "artifact": "arms/bf16-grpo/physical_prompt_events.jsonl",
+      "bytes": 304,
+      "sha256": "25a2dcc45172e132e7f19653e918e51983baded6401d2515eb64f7ace1cf2ce1"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/endpoint_receipt.json",
+      "artifact": "arms/bf16-grpo/endpoint_receipt.json",
+      "bytes": 3027,
+      "sha256": "dd925d1b13519967d3a586ffc5a0f1cf0cc9fda6e2fbcb0bcdb8b81b7243e2be"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/reward_groups.jsonl",
+      "artifact": "arms/bf16-grpo/reward_groups.jsonl",
+      "bytes": 2294,
+      "sha256": "5c8907a4c71e0bec8ff5c51583b81b1db9c3031826c008408a54d2f35588903f"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/checkpoint-4/active_time.json",
+      "artifact": "arms/bf16-grpo/checkpoint-4/active_time.json",
+      "bytes": 852,
+      "sha256": "64ee84a5ac189bdb16bb8bffbacdd25b8472e366f798cb280d884296e8d3f163"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/checkpoint-4/exposure.json",
+      "artifact": "arms/bf16-grpo/checkpoint-4/exposure.json",
+      "bytes": 465,
+      "sha256": "dfd88d07afd1674745ddc71ba14b06ff4a26fc77c6168aa0d9929f8eeeb18439"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1/grpo/active_time/invocation-1792138916968601000.json",
+      "artifact": "arms/bf16-grpo/active_time/invocation-1792138916968601000.json",
+      "bytes": 475,
+      "sha256": "2d3bd9f0e9ed40cd3a706906ac0123a354a2bea9f558e5419bb915e80e8251cd"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-guard/supervisor.json",
+      "artifact": "supervision/fp32-original/supervisor.json",
+      "bytes": 875,
+      "sha256": "d8a4b565011540f9b983c8f97ef3a5b708ad692b8f7dc4ccf7aca520cf2122b5"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-guard/mps-summary.json",
+      "artifact": "supervision/fp32-original/mps-summary.json",
+      "bytes": 387,
+      "sha256": "28506147bdb704c316d14f0e9887aa9dbee3ba28bb1d12c178c5f0c54688f2bc"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-guard/actor.log",
+      "artifact": "supervision/fp32-original/actor.log",
+      "bytes": 5839,
+      "sha256": "8c1a91f584241f66c228c3767597a64a2a3f26de970fe9d3502bc1751acdcb0b"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-guard/supervisor.json",
+      "artifact": "supervision/bf16/supervisor.json",
+      "bytes": 883,
+      "sha256": "309069c486bf35f81575251c68891ccfed63673cf8ec672b486ab0affeb5714c"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-guard/mps-summary.json",
+      "artifact": "supervision/bf16/mps-summary.json",
+      "bytes": 376,
+      "sha256": "df198517d864be29de29b2ccd008f633fae10dcce73af37c8e887df217a24224"
+    },
+    {
+      "source": "runs/aircraft-bf16-four-update-v1-guard/actor.log",
+      "artifact": "supervision/bf16/actor.log",
+      "bytes": 11867,
+      "sha256": "668073826e2874385084bab26a6d2cde4b3178f538ee1c981ab49c4eadd8d3a5"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-1/supervisor.json",
+      "artifact": "supervision/fp32-continuation-1/supervisor.json",
+      "bytes": 1023,
+      "sha256": "b774b31802ff22702805431b9d385fea0a26e6190b95e1582c53494da8542bfe"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-1/mps-summary.json",
+      "artifact": "supervision/fp32-continuation-1/mps-summary.json",
+      "bytes": 380,
+      "sha256": "c16c0fa6c613c50ff98ef60e7f03b9be8e60e171ed1d0ce209231f6c81481901"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-1/actor.log",
+      "artifact": "supervision/fp32-continuation-1/actor.log",
+      "bytes": 7994,
+      "sha256": "dfcf485b78bff5a60aa9f65c05ed54cbb718098afb187ed43559e0296235f3e4"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-2/supervisor.json",
+      "artifact": "supervision/fp32-continuation-2/supervisor.json",
+      "bytes": 1023,
+      "sha256": "a7cac73e588c86d1176f233a449695b6c15e008efa55fd24c4942b1861b4a662"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-2/mps-summary.json",
+      "artifact": "supervision/fp32-continuation-2/mps-summary.json",
+      "bytes": 392,
+      "sha256": "cc8204f719ff3633d9140e8d2d56eca5055f76f053904047d2b0688f8fbb76bf"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-2/actor.log",
+      "artifact": "supervision/fp32-continuation-2/actor.log",
+      "bytes": 10183,
+      "sha256": "0e1b0d2b63d2936a6655bccabcaba4396dcf55f86c41c0eaecb3aaab0bd30df1"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-3/supervisor.json",
+      "artifact": "supervision/fp32-continuation-3/supervisor.json",
+      "bytes": 1023,
+      "sha256": "71ed54014977cea6a95c792b2e2fd2a3b5bf9a50af688440058ccde4d1842f51"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-3/mps-summary.json",
+      "artifact": "supervision/fp32-continuation-3/mps-summary.json",
+      "bytes": 392,
+      "sha256": "217e1b79b0a964313e84e517953989ca0d23f8f2cde2666f599f6f0cc33997e7"
+    },
+    {
+      "source": "runs/aircraft-four-update-v1-continuation-guard/phase-3/actor.log",
+      "artifact": "supervision/fp32-continuation-3/actor.log",
+      "bytes": 10342,
+      "sha256": "8caf9a8c262c30eaf884f40b004ec4d0ee493644794b79cb2e4f6632039fe361"
+    }
+  ]
+}

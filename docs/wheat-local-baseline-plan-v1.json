@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "status": "proposal_only_not_a_change_to_active_wheat_protocol",
+  "created_at": "2026-10-16T05:59:02.339151+00:00",
+  "benchmark_contract": "docs/gwhd2021-hf-domain-ada-v1.json",
+  "primary_metric": "detection_acc_avg_dom",
+  "model": {
+    "repository": "mlx-community/Qwen3.8-27B-8bit",
+    "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9",
+    "quantization": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    }
+  },
+  "task_contract": {
+    "task": "object_detection",
+    "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+    "coordinate_format": "xyxy_1000",
+    "categories": [
+      {
+        "id": 1,
+        "name": "wheat_head"
+      }
+    ],
+    "confidence_policy": "Retain native confidence when present; otherwise assign1.0",
+    "prediction_score_test": ">0.5",
+    "matching_iou_test": ">=0.5",
+    "maximum_predictions_per_image": 500,
+    "postprocessing": "Strict shared parser; no clipping, deduplication, repair or NMS",
+    "primary_metric": "WILDS2.0.0 detection_acc_avg_dom",
+    "errors": "Preserve every image and failure; incomplete scopes cannot support a win"
+  },
+  "prompt": "Locate every wheat head in this image, including partially visible wheat heads. Return one JSON array with one object per wheat head: {\"bbox_2d\":[xmin,ymin,xmax,ymax],\"label\":\"wheat_head\"}. Coordinates must be integers normalized to0..1000 relative to the entire image, in xmin,ymin,xmax,ymax order. Use the label wheat_head for every detection. Return at most500 detections. Return [] if no wheat heads are present.",
+  "thinking_and_sampling": {
+    "reasoning_effort": "xhigh",
+    "enable_thinking": true,
+    "preserve_thinking": true,
+    "max_tokens": 16384,
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0.0,
+    "presence_penalty": 0.0,
+    "repetition_penalty": 1.0
+  },
+  "preprocessing": {
+    "identical_original_encoded_RGB_pixels": true,
+    "exif_orientation_transform": false,
+    "external_resize": null,
+    "native_processor": "Qwen3VLProcessor/patch16/merge2",
+    "min_pixels": 65536,
+    "max_pixels": 16777216
+  },
+  "prepared_train_probe": {
+    "path": "runs/local-qwen8bit/wheat-training-probe-inputs/inputs.json",
+    "sha256": "6857f21948f440291a766cc3b414508be67b28df0363db3071346d02f42f7184",
+    "selection": [
+      {
+        "id": "6355",
+        "domain": "NMBU_1",
+        "training_box_count": 129
+      },
+      {
+        "id": "3146",
+        "domain": "Rres_1",
+        "training_box_count": 45
+      }
+    ],
+    "images": 2,
+    "inference_has_started": false,
+    "purpose": "Measure throughput, finish/truncation, memory and strict geometry feasibility only"
+  },
+  "cost_evidence": {
+    "wheat_images_measured": 0,
+    "full1381_estimate": null,
+    "reason": "Pills latency is not a measured wheat latency; token density and reasoning can differ. Estimate only after the fixed two-TRAIN probe, report the two actual observations and a clearly labelled extrapolation range."
+  },
+  "full_test_specialist": {
+    "scope": "All1381 native test images after freeze; unchanged official ADA with domain scores",
+    "same_specialist_pipeline_on_paired_subset": true
+  },
+  "paired_subset_proposal": {
+    "status": "Root must adopt prospective amendment before test IDs/pixels/outputs are opened",
+    "proposed_images_per_domain": 12,
+    "domains": 18,
+    "proposed_total_images": 216,
+    "sampling": "Within each native test domain sort SHA256(benchmark_id:fixed_seed:original_image_id); retain first12 without replacement. Pin seed and complete ID/hash manifest before any test inference. No density/label/output-based selection.",
+    "statistical_target": "Equal-domain ADA on a prospectively sampled paired subset, clearly separate from the official complete-test score",
+    "all_models_same_exact_ids": true,
+    "reporting": [
+      "Report full-test specialist ADA separately; do not compare it numerically with subset frontier ADA as if paired.",
+      "Evaluate the frozen specialist and baseline on every selected image; compute paired subset delta with identical official evaluator and all18 domain contributions.",
+      "Report each native domain result and sample count; no domain dropped after observing model failures.",
+      "A paired hierarchical bootstrap may resample domains then paired images within domain; label its superpopulation interpretation and small-domain limits. A within-domain paired bootstrap with all18 domains fixed addresses finite benchmark sampling instead. Freeze interval method prospectively.",
+      "Any malformed, truncated, unknown or unattempted response remains explicit; follow existing comparison-validity gate rather than silently restricting to successful images.",
+      "A win on216images is a paired-subset result, not a full1381-image benchmark win.",
+      "Existing proposed margin requirements are not relaxed by choosing a subset."
+    ],
+    "alternative": "Full1381 baseline remains preferred if measured time is practical. Root chooses scope prospectively after resource probe and before opening test."
+  },
+  "fgvc_fallback": {
+    "status_at_proposal_creation": "Metadata only; no audited images available and no preparation or inference yet",
+    "current_status": "A fixed16TRAIN mirror probe was later prepared. Local27B Aircraft v1 was explicitly cancelled after3 completions,1 interrupted reservation and12 unattempted images. Local27B v2 is prepared only; no v2 inference measured. The native test remains sealed.",
+    "current_status_document": "docs/local-baseline-development-status.md",
+    "fixed_vocabulary_source": "docs/fgvc-aircraft-audit-2026-10-16.json canonical_labels.variant",
+    "input_contract": "Same bottom20px-cropped RGB input, canonical100class vocabulary and question as actor; no label in per-image prompt",
+    "processor_note": "Each model retains its native architecture. Record differing pixel budgets; stronger27B native budget and xhigh are allowed. RL/SFT actor controls must use identical processor.",
+    "answer_contract": "Use exact shared actor question/class vocabulary and output parser after explicit thinking close; preserve raw reasoning and truncation",
+    "test_sealed": true
+  },
+  "authorization": {
+    "accelerator_slot_required": true,
+    "model_calls_now": false,
+    "paid_calls": false,
+    "purchases": false
+  }
+}

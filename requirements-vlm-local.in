@@ -1,0 +1,17 @@
+# Local non-quantized TRL VLM adapter. Four-step FP32 MPS learning/resume measured;
+# substantial controlled held-out improvement remains unmeasured.
+# Install in a separate environment; do not mutate a running detection environment.
+torch==2.14.1
+torchvision==0.29.1
+trl==1.16.0
+transformers==5.20.0
+peft==0.21.2
+accelerate==1.15.0
+datasets==5.1.0
+# datasets 5.1.0 requires fsspec<=2026.7.0.
+fsspec==2026.7.0
+pandas==3.0.6
+pyarrow==26.0.0
+dill==0.4.1
+multiprocess==0.70.19
+xxhash==4.0.1

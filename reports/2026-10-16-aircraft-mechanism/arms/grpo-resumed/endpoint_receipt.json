@@ -1,0 +1,62 @@
+{
+  "checkpoint": {
+    "path": "checkpoint-4",
+    "sha256": {
+      "active_time.json": "5b75117cb98a15e291ba5071600f9bfd3295b64943e0470df6bf0bedd885dc6b",
+      "adapter_config.json": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+      "adapter_model.safetensors": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d",
+      "exposure.json": "c14030e21e5d478b57c6565f805e9a95c0aa7551b889ee6d7ac57e5b17d2e0db",
+      "mps_rng_state.pth": "5dd57975385b94279bc0761c542cb607110929c0d58138b62069a5dcbfbba366",
+      "optimizer.pt": "f501b0604215deaf3841e57c1b903bca9fff8f654cf417e8ff3e7646bfc21d52",
+      "ref/adapter_config.json": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+      "ref/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "rng_state.pth": "5770baaf1a8ae7cfb7eaf8018142078d93ef910e608a6addf9f07f0074d66d99",
+      "scheduler.pt": "2d209e9a59968169b9348850f23d5320332c0bb2ff0685d48e318fa2bd842481",
+      "trainer_state.json": "a4112cb34d69499d33a2fb4481b9a20506273c5c4dced198d58dfe6c949b276a"
+    }
+  },
+  "committed_active_seconds": 68.69263595902885,
+  "committed_prompt_ids": [
+    "1347237",
+    "1833904",
+    "1154960",
+    "0122393"
+  ],
+  "committed_prompt_presentations": 4,
+  "control_identity_sha256": "c9a48f32e030d661e25dd77ad843d477384522d6e3ab3671bbc42e3253e50cdf",
+  "final_adapter": {
+    "config_sha256": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+    "path": "final_adapter",
+    "weights_sha256": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d"
+  },
+  "global_step": 4,
+  "original_budgets": {
+    "max_active_seconds": 1200,
+    "max_steps": 4
+  },
+  "physical_work": {
+    "committed_active_seconds": 68.69263595902885,
+    "committed_global_step": 4,
+    "completed_not_checkpointed_active_seconds": 0.0,
+    "completed_state_active_seconds": 68.69263595902885,
+    "hard_total_physical_compute_cap": false,
+    "invocation_active_seconds": 34.5636357920157,
+    "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+    "observed_physical_active_seconds": 68.69263595902885,
+    "observed_reward_journal_io_seconds": 0.0009485419723205268,
+    "resumed_committed_active_seconds": 34.129000167013146,
+    "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+    "total_budget_seconds": 1200,
+    "unknown_partial_invocations": 0
+  },
+  "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+  "requested_boundary": {
+    "stop_after_active_seconds": null,
+    "stop_after_steps": 4
+  },
+  "schema_version": 1,
+  "settings_sha256": "889a67008da311cbd782133223cb6a6982f5c9b6aaa942e34873198eb8f48717",
+  "source_sha256": "8d77d31ac2a65cad259fe26c31b716b395707c4fcb68ab881b7e525508aefe3e",
+  "stage_id": "grpo-resume-stage-4",
+  "status": "total_budget_exhausted"
+}

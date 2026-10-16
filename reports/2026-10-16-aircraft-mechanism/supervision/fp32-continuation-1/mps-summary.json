@@ -1,0 +1,14 @@
+{
+  "pid": 42227,
+  "phase": "sft-matched-4",
+  "peak_driver_allocated_bytes": 12710854656,
+  "peak_current_allocated_bytes": 9428242688,
+  "recommended_max_memory_bytes": 40200896512,
+  "driver_limit_bytes": 25769803776,
+  "sampling_interval_seconds": 0.5,
+  "allocator_fraction": 0.6410255992253231,
+  "phase_peaks": {
+    "load": 458752,
+    "sft-matched-4": 12710854656
+  }
+}

@@ -1,0 +1,146 @@
+W1016 04:15:17.866000 42227 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+Loading weights:   0%|          | 0/729 [00:00<?, ?it/s]Loading weights:  29%|██▊       | 208/729 [00:00<00:00, 2064.37it/s]Loading weights:  77%|███████▋  | 562/729 [00:00<00:00, 2923.26it/s]Loading weights: 100%|██████████| 729/729 [00:00<00:00, 3065.06it/s]
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+{'loss': '0.01477', 'grad_norm': '0.6184', 'learning_rate': '1e-05', 'entropy': '0.09972', 'mean_token_accuracy': '1', 'num_tokens': '986', 'epoch': '0.25'}
+{'loss': '0.2525', 'grad_norm': '11.73', 'learning_rate': '1e-05', 'entropy': '0.09849', 'mean_token_accuracy': '0.8333', 'num_tokens': '1988', 'epoch': '0.5'}
+{'loss': '0.08971', 'grad_norm': '3.082', 'learning_rate': '1e-05', 'entropy': '0.1702', 'mean_token_accuracy': '1', 'num_tokens': '2992', 'epoch': '0.75'}
+{'loss': '0.06686', 'grad_norm': '2.125', 'learning_rate': '1e-05', 'entropy': '0.1413', 'mean_token_accuracy': '1', 'num_tokens': '3990', 'epoch': '1'}
+{'train_runtime': '11.51', 'train_samples_per_second': '0.347', 'train_steps_per_second': '0.347', 'train_loss': '0.106', 'epoch': '1'}
+{
+  "sft-matched-4": {
+    "status": "completed",
+    "receipt": {
+      "checkpoint": {
+        "path": "checkpoint-4",
+        "sha256": {
+          "active_time.json": "1de2ad8e9768ec009cdfa614d2d3fc4f3e80f0587d9645d4890bda1b607d9dce",
+          "adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+          "adapter_model.safetensors": "6b2c06a4cc8ea5e820313c9d095e0793b4d6ed892418f61a160279b8301b193a",
+          "exposure.json": "99315add42e201a5fa6a372ac18425742b0477f4f763cbb3107fafd948b285f3",
+          "mps_rng_state.pth": "a00a29ce54f7c477c866897a32edd117b6619f9b11e91e8ace85682e2997e90e",
+          "optimizer.pt": "2cfc4924f6b81c6bfd55ebe7c52a7b5c46c741c4d7ae76ade48d781959e46700",
+          "rng_state.pth": "2cddf27219365242ec1046a3532a63a24c3f350c77f100e4f973369db2cc849d",
+          "scheduler.pt": "2d209e9a59968169b9348850f23d5320332c0bb2ff0685d48e318fa2bd842481",
+          "trainer_state.json": "8b2805e804563997904476be8d3b8caa9ea878edf81028059b15cd761e137b98"
+        }
+      },
+      "committed_active_seconds": 11.126192876021378,
+      "committed_prompt_ids": [
+        "1347237",
+        "1833904",
+        "1154960",
+        "0122393"
+      ],
+      "committed_prompt_presentations": 4,
+      "control_identity_sha256": "c9a48f32e030d661e25dd77ad843d477384522d6e3ab3671bbc42e3253e50cdf",
+      "final_adapter": {
+        "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+        "path": "final_adapter",
+        "weights_sha256": "6b2c06a4cc8ea5e820313c9d095e0793b4d6ed892418f61a160279b8301b193a"
+      },
+      "global_step": 4,
+      "original_budgets": {
+        "max_active_seconds": 1200,
+        "max_steps": 4
+      },
+      "physical_work": {
+        "committed_active_seconds": 11.126192876021378,
+        "committed_global_step": 4,
+        "completed_not_checkpointed_active_seconds": 0.0,
+        "completed_state_active_seconds": 11.126192876021378,
+        "hard_total_physical_compute_cap": false,
+        "invocation_active_seconds": 11.126192876021378,
+        "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+        "observed_physical_active_seconds": 11.126192876021378,
+        "observed_reward_journal_io_seconds": 0.0003937909932574257,
+        "resumed_committed_active_seconds": 0.0,
+        "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+        "total_budget_seconds": 1200,
+        "unknown_partial_invocations": 0
+      },
+      "reference_sha256": null,
+      "requested_boundary": {
+        "stop_after_active_seconds": null,
+        "stop_after_steps": 4
+      },
+      "schema_version": 1,
+      "settings_sha256": "bf3fe6f51f20aba607f6cf9754b62beb8c1f6cc187b8d06e8d6ded310fd52a74",
+      "source_sha256": "8d77d31ac2a65cad259fe26c31b716b395707c4fcb68ab881b7e525508aefe3e",
+      "stage_id": "sft-matched-4",
+      "status": "total_budget_exhausted"
+    },
+    "optimizer_audit": {
+      "optimizer_steps_observed": 4,
+      "nonzero_gradient_steps": 4,
+      "active_seconds": 11.126192876021378,
+      "max_gradient_norm_observed": 0.9999999589183508,
+      "latest_gradient_norm": 0.9999995231963794,
+      "completed_state_active_seconds": 11.126192876021378,
+      "first_nonzero_update": {
+        "global_step": 1,
+        "gradient_norm": 0.6184214757863541,
+        "changed_tensors_since_invocation_start": 112,
+        "parameter_delta_l2_since_invocation_start": 0.010418274193353873
+      },
+      "parameter_delta_l2": 0.022942067777112187,
+      "changed_tensors": 112,
+      "active_time": {
+        "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+        "total_budget_seconds": 1200,
+        "resumed_committed_active_seconds": 0.0,
+        "invocation_active_seconds": 11.126192876021378,
+        "completed_state_active_seconds": 11.126192876021378,
+        "committed_active_seconds": 11.126192876021378,
+        "committed_global_step": 4,
+        "completed_not_checkpointed_active_seconds": 0.0,
+        "observed_physical_active_seconds": 11.126192876021378,
+        "observed_reward_journal_io_seconds": 0.0003937909932574257,
+        "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+        "unknown_partial_invocations": 0,
+        "hard_total_physical_compute_cap": false
+      }
+    },
+    "reward_audit": null,
+    "probe": {
+      "after_train_gold_nll": 0.08192062927992083,
+      "reloaded_train_gold_nll": 0.08192062927992083,
+      "reload_nll_agrees": true,
+      "gold_nll_improved": true,
+      "gradient_and_weight_change": true,
+      "mixed_reward_groups": null,
+      "sampler_teacher_logprob_parity": null,
+      "held_out_benchmark_gain": "not measured by this diagnostic"
+    },
+    "before_train_diagnostic": {
+      "n": 4,
+      "accuracy": 0.75,
+      "mean_class_accuracy": 0.75,
+      "invalid_answers": 0,
+      "per_class_accuracy": {
+        "737-400": 1.0,
+        "Cessna 208": 1.0,
+        "Falcon 900": 1.0,
+        "Gulfstream IV": 0.0
+      },
+      "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+    },
+    "after_train_diagnostic": {
+      "n": 4,
+      "accuracy": 0.75,
+      "mean_class_accuracy": 0.75,
+      "invalid_answers": 0,
+      "per_class_accuracy": {
+        "737-400": 1.0,
+        "Cessna 208": 1.0,
+        "Falcon 900": 1.0,
+        "Gulfstream IV": 0.0
+      },
+      "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+    }
+  }
+}

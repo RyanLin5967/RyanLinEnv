@@ -66,3 +66,32 @@ def test_integrated_metal_guard_stops_child_even_when_rss_undercounts(supervisor
     assert result["stop_reason"] == "metal_allocation_safety_limit_exceeded"
     assert result["peak_observed_metal_active_plus_cache_bytes"] == 1024**3 + 1
     assert result["exit_code"] != 0
+
+
+def test_wall_deadline_interrupts_only_owned_child_and_preserves_partial_file(
+    supervisor, tmp_path,
+):
+    evidence = tmp_path / "reserved.txt"
+    code = (
+        "from pathlib import Path; import time; "
+        f"Path({str(evidence)!r}).write_text('reserved; completion unknown'); "
+        "time.sleep(30)"
+    )
+    result = supervisor(
+        [sys.executable, "-c", code], tmp_path / "status.json", tmp_path / "child.log",
+        1024**3, interval=0.01, wall_limit_seconds=0.15,
+    )
+    assert result["stop_reason"] == "wall_safety_limit_exceeded"
+    assert result["exit_code"] != 0 and result["wall_seconds"] < 10
+    assert evidence.read_text() == "reserved; completion unknown"
+    assert result["observed_wall_seconds_at_stop"] >= 0.15
+    assert result["wall_limit_seconds"] == 0.15
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, float("inf"), float("nan"), "600"])
+def test_invalid_wall_limit_rejected_without_launch(supervisor, tmp_path, limit):
+    status = tmp_path / "status.json"
+    with pytest.raises(ValueError, match="Wall limit"):
+        supervisor([sys.executable, "-c", "raise AssertionError('must not run')"],
+                   status, tmp_path / "child.log", 1024**3, wall_limit_seconds=limit)
+    assert not status.exists()

@@ -1,0 +1,185 @@
+W1016 04:19:09.207000 55496 torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+Loading weights:   0%|          | 0/729 [00:00<?, ?it/s]Loading weights:  32%|███▏      | 231/729 [00:00<00:00, 2232.56it/s]Loading weights:  86%|████████▋ | 630/729 [00:00<00:00, 3246.40it/s]Loading weights: 100%|██████████| 729/729 [00:00<00:00, 3215.38it/s]
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl.py:129: FutureWarning: Passing `min_pixels` and `max_pixels` to a processor call is deprecated and will be removed in v5.23. Pass in `size={'longest_edge': xxx, 'shortest_edge': xxx} to override the target size.`
+  warnings.warn(
+{'loss': '2.086e-07', 'grad_norm': '3.114', 'learning_rate': '1e-05', 'num_tokens': '1.196e+04', 'completions/mean_length': '7.5', 'completions/min_length': '7', 'completions/max_length': '8', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '7.5', 'completions/min_terminated_length': '7', 'completions/max_terminated_length': '8', 'rewards/exact_label_accuracy/mean': '0.5', 'rewards/exact_label_accuracy/std': '0.5774', 'reward': '0.5', 'reward_std': '0.5774', 'frac_reward_zero_std': '0', 'kl': '4.624e-06', 'entropy': '0.1865', 'clip_ratio/low_mean': '0', 'clip_ratio/high_mean': '0', 'clip_ratio/region_mean': '0', 'clip_ratio/low_min': '0', 'clip_ratio/high_max': '0', 'step_time': '17.43', 'epoch': '0.75'}
+{'loss': '1.49e-08', 'grad_norm': '2.228', 'learning_rate': '1e-05', 'num_tokens': '1.595e+04', 'completions/mean_length': '8', 'completions/min_length': '8', 'completions/max_length': '8', 'completions/clipped_ratio': '0', 'completions/mean_terminated_length': '8', 'completions/min_terminated_length': '8', 'completions/max_terminated_length': '8', 'rewards/exact_label_accuracy/mean': '0.5', 'rewards/exact_label_accuracy/std': '0.5774', 'reward': '0.5', 'reward_std': '0.5774', 'frac_reward_zero_std': '0', 'kl': '5.178e-07', 'entropy': '0.16', 'clip_ratio/low_mean': '0', 'clip_ratio/high_mean': '0', 'clip_ratio/region_mean': '0', 'clip_ratio/low_min': '0', 'clip_ratio/high_max': '0', 'step_time': '16.93', 'epoch': '1'}
+{'train_runtime': '34.86', 'train_samples_per_second': '0.229', 'train_steps_per_second': '0.057', 'train_loss': '1.118e-07', 'epoch': '1'}
+{
+  "grpo-resume-stage-4": {
+    "status": "completed",
+    "receipt": {
+      "checkpoint": {
+        "path": "checkpoint-4",
+        "sha256": {
+          "active_time.json": "5b75117cb98a15e291ba5071600f9bfd3295b64943e0470df6bf0bedd885dc6b",
+          "adapter_config.json": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+          "adapter_model.safetensors": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d",
+          "exposure.json": "c14030e21e5d478b57c6565f805e9a95c0aa7551b889ee6d7ac57e5b17d2e0db",
+          "mps_rng_state.pth": "5dd57975385b94279bc0761c542cb607110929c0d58138b62069a5dcbfbba366",
+          "optimizer.pt": "f501b0604215deaf3841e57c1b903bca9fff8f654cf417e8ff3e7646bfc21d52",
+          "ref/adapter_config.json": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+          "ref/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+          "rng_state.pth": "5770baaf1a8ae7cfb7eaf8018142078d93ef910e608a6addf9f07f0074d66d99",
+          "scheduler.pt": "2d209e9a59968169b9348850f23d5320332c0bb2ff0685d48e318fa2bd842481",
+          "trainer_state.json": "a4112cb34d69499d33a2fb4481b9a20506273c5c4dced198d58dfe6c949b276a"
+        }
+      },
+      "committed_active_seconds": 68.69263595902885,
+      "committed_prompt_ids": [
+        "1347237",
+        "1833904",
+        "1154960",
+        "0122393"
+      ],
+      "committed_prompt_presentations": 4,
+      "control_identity_sha256": "c9a48f32e030d661e25dd77ad843d477384522d6e3ab3671bbc42e3253e50cdf",
+      "final_adapter": {
+        "config_sha256": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+        "path": "final_adapter",
+        "weights_sha256": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d"
+      },
+      "global_step": 4,
+      "original_budgets": {
+        "max_active_seconds": 1200,
+        "max_steps": 4
+      },
+      "physical_work": {
+        "committed_active_seconds": 68.69263595902885,
+        "committed_global_step": 4,
+        "completed_not_checkpointed_active_seconds": 0.0,
+        "completed_state_active_seconds": 68.69263595902885,
+        "hard_total_physical_compute_cap": false,
+        "invocation_active_seconds": 34.5636357920157,
+        "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+        "observed_physical_active_seconds": 68.69263595902885,
+        "observed_reward_journal_io_seconds": 0.0009485419723205268,
+        "resumed_committed_active_seconds": 34.129000167013146,
+        "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+        "total_budget_seconds": 1200,
+        "unknown_partial_invocations": 0
+      },
+      "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+      "requested_boundary": {
+        "stop_after_active_seconds": null,
+        "stop_after_steps": 4
+      },
+      "schema_version": 1,
+      "settings_sha256": "889a67008da311cbd782133223cb6a6982f5c9b6aaa942e34873198eb8f48717",
+      "source_sha256": "8d77d31ac2a65cad259fe26c31b716b395707c4fcb68ab881b7e525508aefe3e",
+      "stage_id": "grpo-resume-stage-4",
+      "status": "total_budget_exhausted"
+    },
+    "optimizer_audit": {
+      "optimizer_steps_observed": 2,
+      "nonzero_gradient_steps": 2,
+      "active_seconds": 34.5636357920157,
+      "max_gradient_norm_observed": 0.9999996440719136,
+      "latest_gradient_norm": 0.9999996065988989,
+      "completed_state_active_seconds": 68.69263595902885,
+      "first_nonzero_update": {
+        "global_step": 3,
+        "gradient_norm": 0.9999996440719136,
+        "changed_tensors_since_invocation_start": 112,
+        "parameter_delta_l2_since_invocation_start": 0.006151251328903818
+      },
+      "parameter_delta_l2": 0.010543115397097213,
+      "changed_tensors": 112,
+      "reference_unchanged": true,
+      "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+      "active_time": {
+        "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+        "total_budget_seconds": 1200,
+        "resumed_committed_active_seconds": 34.129000167013146,
+        "invocation_active_seconds": 34.5636357920157,
+        "completed_state_active_seconds": 68.69263595902885,
+        "committed_active_seconds": 68.69263595902885,
+        "committed_global_step": 4,
+        "completed_not_checkpointed_active_seconds": 0.0,
+        "observed_physical_active_seconds": 68.69263595902885,
+        "observed_reward_journal_io_seconds": 0.0009485419723205268,
+        "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+        "unknown_partial_invocations": 0,
+        "hard_total_physical_compute_cap": false
+      }
+    },
+    "reward_audit": {
+      "groups": 2,
+      "mixed_groups": 2,
+      "all_correct_groups": 0,
+      "all_zero_groups": 0,
+      "unique_prompt_ids": 2,
+      "prompt_presentations": 2,
+      "sampled_completions": 8,
+      "generated_tokens": 62,
+      "terminated_completions": 8,
+      "nonterminated_completions": 0,
+      "complete_think_blocks": 0,
+      "task_correct_with_think": 0,
+      "task_correct_without_think": 4,
+      "canonical_completions": 8,
+      "recognition_mixed_groups": 2
+    },
+    "probe": {
+      "after_train_gold_nll": 0.08214585491805337,
+      "reloaded_train_gold_nll": 0.08214585491805337,
+      "reload_nll_agrees": true,
+      "gold_nll_improved": true,
+      "gradient_and_weight_change": true,
+      "mixed_reward_groups": 2,
+      "sampler_teacher_logprob_parity": {
+        "initial_reference_max_abs_logprob_difference": 0.0,
+        "initial_reference_sampled_kl": 0.0,
+        "max_abs_logprob_error_after_same_suppression": 6.556510925292969e-06,
+        "max_abs_raw_teacher_vs_sampler_logprob_error": 6.556510925292969e-06,
+        "sampled_tokens": [
+          37,
+          46214,
+          220,
+          17,
+          15,
+          15,
+          15,
+          151645
+        ],
+        "sampling_suppressed_token_ids": [
+          151655
+        ],
+        "token_count": 8,
+        "tolerance": 0.001,
+        "within_tolerance": true
+      },
+      "held_out_benchmark_gain": "not measured by this diagnostic"
+    },
+    "before_train_diagnostic": {
+      "accuracy": 0.75,
+      "invalid_answers": 0,
+      "mean_class_accuracy": 0.75,
+      "n": 4,
+      "per_class_accuracy": {
+        "737-400": 1.0,
+        "Cessna 208": 1.0,
+        "Falcon 900": 1.0,
+        "Gulfstream IV": 0.0
+      },
+      "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+    },
+    "after_train_diagnostic": {
+      "n": 4,
+      "accuracy": 0.75,
+      "mean_class_accuracy": 0.75,
+      "invalid_answers": 0,
+      "per_class_accuracy": {
+        "737-400": 1.0,
+        "Cessna 208": 1.0,
+        "Falcon 900": 1.0,
+        "Gulfstream IV": 0.0
+      },
+      "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+    }
+  }
+}

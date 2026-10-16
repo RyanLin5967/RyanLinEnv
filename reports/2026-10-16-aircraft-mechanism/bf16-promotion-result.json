@@ -1,0 +1,87 @@
+{
+  "active_seconds": 34.12302537600044,
+  "after_train_gold_nll": 0.09204228856833652,
+  "before_train_gold_nll": 0.10497682905406691,
+  "decision": "retain proven FP32; no additional optimization loop",
+  "gates": {
+    "actual_task_support_and_finite_gradient": true,
+    "exact_initial_fp32_adapter": true,
+    "initial_greedy_predictions_match": true,
+    "initial_reference_parity": true,
+    "reference_unchanged": true,
+    "reload_agrees": true,
+    "sampler_teacher_parity": false,
+    "speedup": true
+  },
+  "initial_adapter_tensor_audit": {
+    "dtype": "float32",
+    "exact_saved_tensors": true,
+    "tensor_count": 112
+  },
+  "original_fp32_tolerance_unchanged": 0.001,
+  "parameter_dtypes": {
+    "frozen": {
+      "torch.bfloat16": 729
+    },
+    "trainable": {
+      "torch.float32": 112
+    }
+  },
+  "plan_sha256": "4fdff0d3bb32d38d0efa43a0a6bf79feea2a14aa85dbcc2863479b93400c9003",
+  "promote": false,
+  "sampler_teacher_logprob_parity": {
+    "initial_reference_max_abs_logprob_difference": 0.0,
+    "initial_reference_sampled_kl": 0.0,
+    "max_abs_logprob_error_after_same_suppression": 0.0724753737449646,
+    "max_abs_raw_teacher_vs_sampler_logprob_error": 0.0724753737449646,
+    "sampled_tokens": [
+      37,
+      46214,
+      220,
+      17,
+      15,
+      15,
+      15,
+      151645
+    ],
+    "sampling_suppressed_token_ids": [
+      151655
+    ],
+    "token_count": 8,
+    "tolerance": 0.02,
+    "within_tolerance": false
+  },
+  "schema_version": 1,
+  "scope": "Precision engineering only, no accuracy superiority claim",
+  "speedup_vs_frozen_fp32": 2.044238735673456,
+  "task_updates": [
+    {
+      "id": "1347237",
+      "native_kl": 2.1085143089294434e-06,
+      "preclip_gradient_norm": 9.8861099104397e-05,
+      "recognition_mixed": false,
+      "step": 1
+    },
+    {
+      "id": "1833904",
+      "native_kl": 0.000297361619232106,
+      "preclip_gradient_norm": 6.71852970123291,
+      "recognition_mixed": true,
+      "step": 2
+    },
+    {
+      "id": "1154960",
+      "native_kl": 0.00027970650262432173,
+      "preclip_gradient_norm": 2.996192455291748,
+      "recognition_mixed": true,
+      "step": 3
+    },
+    {
+      "id": "0122393",
+      "native_kl": 0.0007802583277225494,
+      "preclip_gradient_norm": 2.2472805976867676,
+      "recognition_mixed": true,
+      "step": 4
+    }
+  ]
+}

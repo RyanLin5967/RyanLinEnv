@@ -12,6 +12,7 @@ from pathlib import Path
 
 from extract_aircraft import atomic_json, file_hash, verify_completed
 from prepare_aircraft import audit
+from verify_aircraft_clearance import require_clearance
 
 from vision_rl.aircraft_data import PREPROCESSING_ID
 
@@ -52,10 +53,12 @@ def main():
         type=Path,
         default=Path("runs/aircraft-audit/reproduced/annotations.tar.gz"),
     )
+    parser.add_argument("--probe", type=Path, default=Path("runs/aircraft-shared-probe16/prepared"))
     args = parser.parse_args()
     complete = verify_completed(args.root, args.metadata_archive)
     if complete is None or not complete["training_integrity_clear"]:
         raise ValueError("Full original image audit must pass before publishing training manifests")
+    require_clearance(args.root, args.metadata_archive, args.probe, complete)
     metadata, _ = audit(args.metadata_archive.read_bytes())
     output = args.root / "development"
     output.mkdir(parents=True, exist_ok=True)
@@ -99,6 +102,9 @@ def main():
         "counts": counts,
         "optional_train_16shot": len(fewshot),
         "source_image_audit_sha256": file_hash(args.root / "audit/image-audit.json"),
+        "author_equivalence_receipt_sha256": file_hash(
+            args.root / "audit/author-equivalence-v1.json"
+        ),
         "files": {
             p.name: file_hash(p)
             for p in [

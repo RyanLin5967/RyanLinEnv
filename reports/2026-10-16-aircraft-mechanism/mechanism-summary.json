@@ -1,0 +1,1090 @@
+{
+  "arms": {
+    "grpo-full": {
+      "active_seconds_per_update": 17.4389025629971,
+      "actual_groups": [
+        {
+          "canonical_predictions": [
+            "Cessna 208",
+            "Cessna 208",
+            "Cessna 208",
+            "Cessna 208"
+          ],
+          "completion_tokens": [
+            8,
+            8,
+            8,
+            8
+          ],
+          "id": "1347237",
+          "label": "Cessna 208",
+          "recognition_mixed": false,
+          "rewards": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "Gulfstream IV",
+            "Gulfstream V",
+            "Gulfstream V",
+            "Gulfstream V"
+          ],
+          "completion_tokens": [
+            5,
+            5,
+            5,
+            5
+          ],
+          "id": "1833904",
+          "label": "Gulfstream IV",
+          "recognition_mixed": true,
+          "rewards": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "Falcon 900",
+            "Falcon 2000",
+            "Falcon 2000",
+            "Falcon 900"
+          ],
+          "completion_tokens": [
+            7,
+            8,
+            8,
+            7
+          ],
+          "id": "1154960",
+          "label": "Falcon 900",
+          "recognition_mixed": true,
+          "rewards": [
+            1.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "737-300",
+            "737-400",
+            "737-400",
+            "737-900"
+          ],
+          "completion_tokens": [
+            8,
+            8,
+            8,
+            8
+          ],
+          "id": "0122393",
+          "label": "737-400",
+          "recognition_mixed": true,
+          "rewards": [
+            0.0,
+            1.0,
+            1.0,
+            0.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      ],
+      "actual_prompt_ids": [
+        "1347237",
+        "1833904",
+        "1154960",
+        "0122393"
+      ],
+      "after_gold_nll": 0.08214585491805337,
+      "after_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "before_gold_nll": 0.09249188841204159,
+      "before_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "committed_active_seconds": 69.7556102519884,
+      "final_adapter_sha256": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d",
+      "native_logs": [
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 8.0,
+          "completions/mean_terminated_length": 8.0,
+          "completions/min_length": 8.0,
+          "completions/min_terminated_length": 8.0,
+          "entropy": 0.11218857765197754,
+          "epoch": 0.25,
+          "frac_reward_zero_std": 1.0,
+          "grad_norm": 4.810413400946345e-08,
+          "kl": -7.450580596923828e-09,
+          "learning_rate": 1e-05,
+          "loss": -2.98023217215615e-10,
+          "num_tokens": 3940.0,
+          "reward": 1.0,
+          "reward_std": 0.0,
+          "rewards/exact_label_accuracy/mean": 1.0,
+          "rewards/exact_label_accuracy/std": 0.0,
+          "step": 1,
+          "step_time": 17.38354050097405
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 5.0,
+          "completions/max_terminated_length": 5.0,
+          "completions/mean_length": 5.0,
+          "completions/mean_terminated_length": 5.0,
+          "completions/min_length": 5.0,
+          "completions/min_terminated_length": 5.0,
+          "entropy": 0.11927785724401474,
+          "epoch": 0.5,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 6.710395336151123,
+          "kl": 0.0,
+          "learning_rate": 1e-05,
+          "loss": 0.0,
+          "num_tokens": 7944.0,
+          "reward": 0.25,
+          "reward_std": 0.5,
+          "rewards/exact_label_accuracy/mean": 0.25,
+          "rewards/exact_label_accuracy/std": 0.5,
+          "step": 2,
+          "step_time": 17.225820000006934
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 7.5,
+          "completions/mean_terminated_length": 7.5,
+          "completions/min_length": 7.0,
+          "completions/min_terminated_length": 7.0,
+          "entropy": 0.18650589883327484,
+          "epoch": 0.75,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 3.1141438484191895,
+          "kl": 4.62361742847861e-06,
+          "learning_rate": 1e-05,
+          "loss": 2.086162567138672e-07,
+          "num_tokens": 11958.0,
+          "reward": 0.5,
+          "reward_std": 0.5773502588272095,
+          "rewards/exact_label_accuracy/mean": 0.5,
+          "rewards/exact_label_accuracy/std": 0.5773502588272095,
+          "step": 3,
+          "step_time": 17.403354791007587
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 8.0,
+          "completions/mean_terminated_length": 8.0,
+          "completions/min_length": 8.0,
+          "completions/min_terminated_length": 8.0,
+          "entropy": 0.1600024700164795,
+          "epoch": 1.0,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 2.228192090988159,
+          "kl": 5.178153514862061e-07,
+          "learning_rate": 1e-05,
+          "loss": 1.4901161193847656e-08,
+          "num_tokens": 15946.0,
+          "reward": 0.5,
+          "reward_std": 0.5773502588272095,
+          "rewards/exact_label_accuracy/mean": 0.5,
+          "rewards/exact_label_accuracy/std": 0.5773502588272095,
+          "step": 4,
+          "step_time": 17.356095251016086
+        }
+      ],
+      "optimizer_audit": [
+        {
+          "active_seconds": 17.483732124994276,
+          "completed_state_active_seconds": 17.483732124994276,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 4.810413459662464e-08,
+          "max_gradient_norm_observed": 4.810413459662464e-08,
+          "nonzero_gradient_steps": 1,
+          "optimizer_steps_observed": 1,
+          "step": 1
+        },
+        {
+          "active_seconds": 34.8081281259947,
+          "completed_state_active_seconds": 34.8081281259947,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 0.9999998113121187,
+          "max_gradient_norm_observed": 0.9999998113121187,
+          "nonzero_gradient_steps": 2,
+          "optimizer_steps_observed": 2,
+          "step": 2
+        },
+        {
+          "active_seconds": 52.30586375198618,
+          "completed_state_active_seconds": 52.30586375198618,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 0.9999996440719136,
+          "max_gradient_norm_observed": 0.9999998113121187,
+          "nonzero_gradient_steps": 3,
+          "optimizer_steps_observed": 3,
+          "step": 3
+        },
+        {
+          "active_seconds": 69.7556102519884,
+          "completed_state_active_seconds": 69.7556102519884,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 0.9999996065988989,
+          "max_gradient_norm_observed": 0.9999998113121187,
+          "nonzero_gradient_steps": 4,
+          "optimizer_steps_observed": 4,
+          "step": 4
+        }
+      ],
+      "recognition_mixed_groups": 3,
+      "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+      "reference_unchanged": true,
+      "reload_nll": 0.08214585491805337,
+      "reload_nll_agrees": true,
+      "sampler_teacher_logprob_parity": {
+        "initial_reference_max_abs_logprob_difference": 0.0,
+        "initial_reference_sampled_kl": 0.0,
+        "max_abs_logprob_error_after_same_suppression": 6.556510925292969e-06,
+        "max_abs_raw_teacher_vs_sampler_logprob_error": 6.556510925292969e-06,
+        "sampled_tokens": [
+          37,
+          46214,
+          220,
+          17,
+          15,
+          15,
+          15,
+          151645
+        ],
+        "sampling_suppressed_token_ids": [
+          151655
+        ],
+        "token_count": 8,
+        "tolerance": 0.001,
+        "within_tolerance": true
+      },
+      "scope": "adaptive TRAIN mechanism diagnostic, not held-out accuracy or strongest SFT"
+    },
+    "grpo-resumed": {
+      "active_seconds_per_update": 17.173158989757212,
+      "actual_groups": [
+        {
+          "canonical_predictions": [
+            "Cessna 208",
+            "Cessna 208",
+            "Cessna 208",
+            "Cessna 208"
+          ],
+          "completion_tokens": [
+            8,
+            8,
+            8,
+            8
+          ],
+          "id": "1347237",
+          "label": "Cessna 208",
+          "recognition_mixed": false,
+          "rewards": [
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "Gulfstream IV",
+            "Gulfstream V",
+            "Gulfstream V",
+            "Gulfstream V"
+          ],
+          "completion_tokens": [
+            5,
+            5,
+            5,
+            5
+          ],
+          "id": "1833904",
+          "label": "Gulfstream IV",
+          "recognition_mixed": true,
+          "rewards": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "Falcon 900",
+            "Falcon 2000",
+            "Falcon 2000",
+            "Falcon 900"
+          ],
+          "completion_tokens": [
+            7,
+            8,
+            8,
+            7
+          ],
+          "id": "1154960",
+          "label": "Falcon 900",
+          "recognition_mixed": true,
+          "rewards": [
+            1.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        },
+        {
+          "canonical_predictions": [
+            "737-300",
+            "737-400",
+            "737-400",
+            "737-900"
+          ],
+          "completion_tokens": [
+            8,
+            8,
+            8,
+            8
+          ],
+          "id": "0122393",
+          "label": "737-400",
+          "recognition_mixed": true,
+          "rewards": [
+            0.0,
+            1.0,
+            1.0,
+            0.0
+          ],
+          "terminated": [
+            true,
+            true,
+            true,
+            true
+          ]
+        }
+      ],
+      "actual_prompt_ids": [
+        "1347237",
+        "1833904",
+        "1154960",
+        "0122393"
+      ],
+      "after_gold_nll": 0.08214585491805337,
+      "after_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "before_gold_nll": 0.09249188841204159,
+      "before_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "committed_active_seconds": 68.69263595902885,
+      "final_adapter_sha256": "bd5018ecc0e365e607e847cde451ec352eacc11db40790c0bed775da45729b2d",
+      "native_logs": [
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 8.0,
+          "completions/mean_terminated_length": 8.0,
+          "completions/min_length": 8.0,
+          "completions/min_terminated_length": 8.0,
+          "entropy": 0.11218857765197754,
+          "epoch": 0.25,
+          "frac_reward_zero_std": 1.0,
+          "grad_norm": 4.810413400946345e-08,
+          "kl": -7.450580596923828e-09,
+          "learning_rate": 1e-05,
+          "loss": -2.98023217215615e-10,
+          "num_tokens": 3940.0,
+          "reward": 1.0,
+          "reward_std": 0.0,
+          "rewards/exact_label_accuracy/mean": 1.0,
+          "rewards/exact_label_accuracy/std": 0.0,
+          "step": 1,
+          "step_time": 16.767802956979722
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 5.0,
+          "completions/max_terminated_length": 5.0,
+          "completions/mean_length": 5.0,
+          "completions/mean_terminated_length": 5.0,
+          "completions/min_length": 5.0,
+          "completions/min_terminated_length": 5.0,
+          "entropy": 0.11927785724401474,
+          "epoch": 0.5,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 6.710395336151123,
+          "kl": 0.0,
+          "learning_rate": 1e-05,
+          "loss": 0.0,
+          "num_tokens": 7944.0,
+          "reward": 0.25,
+          "reward_std": 0.5,
+          "rewards/exact_label_accuracy/mean": 0.25,
+          "rewards/exact_label_accuracy/std": 0.5,
+          "step": 2,
+          "step_time": 17.16321995902399
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 7.5,
+          "completions/mean_terminated_length": 7.5,
+          "completions/min_length": 7.0,
+          "completions/min_terminated_length": 7.0,
+          "entropy": 0.18650589883327484,
+          "epoch": 0.75,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 3.1141438484191895,
+          "kl": 4.62361742847861e-06,
+          "learning_rate": 1e-05,
+          "loss": 2.086162567138672e-07,
+          "num_tokens": 11958.0,
+          "reward": 0.5,
+          "reward_std": 0.5773502588272095,
+          "rewards/exact_label_accuracy/mean": 0.5,
+          "rewards/exact_label_accuracy/std": 0.5773502588272095,
+          "step": 3,
+          "step_time": 17.434469834013726
+        },
+        {
+          "clip_ratio/high_max": 0.0,
+          "clip_ratio/high_mean": 0.0,
+          "clip_ratio/low_mean": 0.0,
+          "clip_ratio/low_min": 0.0,
+          "clip_ratio/region_mean": 0.0,
+          "completions/clipped_ratio": 0.0,
+          "completions/max_length": 8.0,
+          "completions/max_terminated_length": 8.0,
+          "completions/mean_length": 8.0,
+          "completions/mean_terminated_length": 8.0,
+          "completions/min_length": 8.0,
+          "completions/min_terminated_length": 8.0,
+          "entropy": 0.1600024700164795,
+          "epoch": 1.0,
+          "frac_reward_zero_std": 0.0,
+          "grad_norm": 2.228192090988159,
+          "kl": 5.178153514862061e-07,
+          "learning_rate": 1e-05,
+          "loss": 1.4901161193847656e-08,
+          "num_tokens": 15946.0,
+          "reward": 0.5,
+          "reward_std": 0.5773502588272095,
+          "rewards/exact_label_accuracy/mean": 0.5,
+          "rewards/exact_label_accuracy/std": 0.5773502588272095,
+          "step": 4,
+          "step_time": 16.933846584011917
+        }
+      ],
+      "optimizer_audit": [
+        {
+          "active_seconds": 16.874508709006477,
+          "completed_state_active_seconds": 16.874508709006477,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 4.810413459662464e-08,
+          "max_gradient_norm_observed": 4.810413459662464e-08,
+          "nonzero_gradient_steps": 1,
+          "optimizer_steps_observed": 1,
+          "step": 1
+        },
+        {
+          "active_seconds": 34.129000167013146,
+          "completed_state_active_seconds": 34.129000167013146,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 4.810413459662464e-08,
+            "parameter_delta_l2_since_invocation_start": 4.626221186805685e-05
+          },
+          "latest_gradient_norm": 0.9999998113121187,
+          "max_gradient_norm_observed": 0.9999998113121187,
+          "nonzero_gradient_steps": 2,
+          "optimizer_steps_observed": 2,
+          "step": 2
+        },
+        {
+          "active_seconds": 17.54290125099942,
+          "completed_state_active_seconds": 51.67190141801257,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 3,
+            "gradient_norm": 0.9999996440719136,
+            "parameter_delta_l2_since_invocation_start": 0.006151251328903818
+          },
+          "latest_gradient_norm": 0.9999996440719136,
+          "max_gradient_norm_observed": 0.9999996440719136,
+          "nonzero_gradient_steps": 1,
+          "optimizer_steps_observed": 1,
+          "step": 3
+        },
+        {
+          "active_seconds": 34.5636357920157,
+          "completed_state_active_seconds": 68.69263595902885,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 3,
+            "gradient_norm": 0.9999996440719136,
+            "parameter_delta_l2_since_invocation_start": 0.006151251328903818
+          },
+          "latest_gradient_norm": 0.9999996065988989,
+          "max_gradient_norm_observed": 0.9999996440719136,
+          "nonzero_gradient_steps": 2,
+          "optimizer_steps_observed": 2,
+          "step": 4
+        }
+      ],
+      "recognition_mixed_groups": 3,
+      "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+      "reference_unchanged": true,
+      "reload_nll": 0.08214585491805337,
+      "reload_nll_agrees": true,
+      "sampler_teacher_logprob_parity": {
+        "initial_reference_max_abs_logprob_difference": 0.0,
+        "initial_reference_sampled_kl": 0.0,
+        "max_abs_logprob_error_after_same_suppression": 6.556510925292969e-06,
+        "max_abs_raw_teacher_vs_sampler_logprob_error": 6.556510925292969e-06,
+        "sampled_tokens": [
+          37,
+          46214,
+          220,
+          17,
+          15,
+          15,
+          15,
+          151645
+        ],
+        "sampling_suppressed_token_ids": [
+          151655
+        ],
+        "token_count": 8,
+        "tolerance": 0.001,
+        "within_tolerance": true
+      },
+      "scope": "adaptive TRAIN mechanism diagnostic, not held-out accuracy or strongest SFT"
+    },
+    "sft-control": {
+      "active_seconds_per_update": 2.7815482190053444,
+      "actual_groups": [],
+      "actual_prompt_ids": [
+        "1347237",
+        "1833904",
+        "1154960",
+        "0122393"
+      ],
+      "after_gold_nll": 0.08192062927992083,
+      "after_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "before_gold_nll": 0.09249188841204159,
+      "before_greedy": {
+        "accuracy": 0.75,
+        "invalid_answers": 0,
+        "mean_class_accuracy": 0.75,
+        "n": 4,
+        "per_class_accuracy": {
+          "737-400": 1.0,
+          "Cessna 208": 1.0,
+          "Falcon 900": 1.0,
+          "Gulfstream IV": 0.0
+        },
+        "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+      },
+      "committed_active_seconds": 11.126192876021378,
+      "final_adapter_sha256": "6b2c06a4cc8ea5e820313c9d095e0793b4d6ed892418f61a160279b8301b193a",
+      "native_logs": [
+        {
+          "entropy": 0.09972360730171204,
+          "epoch": 0.25,
+          "grad_norm": 0.6184214949607849,
+          "learning_rate": 1e-05,
+          "loss": 0.014774322509765625,
+          "mean_token_accuracy": 1.0,
+          "num_tokens": 986.0,
+          "step": 1
+        },
+        {
+          "entropy": 0.09849325567483902,
+          "epoch": 0.5,
+          "grad_norm": 11.730206489562988,
+          "learning_rate": 1e-05,
+          "loss": 0.2525230944156647,
+          "mean_token_accuracy": 0.8333333134651184,
+          "num_tokens": 1988.0,
+          "step": 2
+        },
+        {
+          "entropy": 0.17016983032226562,
+          "epoch": 0.75,
+          "grad_norm": 3.081836700439453,
+          "learning_rate": 1e-05,
+          "loss": 0.08970761299133301,
+          "mean_token_accuracy": 1.0,
+          "num_tokens": 2992.0,
+          "step": 3
+        },
+        {
+          "entropy": 0.14133793115615845,
+          "epoch": 1.0,
+          "grad_norm": 2.1246535778045654,
+          "learning_rate": 1e-05,
+          "loss": 0.06686168164014816,
+          "mean_token_accuracy": 1.0,
+          "num_tokens": 3990.0,
+          "step": 4
+        }
+      ],
+      "optimizer_audit": [
+        {
+          "active_seconds": 2.780268459013314,
+          "completed_state_active_seconds": 2.780268459013314,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 0.6184214757863541,
+            "parameter_delta_l2_since_invocation_start": 0.010418274193353873
+          },
+          "latest_gradient_norm": 0.6184214757863541,
+          "max_gradient_norm_observed": 0.6184214757863541,
+          "nonzero_gradient_steps": 1,
+          "optimizer_steps_observed": 1,
+          "step": 1
+        },
+        {
+          "active_seconds": 5.5835936260118615,
+          "completed_state_active_seconds": 5.5835936260118615,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 0.6184214757863541,
+            "parameter_delta_l2_since_invocation_start": 0.010418274193353873
+          },
+          "latest_gradient_norm": 0.9999999589183508,
+          "max_gradient_norm_observed": 0.9999999589183508,
+          "nonzero_gradient_steps": 2,
+          "optimizer_steps_observed": 2,
+          "step": 2
+        },
+        {
+          "active_seconds": 8.379082168015884,
+          "completed_state_active_seconds": 8.379082168015884,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 0.6184214757863541,
+            "parameter_delta_l2_since_invocation_start": 0.010418274193353873
+          },
+          "latest_gradient_norm": 0.999999642651055,
+          "max_gradient_norm_observed": 0.9999999589183508,
+          "nonzero_gradient_steps": 3,
+          "optimizer_steps_observed": 3,
+          "step": 3
+        },
+        {
+          "active_seconds": 11.126192876021378,
+          "completed_state_active_seconds": 11.126192876021378,
+          "first_nonzero_update": {
+            "changed_tensors_since_invocation_start": 112,
+            "global_step": 1,
+            "gradient_norm": 0.6184214757863541,
+            "parameter_delta_l2_since_invocation_start": 0.010418274193353873
+          },
+          "latest_gradient_norm": 0.9999995231963794,
+          "max_gradient_norm_observed": 0.9999999589183508,
+          "nonzero_gradient_steps": 4,
+          "optimizer_steps_observed": 4,
+          "step": 4
+        }
+      ],
+      "recognition_mixed_groups": 0,
+      "reference_sha256": null,
+      "reference_unchanged": null,
+      "reload_nll": 0.08192062927992083,
+      "reload_nll_agrees": true,
+      "sampler_teacher_logprob_parity": null,
+      "scope": "adaptive TRAIN mechanism diagnostic, not held-out accuracy or strongest SFT"
+    }
+  },
+  "continuation_supervision": [
+    {
+      "child_pid": 42227,
+      "command": [
+        "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+        "-B",
+        "/Users/idide/RyanLinEnv/runs/aircraft-four-update-v1-continuation-plan/launch.py",
+        "--worker",
+        "--phase",
+        "1",
+        "--expected-amendment-sha256",
+        "c5e6759d5dceb35e0032ec62ff10d741b9119f32d7f9e5e1539bbb98fdb4ccd2",
+        "--expected-plan-sha256",
+        "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+      ],
+      "elapsed_seconds": 41.47343520799768,
+      "exit_code": 0,
+      "finished": true,
+      "former_owner_pids_absent": [
+        16682,
+        16683
+      ],
+      "limits": {
+        "minimum_free_bytes": 10737418240,
+        "mps_driver_limit_bytes": 25769803776,
+        "output_limit_bytes": 2147483648,
+        "rss_limit_bytes": 25769803776,
+        "wall_limit_seconds": 1800
+      },
+      "no_hidden_cpu_fallback": true,
+      "output_bytes": 144088693,
+      "peak_rss_bytes": 8123170816,
+      "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+      "status": "completed",
+      "supervisor_pid": 42224
+    },
+    {
+      "child_pid": 47599,
+      "command": [
+        "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+        "-B",
+        "/Users/idide/RyanLinEnv/runs/aircraft-four-update-v1-continuation-plan/launch.py",
+        "--worker",
+        "--phase",
+        "2",
+        "--expected-amendment-sha256",
+        "c5e6759d5dceb35e0032ec62ff10d741b9119f32d7f9e5e1539bbb98fdb4ccd2",
+        "--expected-plan-sha256",
+        "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+      ],
+      "elapsed_seconds": 64.72636291699018,
+      "exit_code": 0,
+      "finished": true,
+      "former_owner_pids_absent": [
+        16682,
+        16683
+      ],
+      "limits": {
+        "minimum_free_bytes": 10737418240,
+        "mps_driver_limit_bytes": 25769803776,
+        "output_limit_bytes": 2147483648,
+        "rss_limit_bytes": 25769803776,
+        "wall_limit_seconds": 1800
+      },
+      "no_hidden_cpu_fallback": true,
+      "output_bytes": 193677789,
+      "peak_rss_bytes": 9459728384,
+      "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+      "status": "completed",
+      "supervisor_pid": 47585
+    },
+    {
+      "child_pid": 55496,
+      "command": [
+        "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+        "-B",
+        "/Users/idide/RyanLinEnv/runs/aircraft-four-update-v1-continuation-plan/launch.py",
+        "--worker",
+        "--phase",
+        "3",
+        "--expected-amendment-sha256",
+        "c5e6759d5dceb35e0032ec62ff10d741b9119f32d7f9e5e1539bbb98fdb4ccd2",
+        "--expected-plan-sha256",
+        "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+      ],
+      "elapsed_seconds": 51.59907654199924,
+      "exit_code": 0,
+      "finished": true,
+      "former_owner_pids_absent": [
+        16682,
+        16683
+      ],
+      "limits": {
+        "minimum_free_bytes": 10737418240,
+        "mps_driver_limit_bytes": 25769803776,
+        "output_limit_bytes": 2147483648,
+        "rss_limit_bytes": 25769803776,
+        "wall_limit_seconds": 1800
+      },
+      "no_hidden_cpu_fallback": true,
+      "output_bytes": 222830786,
+      "peak_rss_bytes": 9411248128,
+      "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+      "status": "completed",
+      "supervisor_pid": 55495
+    }
+  ],
+  "diagnostic_weights": "Do not use these endpoints as full-study initialization; retain the common400-step SFT warm adapter.",
+  "first_uniform_step": "Uniform rewards cannot provide a task gradient. Tiny initial movement and slightly negative numerical KL are preserved, not called recognition learning.",
+  "learning_interpretation": "Useful canonical correct/wrong groups and large native gradients with zero/small KL support actual task-driven updates. Gold NLL is a TRAIN diagnostic; unchanged greedy accuracy is reported. Strongest multiple-LR/equal-time SFT and held-out gains remain unmeasured.",
+  "mps_telemetry": [
+    {
+      "allocator_fraction": 0.6410255992253231,
+      "driver_limit_bytes": 25769803776,
+      "peak_current_allocated_bytes": 9593867776,
+      "peak_driver_allocated_bytes": 13793148928,
+      "phase": "sft-matched-4",
+      "phase_peaks": {
+        "grpo-uninterrupted-4": 13793148928,
+        "load": 458752
+      },
+      "pid": 16683,
+      "recommended_max_memory_bytes": 40200896512,
+      "sampling_interval_seconds": 0.5
+    },
+    {
+      "allocator_fraction": 0.6410255992253231,
+      "driver_limit_bytes": 25769803776,
+      "peak_current_allocated_bytes": 9428242688,
+      "peak_driver_allocated_bytes": 12710854656,
+      "phase": "sft-matched-4",
+      "phase_peaks": {
+        "load": 458752,
+        "sft-matched-4": 12710854656
+      },
+      "pid": 42227,
+      "recommended_max_memory_bytes": 40200896512,
+      "sampling_interval_seconds": 0.5
+    },
+    {
+      "allocator_fraction": 0.6410255992253231,
+      "driver_limit_bytes": 25769803776,
+      "peak_current_allocated_bytes": 9423647744,
+      "peak_driver_allocated_bytes": 13784694784,
+      "phase": "grpo-resume-stage-2",
+      "phase_peaks": {
+        "grpo-resume-stage-2": 13784694784,
+        "load": 458752
+      },
+      "pid": 47599,
+      "recommended_max_memory_bytes": 40200896512,
+      "sampling_interval_seconds": 0.5
+    },
+    {
+      "allocator_fraction": 0.6410255992253231,
+      "driver_limit_bytes": 25769803776,
+      "peak_current_allocated_bytes": 9486410240,
+      "peak_driver_allocated_bytes": 13784645632,
+      "phase": "grpo-resume-stage-4",
+      "phase_peaks": {
+        "grpo-resume-stage-4": 13784645632,
+        "load": 458752
+      },
+      "pid": 55496,
+      "recommended_max_memory_bytes": 40200896512,
+      "sampling_interval_seconds": 0.5
+    }
+  ],
+  "peak_rss_bytes": 9459728384,
+  "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+  "resume_comparison": {
+    "claim_scope": "Measured four-step pretrained MPS end-to-end continuation only; not arbitrary horizon/hardware determinism",
+    "exact_actual_completion_reward_groups": true,
+    "exact_actual_prompt_ids": true,
+    "exact_final_adapter_tensors": true,
+    "maximum_adapter_absolute_difference": 0.0,
+    "same_immutable_reference": true,
+    "same_prompt_order_sft": true
+  },
+  "schema_version": 1,
+  "scope": "TRAIN-only adaptive mechanism diagnostic; no held-out or superiority result",
+  "supervised_physical_elapsed_seconds": 255.14099412597716,
+  "supervision": {
+    "child_pid": 16683,
+    "command": [
+      "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+      "-B",
+      "/Users/idide/RyanLinEnv/runs/aircraft-four-update-v1-plan/launch.py",
+      "--worker",
+      "--expected-plan-sha256",
+      "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495"
+    ],
+    "elapsed_seconds": 97.34211945899006,
+    "exit_code": 1,
+    "finished": true,
+    "former_owner_pids_absent": [
+      68761,
+      68775
+    ],
+    "limits": {
+      "minimum_free_bytes": 10737418240,
+      "mps_driver_limit_bytes": 25769803776,
+      "output_limit_bytes": 2147483648,
+      "rss_limit_bytes": 25769803776,
+      "wall_limit_seconds": 1800
+    },
+    "no_hidden_cpu_fallback": true,
+    "output_bytes": 78644187,
+    "peak_rss_bytes": 9450356736,
+    "plan_sha256": "192729be4466a0d8c5f279b01deb150878bc10f04c49cf92f4a5d21c73e48495",
+    "status": "failed",
+    "supervisor_pid": 16682
+  }
+}

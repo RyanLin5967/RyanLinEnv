@@ -1,0 +1,62 @@
+{
+  "checkpoint": {
+    "path": "checkpoint-4",
+    "sha256": {
+      "active_time.json": "64ee84a5ac189bdb16bb8bffbacdd25b8472e366f798cb280d884296e8d3f163",
+      "adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "adapter_model.safetensors": "bbb0de587d4e988ace6dbab08ba96947e9d79cd6b4231972b9518ab4f1f8cae9",
+      "exposure.json": "dfd88d07afd1674745ddc71ba14b06ff4a26fc77c6168aa0d9929f8eeeb18439",
+      "mps_rng_state.pth": "5dd57975385b94279bc0761c542cb607110929c0d58138b62069a5dcbfbba366",
+      "optimizer.pt": "08de025b3f5c010a1e29dbe927490f9d7df2361fedb2df86964987a6bb816d7e",
+      "ref/adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "ref/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "rng_state.pth": "5770baaf1a8ae7cfb7eaf8018142078d93ef910e608a6addf9f07f0074d66d99",
+      "scheduler.pt": "2d209e9a59968169b9348850f23d5320332c0bb2ff0685d48e318fa2bd842481",
+      "trainer_state.json": "f99bec22de1434b866d9edf64897292af66b83bbb34a1599be8335bdc7c87542"
+    }
+  },
+  "committed_active_seconds": 34.12302537600044,
+  "committed_prompt_ids": [
+    "1347237",
+    "1833904",
+    "1154960",
+    "0122393"
+  ],
+  "committed_prompt_presentations": 4,
+  "control_identity_sha256": "91af46d3d683d9415943e79115feff7af7f18ef8d5c9af985e156dfce41d532c",
+  "final_adapter": {
+    "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+    "path": "final_adapter",
+    "weights_sha256": "bbb0de587d4e988ace6dbab08ba96947e9d79cd6b4231972b9518ab4f1f8cae9"
+  },
+  "global_step": 4,
+  "original_budgets": {
+    "max_active_seconds": 900,
+    "max_steps": 4
+  },
+  "physical_work": {
+    "committed_active_seconds": 34.12302537600044,
+    "committed_global_step": 4,
+    "completed_not_checkpointed_active_seconds": 0.0,
+    "completed_state_active_seconds": 34.12302537600044,
+    "hard_total_physical_compute_cap": false,
+    "invocation_active_seconds": 34.12302537600044,
+    "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+    "observed_physical_active_seconds": 34.12302537600044,
+    "observed_reward_journal_io_seconds": 0.0009296239877585322,
+    "resumed_committed_active_seconds": 0.0,
+    "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+    "total_budget_seconds": 900,
+    "unknown_partial_invocations": 0
+  },
+  "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+  "requested_boundary": {
+    "stop_after_active_seconds": null,
+    "stop_after_steps": 4
+  },
+  "schema_version": 1,
+  "settings_sha256": "6fc6f871d5d4042f8a0a7e7113395d89577b488b2add791378c3dc5f0349ed5d",
+  "source_sha256": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49",
+  "stage_id": "bf16-grpo-4",
+  "status": "total_budget_exhausted"
+}
