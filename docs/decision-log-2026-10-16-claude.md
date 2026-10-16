@@ -62,3 +62,13 @@ diagnostics, never held-out results.
 - Failure: runtime.py runs the trainer via runpy as `__main__`; its `raise SystemExit(0)` escapes the
   scoped-loader context, so the loader receipt reads failed/SystemExit and assert_probe refuses. The
   main RL trial and verifier never ran: C1–C4 all false. Fix goes into a new v2 plan, never a rerun of v1.
+
+## D7 — Harbor local dogfood v2: probe passed, RL stage killed by its 1800 s wall (preserved)
+- Plan sha a2cd71df… (v1 plus the reviewed SystemExit wrapper fix), evidence
+  `runs/aircraft-harbor-dogfood-local-v2/`.
+- Measured: the SFT probe passed assert_probe (83.1 s active). In the main trial's rl-exposure stage,
+  pretrained GRPO update 1 committed (752.76 s active, nonzero gradient), and the after-train
+  diagnostics were written. The 1800 s stage wall then stopped it at 1801.29 s during the reload/audit
+  replay (peak tree RSS 12,138,778,624 B, under the 12 GiB cap). C1–C4 false; the verifier never ran.
+- The wall came from a GitHub projection (525 s/update). Locally one update took 752.76 s active under
+  host contention (MPS continuation plus other sessions). v3 raises only walls, from measured timing.
