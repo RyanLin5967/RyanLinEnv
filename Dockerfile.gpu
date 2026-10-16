@@ -1,0 +1,10 @@
+# Build on a Linux CUDA host; the PyTorch wheel supplies the CUDA user-space libraries.
+FROM python:3.12.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HF_HOME=/cache/huggingface
+WORKDIR /app
+COPY requirements-vlm.txt /opt/requirements-vlm.txt
+RUN pip install --no-cache-dir -r /opt/requirements-vlm.txt
+COPY pyproject.toml /opt/vision-rl/pyproject.toml
+COPY src /opt/vision-rl/src
+RUN pip install --no-cache-dir /opt/vision-rl
+CMD ["python", "-m", "vision_rl.vlm", "--preflight"]

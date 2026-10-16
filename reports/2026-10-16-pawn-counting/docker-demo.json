@@ -1,0 +1,12 @@
+{
+  "task": "synthetic-spatial-onboarding",
+  "frontier_comparison": false,
+  "initial_accuracy": 0.25,
+  "trained_accuracy": 1.0,
+  "test_examples": 512,
+  "paired_ci95": [
+    0.712890625,
+    0.787109375
+  ],
+  "artifacts": "/runs/docker-demo"
+}

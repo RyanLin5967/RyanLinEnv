@@ -1,0 +1,41 @@
+{
+  "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+  "protocol": "image-mcq-v1/strict-answer/pass@1",
+  "n": 30,
+  "specialist": {
+    "name": "resnet18-count-policy",
+    "backend": "torch",
+    "checkpoint_sha256": "14c4ac633ca028cf2edc0f8a885538a20c33db1e59ae348d333b23e90b8b8cf5"
+  },
+  "baseline": {
+    "name": "resnet18-count-policy",
+    "backend": "torch",
+    "checkpoint_sha256": "26969f2e2cc3e5223ad223c240a1efead0e7856ed71e639fc5f65a9d84d9d018"
+  },
+  "accuracy_difference": -0.03333333333333333,
+  "paired_bootstrap_ci95": [
+    -0.1,
+    0.0
+  ],
+  "specialist_wins": 0,
+  "baseline_wins": 1,
+  "ties": 29,
+  "label_audit": {
+    "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+    "status": "issues_found",
+    "conclusion": "The 27/30 figure measures exact agreement with the imported COCO pawn labels. Two disagreements count visible off-board pawns that the annotations omit; the third appears to include an unannotated partially occluded on-board pawn. Do not interpret 90% as verified model visual-counting accuracy or evidence of a frontier weakness.",
+    "finding_statuses": [
+      "suspected_annotation_omission",
+      "task_annotation_scope_mismatch",
+      "task_annotation_scope_mismatch"
+    ]
+  },
+  "capability_comparison_valid": false,
+  "positive_difference_ci": false,
+  "confidence_method": "paired item bootstrap, 5000 resamples, seed 42; assumes independent items",
+  "evaluation_errors": {
+    "specialist": 0,
+    "baseline": 0
+  },
+  "interpretation": "Evidence is limited to this dataset and protocol. Check model versions, inference budgets, leakage, and multiple comparisons before claiming a win."
+}

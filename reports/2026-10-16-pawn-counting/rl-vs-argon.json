@@ -1,0 +1,48 @@
+{
+  "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+  "protocol": "image-mcq-v1/strict-answer/pass@1",
+  "n": 30,
+  "specialist": {
+    "name": "resnet18-count-policy",
+    "backend": "torch",
+    "checkpoint_sha256": "14c4ac633ca028cf2edc0f8a885538a20c33db1e59ae348d333b23e90b8b8cf5"
+  },
+  "baseline": {
+    "name": "gemini-4-argon",
+    "backend": "roboflow-gemini-proxy",
+    "provider_reported_models": [
+      "gemini-4-argon"
+    ],
+    "thinking_level": "low",
+    "max_tokens": 4096,
+    "max_requests": 30,
+    "temperature": "provider-default",
+    "billing": "Roboflow credits; invoice amount not available from this API"
+  },
+  "accuracy_difference": -0.06666666666666667,
+  "paired_bootstrap_ci95": [
+    -0.23333333333333334,
+    0.1
+  ],
+  "specialist_wins": 2,
+  "baseline_wins": 4,
+  "ties": 24,
+  "label_audit": {
+    "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+    "status": "issues_found",
+    "conclusion": "The 27/30 figure measures exact agreement with the imported COCO pawn labels. Two disagreements count visible off-board pawns that the annotations omit; the third appears to include an unannotated partially occluded on-board pawn. Do not interpret 90% as verified model visual-counting accuracy or evidence of a frontier weakness.",
+    "finding_statuses": [
+      "suspected_annotation_omission",
+      "task_annotation_scope_mismatch",
+      "task_annotation_scope_mismatch"
+    ]
+  },
+  "capability_comparison_valid": false,
+  "positive_difference_ci": false,
+  "confidence_method": "paired item bootstrap, 5000 resamples, seed 42; assumes independent items",
+  "evaluation_errors": {
+    "specialist": 0,
+    "baseline": 0
+  },
+  "interpretation": "Evidence is limited to this dataset and protocol. Check model versions, inference budgets, leakage, and multiple comparisons before claiming a win."
+}

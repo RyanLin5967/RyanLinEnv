@@ -1,0 +1,557 @@
+"""Real-image count policies: frozen ResNet18, SFT warmup, then sampled REINFORCE.
+
+Install the optional torch/torchvision stack before using this module. The encoder
+sees resized image pixels only; labels are consumed by supervised loss/reward and
+validation scoring. No test manifest is accepted by the training function.
+"""
+
+import argparse
+import copy
+import hashlib
+import json
+import platform
+import time
+import zipfile
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from vision_rl.data import assert_disjoint, fingerprint, load_manifest, write_json
+
+ENCODER_ID = "torchvision/resnet18/IMAGENET1K_V1"
+REWARD = "1[action == target] - abs(action - target) / (num_actions - 1)"
+
+
+def state_fingerprint(state: dict) -> str:
+    """Serialization-independent identity of a frozen encoder's exact tensors."""
+    digest = hashlib.sha256()
+    for name, tensor in sorted(state.items()):
+        tensor = tensor.detach().cpu().contiguous()
+        digest.update(json.dumps([name, str(tensor.dtype), list(tensor.shape)]).encode())
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
+def _stack():
+    try:
+        import torch
+        import torchvision
+    except ImportError as exc:
+        raise RuntimeError("Install requirements-vision.txt to use the real-image policy") from exc
+    return torch, torchvision
+
+
+def select_device(requested: str = "auto") -> str:
+    torch, _ = _stack()
+    if requested == "auto":
+        return (
+            "cuda"
+            if torch.cuda.is_available()
+            else ("mps" if torch.backends.mps.is_available() else "cpu")
+        )
+    if requested not in {"cpu", "mps", "cuda"}:
+        raise ValueError("device must be auto, cpu, mps, or cuda")
+    if requested == "mps" and not torch.backends.mps.is_available():
+        raise ValueError("MPS is unavailable on this host")
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise ValueError("CUDA is unavailable on this host")
+    return requested
+
+
+def _count_schema(rows: list[dict]) -> list[str]:
+    choices = rows[0]["choices"]
+    if choices != [str(i) for i in range(len(choices))]:
+        raise ValueError("count policy requires choices in order 0, 1, ..., N")
+    if any(r["choices"] != choices or r["category"] != "counting" for r in rows):
+        raise ValueError("count policy requires a consistent counting task")
+    if any(r["prompt"] != rows[0]["prompt"] for r in rows):
+        raise ValueError("count policy requires one consistent counting question")
+    return choices
+
+
+def shaped_reward(actions, targets, num_actions: int):
+    """Bounded count reward; labels never enter the policy's observations."""
+    if num_actions < 2:
+        raise ValueError("at least two count actions are required")
+    return (actions == targets).float() - (actions - targets).abs().float() / (num_actions - 1)
+
+
+def reinforce_loss(logits, targets, *, samples=8, entropy_weight=0.005, reference=None, kl=0.02):
+    """Sampled policy gradient with an unbiased leave-one-out group baseline."""
+    torch, _ = _stack()
+    if samples < 2:
+        raise ValueError("at least two independent samples are required")
+    log_probs = logits.log_softmax(-1)
+    probs = log_probs.exp()
+    actions = torch.multinomial(probs, samples, replacement=True)
+    rewards = shaped_reward(actions, targets[:, None], logits.shape[-1])
+    baseline = (rewards.sum(1, keepdim=True) - rewards) / (samples - 1)
+    advantage = (rewards - baseline).detach()
+    policy_loss = -(advantage * log_probs.gather(1, actions)).mean()
+    entropy = -(probs * log_probs).sum(-1).mean()
+    divergence = logits.new_tensor(0.0)
+    if reference is not None:
+        divergence = (probs * (log_probs - reference.log_softmax(-1))).sum(-1).mean()
+    loss = policy_loss - entropy_weight * entropy + kl * divergence
+    return loss, {
+        "sampled_reward": float(rewards.mean().detach()),
+        "entropy": float(entropy.detach()),
+        "kl_to_sft": float(divergence.detach()),
+    }
+
+
+def _encoder(weights_path: Path | None = None):
+    torch, torchvision = _stack()
+    weights = None if weights_path else torchvision.models.ResNet18_Weights.IMAGENET1K_V1
+    model = torchvision.models.resnet18(weights=weights)
+    model.fc = torch.nn.Identity()
+    if weights_path:
+        model.load_state_dict(torch.load(weights_path, map_location="cpu", weights_only=True))
+    return model.eval().requires_grad_(False)
+
+
+def _features(rows, encoder, device, *, augment=False, batch_size=24):
+    """Global mean and spatial standard deviation of frozen convolution features.
+
+    Whole-frame resize preserves all objects. Training adds horizontal/vertical
+    flips, while validation and inference each use exactly one unmodified view.
+    """
+    torch, torchvision = _stack()
+    transform = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.Resize((224, 224), antialias=True),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    )
+    tensors = []
+    views = (
+        [
+            None,
+            Image.Transpose.FLIP_LEFT_RIGHT,
+            Image.Transpose.FLIP_TOP_BOTTOM,
+            Image.Transpose.ROTATE_180,
+        ]
+        if augment
+        else [None]
+    )
+    for transpose in views:
+        for row in rows:
+            with Image.open(row["image"]) as source:
+                im = source.convert("RGB")
+                if transpose is not None:
+                    im = im.transpose(transpose)
+                tensors.append(transform(im))
+    trunk = torch.nn.Sequential(*list(encoder.children())[:-2]).to(device).eval()
+    result = []
+    with torch.inference_mode():
+        for start in range(0, len(tensors), batch_size):
+            grid = trunk(torch.stack(tensors[start : start + batch_size]).to(device))
+            result.append(torch.cat([grid.mean((2, 3)), grid.std((2, 3))], dim=1).cpu())
+    trunk.cpu()
+    return torch.cat(result).float()
+
+
+def _head(inputs: int, actions: int, hidden: int):
+    torch, _ = _stack()
+    if hidden:
+        return torch.nn.Sequential(
+            torch.nn.Linear(inputs, hidden),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(hidden, actions),
+        )
+    return torch.nn.Linear(inputs, actions)
+
+
+def _metrics(logits, targets):
+    predictions = logits.argmax(-1)
+    nonzero = targets != 0
+    return {
+        "accuracy": float((predictions == targets).float().mean()),
+        "mae": float((predictions - targets).abs().float().mean()),
+        "nonzero_accuracy": float((predictions[nonzero] == targets[nonzero]).float().mean())
+        if nonzero.any()
+        else None,
+    }
+
+
+def _rank(metrics):
+    return metrics["accuracy"], -metrics["mae"]
+
+
+def _save_policy(path, head, metadata, mean, scale):
+    torch, _ = _stack()
+    torch.save(
+        {
+            "schema_version": 1,
+            "metadata": metadata,
+            "state_dict": copy.deepcopy(head.cpu().state_dict()),
+            "feature_mean": mean.cpu(),
+            "feature_scale": scale.cpu(),
+        },
+        path,
+    )
+
+
+def train_count_policy(
+    train_manifest: Path,
+    validation_manifest: Path,
+    output: Path,
+    *,
+    device="auto",
+    seeds=(7, 19),
+    hidden_sizes=(0, 128),
+    sft_epochs=160,
+    rl_steps=800,
+    encoder_weights: Path | None = None,
+    augment=True,
+) -> dict:
+    """Run a bounded experiment search; choose checkpoint using validation only."""
+    torch, torchvision = _stack()
+    if not seeds or not hidden_sizes or sft_epochs < 1 or rl_steps < 1:
+        raise ValueError("provide seeds, architectures, and positive SFT/RL budgets")
+    if any(type(h) is not int or not 0 <= h <= 512 for h in hidden_sizes):
+        raise ValueError("hidden sizes must be integers between 0 and 512")
+    train_rows = load_manifest(train_manifest, expected_split="train")
+    val_rows = load_manifest(validation_manifest, expected_split="validation")
+    assert_disjoint(train_rows, val_rows)
+    choices = _count_schema(train_rows + val_rows)
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=False)
+    start = time.monotonic()
+    selected_device = select_device(device)
+    torch.set_num_threads(min(4, torch.get_num_threads()))
+    torch.manual_seed(0)
+    encoder = _encoder(encoder_weights)
+    torch.save(encoder.state_dict(), output / "encoder.pt")
+    encoder_sha = hashlib.sha256((output / "encoder.pt").read_bytes()).hexdigest()
+    x = _features(train_rows, encoder, selected_device, augment=augment)
+    v = _features(val_rows, encoder, selected_device)
+    mean, scale = x.mean(0), x.std(0).clamp_min(0.05)
+    x, v = (x - mean) / scale, (v - mean) / scale
+    y = torch.tensor([ord(r["answer"]) - 65 for r in train_rows] * (4 if augment else 1))
+    vy = torch.tensor([ord(r["answer"]) - 65 for r in val_rows])
+    metadata = {
+        "encoder": ENCODER_ID,
+        "encoder_sha256": encoder_sha,
+        "encoder_state_sha256": state_fingerprint(encoder.state_dict()),
+        "encoder_file": "encoder.pt",
+        "choices": choices,
+        "prompt": train_rows[0]["prompt"],
+        "feature_dim": x.shape[1],
+        "train_fingerprint": fingerprint(train_rows),
+        "validation_fingerprint": fingerprint(val_rows),
+        "selection_split": "validation",
+        "reward": REWARD,
+        "image_transform": "RGB resize224x224 + ImageNet normalize; mean/std layer4",
+        "train_views": 4 if augment else 1,
+        "optimizer_device": "cpu",
+        "encoder_device": selected_device,
+        "torch_version": str(torch.__version__),
+        "torchvision_version": torchvision.__version__,
+    }
+    plan = {
+        "seeds": list(seeds),
+        "hidden_sizes": list(hidden_sizes),
+        "sft_epochs": sft_epochs,
+        "rl_steps": rl_steps,
+        "sft_lr": 0.003,
+        "rl_lr": 0.0005,
+        "weight_decay": 0.05,
+        "batch_size": 128,
+        "samples_per_observation": 8,
+        "entropy_weight": 0.005,
+        "kl_weight": 0.02,
+        "selection": "maximum validation exact accuracy; then minimum validation MAE",
+        "test_access": False,
+    }
+    write_json(output / "plan.json", {**plan, **metadata})
+    candidates = []
+    history_path = output / "history.jsonl"
+    selected = None
+    for hidden in hidden_sizes:
+        for seed in seeds:
+            torch.manual_seed(seed)
+            candidate = f"h{hidden}-s{seed}"
+            head = _head(x.shape[1], len(choices), hidden)
+            candidate_meta = {**metadata, "hidden": hidden, "seed": seed, "candidate": candidate}
+            _save_policy(
+                output / f"{candidate}-initial.pt",
+                head,
+                {**candidate_meta, "phase": "initial"},
+                mean,
+                scale,
+            )
+            optimizer = torch.optim.AdamW(head.parameters(), lr=plan["sft_lr"], weight_decay=0.05)
+            best_sft, sft_state = None, None
+            for epoch in range(1, sft_epochs + 1):
+                head.train()
+                for indices in torch.randperm(len(x)).split(128):
+                    optimizer.zero_grad(set_to_none=True)
+                    loss = torch.nn.functional.cross_entropy(
+                        head(x[indices]), y[indices], label_smoothing=0.05
+                    )
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
+                    optimizer.step()
+                if epoch % 5 == 0 or epoch == sft_epochs:
+                    head.eval()
+                    with torch.no_grad():
+                        metrics = _metrics(head(v), vy)
+                        train_metrics = _metrics(head(x), y)
+                    event = {
+                        "candidate": candidate,
+                        "phase": "sft",
+                        "step": epoch,
+                        "validation": metrics,
+                        "train": train_metrics,
+                        "loss": float(loss.detach()),
+                    }
+                    with history_path.open("a") as f:
+                        f.write(json.dumps(event) + "\n")
+                    if best_sft is None or _rank(metrics) > _rank(best_sft):
+                        best_sft, sft_state = metrics, copy.deepcopy(head.state_dict())
+                        sft_epoch = epoch
+            head.load_state_dict(sft_state)
+            _save_policy(
+                output / f"{candidate}-sft.pt",
+                head,
+                {**candidate_meta, "phase": "sft", "selected_step": sft_epoch},
+                mean,
+                scale,
+            )
+            reference = copy.deepcopy(head).eval().requires_grad_(False)
+            optimizer = torch.optim.AdamW(head.parameters(), lr=plan["rl_lr"], weight_decay=0.05)
+            best_rl, rl_state = None, None
+            for step in range(1, rl_steps + 1):
+                indices = torch.randint(len(x), (min(128, len(x)),))
+                # Keep dropout disabled: sampled categorical actions provide exploration.
+                head.eval()
+                optimizer.zero_grad(set_to_none=True)
+                with torch.no_grad():
+                    reference_logits = reference(x[indices])
+                loss, reward_metrics = reinforce_loss(
+                    head(x[indices]), y[indices], reference=reference_logits
+                )
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
+                optimizer.step()
+                if step % 20 == 0 or step == rl_steps:
+                    with torch.no_grad():
+                        metrics = _metrics(head(v), vy)
+                        train_metrics = _metrics(head(x), y)
+                    event = {
+                        "candidate": candidate,
+                        "phase": "rl",
+                        "step": step,
+                        "validation": metrics,
+                        "train": train_metrics,
+                        **reward_metrics,
+                    }
+                    with history_path.open("a") as f:
+                        f.write(json.dumps(event) + "\n")
+                    if best_rl is None or _rank(metrics) > _rank(best_rl):
+                        best_rl, rl_state = metrics, copy.deepcopy(head.state_dict())
+                        rl_step = step
+            head.load_state_dict(rl_state)
+            _save_policy(
+                output / f"{candidate}-rl.pt",
+                head,
+                {**candidate_meta, "phase": "rl", "selected_step": rl_step},
+                mean,
+                scale,
+            )
+            entry = {
+                "candidate": candidate,
+                "sft_validation": best_sft,
+                "rl_validation": best_rl,
+                "sft_epoch": sft_epoch,
+                "rl_step": rl_step,
+            }
+            candidates.append(entry)
+            # Select RL policy within the RL arm; keep independently best SFT ablation.
+            if selected is None or _rank(best_rl) > _rank(selected["rl_validation"]):
+                selected = entry
+            print(json.dumps(entry), flush=True)
+    best_sft_candidate = max(candidates, key=lambda r: _rank(r["sft_validation"]))
+    import shutil
+
+    for name, source in {
+        "policy.pt": f"{selected['candidate']}-rl.pt",
+        "sft.pt": f"{best_sft_candidate['candidate']}-sft.pt",
+        "initial.pt": f"{selected['candidate']}-initial.pt",
+    }.items():
+        shutil.copyfile(output / source, output / name)
+    majority = Counter(y.tolist()).most_common(1)[0][0]
+    report = {
+        **metadata,
+        "plan": plan,
+        "experiments": candidates,
+        "selected_candidate": selected["candidate"],
+        "sft_candidate": best_sft_candidate["candidate"],
+        "majority_count_from_train": majority,
+        "train_n": len(train_rows),
+        "validation_n": len(val_rows),
+        "elapsed_seconds": time.monotonic() - start,
+        "platform": platform.platform(),
+        "checkpoint_sha256": hashlib.sha256((output / "policy.pt").read_bytes()).hexdigest(),
+    }
+    write_json(output / "training.json", report)
+    return report
+
+
+def _load_head_checkpoint(checkpoint: Path):
+    torch, _ = _stack()
+    if checkpoint.stat().st_size > 5 * 1024**2:
+        raise ValueError("policy checkpoint exceeds 5 MiB")
+    with zipfile.ZipFile(checkpoint) as archive:
+        if sum(item.file_size for item in archive.infolist()) > 8 * 1024**2:
+            raise ValueError("policy checkpoint expanded size exceeds 8 MiB")
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    if saved.get("schema_version") != 1:
+        raise ValueError("unsupported count-policy checkpoint schema")
+    meta = saved["metadata"]
+    if meta.get("encoder") != ENCODER_ID or meta.get("feature_dim") != 1024:
+        raise ValueError("unsupported encoder or feature dimensions")
+    hidden = meta.get("hidden")
+    if type(hidden) is not int or not 0 <= hidden <= 512:
+        raise ValueError("policy hidden size must be between 0 and 512")
+    choices = meta.get("choices")
+    if not isinstance(choices, list) or not 2 <= len(choices) <= 26:
+        raise ValueError("policy must have 2 to 26 count choices")
+    for name in ("feature_mean", "feature_scale"):
+        value = saved[name]
+        if not isinstance(value, torch.Tensor) or value.shape != (1024,):
+            raise ValueError("invalid feature normalization shape")
+        if not torch.isfinite(value).all() or (name == "feature_scale" and (value <= 0).any()):
+            raise ValueError("invalid feature normalization values")
+    expected = _head(1024, len(choices), hidden).state_dict()
+    state = saved["state_dict"]
+    if set(state) != set(expected) or any(
+        not isinstance(state[k], torch.Tensor)
+        or state[k].shape != expected[k].shape
+        or not torch.isfinite(state[k]).all()
+        for k in expected
+    ):
+        raise ValueError("invalid policy state tensor shapes or values")
+    return saved
+
+
+def predict_count_policy(
+    rows: list[dict], checkpoint: Path, *, device="auto", trusted_encoder: Path | None = None
+) -> dict:
+    """Run a saved pixel-only policy without exposing answers to the encoder/head."""
+    torch, _ = _stack()
+    checkpoint = Path(checkpoint)
+    saved = _load_head_checkpoint(checkpoint)
+    meta = saved["metadata"]
+    if _count_schema(rows) != meta["choices"] or rows[0]["prompt"] != meta["prompt"]:
+        raise ValueError("evaluation count question/choices differ from the trained task")
+    if trusted_encoder is not None:
+        encoder_path = Path(trusted_encoder)
+    else:
+        if meta["encoder_file"] != "encoder.pt":
+            raise ValueError("unsafe encoder path in checkpoint")
+        encoder_path = checkpoint.parent / "encoder.pt"
+        if hashlib.sha256(encoder_path.read_bytes()).hexdigest() != meta["encoder_sha256"]:
+            raise ValueError("encoder checksum mismatch")
+    encoder = _encoder(encoder_path)
+    if trusted_encoder is not None and (
+        state_fingerprint(encoder.state_dict()) != meta.get("encoder_state_sha256")
+    ):
+        raise ValueError("trusted encoder tensor checksum mismatch")
+    x = _features(rows, encoder, select_device(device))
+    x = (x - saved["feature_mean"]) / saved["feature_scale"]
+    head = _head(meta["feature_dim"], len(meta["choices"]), meta["hidden"])
+    head.load_state_dict(saved["state_dict"])
+    head.eval()
+    with torch.inference_mode():
+        labels = head(x).argmax(-1).tolist()
+    return {
+        r["id"]: {"response": f"<answer>{chr(65 + label)}</answer>"}
+        for r, label in zip(rows, labels, strict=True)
+    }
+
+
+def evaluate_count_policy(
+    manifest: Path,
+    checkpoint: Path,
+    output: Path,
+    *,
+    device="auto",
+    trusted_encoder: Path | None = None,
+):
+    from vision_rl.evaluation import score
+
+    rows = load_manifest(manifest)
+    started = time.monotonic()
+    predictions = predict_count_policy(
+        rows, checkpoint, device=device, trusted_encoder=trusted_encoder
+    )
+    result = score(
+        rows,
+        predictions,
+        {
+            "name": "resnet18-count-policy",
+            "backend": "torch",
+            "checkpoint_sha256": hashlib.sha256(Path(checkpoint).read_bytes()).hexdigest(),
+        },
+    )
+    result["elapsed_seconds"] = time.monotonic() - started
+    result["mean_absolute_count_error"] = float(
+        np.mean([abs(ord(item["answer"]) - ord(item["expected"])) for item in result["items"]])
+    )
+    write_json(output, result)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    train = sub.add_parser("train")
+    train.add_argument("--train", type=Path, required=True)
+    train.add_argument("--validation", type=Path, required=True)
+    train.add_argument("--output", type=Path, required=True)
+    train.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
+    train.add_argument("--seeds", type=int, nargs="+", default=[7, 19])
+    train.add_argument("--hidden-sizes", type=int, nargs="+", default=[0, 128])
+    train.add_argument("--sft-epochs", type=int, default=160)
+    train.add_argument("--rl-steps", type=int, default=800)
+    train.add_argument("--encoder-weights", type=Path)
+    train.add_argument("--no-augment", action="store_true")
+    evaluate = sub.add_parser("evaluate")
+    evaluate.add_argument("--manifest", type=Path, required=True)
+    evaluate.add_argument("--checkpoint", type=Path, required=True)
+    evaluate.add_argument("--output", type=Path, required=True)
+    evaluate.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
+    evaluate.add_argument("--trusted-encoder", type=Path)
+    args = parser.parse_args()
+    if args.command == "train":
+        result = train_count_policy(
+            args.train,
+            args.validation,
+            args.output,
+            device=args.device,
+            seeds=args.seeds,
+            hidden_sizes=args.hidden_sizes,
+            sft_epochs=args.sft_epochs,
+            rl_steps=args.rl_steps,
+            encoder_weights=args.encoder_weights,
+            augment=not args.no_augment,
+        )
+    else:
+        result = evaluate_count_policy(
+            args.manifest,
+            args.checkpoint,
+            args.output,
+            device=args.device,
+            trusted_encoder=args.trusted_encoder,
+        )
+    print(json.dumps({k: v for k, v in result.items() if k != "items"}, indent=2))
+
+
+if __name__ == "__main__":
+    main()

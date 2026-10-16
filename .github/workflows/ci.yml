@@ -1,0 +1,38 @@
+name: Verify environment
+on: [push, pull_request]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra harbor --extra dev --locked
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+      - run: uv run vision-rl demo --output runs/ci-demo
+  vision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev --locked
+      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
+      - run: .venv/bin/pytest -q tests/test_vision_policy.py
+  harbor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra harbor --extra dev --locked
+      - run: docker build -t vision-rl:local .
+      - run: uv run harbor run -p tasks/spatial-specialist -a oracle --job-name oracle-check
+      - run: uv run python scripts/check_harbor.py jobs/oracle-check --min-reward 0.90
+      - run: uv run harbor run -p tasks/spatial-specialist -a nop --job-name nop-check
+      - run: uv run python scripts/check_harbor.py jobs/nop-check --max-reward 0.0
+      - run: uv run harbor run -p tasks/spatial-specialist --agent vision_rl.harbor_agent:TrainingAgent --job-name agent-check
+      - run: uv run python scripts/check_harbor.py jobs/agent-check --min-reward 0.90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: harbor-verifier-evidence
+          path: jobs/

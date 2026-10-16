@@ -1,0 +1,11 @@
+# Optional NVIDIA CUDA training stack. Install on a Linux GPU host, not for the CPU demo.
+# Exact versions checked against release metadata on 2026-10-15; GPU execution is not
+# validated on the development Mac. CUDA drivers must support the installed PyTorch wheel.
+torch==2.14.1
+torchvision==0.29.1
+trl==1.16.0
+transformers==5.20.0
+peft==0.21.2
+datasets==5.1.0
+accelerate==1.15.0
+num2words==0.5.14

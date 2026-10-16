@@ -1,0 +1,49 @@
+{
+  "sources": {
+    "roboflow_gemini_proxy": "https://github.com/roboflow/inference/blob/150577969c6dbe5c0da854942c5961fe3f293088/workflows/roboflow_workflows/core_steps/models/foundation/google_gemini/v6.py",
+    "roboflow_billing": "https://roboflow.com/credits",
+    "model_catalog": "https://playground.roboflow.com/models/google/gemini-4-argon"
+  },
+  "dataset": {
+    "source_project": "coveragecv-chess-hosted",
+    "source_version": 1,
+    "task": "Count all visible black and white chess pawns, excluding other chess pieces.",
+    "split_counts": {
+      "train": 201,
+      "validation": 58,
+      "test": 30
+    },
+    "fingerprints": {
+      "train": "fe8349e196ca12b3c26bcdc563ac74fb2d7b9ac1d835df2980ae0f4ba26e0010",
+      "validation": "e4958f0b7c851c44ab1cdecabc143adcee8a2e328987ffbb2ee3a82c16517114",
+      "test": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51"
+    },
+    "parent_category_annotations": 0,
+    "manual_audit": {
+      "validation_counts_checked": [
+        0,
+        1,
+        12,
+        3
+      ],
+      "findings": "Checked four validation images against COCO pawn counts. One zero image contains a knight; the nonzero counts match visible pawns. No parent-category annotations exist, so black/white counts do not double count a parent category. This is a spot check, not a comprehensive relabeling audit."
+    }
+  },
+  "protocol": {
+    "attempts_per_test_item": 1,
+    "test_examples": 30,
+    "model": "gemini-4-argon",
+    "thinking_level": "low",
+    "max_output_tokens": 4096,
+    "sampling_temperature": "provider-default",
+    "input_image_encoding": "RGB PNG lossless from original decoded pixels",
+    "prompt_function": "vision_rl.evaluation.prompt_text",
+    "answer_scoring": "vision_rl.evaluation.score",
+    "no_provider_tools": true,
+    "no_retries": true,
+    "test_prompt_or_settings_adapted_after_test_started": false
+  },
+  "billing": "Two validation smoke inferences (one Gemini3.1 through Workflow, one Argon proxy) plus 30 Argon test inferences; actual credits are not returned by API and are not claimed measured.",
+  "adapter_sha256": "85280e273065b7c996e226c8f73ad216c517118be33435a2d65328ad8685c962",
+  "post_evaluation_label_audit": "gemini-4-argon-test/annotation-audit.json"
+}

@@ -1,0 +1,24 @@
+{
+  "rl": {
+    "matched_predictions": 30,
+    "correct": 25,
+    "n": 30,
+    "accuracy": 0.8333333333333334,
+    "mae": 0.2,
+    "elapsed_seconds": 1.8704029159998754,
+    "checkpoint_sha256": "14c4ac633ca028cf2edc0f8a885538a20c33db1e59ae348d333b23e90b8b8cf5",
+    "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+    "published_metrics_exact_match": true
+  },
+  "sft": {
+    "matched_predictions": 30,
+    "correct": 26,
+    "n": 30,
+    "accuracy": 0.8666666666666667,
+    "mae": 0.2,
+    "elapsed_seconds": 1.121778374988935,
+    "checkpoint_sha256": "26969f2e2cc3e5223ad223c240a1efead0e7856ed71e639fc5f65a9d84d9d018",
+    "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+    "published_metrics_exact_match": true
+  }
+}

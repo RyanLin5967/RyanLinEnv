@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "protocol": "image-mcq-v1/strict-answer/pass@1",
+  "attempts_per_item": 1,
+  "created_at": "2026-10-16T02:16:21.570622+00:00",
+  "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+  "splits": [
+    "test"
+  ],
+  "model": {
+    "name": "resnet18-count-policy",
+    "backend": "torch",
+    "checkpoint_sha256": "14c4ac633ca028cf2edc0f8a885538a20c33db1e59ae348d333b23e90b8b8cf5"
+  },
+  "n": 30,
+  "correct": 25,
+  "accuracy": 0.8333333333333334,
+  "accuracy_ci95": [
+    0.6643564949358398,
+    0.9266345762815145
+  ],
+  "invalid_answers": 0,
+  "errors": 0,
+  "categories": {
+    "counting": {
+      "n": 30,
+      "accuracy": 0.8333333333333334,
+      "accuracy_ci95": [
+        0.6643564949358398,
+        0.9266345762815145
+      ]
+    }
+  },
+  "items": [
+    {
+      "id": "853e144fdef1c6022648f0a402c5bab0ba08c4ae74671d935a2f367c0dddcb4c",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "a817cabaa9eea63a375ab42c1f3ced0168d4e1050fb481e3441f3975ee4826e3",
+      "category": "counting",
+      "answer": "P",
+      "expected": "P",
+      "correct": true,
+      "response": "<answer>P</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "788bbb54b46e9cbb9e592aac637d142b83d89936cf8757a5b6eb0049eceef79b",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "2fab419ec533c215741103c8d1dd016d7ede899da4bf650430d767aee413d025",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "43f6348276bf55b99eb0df821dae444a93f2e0284140efaea072fbf7f141dd08",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "e19cf8cd385c3726b593a1f979ab08a88d767c112d77a343e4182b731e345213",
+      "category": "counting",
+      "answer": "H",
+      "expected": "H",
+      "correct": true,
+      "response": "<answer>H</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "f6b02027b5f7f75e85396f72bf7274278d263d883dcd38ad7cf4a1685f1a8976",
+      "category": "counting",
+      "answer": "G",
+      "expected": "G",
+      "correct": true,
+      "response": "<answer>G</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "f8b1ee055a40b09e2b7c80d16c4413d199ef1a4bacd2d2fe0562d1a322e58b6d",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "451a957a41af0f5461d88e9a6148e9ff1c9fbc160e04c6baf337c0c6ac9c0507",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "05d4e34f2272738462260ecccf937d4e2ddd673185463612eee6d3cf7e6dffbb",
+      "category": "counting",
+      "answer": "I",
+      "expected": "I",
+      "correct": true,
+      "response": "<answer>I</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "64d51697e2791a990396e25ca38f58e1577ba55975e756259941571f67539f26",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "63bb613ccd0df2cc79da7d419f32dbc6f2f1b0eee806672f1ea94b772121e718",
+      "category": "counting",
+      "answer": "A",
+      "expected": "B",
+      "correct": false,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "9b84611235f53bea0c637e054f4ada3fc79e6cecac12c6b7138076aed11bab8a",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "2da8663425fce5fe322f52148b61e492a616ec03d9da2a49f6aefcedba0e3863",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "2226b68c1fac9331e0fd7f9a48d4c2162404a7c062dfa573c3bfb91ba1200af3",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "53d837921dd711c0d61d0593f010a389fcb0dfebd0b4d3aeaf246d0373b253e0",
+      "category": "counting",
+      "answer": "A",
+      "expected": "B",
+      "correct": false,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "4e70412f37211e56c185893befbffe070dc9356d08ede74b718ab53cdbf661d9",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "1f737eec6cb5937133d03e882f65fec2235de3e7ad631f0672750829d295d20a",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "0e992ec714b8374b93597a0f00120879b0b2f500465068e463cd7b3cdc1fb0e1",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "7d6e9f552a2f21e064677c410b7011a306815a417579a7270a9a9026860fbbe8",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "0ab034945a1a0b65827ffcdc2f8d23116e1b0f4dde668963b1cdb595665d55d0",
+      "category": "counting",
+      "answer": "D",
+      "expected": "D",
+      "correct": true,
+      "response": "<answer>D</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "ce7b180c85e51c8405babd023b167fd5712a553be347032da2d1d3054815d339",
+      "category": "counting",
+      "answer": "F",
+      "expected": "F",
+      "correct": true,
+      "response": "<answer>F</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "5eed5551b12fb13c1be54fb7636edd9fa57c732bc6948217cfdb08c8dd30d822",
+      "category": "counting",
+      "answer": "B",
+      "expected": "A",
+      "correct": false,
+      "response": "<answer>B</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "1b499e94c991a5f112d5428db78f9e114d57ab2e54008fe9ba6e7742bac70339",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "205e7a020194fe4924dafd00dd407c9b2af15404e404f3c90a696d2488e7534e",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "7bf1de5c46bb265c7d7b93a4bcb00c7c4480fc138dc300cd1319cdb264347280",
+      "category": "counting",
+      "answer": "K",
+      "expected": "J",
+      "correct": false,
+      "response": "<answer>K</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "c85806cd9ebf4452a6efe143a1a73244ef97e38185b3501a9458eafdff3abb90",
+      "category": "counting",
+      "answer": "Q",
+      "expected": "Q",
+      "correct": true,
+      "response": "<answer>Q</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "e4f551fc122124214755e97a8ddcbffdd6044d8bdf7c92445a033c9bf69c0378",
+      "category": "counting",
+      "answer": "D",
+      "expected": "F",
+      "correct": false,
+      "response": "<answer>D</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "8230186558b20cf774e4649dd7d7f1ff4c24cc4cdb8b8fdeb4cc0139d938b969",
+      "category": "counting",
+      "answer": "F",
+      "expected": "F",
+      "correct": true,
+      "response": "<answer>F</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    },
+    {
+      "id": "64e9d69e84b942825994bf4d15e3f3dcad4353b534308da487f2e6ee8f69526e",
+      "category": "counting",
+      "answer": "A",
+      "expected": "A",
+      "correct": true,
+      "response": "<answer>A</answer>",
+      "error": null,
+      "latency_seconds": null,
+      "usage": null
+    }
+  ],
+  "elapsed_seconds": 3.1166110829944955,
+  "mean_absolute_count_error": 0.2
+}

@@ -1,0 +1,335 @@
+{
+  "audit_timing": "Post-evaluation error analysis; no images removed, labels changed, prompt changed, or requests retried.",
+  "scope": "Visual inspection of the three imported-label disagreements only, plus four validation spot checks before evaluation. This is not a comprehensive independent annotation audit.",
+  "conclusion": "The 27/30 figure measures exact agreement with the imported COCO pawn labels. Two disagreements count visible off-board pawns that the annotations omit; the third appears to include an unannotated partially occluded on-board pawn. Do not interpret 90% as verified model visual-counting accuracy or evidence of a frontier weakness.",
+  "findings": [
+    {
+      "id": "a817cabaa9eea63a375ab42c1f3ced0168d4e1050fb481e3441f3975ee4826e3",
+      "annotation_count": 15,
+      "model_count": 16,
+      "finding": "Suspected missing black-pawn annotation around image coordinate (227,285), partly occluded by the bishop below. COCO has 8 white-pawn and 7 black-pawn annotations, with no box near this apparent pawn. Requires independent human confirmation.",
+      "status": "suspected_annotation_omission",
+      "source_image": "9ab580c23e1532bb672ba8979f35a7f231a96052bc49a8ca3d79390db16b51be_jpg.rf.57b7213d5b35cec6f28811c5a664b0ee.jpg",
+      "image_dimensions": [
+        640,
+        640
+      ],
+      "visible_unannotated_pawn_centers_approx_xy": [
+        [
+          227,
+          285
+        ]
+      ],
+      "coco_boxes_xywh": [
+        {
+          "category_id": 2,
+          "bbox": [
+            139.75,
+            391.5,
+            35.5,
+            72
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            148,
+            246.25,
+            35,
+            69.5
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            150.5,
+            183.25,
+            29,
+            67.5
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            159.75,
+            75.5,
+            29.5,
+            59
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            251.25,
+            22.75,
+            29.5,
+            64.5
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            251.75,
+            123,
+            28.5,
+            65
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            257.75,
+            322.5,
+            34.5,
+            71
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            268.25,
+            467.5,
+            35.5,
+            74
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            311,
+            25.75,
+            27,
+            64.5
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            313.25,
+            137.5,
+            30.5,
+            65
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            330,
+            389,
+            34,
+            74
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            354.5,
+            77.5,
+            27,
+            68
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            366,
+            315.25,
+            34,
+            66.5
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            421.75,
+            187.25,
+            30.5,
+            64.5
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            457.25,
+            464.5,
+            36.5,
+            73
+          ]
+        }
+      ],
+      "point_inside_any_annotation": [
+        false
+      ]
+    },
+    {
+      "id": "e19cf8cd385c3726b593a1f979ab08a88d767c112d77a343e4182b731e345213",
+      "annotation_count": 7,
+      "model_count": 10,
+      "finding": "There are 7 on-board pawns plus 3 visible off-board pawns at the bottom edge. The frozen prompt asks all visible pawns in the image; imported annotations count only on-board pawns.",
+      "status": "task_annotation_scope_mismatch",
+      "source_image": "547ff0914a3b2d494806734a5c7af17db2de6b90bd29e50667a1fae2e745ebe7_jpg.rf.46ad0a1550476a526fd5d349686143b1.jpg",
+      "image_dimensions": [
+        640,
+        640
+      ],
+      "visible_unannotated_pawn_centers_approx_xy": [
+        [
+          350,
+          617
+        ],
+        [
+          432,
+          606
+        ],
+        [
+          494,
+          625
+        ]
+      ],
+      "coco_boxes_xywh": [
+        {
+          "category_id": 2,
+          "bbox": [
+            159,
+            348,
+            38,
+            78
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            179.75,
+            0,
+            33.5,
+            63
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            231.5,
+            52,
+            33,
+            73
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            276.75,
+            153,
+            30.5,
+            68
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            326,
+            156,
+            32,
+            68
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            392.75,
+            287.5,
+            35.5,
+            72
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            431,
+            111.75,
+            31,
+            68.5
+          ]
+        }
+      ],
+      "point_inside_any_annotation": [
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": "e4f551fc122124214755e97a8ddcbffdd6044d8bdf7c92445a033c9bf69c0378",
+      "annotation_count": 5,
+      "model_count": 6,
+      "finding": "There are 5 on-board pawns plus 1 visible off-board pawn at the bottom edge. The frozen prompt asks all visible pawns in the image; imported annotations count only on-board pawns.",
+      "status": "task_annotation_scope_mismatch",
+      "source_image": "be091fdf090ca6a16ae68fd189231b64934ad08981a27009eb79f7bef4d83cc0_jpg.rf.9f033b7259eecbfe77b2f16b170ee83f.jpg",
+      "image_dimensions": [
+        640,
+        640
+      ],
+      "visible_unannotated_pawn_centers_approx_xy": [
+        [
+          386,
+          612
+        ]
+      ],
+      "coco_boxes_xywh": [
+        {
+          "category_id": 2,
+          "bbox": [
+            140.5,
+            391,
+            44,
+            76
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            155.25,
+            23,
+            35.5,
+            69
+          ]
+        },
+        {
+          "category_id": 2,
+          "bbox": [
+            257,
+            180.5,
+            34,
+            71
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            310,
+            182.25,
+            33,
+            71.5
+          ]
+        },
+        {
+          "category_id": 1,
+          "bbox": [
+            417.25,
+            127.5,
+            30.5,
+            68
+          ]
+        }
+      ],
+      "point_inside_any_annotation": [
+        false
+      ]
+    }
+  ],
+  "next_valid_experiment": "Write an explicit on-board-only task contract, audit all labels independently before model evaluation, freeze a new untouched test set, then train and compare. Do not silently replace this frozen result with a posthoc corrected score.",
+  "summary": {
+    "confirmed_task_annotation_scope_mismatches": 2,
+    "suspected_omitted_pawn_annotations_pending_human_review": 1,
+    "additional_api_calls_after_audit": 0
+  }
+}

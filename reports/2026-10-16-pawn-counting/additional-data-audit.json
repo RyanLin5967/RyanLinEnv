@@ -1,0 +1,235 @@
+{
+  "dataset_summaries": {
+    "prior": {
+      "test": {
+        "images": 30,
+        "annotations": 161,
+        "categories": [
+          {
+            "id": 0,
+            "name": "pawns",
+            "supercategory": "none"
+          },
+          {
+            "id": 1,
+            "name": "black-pawn",
+            "supercategory": "pawns"
+          },
+          {
+            "id": 2,
+            "name": "white-pawn",
+            "supercategory": "pawns"
+          }
+        ]
+      },
+      "train": {
+        "images": 201,
+        "annotations": 896,
+        "categories": [
+          {
+            "id": 0,
+            "name": "pawns",
+            "supercategory": "none"
+          },
+          {
+            "id": 1,
+            "name": "black-pawn",
+            "supercategory": "pawns"
+          },
+          {
+            "id": 2,
+            "name": "white-pawn",
+            "supercategory": "pawns"
+          }
+        ]
+      },
+      "valid": {
+        "images": 58,
+        "annotations": 241,
+        "categories": [
+          {
+            "id": 0,
+            "name": "pawns",
+            "supercategory": "none"
+          },
+          {
+            "id": 1,
+            "name": "black-pawn",
+            "supercategory": "pawns"
+          },
+          {
+            "id": 2,
+            "name": "white-pawn",
+            "supercategory": "pawns"
+          }
+        ]
+      }
+    },
+    "mvp": {
+      "train": {
+        "images": 201,
+        "annotations": 896,
+        "categories": [
+          {
+            "id": 0,
+            "name": "pawns",
+            "supercategory": "none"
+          },
+          {
+            "id": 1,
+            "name": "black-pawn",
+            "supercategory": "pawns"
+          },
+          {
+            "id": 2,
+            "name": "white-pawn",
+            "supercategory": "pawns"
+          }
+        ]
+      },
+      "valid": {
+        "images": 58,
+        "annotations": 241,
+        "categories": [
+          {
+            "id": 0,
+            "name": "pawns",
+            "supercategory": "none"
+          },
+          {
+            "id": 1,
+            "name": "black-pawn",
+            "supercategory": "pawns"
+          },
+          {
+            "id": 2,
+            "name": "white-pawn",
+            "supercategory": "pawns"
+          }
+        ]
+      }
+    }
+  },
+  "overlap": {
+    "train": {
+      "images": 201,
+      "file_sha256": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      },
+      "pixel_sha256": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      },
+      "original_filename": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      },
+      "filename_group": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      },
+      "coveragecv_image_id": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      },
+      "coveragecv_view": {
+        "overlap_prior_any_split": 201,
+        "missing_key": 0,
+        "new": 0
+      }
+    },
+    "valid": {
+      "images": 58,
+      "file_sha256": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      },
+      "pixel_sha256": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      },
+      "original_filename": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      },
+      "filename_group": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      },
+      "coveragecv_image_id": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      },
+      "coveragecv_view": {
+        "overlap_prior_any_split": 58,
+        "missing_key": 0,
+        "new": 0
+      }
+    }
+  },
+  "new_source_examples": [],
+  "mvp_has_test_split": false,
+  "annotation_files_match_prior": {
+    "train": {
+      "file_sha256_equal": false,
+      "images_equal": false,
+      "annotations_equal": false,
+      "categories_equal": true,
+      "normalized_annotation_difference_images": 0,
+      "normalization": "compare annotations per filename, excluding annotation/image IDs and ordering"
+    },
+    "valid": {
+      "file_sha256_equal": false,
+      "images_equal": false,
+      "annotations_equal": false,
+      "categories_equal": true,
+      "normalized_annotation_difference_images": 0,
+      "normalization": "compare annotations per filename, excluding annotation/image IDs and ordering"
+    }
+  },
+  "sample_scope_check": {
+    "filename": "645b3129ce3efe15ef4fa4c8d9730801fb438c54fa416f954ad72b0ac45a5fb7_jpg.rf.d1815a4a460290d7b532545040c972ab.jpg",
+    "count": 3,
+    "annotation_boxes": [
+      {
+        "category_id": 2,
+        "bbox": [
+          141.25,
+          390.75,
+          42.5,
+          75.5
+        ]
+      },
+      {
+        "category_id": 2,
+        "bbox": [
+          255.75,
+          185,
+          36.5,
+          65
+        ]
+      },
+      {
+        "category_id": 1,
+        "bbox": [
+          312.5,
+          181,
+          31,
+          68
+        ]
+      }
+    ],
+    "interpretation": "Three boxes match prior source. Existing board-only scope and omitted-object concerns remain; no independent relabeling performed."
+  }
+}

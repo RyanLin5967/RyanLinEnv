@@ -1,0 +1,11 @@
+FROM python:3.12.13-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2 TORCH_HOME=/opt/torch-cache
+WORKDIR /app
+# CPU wheels avoid a CUDA runtime download for this small specialist.
+RUN pip install --no-cache-dir torch==2.14.1 torchvision==0.29.1 \
+    --index-url https://download.pytorch.org/whl/cpu
+COPY pyproject.toml /opt/vision-rl/pyproject.toml
+COPY src /opt/vision-rl/src
+RUN pip install --no-cache-dir /opt/vision-rl && \
+    python -c "import torch; from vision_rl.vision_policy import _encoder; torch.save(_encoder().state_dict(), '/opt/encoder.pt')"
+CMD ["python", "-m", "vision_rl.vision_policy", "--help"]

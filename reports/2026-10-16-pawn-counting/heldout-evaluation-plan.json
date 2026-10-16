@@ -1,0 +1,10 @@
+{
+  "purpose": "Single final heldout evaluation after validation-only selection; all four arms locked before reading test.",
+  "checkpoints": {
+    "policy.pt": "14c4ac633ca028cf2edc0f8a885538a20c33db1e59ae348d333b23e90b8b8cf5",
+    "sft.pt": "26969f2e2cc3e5223ad223c240a1efead0e7856ed71e639fc5f65a9d84d9d018",
+    "initial.pt": "120f69bc2a1bd6fa2610b28643996bc04c49eec107a3707c5aa073af214ca8b5"
+  },
+  "majority_count": 0,
+  "dataset": "data/roboflow-pawns/manifests/test.jsonl"
+}

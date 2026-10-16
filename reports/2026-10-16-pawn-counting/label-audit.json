@@ -1,0 +1,10 @@
+{
+  "dataset_fingerprint": "862d71870161977bb151b0a313a7bb3bf0d099aa51664798a32dd7159a020d51",
+  "status": "issues_found",
+  "conclusion": "The 27/30 figure measures exact agreement with the imported COCO pawn labels. Two disagreements count visible off-board pawns that the annotations omit; the third appears to include an unannotated partially occluded on-board pawn. Do not interpret 90% as verified model visual-counting accuracy or evidence of a frontier weakness.",
+  "finding_statuses": [
+    "suspected_annotation_omission",
+    "task_annotation_scope_mismatch",
+    "task_annotation_scope_mismatch"
+  ]
+}

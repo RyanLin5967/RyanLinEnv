@@ -1,0 +1,8 @@
+services:
+  demo:
+    build: .
+    image: vision-rl:local
+    network_mode: none
+    volumes:
+      - ./runs:/runs
+    command: ["vision-rl", "demo", "--output", "/runs/docker-demo"]

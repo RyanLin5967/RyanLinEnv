@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vision-rl-lab"
+version = "0.1.0"
+description = "A Harbor environment for training and evaluating specialist vision policies"
+requires-python = ">=3.12,<3.15"
+dependencies = ["numpy==2.5.4", "pillow==12.3.0", "httpx==0.28.1", "python-dotenv==1.2.4"]
+
+[project.optional-dependencies]
+harbor = ["harbor==0.24.0"]
+dev = ["pytest==9.1.1", "ruff==0.17.1"]
+analysis = ["matplotlib==3.11.2"]
+
+[project.scripts]
+vision-rl = "vision_rl.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vision_rl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

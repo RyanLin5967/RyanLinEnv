@@ -1,0 +1,5 @@
+# Small real-image policy; CPU, Apple MPS, or NVIDIA CUDA.
+# Install in a separate environment from the VLM stack when only this path is needed.
+-e .
+torch==2.14.1
+torchvision==0.29.1
