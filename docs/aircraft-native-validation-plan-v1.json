@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "activated": false,
+  "scope": "fgvc_aircraft_native_validation",
+  "profile": {
+    "dtype": "float32",
+    "lora_rank": 8,
+    "max_completion_length": 256,
+    "max_pixels": 200704,
+    "max_prompt_tokens": 2048,
+    "min_pixels": 50176,
+    "num_generations": 4,
+    "response_format": "answer_only",
+    "temperature": 1.0
+  },
+  "device": "mps",
+  "arms": [
+    {
+      "id": "common",
+      "adapter": "runs/aircraft-controlled400-v1/setup/common/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "rl-exposure",
+      "adapter": "runs/aircraft-controlled400-v1/setup/rl-exposure/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-1e5-exposure",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-1e5-exposure/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-5e5-exposure",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-5e5-exposure/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-1e4-exposure",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-1e4-exposure/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-1e5-time",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-5e5-time",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-5e5-time/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    },
+    {
+      "id": "sft-1e4-time",
+      "adapter": "runs/aircraft-controlled400-v1/setup/sft-1e4-time/published/final_adapter",
+      "weights_sha256": null,
+      "record_sha256": null
+    }
+  ],
+  "budget": {
+    "max_wall_seconds": 86400,
+    "max_invocations": 512,
+    "chunk_images": 128,
+    "chunk_seconds": 1800,
+    "image_seconds": 120,
+    "max_output_bytes": 2147483648
+  },
+  "bootstrap": {
+    "resamples": 20000,
+    "seed": 2718
+  }
+}
