@@ -25,7 +25,8 @@ apply to that runner. This separately recorded Linux operational profile uses:
 
 - Docker CPU limit 2, memory limit 13 GiB and no additional swap allowance.
 - Process-tree RSS limit 12 GiB; host available memory at least 13 GiB before
-  launch and 1 GiB while running; no observed host swap growth.
+  launch and 1 GiB while running; zero container swap, enforced and checked
+  through cgroup v2. Host swap is recorded separately as telemetry.
 - One GiB free-disk reserve, two GiB maximum outputs, 30-minute first-four wall
   limit, and a 100-minute whole-job timeout including dependencies and transfer.
 - Networking disabled, read-only source/base/input mounts, no credentials in
@@ -55,7 +56,7 @@ The dr_GRPO arm stopped on observed **host swap growth** at 13.4178 seconds; tha
 does not establish container swap or a kernel OOM. Both failed attempts remain
 preserved and ineligible for comparison or continuation.
 
-The third prospective attempt adds `scripts/aircraft_cpu_loader.py`, separately
+The third attempt added `scripts/aircraft_cpu_loader.py`, separately
 hashed in the descriptor and each phase receipt. Pinned Transformers 5.20 keeps
 all memory-mapped BF16 source shards until conversion completes: the 4.1146 GiB
 source plus 8.2291 GiB FP32 destination exceeds the RSS guard before libraries.
@@ -70,11 +71,35 @@ An actual tiny CPU test on macOS produced identical 32 FP32 tensors and outputs
 and preserved Torch, Python and NumPy RNG states. The separate 64 MiB synthetic
 diagnosis measured OS peak RSS of 577,323,008 bytes for asynchronous mmap and
 518,045,696 bytes for serial pread. Neither test establishes Linux 2B capacity or
-training throughput. Pread still uses kernel file cache. The next Linux attempt
-keeps every RSS, swap, disk, output and time guard, and additionally records
-cgroup anonymous/file/swap memory alongside host swap for attribution. There is
+training throughput. Pread still uses kernel file cache. That attempt kept every
+RSS, swap, disk, output and time guard, and additionally recorded cgroup
+anonymous/file/swap memory alongside host swap for attribution. There is
 no change to precision, weights, frozen source archive, numerical conversions,
 training examples or objectives. Failed-phase costs remain recorded separately.
+
+The third run, `38887737144`, also stopped before generation or optimizer updates.
+The loader used `pread` for both pinned shards and restored its aliases after
+interruption. Both stops came from the old **host-wide** swap check: 4,096 bytes
+for GRPO and 20,480 bytes for dr_GRPO. Container swap usage and its kernel limit
+were both zero. Sampled peak process RSS was 7,436,640,256 and 9,089,499,136 bytes;
+host available memory at the stop was 7,977,345,024 and 6,275,657,728 bytes.
+This does not establish a completed model load or training fit.
+
+The fourth prospective infrastructure attempt corrects that measurement domain.
+Before spawning a model worker and at every resource sample, the supervisor
+requires readable integer cgroup values: `memory.max` exactly 13 GiB,
+`memory.swap.max` zero, `memory.swap.current` zero, and bounded `memory.current`.
+Missing, unbounded or changed limits fail closed. Host swap remains logged, but
+no longer decides whether this isolated container used swap. Docker documents
+that equal `--memory` and `--memory-swap` prohibit container swap and warns that
+host swap reported inside a container does not describe its allowance.
+[Docker memory constraints](https://docs.docker.com/engine/containers/resource_constraints/).
+The kernel defines these cgroup counters and hard limits for the group and its
+descendants. [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+This is an explicit operational amendment, not a retrospective pass or retry of
+the failed trajectory. All three failures remain ineligible. The RSS, container
+memory, available-memory, disk, output and time limits, loader, original frozen
+training source, FP32 tensors and scientific choices remain unchanged.
 
 The committed JSON descriptor pins a 1,658,880-byte source/metadata archive and
 a separately reviewed small warm-adapter archive. The source archive contains

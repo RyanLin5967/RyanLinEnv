@@ -5,8 +5,10 @@ import importlib.util
 import io
 import json
 import os
+import sys
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -84,15 +86,131 @@ def test_failed_phase_never_becomes_continuation(tmp_path):
 
 def test_cgroup_attribution_distinguishes_file_anon_and_swap_without_guard_changes(tmp_path):
     (tmp_path / "memory.current").write_text("8192\n")
+    (tmp_path / "memory.max").write_text(str(13 * ci.GIB) + "\n")
     (tmp_path / "memory.swap.current").write_text("0\n")
     (tmp_path / "memory.swap.max").write_text("max\n")
     (tmp_path / "memory.stat").write_text("anon 4096\nfile 2048\nkernel 1024\n")
     observed = ci.cgroup_memory(tmp_path)
     assert observed["memory.current"] == 8192
+    assert observed["memory.max"] == 13 * ci.GIB
     assert observed["memory.peak"] is None
     assert observed["memory.swap.current"] == 0
     assert observed["memory.swap.max"] == "max"
     assert observed["memory.stat"] == {"anon": 4096, "file": 2048, "kernel": 1024}
+
+
+@pytest.mark.parametrize("host_swap", [4096, 20480])
+def test_unrelated_host_swap_does_not_authorize_or_invalidate_container_swap(host_swap):
+    # Both observed failed runners had nonzero host swap and zero container swap.
+    # Only an exact kernel-enforced container contract can pass the new check.
+    memory = {
+        "memory.current": 9 * ci.GIB,
+        "memory.max": 13 * ci.GIB,
+        "memory.swap.max": 0,
+        "memory.swap.current": 0,
+        "host_swap_growth_bytes": host_swap,
+    }
+    ci.require_cgroup_memory(memory, ci.LIMITS)
+    memory["memory.swap.current"] = 4096
+    with pytest.raises(RuntimeError, match="contract"):
+        ci.require_cgroup_memory(memory, ci.LIMITS)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("memory.max", None),
+        ("memory.max", "max"),
+        ("memory.max", 14 * ci.GIB),
+        ("memory.swap.max", None),
+        ("memory.swap.max", "max"),
+        ("memory.swap.max", 4096),
+        ("memory.swap.max", False),
+        ("memory.swap.current", None),
+        ("memory.swap.current", 4096),
+        ("memory.current", None),
+        ("memory.current", -1),
+        ("memory.current", 14 * ci.GIB),
+    ],
+)
+def test_cgroup_contract_rejects_missing_unbounded_or_changed_kernel_limits(key, value):
+    memory = {
+        "memory.current": ci.GIB,
+        "memory.max": 13 * ci.GIB,
+        "memory.swap.max": 0,
+        "memory.swap.current": 0,
+    }
+    memory[key] = value
+    with pytest.raises(RuntimeError):
+        ci.require_cgroup_memory(memory, ci.LIMITS)
+
+
+def test_supervisor_requires_container_contract_before_spawning_worker(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "psutil", SimpleNamespace())
+    monkeypatch.setattr(ci, "ORIGINAL", tmp_path)
+    monkeypatch.setattr(ci, "OUTPUT_REL", Path("output"))
+    monkeypatch.setattr(ci, "check_inputs", lambda: (object(), {}))
+    monkeypatch.setattr(ci, "cgroup_memory", lambda: {})
+    monkeypatch.setattr(ci.subprocess, "Popen", lambda *a, **k: pytest.fail("worker started"))
+    with pytest.raises(RuntimeError, match="contract"):
+        ci.supervise_phase("grpo-first4", ci.LIMITS)
+
+
+@pytest.mark.parametrize("container_swap", [0, 4096])
+def test_supervisor_records_host_swap_but_stops_actual_container_swap(
+    tmp_path, monkeypatch, container_swap
+):
+    monkeypatch.setattr(ci, "ORIGINAL", tmp_path)
+    monkeypatch.setattr(ci, "OUTPUT_REL", Path("output"))
+    host_swap = iter([0, 20480])
+    monkeypatch.setitem(
+        sys.modules,
+        "psutil",
+        SimpleNamespace(
+            swap_memory=lambda: SimpleNamespace(used=next(host_swap)),
+            virtual_memory=lambda: SimpleNamespace(available=5 * ci.GIB),
+            Process=lambda _: object(),
+        ),
+    )
+    runner = SimpleNamespace(
+        _tree_rss=lambda _: ci.GIB,
+        output_size=lambda: 0,
+        append=lambda path, row: path.write_text(json.dumps(row) + "\n"),
+    )
+    monkeypatch.setattr(ci, "check_inputs", lambda: (runner, {}))
+    initial = {
+        "memory.current": ci.GIB,
+        "memory.max": 13 * ci.GIB,
+        "memory.swap.max": 0,
+        "memory.swap.current": 0,
+    }
+    samples = iter([initial, initial | {"memory.swap.current": container_swap}])
+    monkeypatch.setattr(ci, "cgroup_memory", lambda: next(samples))
+    child = SimpleNamespace(pid=123, returncode=None)
+    child.poll = lambda: child.returncode
+    child.wait = lambda **_: child.returncode
+    monkeypatch.setattr(ci.subprocess, "Popen", lambda *a, **k: child)
+    monkeypatch.setattr(ci.time, "sleep", lambda _: setattr(child, "returncode", 0))
+    kills = []
+
+    def stop(pid, signum):
+        kills.append((pid, signum))
+        child.returncode = -signum
+
+    monkeypatch.setattr(ci.os, "killpg", stop)
+    if container_swap:
+        with pytest.raises(RuntimeError, match="Phase failed"):
+            ci.supervise_phase("warm-greedy", ci.LIMITS)
+    else:
+        ci.supervise_phase("warm-greedy", ci.LIMITS)
+    phase = tmp_path / "output/phases/warm-greedy"
+    guard = ci.read(phase / "guard.json")
+    sample = ci.read(phase / "resources.jsonl")
+    assert sample["host_swap_growth_bytes"] == 20480
+    assert sample["cgroup_memory"]["memory.swap.current"] == container_swap
+    assert guard["status"] == ("failed" if container_swap else "completed")
+    assert guard["initial_cgroup_memory"] == initial
+    assert kills == ([(123, ci.signal.SIGINT)] if container_swap else [])
 
 
 def test_run_cannot_execute_locally_or_without_manual_event(tmp_path, monkeypatch):

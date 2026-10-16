@@ -6,6 +6,8 @@ a held-out claim. No continuation has been dispatched by this implementation.
 The first failed run, `38881659770`, stopped before either model worker started;
 it is ineligible. The second run, `38882469176`, hit the unchanged memory guard
 while loading weights, before generation or updates; it is also ineligible.
+A third run, `38887737144`, stopped on 4 KiB/20 KiB of host-wide swap despite
+zero container swap, before generation or updates. It remains ineligible.
 A successful replacement using the prospective CPU loader amendment must be
 reviewed and pinned.
 
@@ -91,6 +93,13 @@ dropped capabilities and the original process-tree/disk/output guards. It runs
 as the host output owner's UID/GID and exercises the actual mounted directory
 before model work. No token enters the container. Artifact redirects are fetched
 without forwarding the GitHub credential.
+
+The prospective replacement requires the container's cgroup `memory.max` to
+equal 13 GiB and `memory.swap.max`/`memory.swap.current` to equal zero before
+worker launch and throughout supervision. Missing or changed kernel limits fail
+closed. Host-wide swap is retained as telemetry; the previous host-wide zero
+threshold incorrectly stopped the third attempt. This operational change is
+pinned in the parent helper and descriptor and cannot change during continuation.
 
 The workflow accepts only attempt one. Its fixed parent-specific run name and
 history audit reject another invocation for an already consumed parent,

@@ -722,6 +722,7 @@
   "limits": {
     "all_phase_wall_seconds": 43200,
     "assay_wall_seconds": 3600,
+    "container_swap_bytes": 0,
     "disk_reserve_bytes": 1073741824,
     "docker_memory_bytes": 13958643712,
     "first4_wall_seconds": 1800,
@@ -729,7 +730,6 @@
     "output_bytes": 2147483648,
     "prelaunch_available_bytes": 13958643712,
     "running_available_bytes": 1073741824,
-    "swap_growth_bytes": 0,
     "tree_rss_bytes": 12884901888
   },
   "linux_execution_verified": false,

@@ -42,7 +42,7 @@ LIMITS = {
     "first4_wall_seconds": 1800,
     "full_wall_seconds": 10800,
     "assay_wall_seconds": 3600,
-    "swap_growth_bytes": 0,
+    "container_swap_bytes": 0,
 }
 
 
@@ -298,9 +298,15 @@ def completed_phases(output):
 
 
 def cgroup_memory(root=Path("/sys/fs/cgroup")):
-    """Attribution telemetry only; host RSS/swap guards remain authoritative."""
+    """Read this container's cgroup; host swap is separately recorded telemetry."""
     result = {}
-    for name in ("memory.current", "memory.peak", "memory.swap.current", "memory.swap.max"):
+    for name in (
+        "memory.current",
+        "memory.max",
+        "memory.peak",
+        "memory.swap.current",
+        "memory.swap.max",
+    ):
         try:
             value = (root / name).read_text().strip()
             result[name] = int(value) if value != "max" else value
@@ -314,6 +320,22 @@ def cgroup_memory(root=Path("/sys/fs/cgroup")):
     except (OSError, ValueError):
         result["memory.stat"] = None
     return result
+
+
+def require_cgroup_memory(memory, limits):
+    """Fail closed unless the kernel enforces the exact container/no-swap bounds."""
+    expected = {
+        "memory.max": limits["docker_memory_bytes"],
+        "memory.swap.max": limits["container_swap_bytes"],
+        "memory.swap.current": limits["container_swap_bytes"],
+    }
+    if any(
+        type(memory.get(key)) is not int or memory[key] != value for key, value in expected.items()
+    ):
+        raise RuntimeError("Container memory/swap contract missing or violated")
+    current = memory.get("memory.current")
+    if type(current) is not int or not 0 <= current <= limits["docker_memory_bytes"]:
+        raise RuntimeError("Container memory usage missing or exceeds its bound")
 
 
 def supervise_phase(phase, limits):
@@ -336,6 +358,8 @@ def supervise_phase(phase, limits):
         raise ValueError("Cumulative physical wall budget exhausted")
     phase_dir = output / "phases" / phase
     phase_dir.mkdir(parents=True, exist_ok=False)
+    initial_cgroup = cgroup_memory()
+    require_cgroup_memory(initial_cgroup, limits)  # Before any model worker exists.
     env = dict(os.environ, OBJECTIVE_SUPERVISOR_PID=str(os.getpid()))
     start = time.monotonic()
     initial_swap = psutil.swap_memory().used
@@ -350,6 +374,8 @@ def supervise_phase(phase, limits):
         "loader": loader_identity(),
         "initial_host_swap_used_bytes": initial_swap,
         "peak_host_swap_growth_bytes": 0,
+        "initial_cgroup_memory": initial_cgroup,
+        "swap_guard_scope": "container cgroup; host swap is telemetry only",
     }
 
     def interrupt(signum, frame):
@@ -376,6 +402,7 @@ def supervise_phase(phase, limits):
                 elapsed = time.monotonic() - start
                 size = runner.output_size()
                 swap = psutil.swap_memory().used
+                container_memory = cgroup_memory()
                 receipt.update(
                     elapsed_seconds=elapsed,
                     output_bytes=size,
@@ -393,13 +420,12 @@ def supervise_phase(phase, limits):
                         "disk_free_bytes": free,
                         "host_swap_used_bytes": swap,
                         "host_swap_growth_bytes": swap - initial_swap,
-                        "cgroup_memory": cgroup_memory(),
+                        "cgroup_memory": container_memory,
                     },
                 )
                 if rss > limits["tree_rss_bytes"] or available < limits["running_available_bytes"]:
                     raise RuntimeError("Memory resource guard")
-                if swap - initial_swap > limits["swap_growth_bytes"]:
-                    raise RuntimeError("Swap resource guard")
+                require_cgroup_memory(container_memory, limits)
                 if free < limits["disk_reserve_bytes"] or size > limits["output_bytes"]:
                     raise RuntimeError("Disk/output resource guard")
                 if elapsed > wall:
