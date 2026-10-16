@@ -1,0 +1,2661 @@
+{
+  "canonical_labels": [
+    "707-320",
+    "727-200",
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900",
+    "747-100",
+    "747-200",
+    "747-300",
+    "747-400",
+    "757-200",
+    "757-300",
+    "767-200",
+    "767-300",
+    "767-400",
+    "777-200",
+    "777-300",
+    "A300B4",
+    "A310",
+    "A318",
+    "A319",
+    "A320",
+    "A321",
+    "A330-200",
+    "A330-300",
+    "A340-200",
+    "A340-300",
+    "A340-500",
+    "A340-600",
+    "A380",
+    "ATR-42",
+    "ATR-72",
+    "An-12",
+    "BAE 146-200",
+    "BAE 146-300",
+    "BAE-125",
+    "Beechcraft 1900",
+    "Boeing 717",
+    "C-130",
+    "C-47",
+    "CRJ-200",
+    "CRJ-700",
+    "CRJ-900",
+    "Cessna 172",
+    "Cessna 208",
+    "Cessna 525",
+    "Cessna 560",
+    "Challenger 600",
+    "DC-10",
+    "DC-3",
+    "DC-6",
+    "DC-8",
+    "DC-9-30",
+    "DH-82",
+    "DHC-1",
+    "DHC-6",
+    "DHC-8-100",
+    "DHC-8-300",
+    "DR-400",
+    "Dornier 328",
+    "E-170",
+    "E-190",
+    "E-195",
+    "EMB-120",
+    "ERJ 135",
+    "ERJ 145",
+    "Embraer Legacy 600",
+    "Eurofighter Typhoon",
+    "F-16A/B",
+    "F/A-18",
+    "Falcon 2000",
+    "Falcon 900",
+    "Fokker 100",
+    "Fokker 50",
+    "Fokker 70",
+    "Global Express",
+    "Gulfstream IV",
+    "Gulfstream V",
+    "Hawk T1",
+    "Il-76",
+    "L-1011",
+    "MD-11",
+    "MD-80",
+    "MD-87",
+    "MD-90",
+    "Metroliner",
+    "Model B200",
+    "PA-28",
+    "SR-20",
+    "Saab 2000",
+    "Saab 340",
+    "Spitfire",
+    "Tornado",
+    "Tu-134",
+    "Tu-154",
+    "Yak-42"
+  ],
+  "class_counts": {
+    "707-320": 4,
+    "727-200": 4,
+    "737-200": 4,
+    "737-300": 4,
+    "737-400": 4,
+    "737-500": 4,
+    "737-600": 4,
+    "737-700": 4,
+    "737-800": 4,
+    "737-900": 4,
+    "747-100": 4,
+    "747-200": 4,
+    "747-300": 4,
+    "747-400": 4,
+    "757-200": 4,
+    "757-300": 4,
+    "767-200": 4,
+    "767-300": 4,
+    "767-400": 4,
+    "777-200": 4,
+    "777-300": 4,
+    "A300B4": 4,
+    "A310": 4,
+    "A318": 4,
+    "A319": 4,
+    "A320": 4,
+    "A321": 4,
+    "A330-200": 4,
+    "A330-300": 4,
+    "A340-200": 4,
+    "A340-300": 4,
+    "A340-500": 4,
+    "A340-600": 4,
+    "A380": 4,
+    "ATR-42": 4,
+    "ATR-72": 4,
+    "An-12": 4,
+    "BAE 146-200": 4,
+    "BAE 146-300": 4,
+    "BAE-125": 4,
+    "Beechcraft 1900": 4,
+    "Boeing 717": 4,
+    "C-130": 4,
+    "C-47": 4,
+    "CRJ-200": 4,
+    "CRJ-700": 4,
+    "CRJ-900": 4,
+    "Cessna 172": 4,
+    "Cessna 208": 4,
+    "Cessna 525": 4,
+    "Cessna 560": 4,
+    "Challenger 600": 4,
+    "DC-10": 4,
+    "DC-3": 4,
+    "DC-6": 4,
+    "DC-8": 4,
+    "DC-9-30": 4,
+    "DH-82": 4,
+    "DHC-1": 4,
+    "DHC-6": 4,
+    "DHC-8-100": 4,
+    "DHC-8-300": 4,
+    "DR-400": 4,
+    "Dornier 328": 4,
+    "E-170": 4,
+    "E-190": 4,
+    "E-195": 4,
+    "EMB-120": 4,
+    "ERJ 135": 4,
+    "ERJ 145": 4,
+    "Embraer Legacy 600": 4,
+    "Eurofighter Typhoon": 4,
+    "F-16A/B": 4,
+    "F/A-18": 4,
+    "Falcon 2000": 4,
+    "Falcon 900": 4,
+    "Fokker 100": 4,
+    "Fokker 50": 4,
+    "Fokker 70": 4,
+    "Global Express": 4,
+    "Gulfstream IV": 4,
+    "Gulfstream V": 4,
+    "Hawk T1": 4,
+    "Il-76": 4,
+    "L-1011": 4,
+    "MD-11": 4,
+    "MD-80": 4,
+    "MD-87": 4,
+    "MD-90": 4,
+    "Metroliner": 4,
+    "Model B200": 4,
+    "PA-28": 4,
+    "SR-20": 4,
+    "Saab 2000": 4,
+    "Saab 340": 4,
+    "Spitfire": 4,
+    "Tornado": 4,
+    "Tu-134": 4,
+    "Tu-154": 4,
+    "Yak-42": 4
+  },
+  "existing1600_image_plan_activated": false,
+  "existing16_image_probe_modified": false,
+  "image_terms": "Non-commercial research only; photographers retain image copyright; other use requires their authorization",
+  "images_downloaded_by_this_preparation": 0,
+  "matching_requirement": "All compared training arms receive the same fixed400 IDs and full100-label vocabulary; optimization and evaluation protocols require a separate freeze before fits",
+  "model_calls": 0,
+  "native_test": {
+    "classes": 100,
+    "images": 3333,
+    "sealed": true
+  },
+  "native_validation": {
+    "classes": 100,
+    "images": 3333,
+    "membership_modified": false
+  },
+  "plan_id": "fgvc-aircraft-native-train-fourshot-seed791-v1",
+  "schema_version": 1,
+  "selected": [
+    {
+      "id": "0450014",
+      "label": "707-320",
+      "split": "train"
+    },
+    {
+      "id": "0056978",
+      "label": "707-320",
+      "split": "train"
+    },
+    {
+      "id": "0548719",
+      "label": "707-320",
+      "split": "train"
+    },
+    {
+      "id": "0864665",
+      "label": "707-320",
+      "split": "train"
+    },
+    {
+      "id": "2223757",
+      "label": "727-200",
+      "split": "train"
+    },
+    {
+      "id": "0732456",
+      "label": "727-200",
+      "split": "train"
+    },
+    {
+      "id": "0056337",
+      "label": "727-200",
+      "split": "train"
+    },
+    {
+      "id": "1197395",
+      "label": "727-200",
+      "split": "train"
+    },
+    {
+      "id": "0438655",
+      "label": "737-200",
+      "split": "train"
+    },
+    {
+      "id": "0337947",
+      "label": "737-200",
+      "split": "train"
+    },
+    {
+      "id": "0851647",
+      "label": "737-200",
+      "split": "train"
+    },
+    {
+      "id": "0564495",
+      "label": "737-200",
+      "split": "train"
+    },
+    {
+      "id": "2115318",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "0830001",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "1691783",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "0748299",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "1758545",
+      "label": "737-400",
+      "split": "train"
+    },
+    {
+      "id": "0122393",
+      "label": "737-400",
+      "split": "train"
+    },
+    {
+      "id": "0853774",
+      "label": "737-400",
+      "split": "train"
+    },
+    {
+      "id": "0127627",
+      "label": "737-400",
+      "split": "train"
+    },
+    {
+      "id": "0604668",
+      "label": "737-500",
+      "split": "train"
+    },
+    {
+      "id": "0143341",
+      "label": "737-500",
+      "split": "train"
+    },
+    {
+      "id": "0225225",
+      "label": "737-500",
+      "split": "train"
+    },
+    {
+      "id": "1687908",
+      "label": "737-500",
+      "split": "train"
+    },
+    {
+      "id": "1726606",
+      "label": "737-600",
+      "split": "train"
+    },
+    {
+      "id": "0961750",
+      "label": "737-600",
+      "split": "train"
+    },
+    {
+      "id": "0944253",
+      "label": "737-600",
+      "split": "train"
+    },
+    {
+      "id": "1973457",
+      "label": "737-600",
+      "split": "train"
+    },
+    {
+      "id": "1498556",
+      "label": "737-700",
+      "split": "train"
+    },
+    {
+      "id": "1763666",
+      "label": "737-700",
+      "split": "train"
+    },
+    {
+      "id": "1503761",
+      "label": "737-700",
+      "split": "train"
+    },
+    {
+      "id": "2211307",
+      "label": "737-700",
+      "split": "train"
+    },
+    {
+      "id": "1136124",
+      "label": "737-800",
+      "split": "train"
+    },
+    {
+      "id": "0706175",
+      "label": "737-800",
+      "split": "train"
+    },
+    {
+      "id": "1390305",
+      "label": "737-800",
+      "split": "train"
+    },
+    {
+      "id": "0788947",
+      "label": "737-800",
+      "split": "train"
+    },
+    {
+      "id": "1353293",
+      "label": "737-900",
+      "split": "train"
+    },
+    {
+      "id": "1582314",
+      "label": "737-900",
+      "split": "train"
+    },
+    {
+      "id": "0476825",
+      "label": "737-900",
+      "split": "train"
+    },
+    {
+      "id": "1313348",
+      "label": "737-900",
+      "split": "train"
+    },
+    {
+      "id": "1842078",
+      "label": "747-100",
+      "split": "train"
+    },
+    {
+      "id": "0139685",
+      "label": "747-100",
+      "split": "train"
+    },
+    {
+      "id": "1281453",
+      "label": "747-100",
+      "split": "train"
+    },
+    {
+      "id": "1068733",
+      "label": "747-100",
+      "split": "train"
+    },
+    {
+      "id": "0198433",
+      "label": "747-200",
+      "split": "train"
+    },
+    {
+      "id": "0476345",
+      "label": "747-200",
+      "split": "train"
+    },
+    {
+      "id": "0744732",
+      "label": "747-200",
+      "split": "train"
+    },
+    {
+      "id": "0765599",
+      "label": "747-200",
+      "split": "train"
+    },
+    {
+      "id": "1202048",
+      "label": "747-300",
+      "split": "train"
+    },
+    {
+      "id": "0950401",
+      "label": "747-300",
+      "split": "train"
+    },
+    {
+      "id": "1879895",
+      "label": "747-300",
+      "split": "train"
+    },
+    {
+      "id": "0963590",
+      "label": "747-300",
+      "split": "train"
+    },
+    {
+      "id": "1146172",
+      "label": "747-400",
+      "split": "train"
+    },
+    {
+      "id": "2091929",
+      "label": "747-400",
+      "split": "train"
+    },
+    {
+      "id": "2244841",
+      "label": "747-400",
+      "split": "train"
+    },
+    {
+      "id": "1469691",
+      "label": "747-400",
+      "split": "train"
+    },
+    {
+      "id": "0056297",
+      "label": "757-200",
+      "split": "train"
+    },
+    {
+      "id": "0458643",
+      "label": "757-200",
+      "split": "train"
+    },
+    {
+      "id": "0523013",
+      "label": "757-200",
+      "split": "train"
+    },
+    {
+      "id": "0765781",
+      "label": "757-200",
+      "split": "train"
+    },
+    {
+      "id": "0469140",
+      "label": "757-300",
+      "split": "train"
+    },
+    {
+      "id": "1486383",
+      "label": "757-300",
+      "split": "train"
+    },
+    {
+      "id": "1146631",
+      "label": "757-300",
+      "split": "train"
+    },
+    {
+      "id": "0447753",
+      "label": "757-300",
+      "split": "train"
+    },
+    {
+      "id": "2132127",
+      "label": "767-200",
+      "split": "train"
+    },
+    {
+      "id": "0197363",
+      "label": "767-200",
+      "split": "train"
+    },
+    {
+      "id": "2213535",
+      "label": "767-200",
+      "split": "train"
+    },
+    {
+      "id": "0117996",
+      "label": "767-200",
+      "split": "train"
+    },
+    {
+      "id": "1901133",
+      "label": "767-300",
+      "split": "train"
+    },
+    {
+      "id": "1143413",
+      "label": "767-300",
+      "split": "train"
+    },
+    {
+      "id": "1933933",
+      "label": "767-300",
+      "split": "train"
+    },
+    {
+      "id": "0233755",
+      "label": "767-300",
+      "split": "train"
+    },
+    {
+      "id": "1165767",
+      "label": "767-400",
+      "split": "train"
+    },
+    {
+      "id": "0835837",
+      "label": "767-400",
+      "split": "train"
+    },
+    {
+      "id": "1476102",
+      "label": "767-400",
+      "split": "train"
+    },
+    {
+      "id": "0182729",
+      "label": "767-400",
+      "split": "train"
+    },
+    {
+      "id": "1870569",
+      "label": "777-200",
+      "split": "train"
+    },
+    {
+      "id": "2176725",
+      "label": "777-200",
+      "split": "train"
+    },
+    {
+      "id": "1228882",
+      "label": "777-200",
+      "split": "train"
+    },
+    {
+      "id": "1514936",
+      "label": "777-200",
+      "split": "train"
+    },
+    {
+      "id": "1913641",
+      "label": "777-300",
+      "split": "train"
+    },
+    {
+      "id": "2069690",
+      "label": "777-300",
+      "split": "train"
+    },
+    {
+      "id": "1191065",
+      "label": "777-300",
+      "split": "train"
+    },
+    {
+      "id": "1810920",
+      "label": "777-300",
+      "split": "train"
+    },
+    {
+      "id": "0067397",
+      "label": "A300B4",
+      "split": "train"
+    },
+    {
+      "id": "0907390",
+      "label": "A300B4",
+      "split": "train"
+    },
+    {
+      "id": "0836146",
+      "label": "A300B4",
+      "split": "train"
+    },
+    {
+      "id": "0345781",
+      "label": "A300B4",
+      "split": "train"
+    },
+    {
+      "id": "0765780",
+      "label": "A310",
+      "split": "train"
+    },
+    {
+      "id": "1464252",
+      "label": "A310",
+      "split": "train"
+    },
+    {
+      "id": "0949946",
+      "label": "A310",
+      "split": "train"
+    },
+    {
+      "id": "2084806",
+      "label": "A310",
+      "split": "train"
+    },
+    {
+      "id": "1539428",
+      "label": "A318",
+      "split": "train"
+    },
+    {
+      "id": "1909808",
+      "label": "A318",
+      "split": "train"
+    },
+    {
+      "id": "1351410",
+      "label": "A318",
+      "split": "train"
+    },
+    {
+      "id": "2210075",
+      "label": "A318",
+      "split": "train"
+    },
+    {
+      "id": "1003143",
+      "label": "A319",
+      "split": "train"
+    },
+    {
+      "id": "1818746",
+      "label": "A319",
+      "split": "train"
+    },
+    {
+      "id": "0445491",
+      "label": "A319",
+      "split": "train"
+    },
+    {
+      "id": "1541378",
+      "label": "A319",
+      "split": "train"
+    },
+    {
+      "id": "0523031",
+      "label": "A320",
+      "split": "train"
+    },
+    {
+      "id": "1102381",
+      "label": "A320",
+      "split": "train"
+    },
+    {
+      "id": "2057952",
+      "label": "A320",
+      "split": "train"
+    },
+    {
+      "id": "0857653",
+      "label": "A320",
+      "split": "train"
+    },
+    {
+      "id": "0547318",
+      "label": "A321",
+      "split": "train"
+    },
+    {
+      "id": "1616512",
+      "label": "A321",
+      "split": "train"
+    },
+    {
+      "id": "0434343",
+      "label": "A321",
+      "split": "train"
+    },
+    {
+      "id": "0076836",
+      "label": "A321",
+      "split": "train"
+    },
+    {
+      "id": "2258288",
+      "label": "A330-200",
+      "split": "train"
+    },
+    {
+      "id": "0257026",
+      "label": "A330-200",
+      "split": "train"
+    },
+    {
+      "id": "1870658",
+      "label": "A330-200",
+      "split": "train"
+    },
+    {
+      "id": "1184708",
+      "label": "A330-200",
+      "split": "train"
+    },
+    {
+      "id": "0175819",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "0857160",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "1027573",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "1531355",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "0457830",
+      "label": "A340-200",
+      "split": "train"
+    },
+    {
+      "id": "1234832",
+      "label": "A340-200",
+      "split": "train"
+    },
+    {
+      "id": "0140272",
+      "label": "A340-200",
+      "split": "train"
+    },
+    {
+      "id": "0187671",
+      "label": "A340-200",
+      "split": "train"
+    },
+    {
+      "id": "1649738",
+      "label": "A340-300",
+      "split": "train"
+    },
+    {
+      "id": "2124076",
+      "label": "A340-300",
+      "split": "train"
+    },
+    {
+      "id": "0745361",
+      "label": "A340-300",
+      "split": "train"
+    },
+    {
+      "id": "1922848",
+      "label": "A340-300",
+      "split": "train"
+    },
+    {
+      "id": "1758713",
+      "label": "A340-500",
+      "split": "train"
+    },
+    {
+      "id": "1469709",
+      "label": "A340-500",
+      "split": "train"
+    },
+    {
+      "id": "1081563",
+      "label": "A340-500",
+      "split": "train"
+    },
+    {
+      "id": "1469672",
+      "label": "A340-500",
+      "split": "train"
+    },
+    {
+      "id": "1840139",
+      "label": "A340-600",
+      "split": "train"
+    },
+    {
+      "id": "1471167",
+      "label": "A340-600",
+      "split": "train"
+    },
+    {
+      "id": "1619902",
+      "label": "A340-600",
+      "split": "train"
+    },
+    {
+      "id": "0469779",
+      "label": "A340-600",
+      "split": "train"
+    },
+    {
+      "id": "1932603",
+      "label": "A380",
+      "split": "train"
+    },
+    {
+      "id": "1840423",
+      "label": "A380",
+      "split": "train"
+    },
+    {
+      "id": "1973442",
+      "label": "A380",
+      "split": "train"
+    },
+    {
+      "id": "2233490",
+      "label": "A380",
+      "split": "train"
+    },
+    {
+      "id": "0848058",
+      "label": "ATR-42",
+      "split": "train"
+    },
+    {
+      "id": "1143414",
+      "label": "ATR-42",
+      "split": "train"
+    },
+    {
+      "id": "0901370",
+      "label": "ATR-42",
+      "split": "train"
+    },
+    {
+      "id": "0064202",
+      "label": "ATR-42",
+      "split": "train"
+    },
+    {
+      "id": "1223346",
+      "label": "ATR-72",
+      "split": "train"
+    },
+    {
+      "id": "1864787",
+      "label": "ATR-72",
+      "split": "train"
+    },
+    {
+      "id": "1798654",
+      "label": "ATR-72",
+      "split": "train"
+    },
+    {
+      "id": "2222405",
+      "label": "ATR-72",
+      "split": "train"
+    },
+    {
+      "id": "0656580",
+      "label": "An-12",
+      "split": "train"
+    },
+    {
+      "id": "0765604",
+      "label": "An-12",
+      "split": "train"
+    },
+    {
+      "id": "1619921",
+      "label": "An-12",
+      "split": "train"
+    },
+    {
+      "id": "2259875",
+      "label": "An-12",
+      "split": "train"
+    },
+    {
+      "id": "0143389",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "1950554",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "1358106",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "1193030",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "1336071",
+      "label": "BAE 146-300",
+      "split": "train"
+    },
+    {
+      "id": "0167122",
+      "label": "BAE 146-300",
+      "split": "train"
+    },
+    {
+      "id": "0758359",
+      "label": "BAE 146-300",
+      "split": "train"
+    },
+    {
+      "id": "0065577",
+      "label": "BAE 146-300",
+      "split": "train"
+    },
+    {
+      "id": "0083356",
+      "label": "BAE-125",
+      "split": "train"
+    },
+    {
+      "id": "1714820",
+      "label": "BAE-125",
+      "split": "train"
+    },
+    {
+      "id": "1001973",
+      "label": "BAE-125",
+      "split": "train"
+    },
+    {
+      "id": "1926848",
+      "label": "BAE-125",
+      "split": "train"
+    },
+    {
+      "id": "1355200",
+      "label": "Beechcraft 1900",
+      "split": "train"
+    },
+    {
+      "id": "1455997",
+      "label": "Beechcraft 1900",
+      "split": "train"
+    },
+    {
+      "id": "1376991",
+      "label": "Beechcraft 1900",
+      "split": "train"
+    },
+    {
+      "id": "1326007",
+      "label": "Beechcraft 1900",
+      "split": "train"
+    },
+    {
+      "id": "1555985",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "0302019",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "2017851",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "1351340",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "1085194",
+      "label": "C-130",
+      "split": "train"
+    },
+    {
+      "id": "1794564",
+      "label": "C-130",
+      "split": "train"
+    },
+    {
+      "id": "0434345",
+      "label": "C-130",
+      "split": "train"
+    },
+    {
+      "id": "1055698",
+      "label": "C-130",
+      "split": "train"
+    },
+    {
+      "id": "1649868",
+      "label": "C-47",
+      "split": "train"
+    },
+    {
+      "id": "0704643",
+      "label": "C-47",
+      "split": "train"
+    },
+    {
+      "id": "1255008",
+      "label": "C-47",
+      "split": "train"
+    },
+    {
+      "id": "0586259",
+      "label": "C-47",
+      "split": "train"
+    },
+    {
+      "id": "0942395",
+      "label": "CRJ-200",
+      "split": "train"
+    },
+    {
+      "id": "1567620",
+      "label": "CRJ-200",
+      "split": "train"
+    },
+    {
+      "id": "0275729",
+      "label": "CRJ-200",
+      "split": "train"
+    },
+    {
+      "id": "0313724",
+      "label": "CRJ-200",
+      "split": "train"
+    },
+    {
+      "id": "0728571",
+      "label": "CRJ-700",
+      "split": "train"
+    },
+    {
+      "id": "0929800",
+      "label": "CRJ-700",
+      "split": "train"
+    },
+    {
+      "id": "0476813",
+      "label": "CRJ-700",
+      "split": "train"
+    },
+    {
+      "id": "0955449",
+      "label": "CRJ-700",
+      "split": "train"
+    },
+    {
+      "id": "1558772",
+      "label": "CRJ-900",
+      "split": "train"
+    },
+    {
+      "id": "1623412",
+      "label": "CRJ-900",
+      "split": "train"
+    },
+    {
+      "id": "1465847",
+      "label": "CRJ-900",
+      "split": "train"
+    },
+    {
+      "id": "2090708",
+      "label": "CRJ-900",
+      "split": "train"
+    },
+    {
+      "id": "1923371",
+      "label": "Cessna 172",
+      "split": "train"
+    },
+    {
+      "id": "1726480",
+      "label": "Cessna 172",
+      "split": "train"
+    },
+    {
+      "id": "1125619",
+      "label": "Cessna 172",
+      "split": "train"
+    },
+    {
+      "id": "2243572",
+      "label": "Cessna 172",
+      "split": "train"
+    },
+    {
+      "id": "2096268",
+      "label": "Cessna 208",
+      "split": "train"
+    },
+    {
+      "id": "1337511",
+      "label": "Cessna 208",
+      "split": "train"
+    },
+    {
+      "id": "1156006",
+      "label": "Cessna 208",
+      "split": "train"
+    },
+    {
+      "id": "1347237",
+      "label": "Cessna 208",
+      "split": "train"
+    },
+    {
+      "id": "1066523",
+      "label": "Cessna 525",
+      "split": "train"
+    },
+    {
+      "id": "2066265",
+      "label": "Cessna 525",
+      "split": "train"
+    },
+    {
+      "id": "1050675",
+      "label": "Cessna 525",
+      "split": "train"
+    },
+    {
+      "id": "1806229",
+      "label": "Cessna 525",
+      "split": "train"
+    },
+    {
+      "id": "0524795",
+      "label": "Cessna 560",
+      "split": "train"
+    },
+    {
+      "id": "0781149",
+      "label": "Cessna 560",
+      "split": "train"
+    },
+    {
+      "id": "2139677",
+      "label": "Cessna 560",
+      "split": "train"
+    },
+    {
+      "id": "2231272",
+      "label": "Cessna 560",
+      "split": "train"
+    },
+    {
+      "id": "0637453",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "0440694",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "1966540",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "1071955",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "0709877",
+      "label": "DC-10",
+      "split": "train"
+    },
+    {
+      "id": "0478314",
+      "label": "DC-10",
+      "split": "train"
+    },
+    {
+      "id": "0102237",
+      "label": "DC-10",
+      "split": "train"
+    },
+    {
+      "id": "0218850",
+      "label": "DC-10",
+      "split": "train"
+    },
+    {
+      "id": "0773044",
+      "label": "DC-3",
+      "split": "train"
+    },
+    {
+      "id": "0689371",
+      "label": "DC-3",
+      "split": "train"
+    },
+    {
+      "id": "1002458",
+      "label": "DC-3",
+      "split": "train"
+    },
+    {
+      "id": "0572858",
+      "label": "DC-3",
+      "split": "train"
+    },
+    {
+      "id": "0564013",
+      "label": "DC-6",
+      "split": "train"
+    },
+    {
+      "id": "1945292",
+      "label": "DC-6",
+      "split": "train"
+    },
+    {
+      "id": "0548883",
+      "label": "DC-6",
+      "split": "train"
+    },
+    {
+      "id": "1316961",
+      "label": "DC-6",
+      "split": "train"
+    },
+    {
+      "id": "0901456",
+      "label": "DC-8",
+      "split": "train"
+    },
+    {
+      "id": "0782914",
+      "label": "DC-8",
+      "split": "train"
+    },
+    {
+      "id": "0593168",
+      "label": "DC-8",
+      "split": "train"
+    },
+    {
+      "id": "1314561",
+      "label": "DC-8",
+      "split": "train"
+    },
+    {
+      "id": "0907367",
+      "label": "DC-9-30",
+      "split": "train"
+    },
+    {
+      "id": "1251764",
+      "label": "DC-9-30",
+      "split": "train"
+    },
+    {
+      "id": "0554721",
+      "label": "DC-9-30",
+      "split": "train"
+    },
+    {
+      "id": "0174937",
+      "label": "DC-9-30",
+      "split": "train"
+    },
+    {
+      "id": "1974802",
+      "label": "DH-82",
+      "split": "train"
+    },
+    {
+      "id": "1001821",
+      "label": "DH-82",
+      "split": "train"
+    },
+    {
+      "id": "1924286",
+      "label": "DH-82",
+      "split": "train"
+    },
+    {
+      "id": "1411124",
+      "label": "DH-82",
+      "split": "train"
+    },
+    {
+      "id": "1940512",
+      "label": "DHC-1",
+      "split": "train"
+    },
+    {
+      "id": "2026690",
+      "label": "DHC-1",
+      "split": "train"
+    },
+    {
+      "id": "1379879",
+      "label": "DHC-1",
+      "split": "train"
+    },
+    {
+      "id": "1032474",
+      "label": "DHC-1",
+      "split": "train"
+    },
+    {
+      "id": "2008454",
+      "label": "DHC-6",
+      "split": "train"
+    },
+    {
+      "id": "2008455",
+      "label": "DHC-6",
+      "split": "train"
+    },
+    {
+      "id": "2010474",
+      "label": "DHC-6",
+      "split": "train"
+    },
+    {
+      "id": "0302001",
+      "label": "DHC-6",
+      "split": "train"
+    },
+    {
+      "id": "0093513",
+      "label": "DHC-8-100",
+      "split": "train"
+    },
+    {
+      "id": "0064627",
+      "label": "DHC-8-100",
+      "split": "train"
+    },
+    {
+      "id": "0362888",
+      "label": "DHC-8-100",
+      "split": "train"
+    },
+    {
+      "id": "1028704",
+      "label": "DHC-8-100",
+      "split": "train"
+    },
+    {
+      "id": "2147230",
+      "label": "DHC-8-300",
+      "split": "train"
+    },
+    {
+      "id": "1709677",
+      "label": "DHC-8-300",
+      "split": "train"
+    },
+    {
+      "id": "2264968",
+      "label": "DHC-8-300",
+      "split": "train"
+    },
+    {
+      "id": "0732415",
+      "label": "DHC-8-300",
+      "split": "train"
+    },
+    {
+      "id": "2231709",
+      "label": "DR-400",
+      "split": "train"
+    },
+    {
+      "id": "1637925",
+      "label": "DR-400",
+      "split": "train"
+    },
+    {
+      "id": "1513134",
+      "label": "DR-400",
+      "split": "train"
+    },
+    {
+      "id": "1460096",
+      "label": "DR-400",
+      "split": "train"
+    },
+    {
+      "id": "1122822",
+      "label": "Dornier 328",
+      "split": "train"
+    },
+    {
+      "id": "1810960",
+      "label": "Dornier 328",
+      "split": "train"
+    },
+    {
+      "id": "1674738",
+      "label": "Dornier 328",
+      "split": "train"
+    },
+    {
+      "id": "0908591",
+      "label": "Dornier 328",
+      "split": "train"
+    },
+    {
+      "id": "0832778",
+      "label": "E-170",
+      "split": "train"
+    },
+    {
+      "id": "1077156",
+      "label": "E-170",
+      "split": "train"
+    },
+    {
+      "id": "0905078",
+      "label": "E-170",
+      "split": "train"
+    },
+    {
+      "id": "1052982",
+      "label": "E-170",
+      "split": "train"
+    },
+    {
+      "id": "1663625",
+      "label": "E-190",
+      "split": "train"
+    },
+    {
+      "id": "1899114",
+      "label": "E-190",
+      "split": "train"
+    },
+    {
+      "id": "2054455",
+      "label": "E-190",
+      "split": "train"
+    },
+    {
+      "id": "2259021",
+      "label": "E-190",
+      "split": "train"
+    },
+    {
+      "id": "2091938",
+      "label": "E-195",
+      "split": "train"
+    },
+    {
+      "id": "2004590",
+      "label": "E-195",
+      "split": "train"
+    },
+    {
+      "id": "2115085",
+      "label": "E-195",
+      "split": "train"
+    },
+    {
+      "id": "1551125",
+      "label": "E-195",
+      "split": "train"
+    },
+    {
+      "id": "0350200",
+      "label": "EMB-120",
+      "split": "train"
+    },
+    {
+      "id": "0999159",
+      "label": "EMB-120",
+      "split": "train"
+    },
+    {
+      "id": "0483246",
+      "label": "EMB-120",
+      "split": "train"
+    },
+    {
+      "id": "0136148",
+      "label": "EMB-120",
+      "split": "train"
+    },
+    {
+      "id": "2020296",
+      "label": "ERJ 135",
+      "split": "train"
+    },
+    {
+      "id": "0909665",
+      "label": "ERJ 135",
+      "split": "train"
+    },
+    {
+      "id": "1399596",
+      "label": "ERJ 135",
+      "split": "train"
+    },
+    {
+      "id": "1129151",
+      "label": "ERJ 135",
+      "split": "train"
+    },
+    {
+      "id": "1246013",
+      "label": "ERJ 145",
+      "split": "train"
+    },
+    {
+      "id": "1073073",
+      "label": "ERJ 145",
+      "split": "train"
+    },
+    {
+      "id": "2003270",
+      "label": "ERJ 145",
+      "split": "train"
+    },
+    {
+      "id": "1357956",
+      "label": "ERJ 145",
+      "split": "train"
+    },
+    {
+      "id": "0794898",
+      "label": "Embraer Legacy 600",
+      "split": "train"
+    },
+    {
+      "id": "1605154",
+      "label": "Embraer Legacy 600",
+      "split": "train"
+    },
+    {
+      "id": "1714826",
+      "label": "Embraer Legacy 600",
+      "split": "train"
+    },
+    {
+      "id": "1807123",
+      "label": "Embraer Legacy 600",
+      "split": "train"
+    },
+    {
+      "id": "1707110",
+      "label": "Eurofighter Typhoon",
+      "split": "train"
+    },
+    {
+      "id": "1351641",
+      "label": "Eurofighter Typhoon",
+      "split": "train"
+    },
+    {
+      "id": "2185361",
+      "label": "Eurofighter Typhoon",
+      "split": "train"
+    },
+    {
+      "id": "1254962",
+      "label": "Eurofighter Typhoon",
+      "split": "train"
+    },
+    {
+      "id": "1588720",
+      "label": "F-16A/B",
+      "split": "train"
+    },
+    {
+      "id": "2114113",
+      "label": "F-16A/B",
+      "split": "train"
+    },
+    {
+      "id": "1754078",
+      "label": "F-16A/B",
+      "split": "train"
+    },
+    {
+      "id": "1588718",
+      "label": "F-16A/B",
+      "split": "train"
+    },
+    {
+      "id": "1601716",
+      "label": "F/A-18",
+      "split": "train"
+    },
+    {
+      "id": "1254668",
+      "label": "F/A-18",
+      "split": "train"
+    },
+    {
+      "id": "1230192",
+      "label": "F/A-18",
+      "split": "train"
+    },
+    {
+      "id": "1842075",
+      "label": "F/A-18",
+      "split": "train"
+    },
+    {
+      "id": "1355436",
+      "label": "Falcon 2000",
+      "split": "train"
+    },
+    {
+      "id": "0547519",
+      "label": "Falcon 2000",
+      "split": "train"
+    },
+    {
+      "id": "2097519",
+      "label": "Falcon 2000",
+      "split": "train"
+    },
+    {
+      "id": "1198138",
+      "label": "Falcon 2000",
+      "split": "train"
+    },
+    {
+      "id": "1031647",
+      "label": "Falcon 900",
+      "split": "train"
+    },
+    {
+      "id": "2057396",
+      "label": "Falcon 900",
+      "split": "train"
+    },
+    {
+      "id": "1154960",
+      "label": "Falcon 900",
+      "split": "train"
+    },
+    {
+      "id": "1774329",
+      "label": "Falcon 900",
+      "split": "train"
+    },
+    {
+      "id": "1115404",
+      "label": "Fokker 100",
+      "split": "train"
+    },
+    {
+      "id": "0890795",
+      "label": "Fokker 100",
+      "split": "train"
+    },
+    {
+      "id": "0716371",
+      "label": "Fokker 100",
+      "split": "train"
+    },
+    {
+      "id": "0907347",
+      "label": "Fokker 100",
+      "split": "train"
+    },
+    {
+      "id": "0927837",
+      "label": "Fokker 50",
+      "split": "train"
+    },
+    {
+      "id": "0134595",
+      "label": "Fokker 50",
+      "split": "train"
+    },
+    {
+      "id": "1117692",
+      "label": "Fokker 50",
+      "split": "train"
+    },
+    {
+      "id": "0066425",
+      "label": "Fokker 50",
+      "split": "train"
+    },
+    {
+      "id": "1558572",
+      "label": "Fokker 70",
+      "split": "train"
+    },
+    {
+      "id": "0872249",
+      "label": "Fokker 70",
+      "split": "train"
+    },
+    {
+      "id": "1329309",
+      "label": "Fokker 70",
+      "split": "train"
+    },
+    {
+      "id": "0842533",
+      "label": "Fokker 70",
+      "split": "train"
+    },
+    {
+      "id": "1430003",
+      "label": "Global Express",
+      "split": "train"
+    },
+    {
+      "id": "0774288",
+      "label": "Global Express",
+      "split": "train"
+    },
+    {
+      "id": "0298506",
+      "label": "Global Express",
+      "split": "train"
+    },
+    {
+      "id": "1542797",
+      "label": "Global Express",
+      "split": "train"
+    },
+    {
+      "id": "0447806",
+      "label": "Gulfstream IV",
+      "split": "train"
+    },
+    {
+      "id": "2088351",
+      "label": "Gulfstream IV",
+      "split": "train"
+    },
+    {
+      "id": "1498679",
+      "label": "Gulfstream IV",
+      "split": "train"
+    },
+    {
+      "id": "1833904",
+      "label": "Gulfstream IV",
+      "split": "train"
+    },
+    {
+      "id": "2106202",
+      "label": "Gulfstream V",
+      "split": "train"
+    },
+    {
+      "id": "1447127",
+      "label": "Gulfstream V",
+      "split": "train"
+    },
+    {
+      "id": "1702899",
+      "label": "Gulfstream V",
+      "split": "train"
+    },
+    {
+      "id": "1290539",
+      "label": "Gulfstream V",
+      "split": "train"
+    },
+    {
+      "id": "1477073",
+      "label": "Hawk T1",
+      "split": "train"
+    },
+    {
+      "id": "0877683",
+      "label": "Hawk T1",
+      "split": "train"
+    },
+    {
+      "id": "0934118",
+      "label": "Hawk T1",
+      "split": "train"
+    },
+    {
+      "id": "1244756",
+      "label": "Hawk T1",
+      "split": "train"
+    },
+    {
+      "id": "1826520",
+      "label": "Il-76",
+      "split": "train"
+    },
+    {
+      "id": "0523181",
+      "label": "Il-76",
+      "split": "train"
+    },
+    {
+      "id": "0522959",
+      "label": "Il-76",
+      "split": "train"
+    },
+    {
+      "id": "0737312",
+      "label": "Il-76",
+      "split": "train"
+    },
+    {
+      "id": "0063277",
+      "label": "L-1011",
+      "split": "train"
+    },
+    {
+      "id": "0218848",
+      "label": "L-1011",
+      "split": "train"
+    },
+    {
+      "id": "0536306",
+      "label": "L-1011",
+      "split": "train"
+    },
+    {
+      "id": "0602750",
+      "label": "L-1011",
+      "split": "train"
+    },
+    {
+      "id": "1554795",
+      "label": "MD-11",
+      "split": "train"
+    },
+    {
+      "id": "1526201",
+      "label": "MD-11",
+      "split": "train"
+    },
+    {
+      "id": "1636315",
+      "label": "MD-11",
+      "split": "train"
+    },
+    {
+      "id": "1123299",
+      "label": "MD-11",
+      "split": "train"
+    },
+    {
+      "id": "1036880",
+      "label": "MD-80",
+      "split": "train"
+    },
+    {
+      "id": "1875195",
+      "label": "MD-80",
+      "split": "train"
+    },
+    {
+      "id": "0843963",
+      "label": "MD-80",
+      "split": "train"
+    },
+    {
+      "id": "1676760",
+      "label": "MD-80",
+      "split": "train"
+    },
+    {
+      "id": "0056589",
+      "label": "MD-87",
+      "split": "train"
+    },
+    {
+      "id": "1265320",
+      "label": "MD-87",
+      "split": "train"
+    },
+    {
+      "id": "2001287",
+      "label": "MD-87",
+      "split": "train"
+    },
+    {
+      "id": "1517885",
+      "label": "MD-87",
+      "split": "train"
+    },
+    {
+      "id": "1388982",
+      "label": "MD-90",
+      "split": "train"
+    },
+    {
+      "id": "2118114",
+      "label": "MD-90",
+      "split": "train"
+    },
+    {
+      "id": "0977264",
+      "label": "MD-90",
+      "split": "train"
+    },
+    {
+      "id": "0364670",
+      "label": "MD-90",
+      "split": "train"
+    },
+    {
+      "id": "0411770",
+      "label": "Metroliner",
+      "split": "train"
+    },
+    {
+      "id": "0735014",
+      "label": "Metroliner",
+      "split": "train"
+    },
+    {
+      "id": "2031392",
+      "label": "Metroliner",
+      "split": "train"
+    },
+    {
+      "id": "1293682",
+      "label": "Metroliner",
+      "split": "train"
+    },
+    {
+      "id": "1523054",
+      "label": "Model B200",
+      "split": "train"
+    },
+    {
+      "id": "1468387",
+      "label": "Model B200",
+      "split": "train"
+    },
+    {
+      "id": "2148543",
+      "label": "Model B200",
+      "split": "train"
+    },
+    {
+      "id": "1461716",
+      "label": "Model B200",
+      "split": "train"
+    },
+    {
+      "id": "1906969",
+      "label": "PA-28",
+      "split": "train"
+    },
+    {
+      "id": "2210244",
+      "label": "PA-28",
+      "split": "train"
+    },
+    {
+      "id": "1311406",
+      "label": "PA-28",
+      "split": "train"
+    },
+    {
+      "id": "2243578",
+      "label": "PA-28",
+      "split": "train"
+    },
+    {
+      "id": "2202486",
+      "label": "SR-20",
+      "split": "train"
+    },
+    {
+      "id": "2135681",
+      "label": "SR-20",
+      "split": "train"
+    },
+    {
+      "id": "2014222",
+      "label": "SR-20",
+      "split": "train"
+    },
+    {
+      "id": "1770844",
+      "label": "SR-20",
+      "split": "train"
+    },
+    {
+      "id": "1966254",
+      "label": "Saab 2000",
+      "split": "train"
+    },
+    {
+      "id": "1014304",
+      "label": "Saab 2000",
+      "split": "train"
+    },
+    {
+      "id": "0880559",
+      "label": "Saab 2000",
+      "split": "train"
+    },
+    {
+      "id": "2033183",
+      "label": "Saab 2000",
+      "split": "train"
+    },
+    {
+      "id": "1559316",
+      "label": "Saab 340",
+      "split": "train"
+    },
+    {
+      "id": "0740887",
+      "label": "Saab 340",
+      "split": "train"
+    },
+    {
+      "id": "0098085",
+      "label": "Saab 340",
+      "split": "train"
+    },
+    {
+      "id": "1550162",
+      "label": "Saab 340",
+      "split": "train"
+    },
+    {
+      "id": "1729159",
+      "label": "Spitfire",
+      "split": "train"
+    },
+    {
+      "id": "1735417",
+      "label": "Spitfire",
+      "split": "train"
+    },
+    {
+      "id": "2043843",
+      "label": "Spitfire",
+      "split": "train"
+    },
+    {
+      "id": "1778957",
+      "label": "Spitfire",
+      "split": "train"
+    },
+    {
+      "id": "0607518",
+      "label": "Tornado",
+      "split": "train"
+    },
+    {
+      "id": "1299913",
+      "label": "Tornado",
+      "split": "train"
+    },
+    {
+      "id": "2094375",
+      "label": "Tornado",
+      "split": "train"
+    },
+    {
+      "id": "0536299",
+      "label": "Tornado",
+      "split": "train"
+    },
+    {
+      "id": "0525710",
+      "label": "Tu-134",
+      "split": "train"
+    },
+    {
+      "id": "0523144",
+      "label": "Tu-134",
+      "split": "train"
+    },
+    {
+      "id": "0944175",
+      "label": "Tu-134",
+      "split": "train"
+    },
+    {
+      "id": "1182715",
+      "label": "Tu-134",
+      "split": "train"
+    },
+    {
+      "id": "0062675",
+      "label": "Tu-154",
+      "split": "train"
+    },
+    {
+      "id": "1164220",
+      "label": "Tu-154",
+      "split": "train"
+    },
+    {
+      "id": "1590459",
+      "label": "Tu-154",
+      "split": "train"
+    },
+    {
+      "id": "1244289",
+      "label": "Tu-154",
+      "split": "train"
+    },
+    {
+      "id": "0944239",
+      "label": "Yak-42",
+      "split": "train"
+    },
+    {
+      "id": "1320583",
+      "label": "Yak-42",
+      "split": "train"
+    },
+    {
+      "id": "1284223",
+      "label": "Yak-42",
+      "split": "train"
+    },
+    {
+      "id": "1000013",
+      "label": "Yak-42",
+      "split": "train"
+    }
+  ],
+  "selected_id_label_split_rows_sha256": "980620364d3c53d1fca93968723b6377044743776442800b97e5721f7bf1838a",
+  "selection": {
+    "algorithm": "ascending SHA256 of compact JSON [release,seed,variant,image_id]",
+    "classes": 100,
+    "images": 400,
+    "native_split": "train",
+    "seed": 791,
+    "selected_image_ids": [
+      "0450014",
+      "0056978",
+      "0548719",
+      "0864665",
+      "2223757",
+      "0732456",
+      "0056337",
+      "1197395",
+      "0438655",
+      "0337947",
+      "0851647",
+      "0564495",
+      "2115318",
+      "0830001",
+      "1691783",
+      "0748299",
+      "1758545",
+      "0122393",
+      "0853774",
+      "0127627",
+      "0604668",
+      "0143341",
+      "0225225",
+      "1687908",
+      "1726606",
+      "0961750",
+      "0944253",
+      "1973457",
+      "1498556",
+      "1763666",
+      "1503761",
+      "2211307",
+      "1136124",
+      "0706175",
+      "1390305",
+      "0788947",
+      "1353293",
+      "1582314",
+      "0476825",
+      "1313348",
+      "1842078",
+      "0139685",
+      "1281453",
+      "1068733",
+      "0198433",
+      "0476345",
+      "0744732",
+      "0765599",
+      "1202048",
+      "0950401",
+      "1879895",
+      "0963590",
+      "1146172",
+      "2091929",
+      "2244841",
+      "1469691",
+      "0056297",
+      "0458643",
+      "0523013",
+      "0765781",
+      "0469140",
+      "1486383",
+      "1146631",
+      "0447753",
+      "2132127",
+      "0197363",
+      "2213535",
+      "0117996",
+      "1901133",
+      "1143413",
+      "1933933",
+      "0233755",
+      "1165767",
+      "0835837",
+      "1476102",
+      "0182729",
+      "1870569",
+      "2176725",
+      "1228882",
+      "1514936",
+      "1913641",
+      "2069690",
+      "1191065",
+      "1810920",
+      "0067397",
+      "0907390",
+      "0836146",
+      "0345781",
+      "0765780",
+      "1464252",
+      "0949946",
+      "2084806",
+      "1539428",
+      "1909808",
+      "1351410",
+      "2210075",
+      "1003143",
+      "1818746",
+      "0445491",
+      "1541378",
+      "0523031",
+      "1102381",
+      "2057952",
+      "0857653",
+      "0547318",
+      "1616512",
+      "0434343",
+      "0076836",
+      "2258288",
+      "0257026",
+      "1870658",
+      "1184708",
+      "0175819",
+      "0857160",
+      "1027573",
+      "1531355",
+      "0457830",
+      "1234832",
+      "0140272",
+      "0187671",
+      "1649738",
+      "2124076",
+      "0745361",
+      "1922848",
+      "1758713",
+      "1469709",
+      "1081563",
+      "1469672",
+      "1840139",
+      "1471167",
+      "1619902",
+      "0469779",
+      "1932603",
+      "1840423",
+      "1973442",
+      "2233490",
+      "0848058",
+      "1143414",
+      "0901370",
+      "0064202",
+      "1223346",
+      "1864787",
+      "1798654",
+      "2222405",
+      "0656580",
+      "0765604",
+      "1619921",
+      "2259875",
+      "0143389",
+      "1950554",
+      "1358106",
+      "1193030",
+      "1336071",
+      "0167122",
+      "0758359",
+      "0065577",
+      "0083356",
+      "1714820",
+      "1001973",
+      "1926848",
+      "1355200",
+      "1455997",
+      "1376991",
+      "1326007",
+      "1555985",
+      "0302019",
+      "2017851",
+      "1351340",
+      "1085194",
+      "1794564",
+      "0434345",
+      "1055698",
+      "1649868",
+      "0704643",
+      "1255008",
+      "0586259",
+      "0942395",
+      "1567620",
+      "0275729",
+      "0313724",
+      "0728571",
+      "0929800",
+      "0476813",
+      "0955449",
+      "1558772",
+      "1623412",
+      "1465847",
+      "2090708",
+      "1923371",
+      "1726480",
+      "1125619",
+      "2243572",
+      "2096268",
+      "1337511",
+      "1156006",
+      "1347237",
+      "1066523",
+      "2066265",
+      "1050675",
+      "1806229",
+      "0524795",
+      "0781149",
+      "2139677",
+      "2231272",
+      "0637453",
+      "0440694",
+      "1966540",
+      "1071955",
+      "0709877",
+      "0478314",
+      "0102237",
+      "0218850",
+      "0773044",
+      "0689371",
+      "1002458",
+      "0572858",
+      "0564013",
+      "1945292",
+      "0548883",
+      "1316961",
+      "0901456",
+      "0782914",
+      "0593168",
+      "1314561",
+      "0907367",
+      "1251764",
+      "0554721",
+      "0174937",
+      "1974802",
+      "1001821",
+      "1924286",
+      "1411124",
+      "1940512",
+      "2026690",
+      "1379879",
+      "1032474",
+      "2008454",
+      "2008455",
+      "2010474",
+      "0302001",
+      "0093513",
+      "0064627",
+      "0362888",
+      "1028704",
+      "2147230",
+      "1709677",
+      "2264968",
+      "0732415",
+      "2231709",
+      "1637925",
+      "1513134",
+      "1460096",
+      "1122822",
+      "1810960",
+      "1674738",
+      "0908591",
+      "0832778",
+      "1077156",
+      "0905078",
+      "1052982",
+      "1663625",
+      "1899114",
+      "2054455",
+      "2259021",
+      "2091938",
+      "2004590",
+      "2115085",
+      "1551125",
+      "0350200",
+      "0999159",
+      "0483246",
+      "0136148",
+      "2020296",
+      "0909665",
+      "1399596",
+      "1129151",
+      "1246013",
+      "1073073",
+      "2003270",
+      "1357956",
+      "0794898",
+      "1605154",
+      "1714826",
+      "1807123",
+      "1707110",
+      "1351641",
+      "2185361",
+      "1254962",
+      "1588720",
+      "2114113",
+      "1754078",
+      "1588718",
+      "1601716",
+      "1254668",
+      "1230192",
+      "1842075",
+      "1355436",
+      "0547519",
+      "2097519",
+      "1198138",
+      "1031647",
+      "2057396",
+      "1154960",
+      "1774329",
+      "1115404",
+      "0890795",
+      "0716371",
+      "0907347",
+      "0927837",
+      "0134595",
+      "1117692",
+      "0066425",
+      "1558572",
+      "0872249",
+      "1329309",
+      "0842533",
+      "1430003",
+      "0774288",
+      "0298506",
+      "1542797",
+      "0447806",
+      "2088351",
+      "1498679",
+      "1833904",
+      "2106202",
+      "1447127",
+      "1702899",
+      "1290539",
+      "1477073",
+      "0877683",
+      "0934118",
+      "1244756",
+      "1826520",
+      "0523181",
+      "0522959",
+      "0737312",
+      "0063277",
+      "0218848",
+      "0536306",
+      "0602750",
+      "1554795",
+      "1526201",
+      "1636315",
+      "1123299",
+      "1036880",
+      "1875195",
+      "0843963",
+      "1676760",
+      "0056589",
+      "1265320",
+      "2001287",
+      "1517885",
+      "1388982",
+      "2118114",
+      "0977264",
+      "0364670",
+      "0411770",
+      "0735014",
+      "2031392",
+      "1293682",
+      "1523054",
+      "1468387",
+      "2148543",
+      "1461716",
+      "1906969",
+      "2210244",
+      "1311406",
+      "2243578",
+      "2202486",
+      "2135681",
+      "2014222",
+      "1770844",
+      "1966254",
+      "1014304",
+      "0880559",
+      "2033183",
+      "1559316",
+      "0740887",
+      "0098085",
+      "1550162",
+      "1729159",
+      "1735417",
+      "2043843",
+      "1778957",
+      "0607518",
+      "1299913",
+      "2094375",
+      "0536299",
+      "0525710",
+      "0523144",
+      "0944175",
+      "1182715",
+      "0062675",
+      "1164220",
+      "1590459",
+      "1244289",
+      "0944239",
+      "1320583",
+      "1284223",
+      "1000013"
+    ],
+    "selected_rows_sha256": "18f355179c21642cc99032beac1095a97c774257a1a16578009ab8cfe9979c73",
+    "shots_per_class": 4,
+    "status": "prospective_metadata_only_not_image_ready",
+    "uses_validation_or_test": false
+  },
+  "selection_inputs": [
+    "native training IDs",
+    "canonical variant labels",
+    "seed791"
+  ],
+  "source": {
+    "bytes": 407927,
+    "declared_md5": "e3799900175f63abbc48a5bc5b16427e",
+    "declared_md5_matches": false,
+    "declared_md5_url": "https://www.robots.ox.ac.uk/~vgg/data/fgvc-aircraft/archives/fgvc-aircraft-2013b-annotations.html",
+    "observed_md5": "6939ddc41c731b6d5e82b20b2255f999",
+    "sha256": "50e4419bd330b68a2e85dbcb32339d31120190efe6944682e87c9b431f5f202a",
+    "transport": "HTTPS with standard certificate verification",
+    "url": "https://www.robots.ox.ac.uk/~vgg/data/fgvc-aircraft/archives/fgvc-aircraft-2013b-annotations.tar.gz"
+  },
+  "source_native_train_rows_sha256": "a452f0d2a03b5a30f47b4af6b8a11a8dfb6e047f78445285578928e6126b7dd3",
+  "source_variant_train_sha256": "29ac66fb762b9e1e5d007a18cb2cd2404ee326a4bce1dc0040e267c5585c46e7",
+  "status": "prospective_metadata_frozen_images_and_training_not_activated",
+  "uses_image_availability": false,
+  "uses_model_outputs_or_rewards": false,
+  "uses_validation_or_test_for_selection": false
+}

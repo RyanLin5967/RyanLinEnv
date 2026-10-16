@@ -1,0 +1,195 @@
+{
+  "scope": "Unchanged author evaluator on synthetic cases only",
+  "benchmark_images_read": 0,
+  "benchmark_metadata_read": false,
+  "source_sha256": {
+    "vl_argparse.m": "143a3e21e25765e01d13f77213c69a48be2d61293f1e2ec02b12f77da4044f0a",
+    "example_evaluation.m": "1895d521a5533fe56dfab994a332f79a880169f71e65240eb0cd159b6e371e63",
+    "vl_tpfp.m": "870e56d268996c118e1da10d74a2aa7794351bfe258997619467abc05643712d",
+    "vl_pr.m": "55cd40851676db86dee8458001217c12ace39f40014740cf1519dd7dc0502c68",
+    "evaluation.m": "4e25f8db8a0d0163b10b167299c04c7a437a5f0de637f1e79628066ec297676a",
+    "vl_roc.m": "d00790561cb0d1189377c25e3207da7f2d69191e5e5d26f1dab1e91922d4a18d"
+  },
+  "fixture_sha256": "44e9688d09096a16899f550f60f6b80a1e9c0c80327cdf3a6ba6e1d44db5ddee",
+  "runtime": {
+    "platform": "linux/arm64",
+    "image": "vision-rl:aircraft-octave",
+    "image_id": "sha256:2b517ca9c096861ed8daf383617f9812b077e3113a304cdf94ee7d448fec2f48",
+    "image_reported_size_bytes": 217264277,
+    "cpus": 1,
+    "memory_bytes": 1073741824,
+    "network": "none",
+    "source_mount": "readonly six .m files only",
+    "build_seconds": 32.59746742248535,
+    "execution_seconds_approx_log_interval": 0.42270326614379883
+  },
+  "resources": {
+    "apt_download_MB": 123,
+    "apt_additional_installed_MB": 520,
+    "docker_vm_free_GiB_before_approximately": 3.4,
+    "docker_vm_free_GiB_after_approximately": 2.2,
+    "minimum_free_reserve_GiB": 1,
+    "note": "Docker build/storage overhead made VM change larger than apt installed-size estimate; no unrelated data removed"
+  },
+  "official_parity": {
+    "octave_version": "9.4.0",
+    "benchmark_images_read": 0,
+    "official_source_modified": false,
+    "synthetic_cases": [
+      {
+        "name": "perfect",
+        "expected": 1,
+        "native_completed": true,
+        "mean_class_accuracy": 1,
+        "confusion": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "all_wrong",
+        "expected": 0,
+        "native_completed": true,
+        "mean_class_accuracy": 0,
+        "confusion": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "imbalanced_classes",
+        "expected": 0.5,
+        "native_completed": true,
+        "mean_class_accuracy": 0.5,
+        "confusion": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "missing_prediction",
+        "expected": 0.5,
+        "native_completed": true,
+        "mean_class_accuracy": 0.5,
+        "confusion": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "no_predictions",
+        "expected": 0,
+        "native_completed": true,
+        "mean_class_accuracy": 0,
+        "confusion": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "finite_ties_sorted_class",
+        "expected": 0.5,
+        "native_completed": true,
+        "mean_class_accuracy": 0.5,
+        "confusion": [
+          [
+            1,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "all_negative_infinity",
+        "expected": 0,
+        "native_completed": true,
+        "mean_class_accuracy": 0,
+        "confusion": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "negative_finite_scores",
+        "expected": 1,
+        "native_completed": true,
+        "mean_class_accuracy": 1,
+        "confusion": [
+          [
+            1,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "error": ""
+      },
+      {
+        "name": "last_duplicate_pair_overwrites",
+        "expected": 0.5,
+        "native_completed": true,
+        "mean_class_accuracy": 0.5,
+        "confusion": [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "error": ""
+      }
+    ],
+    "all_cases_passed": true
+  }
+}

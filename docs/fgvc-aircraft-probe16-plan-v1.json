@@ -1,0 +1,201 @@
+{
+  "status": "prospective_metadata_only_before_any_model_output",
+  "created_at": "2026-10-16T06:21:55.748146+00:00",
+  "scope": "16TRAIN images spanning16canonical classes; no benchmark or test claim",
+  "seed": 791,
+  "selection": "SHA256 aircraft-probe-v1:791:class:LABEL first16 then minimum SHA256 aircraft-probe-v1:791:image:IMAGE_ID within class",
+  "source_metadata": "runs/aircraft-audit/native-metadata-rows.json",
+  "source_metadata_sha256": "ad881f6695f5d86213c2147346a0a0e818e7593455bd024e898f34e7740ae66d",
+  "canonical_labels": [
+    "707-320",
+    "727-200",
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900",
+    "747-100",
+    "747-200",
+    "747-300",
+    "747-400",
+    "757-200",
+    "757-300",
+    "767-200",
+    "767-300",
+    "767-400",
+    "777-200",
+    "777-300",
+    "A300B4",
+    "A310",
+    "A318",
+    "A319",
+    "A320",
+    "A321",
+    "A330-200",
+    "A330-300",
+    "A340-200",
+    "A340-300",
+    "A340-500",
+    "A340-600",
+    "A380",
+    "ATR-42",
+    "ATR-72",
+    "An-12",
+    "BAE 146-200",
+    "BAE 146-300",
+    "BAE-125",
+    "Beechcraft 1900",
+    "Boeing 717",
+    "C-130",
+    "C-47",
+    "CRJ-200",
+    "CRJ-700",
+    "CRJ-900",
+    "Cessna 172",
+    "Cessna 208",
+    "Cessna 525",
+    "Cessna 560",
+    "Challenger 600",
+    "DC-10",
+    "DC-3",
+    "DC-6",
+    "DC-8",
+    "DC-9-30",
+    "DH-82",
+    "DHC-1",
+    "DHC-6",
+    "DHC-8-100",
+    "DHC-8-300",
+    "DR-400",
+    "Dornier 328",
+    "E-170",
+    "E-190",
+    "E-195",
+    "EMB-120",
+    "ERJ 135",
+    "ERJ 145",
+    "Embraer Legacy 600",
+    "Eurofighter Typhoon",
+    "F-16A/B",
+    "F/A-18",
+    "Falcon 2000",
+    "Falcon 900",
+    "Fokker 100",
+    "Fokker 50",
+    "Fokker 70",
+    "Global Express",
+    "Gulfstream IV",
+    "Gulfstream V",
+    "Hawk T1",
+    "Il-76",
+    "L-1011",
+    "MD-11",
+    "MD-80",
+    "MD-87",
+    "MD-90",
+    "Metroliner",
+    "Model B200",
+    "PA-28",
+    "SR-20",
+    "Saab 2000",
+    "Saab 340",
+    "Spitfire",
+    "Tornado",
+    "Tu-134",
+    "Tu-154",
+    "Yak-42"
+  ],
+  "selected": [
+    {
+      "id": "0447760",
+      "label": "Metroliner",
+      "split": "train"
+    },
+    {
+      "id": "1158113",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "0090868",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "0489934",
+      "label": "DC-6",
+      "split": "train"
+    },
+    {
+      "id": "0457177",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "1560883",
+      "label": "Spitfire",
+      "split": "train"
+    },
+    {
+      "id": "0066425",
+      "label": "Fokker 50",
+      "split": "train"
+    },
+    {
+      "id": "1593589",
+      "label": "PA-28",
+      "split": "train"
+    },
+    {
+      "id": "0773222",
+      "label": "C-130",
+      "split": "train"
+    },
+    {
+      "id": "1408695",
+      "label": "DR-400",
+      "split": "train"
+    },
+    {
+      "id": "2045491",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "1446341",
+      "label": "737-700",
+      "split": "train"
+    },
+    {
+      "id": "2171061",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "0968445",
+      "label": "MD-11",
+      "split": "train"
+    },
+    {
+      "id": "2164986",
+      "label": "ERJ 135",
+      "split": "train"
+    },
+    {
+      "id": "1548951",
+      "label": "Model B200",
+      "split": "train"
+    }
+  ],
+  "grammar": {
+    "name": "canonical-label-v2/optional-tags",
+    "prompt_and_parser_sha256": "fa5d19bbb87eae1486ea51a3991ee1425f92dc138a658faee0908f80f062b7d6"
+  },
+  "all100classes_in_model_question": true,
+  "image_availability_used_for_selection": false,
+  "model_calls": 0,
+  "image_preparation_status": "waiting audited original or explicitly scoped mirror provenance"
+}

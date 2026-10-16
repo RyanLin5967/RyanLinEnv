@@ -1,0 +1,320 @@
+{
+  "author_original_image_byte_equivalence_verified": false,
+  "data_spec_sha256": "a1253f4ea9012480b3328e10103462b99f5fc3887190ef3081a70a22dc3aff6a",
+  "downloaded_image_bytes": 4019641,
+  "full_dataset_cross_split_pixel_audit_complete": false,
+  "image_terms": "Non-commercial research only; photographers retain image copyright; other use requires their authorization",
+  "images": [
+    {
+      "bytes": 152896,
+      "decoded_rgb_sha256": "fa1db514ba92f2ede2773418b3a1a91d774e2ffd587004d53ece31cade9ac8a2",
+      "encoded_sha256": "8270cf8c76da0746c3d5026f53271073428856aaa6cf74c4f1cafbc6ccde7703",
+      "id": "0447760",
+      "label": "Metroliner",
+      "model_image_size": [
+        1000,
+        659
+      ],
+      "model_rgb_sha256": "70a4a9b310075a5af0d2d3a615cf24be0eb4ea1c8b8fa0a945ec345da1d58682",
+      "source_image_size": [
+        1000,
+        679
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0447760.jpg"
+    },
+    {
+      "bytes": 529186,
+      "decoded_rgb_sha256": "f9b5d25236b4ef97d751dfd9dd9040ba6a5feb0ec8d7b1f62a5faa8f8a4aac8c",
+      "encoded_sha256": "74a30cca57f3f19cdad31ebd588963c377198f50118cfcc719305171cea1411b",
+      "id": "1158113",
+      "label": "BAE 146-200",
+      "model_image_size": [
+        1590,
+        1052
+      ],
+      "model_rgb_sha256": "0a98a0fa2b9092d847e251ce3ca5b1292747df1d6a22dc4aaea554f5f9ff94f1",
+      "source_image_size": [
+        1590,
+        1072
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1158113.jpg"
+    },
+    {
+      "bytes": 80907,
+      "decoded_rgb_sha256": "9c29955cc20d73d172329944f1fe3064cdd3abaa06ae745db3503cf1683c3377",
+      "encoded_sha256": "72dfe75901188478879ae075da6a48d94315aeb3db3260e4244d9f8eebddba24",
+      "id": "0090868",
+      "label": "737-300",
+      "model_image_size": [
+        900,
+        480
+      ],
+      "model_rgb_sha256": "426dc967538ef285925b6b6e56b9248bcf5a780d8772f4f471d611287c05e247",
+      "source_image_size": [
+        900,
+        500
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0090868.jpg"
+    },
+    {
+      "bytes": 242448,
+      "decoded_rgb_sha256": "a7efa59c2d7828f010d29ed866842635af623ff01a306c7dc6bb4abeacfa9ee0",
+      "encoded_sha256": "bd0fa4e67ceed7cea019d5126f23e4b4a4ba7cee6e8e9ddd526cab7a4cc5451f",
+      "id": "0489934",
+      "label": "DC-6",
+      "model_image_size": [
+        1024,
+        694
+      ],
+      "model_rgb_sha256": "798876f21125d812d29a0e95ef9cdc7b45c867d570fe039f37f2f2ca4e0c280f",
+      "source_image_size": [
+        1024,
+        714
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0489934.jpg"
+    },
+    {
+      "bytes": 243825,
+      "decoded_rgb_sha256": "59123f688199a40a41ebd78f612f97ee03a27bbb081a407567cb1acecdb61d6e",
+      "encoded_sha256": "607b6b4696b566045cf7263b9fb3e6cf3609d07c6ec564dc45805189a725282d",
+      "id": "0457177",
+      "label": "A330-300",
+      "model_image_size": [
+        1200,
+        722
+      ],
+      "model_rgb_sha256": "a8122abf54182e1683ba97037c3d7f2aed74471f16e1252d497be6266096be11",
+      "source_image_size": [
+        1200,
+        742
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0457177.jpg"
+    },
+    {
+      "bytes": 227809,
+      "decoded_rgb_sha256": "a2d06bfc361138310af560261b4b23ed3e26329a21a87573156a605aebe57539",
+      "encoded_sha256": "545bbb67db3976625c25ab96a19303aed588ee5e494abf6a7b2a4ce500388c58",
+      "id": "1560883",
+      "label": "Spitfire",
+      "model_image_size": [
+        1024,
+        688
+      ],
+      "model_rgb_sha256": "000f9d6e05551676bd2d33eb2f64f8e8632cabdcb3408b6983b254cc43181647",
+      "source_image_size": [
+        1024,
+        708
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1560883.jpg"
+    },
+    {
+      "bytes": 109283,
+      "decoded_rgb_sha256": "045fd43b19a805d2b346c2f888da1d1081fd0b15678f6694d8a4903d57addf26",
+      "encoded_sha256": "080fa5a991459d25d5de1866ed653100dc569e5669b3096fdc49ee1690a6e5a4",
+      "id": "0066425",
+      "label": "Fokker 50",
+      "model_image_size": [
+        800,
+        535
+      ],
+      "model_rgb_sha256": "98acf06c71573c115b656643495271978acef5a8e7eddb117d2d4978b9718edd",
+      "source_image_size": [
+        800,
+        555
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0066425.jpg"
+    },
+    {
+      "bytes": 217619,
+      "decoded_rgb_sha256": "3b03f57eb72b69b6e4d3850bd3a4e0b1256f5f4de1e80e76ab04e380af3730a1",
+      "encoded_sha256": "b6702d388cd21f183251e302563604d148bfbf8930adc46c6e8cfaa20c8f1cac",
+      "id": "1593589",
+      "label": "PA-28",
+      "model_image_size": [
+        1024,
+        675
+      ],
+      "model_rgb_sha256": "731ca8a6ac31c47bb4fc24800325c98f3fe321b3edd89a4cd1a7fd423d9eb474",
+      "source_image_size": [
+        1024,
+        695
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1593589.jpg"
+    },
+    {
+      "bytes": 275336,
+      "decoded_rgb_sha256": "8d02a7fcbc296c416c1473f535bafa8d083f1ffc0b7ebfe6599b68193228ef45",
+      "encoded_sha256": "e1291471161a70b71f3f1fcaf4381895a5bc4006b23e8efbe4dee6db0df89f7b",
+      "id": "0773222",
+      "label": "C-130",
+      "model_image_size": [
+        1024,
+        701
+      ],
+      "model_rgb_sha256": "4f67483c62cd45d89dd4abfbb3a1a8c8d663fff913b07da84194748873999806",
+      "source_image_size": [
+        1024,
+        721
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0773222.jpg"
+    },
+    {
+      "bytes": 394021,
+      "decoded_rgb_sha256": "4931ea997940162488e05c7f9e468c0e5accef48eebd2d1e10449853e4918e8e",
+      "encoded_sha256": "042a9bb6968ea0950db0667ab2e11e85d217e52b70965038deabff55e8648d32",
+      "id": "1408695",
+      "label": "DR-400",
+      "model_image_size": [
+        1024,
+        679
+      ],
+      "model_rgb_sha256": "9c2251f04d0e98601e81f539b73705dc635bc13e6a57e1c553d3720670e822c3",
+      "source_image_size": [
+        1024,
+        699
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1408695.jpg"
+    },
+    {
+      "bytes": 343538,
+      "decoded_rgb_sha256": "5bb43b50ab784d20f9b2b719b4f5df2450dd5f605f7e16fa66efc3bc97f07b0d",
+      "encoded_sha256": "4881eb1afa586999920fb8dc29db2149338b14d61ab651ea31918d9460ca1e67",
+      "id": "2045491",
+      "label": "Challenger 600",
+      "model_image_size": [
+        1024,
+        675
+      ],
+      "model_rgb_sha256": "926875d93208c3437136d76f9fa759fcb091927f5d45143edb8033be0d2892ed",
+      "source_image_size": [
+        1024,
+        695
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2045491.jpg"
+    },
+    {
+      "bytes": 197282,
+      "decoded_rgb_sha256": "f304c39dc4d09e9c303572e32f5b0769546eaad988734476d4a32abec90d6129",
+      "encoded_sha256": "8286e4617697c78d2750fbbe36446619f5b9bb5f126d1e87701278e45f54c496",
+      "id": "1446341",
+      "label": "737-700",
+      "model_image_size": [
+        1200,
+        792
+      ],
+      "model_rgb_sha256": "601f0a41a7dcfb64cca60658b22532315a333d780a0f589c1410a0b46102e2aa",
+      "source_image_size": [
+        1200,
+        812
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1446341.jpg"
+    },
+    {
+      "bytes": 168471,
+      "decoded_rgb_sha256": "3f7d423f6aced3b41a96d53bc0945504c0524b2211c00ad7c671b198ad39e965",
+      "encoded_sha256": "903c3089b99ed363a474aca5e9529724846129cb85b3c2c1b23bde785070c19e",
+      "id": "2171061",
+      "label": "Boeing 717",
+      "model_image_size": [
+        1024,
+        675
+      ],
+      "model_rgb_sha256": "61e8defb3b1c8e7fb973afcb34fec497a522490dd8f774e3bb740599be68f395",
+      "source_image_size": [
+        1024,
+        695
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2171061.jpg"
+    },
+    {
+      "bytes": 238947,
+      "decoded_rgb_sha256": "c4b9bd523e1124d44ba0d1579deb2c62bffa88c81d1ca49409cf3593746d0efe",
+      "encoded_sha256": "0854913020aee2323b3846ce2e83c087ac9078f2f815e5c6f490c2169561d70b",
+      "id": "0968445",
+      "label": "MD-11",
+      "model_image_size": [
+        1024,
+        681
+      ],
+      "model_rgb_sha256": "79288b294beab1658eac4bbb7cfe1a20ebf83b11df1a1a8f258da3115865ab44",
+      "source_image_size": [
+        1024,
+        701
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0968445.jpg"
+    },
+    {
+      "bytes": 445037,
+      "decoded_rgb_sha256": "f764b09ff5a1dcf8aa487405099ce04c8befec2adaf9aabe4ca7faa80c69af29",
+      "encoded_sha256": "e326435edd0b474d62b5eab017b7e7f89d63bd842802768afd577c80c87c1aa0",
+      "id": "2164986",
+      "label": "ERJ 135",
+      "model_image_size": [
+        1200,
+        792
+      ],
+      "model_rgb_sha256": "d2e123b67db3b317732da31dbb52c446b177da921bd9f587a949c2937ce352c3",
+      "source_image_size": [
+        1200,
+        812
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2164986.jpg"
+    },
+    {
+      "bytes": 153036,
+      "decoded_rgb_sha256": "1c227cc2eadba427eb1bcf07650d36e6431614af758bc72ec15b59b65550ffe7",
+      "encoded_sha256": "8218974f0397b64ee30772112d55b759e2a9726696ba4712a2f9108dd75c7ff6",
+      "id": "1548951",
+      "label": "Model B200",
+      "model_image_size": [
+        1024,
+        676
+      ],
+      "model_rgb_sha256": "e92f99f16dd9d4f5b8dac9492d73d522c3d2e3d8bdb90f5db167c8064682974a",
+      "source_image_size": [
+        1024,
+        696
+      ],
+      "split": "train",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1548951.jpg"
+    }
+  ],
+  "manual_image_views": 0,
+  "mirror_repo": "Shiym/ViT-FineTune",
+  "mirror_revision": "16c6368266640c62cafa0cd59b9abb01291b7072",
+  "model_calls": 0,
+  "official_archive_acquisition": {
+    "partial_is_not_verified_source": true,
+    "reserve_bytes": 10737418240,
+    "status": "active_original_author_download",
+    "total_bytes": 2753340328
+  },
+  "preparation_script_sha256": "a592ed84818c7308473550335b40cb88bc7048a7f3fe3ad4e7113043bc0af5a7",
+  "preprocessing_id": "fgvc-aircraft-rgb-remove-bottom20-v1",
+  "preprocessing_source_sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+  "selection_path": "runs/aircraft-shared-probe16/metadata-selection.json",
+  "selection_sha256": "02ca4d595cb50336ca0fa9889b4313f0ae59d027090fec2c28d955c9e64b49c1",
+  "status": "fixed_train_probe_ready_original_author_image_equivalence_pending",
+  "test_images_accessed": 0,
+  "train_manifest_sha256": "1921e0de9a30d31e3405195470355a67dc40156d43a18ec8afcd515d67c9d2e0",
+  "validation": {
+    "actual_trainer_loader_rows_verified": 16,
+    "actual_trainer_pixel_hash_parity": true,
+    "preparation_tests_passed": 18
+  }
+}
