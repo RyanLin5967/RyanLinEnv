@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1/addendum-1",
+  "registered_utc": "2026-10-16T21:38:27.046561+00:00",
+  "amends_sha256": "c5e7251b67913e4bca71f248a1d894127188d9bff6c94ab2e554d7d50dcc0abe",
+  "failed_attempt_0": {
+    "started_utc": "2026-10-16T21:37:51Z",
+    "error": "KeyError: 'python_executable' -- driver read the interpreter from compiled/guarded-plan.json, which does not record it",
+    "model_calls": 0,
+    "stages_started": 0,
+    "evidence": "failed-attempt0-guards/ (empty guard dir it created, plus driver.log)"
+  },
+  "change": "Driver reads stage commands and interpreter from the controller's own plan copy runs/aircraft-controlled400-v1/plan.json (sha 9021e429..., already recorded as compiled_plan_sha256 in the amendment) after checking its setup list equals compiled/guarded-plan.json exactly. Driver also verifies this addendum. No scientific, limit, stage or envelope change; the 43200 s envelope starts at the new driver start.",
+  "continuation_driver_sha256": "d56ae7939e5dae4e013da439322f47c6aca8c1f0f56036b7e897acab35b24a80"
+}
