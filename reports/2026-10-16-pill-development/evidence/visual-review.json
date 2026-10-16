@@ -1,0 +1,2481 @@
+{
+  "schema_version": 1,
+  "scope": "validation only; source test annotations/images not opened",
+  "source_annotation_sha256": "1a74d5c4f977e319e016617ea36f854e9b5e33a88684a90a3ffeaecd8302d999",
+  "prediction_files": {
+    "sft": {
+      "path": "runs/pills-detector/epoch1-validation.coco.json",
+      "sha256": "8c404849fef6cefccf48740030cb089e970a457e74b63e42a3310e9bc6a371b4"
+    },
+    "argon": {
+      "path": "runs/pills-study/argon-rich-retry2-48/detections.json",
+      "sha256": "3f1751d4f4dbeaa1d40af15c5b07fe1df590521d5f80a8d616c298a9c43bc9dd"
+    },
+    "opus": {
+      "path": "runs/pills-study/opus-fewshot-48/detections.json",
+      "sha256": "7566955ba9e8ae48c9ed3926942a85c7e783f6b8713c372cb5c71104c95086e6"
+    }
+  },
+  "selection": {
+    "pool_image_ids": [
+      2,
+      9,
+      11,
+      16,
+      19,
+      26,
+      32,
+      35,
+      65,
+      66,
+      71,
+      78,
+      82,
+      86,
+      95,
+      103,
+      121,
+      129,
+      137,
+      138,
+      150,
+      162,
+      168,
+      180,
+      184,
+      187,
+      217,
+      221,
+      229,
+      242,
+      258,
+      282,
+      290,
+      313,
+      319,
+      332,
+      342,
+      345,
+      347,
+      358,
+      367,
+      397,
+      403,
+      404,
+      406,
+      409,
+      412,
+      415
+    ],
+    "fixed_sample_method": "first 12 sorted SHA256(pills-visual-audit-v1:<image_id>)",
+    "fixed_sample_ids": [
+      19,
+      184,
+      367,
+      35,
+      121,
+      342,
+      403,
+      65,
+      137,
+      150,
+      290,
+      217
+    ],
+    "largest_disagreement_method": "six outside fixed 12 descending range of mean best IoU per ground-truth object across SFT(score>=0.25),Argon,Opus; image_id tiebreak",
+    "largest_disagreement_ids": [
+      242,
+      409,
+      180,
+      332,
+      347,
+      86
+    ],
+    "selected_image_ids": [
+      19,
+      184,
+      367,
+      35,
+      121,
+      342,
+      403,
+      65,
+      137,
+      150,
+      290,
+      217,
+      242,
+      409,
+      180,
+      332,
+      347,
+      86
+    ],
+    "display_threshold_note": "SFT 0.25 is only for visualization and disagreement selection; native AP retains all scores"
+  },
+  "coordinate_audit": {
+    "argon": {
+      "independent_formula": "[xmin*width/1000,ymin*height/1000,(xmax-xmin)*width/1000,(ymax-ymin)*height/1000]",
+      "successful_raw_responses": 47,
+      "converted_boxes": 217,
+      "coordinate_mismatch_image_ids": [],
+      "unparseable_raw_responses": [
+        {
+          "image_id": 35,
+          "reason": "valid JSON but invalid detection schema: first object uses MP instead of label; entire response correctly rejected",
+          "raw_numeric_boxes": 3
+        }
+      ],
+      "request_image_pixel_or_dimension_mismatch_ids": [],
+      "status": "All accepted detection boxes independently reproduced to 1e-8 absolute pixel tolerance."
+    },
+    "opus": {
+      "independent_formula": "[xmin*width/1000,ymin*height/1000,(xmax-xmin)*width/1000,(ymax-ymin)*height/1000]",
+      "successful_raw_responses": 48,
+      "converted_boxes": 219,
+      "coordinate_mismatch_image_ids": [],
+      "unparseable_raw_responses": [],
+      "request_image_pixel_or_dimension_mismatch_ids": [],
+      "status": "All accepted detection boxes independently reproduced to 1e-8 absolute pixel tolerance."
+    }
+  },
+  "all48_disagreement_statistics": [
+    {
+      "image_id": 2,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9129445398293231,
+        "argon": 0.7746506764260653,
+        "opus": 0.7757848394960167
+      },
+      "disagreement": 0.13829386340325778
+    },
+    {
+      "image_id": 9,
+      "gt_boxes": 6,
+      "displayed_boxes": {
+        "sft": 6,
+        "argon": 6,
+        "opus": 6
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9101786519170513,
+        "argon": 0.8151091513828633,
+        "opus": 0.7495348436789394
+      },
+      "disagreement": 0.16064380823811186
+    },
+    {
+      "image_id": 11,
+      "gt_boxes": 1,
+      "displayed_boxes": {
+        "sft": 1,
+        "argon": 1,
+        "opus": 1
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9032170218552564,
+        "argon": 0.8861538461538464,
+        "opus": 0.9131029787234042
+      },
+      "disagreement": 0.026949132569557777
+    },
+    {
+      "image_id": 16,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8896928533991783,
+        "argon": 0.8973124038491566,
+        "opus": 0.8364717821294136
+      },
+      "disagreement": 0.060840621719742916
+    },
+    {
+      "image_id": 19,
+      "gt_boxes": 7,
+      "displayed_boxes": {
+        "sft": 7,
+        "argon": 7,
+        "opus": 7
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9043529315721314,
+        "argon": 0.8662475471312305,
+        "opus": 0.7903869581284072
+      },
+      "disagreement": 0.11396597344372417
+    },
+    {
+      "image_id": 26,
+      "gt_boxes": 1,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 1,
+        "opus": 1
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.907059682179298,
+        "argon": 0.8296727272727271,
+        "opus": 0.8191999999999987
+      },
+      "disagreement": 0.08785968217929929
+    },
+    {
+      "image_id": 32,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.952880061111175,
+        "argon": 0.8066768399415252,
+        "opus": 0.7965325702097243
+      },
+      "disagreement": 0.15634749090145061
+    },
+    {
+      "image_id": 35,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 0,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8494351810026927,
+        "argon": 0.0,
+        "opus": 0.8157542709232102
+      },
+      "disagreement": 0.8494351810026927
+    },
+    {
+      "image_id": 65,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8937850797156323,
+        "argon": 0.8515812242003452,
+        "opus": 0.8071321781606668
+      },
+      "disagreement": 0.08665290155496541
+    },
+    {
+      "image_id": 66,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9074921609545605,
+        "argon": 0.8917868348526437,
+        "opus": 0.8560199322821709
+      },
+      "disagreement": 0.05147222867238965
+    },
+    {
+      "image_id": 71,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8852506640031723,
+        "argon": 0.8703456053503651,
+        "opus": 0.8427446956771099
+      },
+      "disagreement": 0.04250596832606246
+    },
+    {
+      "image_id": 78,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.928948103960358,
+        "argon": 0.7993084259162806,
+        "opus": 0.7892357111153858
+      },
+      "disagreement": 0.13971239284497217
+    },
+    {
+      "image_id": 82,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9441518586203935,
+        "argon": 0.8419748873787462,
+        "opus": 0.803804849781077
+      },
+      "disagreement": 0.1403470088393165
+    },
+    {
+      "image_id": 86,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8958597387924057,
+        "argon": 0.8148592794213213,
+        "opus": 0.6927970759302301
+      },
+      "disagreement": 0.20306266286217556
+    },
+    {
+      "image_id": 95,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.944571159899385,
+        "argon": 0.8777658451405823,
+        "opus": 0.8025858170673749
+      },
+      "disagreement": 0.14198534283201014
+    },
+    {
+      "image_id": 103,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9287732721886298,
+        "argon": 0.8118863561393979,
+        "opus": 0.7862032047164492
+      },
+      "disagreement": 0.1425700674721806
+    },
+    {
+      "image_id": 121,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8999066496815361,
+        "argon": 0.8623444267684758,
+        "opus": 0.8657985280586219
+      },
+      "disagreement": 0.03756222291306033
+    },
+    {
+      "image_id": 129,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.828486843829276,
+        "argon": 0.6634241836708744,
+        "opus": 0.706101445899554
+      },
+      "disagreement": 0.16506266015840154
+    },
+    {
+      "image_id": 137,
+      "gt_boxes": 1,
+      "displayed_boxes": {
+        "sft": 1,
+        "argon": 1,
+        "opus": 1
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9022030688574088,
+        "argon": 0.787877647058823,
+        "opus": 0.7553505882352943
+      },
+      "disagreement": 0.14685248062211442
+    },
+    {
+      "image_id": 138,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8895458449717332,
+        "argon": 0.9161692304904121,
+        "opus": 0.8562615386366876
+      },
+      "disagreement": 0.059907691853724465
+    },
+    {
+      "image_id": 150,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9518711440055782,
+        "argon": 0.8658032490777622,
+        "opus": 0.824549799444636
+      },
+      "disagreement": 0.12732134456094213
+    },
+    {
+      "image_id": 162,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.889140511026335,
+        "argon": 0.8579485404450402,
+        "opus": 0.6879789640139848
+      },
+      "disagreement": 0.20116154701235012
+    },
+    {
+      "image_id": 168,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8827138081802204,
+        "argon": 0.8544277855930148,
+        "opus": 0.7526483761499738
+      },
+      "disagreement": 0.13006543203024656
+    },
+    {
+      "image_id": 180,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9303158298569496,
+        "argon": 0.8283604529420454,
+        "opus": 0.3855171491014887
+      },
+      "disagreement": 0.5447986807554609
+    },
+    {
+      "image_id": 184,
+      "gt_boxes": 10,
+      "displayed_boxes": {
+        "sft": 13,
+        "argon": 10,
+        "opus": 10
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8861220699948145,
+        "argon": 0.836300917585733,
+        "opus": 0.8185045315689523
+      },
+      "disagreement": 0.06761753842586216
+    },
+    {
+      "image_id": 187,
+      "gt_boxes": 5,
+      "displayed_boxes": {
+        "sft": 5,
+        "argon": 5,
+        "opus": 5
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8926041896937207,
+        "argon": 0.8815437499365645,
+        "opus": 0.8188583918939656
+      },
+      "disagreement": 0.0737457977997551
+    },
+    {
+      "image_id": 217,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8959822973157978,
+        "argon": 0.9380110447479403,
+        "opus": 0.8548691050707818
+      },
+      "disagreement": 0.08314193967715844
+    },
+    {
+      "image_id": 221,
+      "gt_boxes": 5,
+      "displayed_boxes": {
+        "sft": 5,
+        "argon": 5,
+        "opus": 5
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8665715716452654,
+        "argon": 0.8775653256365057,
+        "opus": 0.8507010823296426
+      },
+      "disagreement": 0.0268642433068631
+    },
+    {
+      "image_id": 229,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9211559437811413,
+        "argon": 0.8919221361976889,
+        "opus": 0.8663633211236166
+      },
+      "disagreement": 0.054792622657524714
+    },
+    {
+      "image_id": 242,
+      "gt_boxes": 1,
+      "displayed_boxes": {
+        "sft": 0,
+        "argon": 1,
+        "opus": 1
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.0,
+        "argon": 0.8110850407523509,
+        "opus": 0.7654769153605011
+      },
+      "disagreement": 0.8110850407523509
+    },
+    {
+      "image_id": 258,
+      "gt_boxes": 5,
+      "displayed_boxes": {
+        "sft": 6,
+        "argon": 5,
+        "opus": 5
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8692441069040153,
+        "argon": 0.8126450708453647,
+        "opus": 0.6884557906605897
+      },
+      "disagreement": 0.18078831624342562
+    },
+    {
+      "image_id": 282,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 2,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9398618922067182,
+        "argon": 0.8309015321783804,
+        "opus": 0.834135216388907
+      },
+      "disagreement": 0.10896036002833787
+    },
+    {
+      "image_id": 290,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9169007473653865,
+        "argon": 0.832212539523789,
+        "opus": 0.8122768145741576
+      },
+      "disagreement": 0.10462393279122895
+    },
+    {
+      "image_id": 313,
+      "gt_boxes": 5,
+      "displayed_boxes": {
+        "sft": 5,
+        "argon": 5,
+        "opus": 5
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.935822504399695,
+        "argon": 0.835642392578877,
+        "opus": 0.7980818618821259
+      },
+      "disagreement": 0.13774064251756912
+    },
+    {
+      "image_id": 319,
+      "gt_boxes": 6,
+      "displayed_boxes": {
+        "sft": 5,
+        "argon": 6,
+        "opus": 6
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8000526079443108,
+        "argon": 0.7956937810691929,
+        "opus": 0.7973723290016727
+      },
+      "disagreement": 0.004358826875117905
+    },
+    {
+      "image_id": 332,
+      "gt_boxes": 2,
+      "displayed_boxes": {
+        "sft": 2,
+        "argon": 1,
+        "opus": 2
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9524608102734682,
+        "argon": 0.4253613645603186,
+        "opus": 0.8466065866946614
+      },
+      "disagreement": 0.5270994457131496
+    },
+    {
+      "image_id": 342,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9238949523126538,
+        "argon": 0.8806776782766548,
+        "opus": 0.8308922134230229
+      },
+      "disagreement": 0.09300273888963095
+    },
+    {
+      "image_id": 345,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9320310887811264,
+        "argon": 0.8972392133810482,
+        "opus": 0.8396586578509773
+      },
+      "disagreement": 0.09237243093014913
+    },
+    {
+      "image_id": 347,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8799339554683675,
+        "argon": 0.9193404580965646,
+        "opus": 0.6981378534135485
+      },
+      "disagreement": 0.2212026046830161
+    },
+    {
+      "image_id": 358,
+      "gt_boxes": 8,
+      "displayed_boxes": {
+        "sft": 9,
+        "argon": 8,
+        "opus": 8
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9267365109017563,
+        "argon": 0.9317657219670208,
+        "opus": 0.7816061306920181
+      },
+      "disagreement": 0.15015959127500267
+    },
+    {
+      "image_id": 367,
+      "gt_boxes": 3,
+      "displayed_boxes": {
+        "sft": 3,
+        "argon": 3,
+        "opus": 3
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8918781888375213,
+        "argon": 0.8137886495265078,
+        "opus": 0.8815750119644917
+      },
+      "disagreement": 0.07808953931101359
+    },
+    {
+      "image_id": 397,
+      "gt_boxes": 14,
+      "displayed_boxes": {
+        "sft": 17,
+        "argon": 14,
+        "opus": 14
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8910437912208138,
+        "argon": 0.898115341793711,
+        "opus": 0.8384176051030113
+      },
+      "disagreement": 0.059697736690699665
+    },
+    {
+      "image_id": 403,
+      "gt_boxes": 23,
+      "displayed_boxes": {
+        "sft": 25,
+        "argon": 23,
+        "opus": 23
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8794654231744529,
+        "argon": 0.8732069233942827,
+        "opus": 0.8044726259731338
+      },
+      "disagreement": 0.07499279720131902
+    },
+    {
+      "image_id": 404,
+      "gt_boxes": 13,
+      "displayed_boxes": {
+        "sft": 14,
+        "argon": 13,
+        "opus": 13
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9099896750333664,
+        "argon": 0.9058975025834335,
+        "opus": 0.8728216801367645
+      },
+      "disagreement": 0.03716799489660183
+    },
+    {
+      "image_id": 406,
+      "gt_boxes": 7,
+      "displayed_boxes": {
+        "sft": 10,
+        "argon": 7,
+        "opus": 7
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9276916587598111,
+        "argon": 0.9162266968018539,
+        "opus": 0.8662707900980989
+      },
+      "disagreement": 0.06142086866171215
+    },
+    {
+      "image_id": 409,
+      "gt_boxes": 11,
+      "displayed_boxes": {
+        "sft": 12,
+        "argon": 11,
+        "opus": 11
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.8796223979776563,
+        "argon": 0.7873404949625552,
+        "opus": 0.09059069111117106
+      },
+      "disagreement": 0.7890317068664853
+    },
+    {
+      "image_id": 412,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9509392493602788,
+        "argon": 0.8733076537892911,
+        "opus": 0.8306195241640264
+      },
+      "disagreement": 0.12031972519625245
+    },
+    {
+      "image_id": 415,
+      "gt_boxes": 4,
+      "displayed_boxes": {
+        "sft": 4,
+        "argon": 4,
+        "opus": 4
+      },
+      "mean_best_gt_iou": {
+        "sft": 0.9070656423577093,
+        "argon": 0.9284092381041442,
+        "opus": 0.8630528410645731
+      },
+      "disagreement": 0.06535639703957108
+    }
+  ],
+  "reviews": [
+    {
+      "image_id": 19,
+      "file_name": "WIN_20241116_11_06_52_Pro_jpg.rf.818b98f581a47288a27cbced1cf784b3.jpg",
+      "source_original_name": "WIN_20241116_11_06_52_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 105,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            572,
+            406,
+            92,
+            82
+          ],
+          "area": 7544,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 106,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            475,
+            420,
+            103,
+            65
+          ],
+          "area": 6695,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 107,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            405,
+            325,
+            105,
+            52
+          ],
+          "area": 5460,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 108,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            358,
+            241,
+            88,
+            89
+          ],
+          "area": 7832,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 109,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            243,
+            365,
+            117,
+            55
+          ],
+          "area": 6435,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 110,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            252,
+            405,
+            116,
+            56
+          ],
+          "area": 6496,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 111,
+          "image_id": 19,
+          "category_id": 1,
+          "bbox": [
+            209,
+            420,
+            116,
+            71
+          ],
+          "area": 8236,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/019-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Seven blue capsules visible, including touching objects on the left. All seven source boxes refer to separate pills; bright surface reflections are excluded. No obvious missed or duplicate source object.",
+      "prediction_assessment": "All three models locate seven; modest boundary tightness differences.",
+      "visual_confidence": "moderate-high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 184,
+      "file_name": "WIN_20241116_11_24_24_Pro_jpg.rf.da13840ae23732e28aa37d8ac52a627c.jpg",
+      "source_original_name": "WIN_20241116_11_24_24_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 792,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            165,
+            570,
+            108,
+            98
+          ],
+          "area": 10584,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 793,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            301,
+            419,
+            97,
+            91
+          ],
+          "area": 8827,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 794,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            331,
+            342,
+            81,
+            97
+          ],
+          "area": 7857,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 795,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            496,
+            422,
+            72,
+            104
+          ],
+          "area": 7488,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 796,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            564,
+            410,
+            54,
+            107
+          ],
+          "area": 5778,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 797,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            590,
+            391,
+            77,
+            97
+          ],
+          "area": 7469,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 798,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            570,
+            318,
+            97,
+            64
+          ],
+          "area": 6208,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 799,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            470,
+            342,
+            104,
+            44
+          ],
+          "area": 4576,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 800,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            479,
+            310,
+            104,
+            42
+          ],
+          "area": 4368,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 801,
+          "image_id": 184,
+          "category_id": 1,
+          "bbox": [
+            539,
+            268,
+            99,
+            62
+          ],
+          "area": 6138,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/184-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "detail_crop": "runs/pills-visual-audit/184-crop.jpg",
+      "crop_xyxy": [
+        74,
+        177,
+        757,
+        758
+      ],
+      "annotation_assessment": "Ten red/white capsules visible. Four gray circular features appear to be reflected ceiling fixtures, not pills; their identity remains a visual inference. Source boxes cover the ten distinct capsules.",
+      "prediction_assessment": "Frontiers locate ten. SFT display has thirteen boxes: three additional low-confidence detections on gray reflected features (0.26,0.26,0.34).",
+      "visual_confidence": "moderate",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 367,
+      "file_name": "WIN_20250204_10_52_38_Pro_jpg.rf.4a957b19b22b139f806faddb127021c1.jpg",
+      "source_original_name": "WIN_20250204_10_52_38_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 1570,
+          "image_id": 367,
+          "category_id": 1,
+          "bbox": [
+            96,
+            337,
+            69,
+            39
+          ],
+          "area": 2691,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1571,
+          "image_id": 367,
+          "category_id": 1,
+          "bbox": [
+            213,
+            285,
+            41,
+            69
+          ],
+          "area": 2829,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1572,
+          "image_id": 367,
+          "category_id": 1,
+          "bbox": [
+            378,
+            236,
+            66,
+            24
+          ],
+          "area": 1584,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/367-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three green/yellow capsules. Source boxes fit all three; reflected rectangular lamps are correctly excluded.",
+      "prediction_assessment": "All models locate the same three objects with small boundary differences.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 35,
+      "file_name": "WIN_20250204_11_48_15_Pro_jpg.rf.8cdc5cd74f5b418bd74958c54961b506.jpg",
+      "source_original_name": "WIN_20250204_11_48_15_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 171,
+          "image_id": 35,
+          "category_id": 1,
+          "bbox": [
+            347,
+            280,
+            30,
+            72
+          ],
+          "area": 2160,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 172,
+          "image_id": 35,
+          "category_id": 1,
+          "bbox": [
+            130,
+            90,
+            48,
+            61
+          ],
+          "area": 2928,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 173,
+          "image_id": 35,
+          "category_id": 1,
+          "bbox": [
+            151,
+            102,
+            54,
+            57
+          ],
+          "area": 3078,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/035-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three blue/white capsules; upper two partly overlap in projection. Their source boxes correspond to distinct visible pills. Exact hidden extent is not independently established.",
+      "prediction_assessment": "Argon raw output has three numeric boxes but first object has key MP instead of required label; strict parser rejects whole response. Opus and SFT locate three. This is schema failure, not absence of visual detections or a conversion bug.",
+      "visual_confidence": "moderate",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 121,
+      "file_name": "WIN_20250204_11_39_46_Pro_jpg.rf.b318e4399c020002223b9fe5f0be10fb.jpg",
+      "source_original_name": "WIN_20250204_11_39_46_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 508,
+          "image_id": 121,
+          "category_id": 1,
+          "bbox": [
+            132,
+            143,
+            72,
+            26
+          ],
+          "area": 1872,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 509,
+          "image_id": 121,
+          "category_id": 1,
+          "bbox": [
+            160,
+            165,
+            56,
+            53
+          ],
+          "area": 2968,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 510,
+          "image_id": 121,
+          "category_id": 1,
+          "bbox": [
+            360,
+            119,
+            63,
+            35
+          ],
+          "area": 2205,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 511,
+          "image_id": 121,
+          "category_id": 1,
+          "bbox": [
+            379,
+            70,
+            41,
+            56
+          ],
+          "area": 2296,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/121-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Four dark red/black capsules. Ceiling vents/fixtures and reflected cylindrical fixtures are background, not labeled pills. No obvious source omissions.",
+      "prediction_assessment": "All models locate four; source and predicted boundaries are similar.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 342,
+      "file_name": "WIN_20241118_13_37_53_Pro_jpg.rf.38fba636b7b730fb4b35bc2733ebc425.jpg",
+      "source_original_name": "WIN_20241118_13_37_53_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 1468,
+          "image_id": 342,
+          "category_id": 1,
+          "bbox": [
+            550,
+            550,
+            117,
+            112
+          ],
+          "area": 13104,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1469,
+          "image_id": 342,
+          "category_id": 1,
+          "bbox": [
+            519,
+            451,
+            107,
+            116
+          ],
+          "area": 12412,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1470,
+          "image_id": 342,
+          "category_id": 1,
+          "bbox": [
+            568,
+            442,
+            133,
+            84
+          ],
+          "area": 11172,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1471,
+          "image_id": 342,
+          "category_id": 1,
+          "bbox": [
+            520,
+            381,
+            134,
+            69
+          ],
+          "area": 9246,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/342-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Four dark oblong pills around bright glare. Four distinct physical silhouettes correspond to four source boxes; glare excluded.",
+      "prediction_assessment": "All models locate four with similar boundaries.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 403,
+      "file_name": "IMG_7645_jpg.rf.4e0335b05765e052f572afde54c490c3.jpg",
+      "source_original_name": "IMG_7645_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 1692,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            755,
+            1700,
+            305,
+            185
+          ],
+          "area": 56425,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1693,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            910,
+            1565,
+            310,
+            175
+          ],
+          "area": 54250,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1694,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1250,
+            1445,
+            135,
+            315
+          ],
+          "area": 42525,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1695,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1365,
+            1460,
+            170,
+            315
+          ],
+          "area": 53550,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1696,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1110,
+            1660,
+            165,
+            320
+          ],
+          "area": 52800,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1697,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1180,
+            1765,
+            230,
+            300
+          ],
+          "area": 69000,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1698,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1410,
+            1645,
+            240,
+            260
+          ],
+          "area": 62400,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1699,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1620,
+            1755,
+            290,
+            270
+          ],
+          "area": 78300,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1700,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            445,
+            1855,
+            225,
+            315
+          ],
+          "area": 70875,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1701,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            565,
+            1875,
+            240,
+            310
+          ],
+          "area": 74400,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1702,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1415,
+            1900,
+            320,
+            110
+          ],
+          "area": 35200,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1703,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            740,
+            1850,
+            270,
+            280
+          ],
+          "area": 75600,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1704,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            445,
+            2210,
+            305,
+            240
+          ],
+          "area": 73200,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1705,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            855,
+            1890,
+            285,
+            265
+          ],
+          "area": 75525,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1706,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1185,
+            1955,
+            260,
+            255
+          ],
+          "area": 66300,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1707,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            920,
+            2025,
+            320,
+            210
+          ],
+          "area": 67200,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1708,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            640,
+            2135,
+            280,
+            270
+          ],
+          "area": 75600,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1709,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            735,
+            2325,
+            260,
+            310
+          ],
+          "area": 80600,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1710,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            970,
+            2190,
+            320,
+            145
+          ],
+          "area": 46400,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1711,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1515,
+            1990,
+            130,
+            340
+          ],
+          "area": 44200,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1712,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1375,
+            2000,
+            155,
+            310
+          ],
+          "area": 48050,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1713,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            1280,
+            2175,
+            135,
+            330
+          ],
+          "area": 44550,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1714,
+          "image_id": 403,
+          "category_id": 1,
+          "bbox": [
+            975,
+            2330,
+            320,
+            155
+          ],
+          "area": 49600,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/403-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "detail_crop": "runs/pills-visual-audit/403-crop.jpg",
+      "crop_xyxy": [
+        181,
+        1181,
+        2173,
+        2898
+      ],
+      "annotation_assessment": "Full-resolution crop shows twenty-three separate tan tablets, including edge-on tablets. Counted against twenty-three source boxes; no confirmed source omission or duplicate. Several boxes have small margins beyond visible extent.",
+      "prediction_assessment": "Argon and Opus return twenty-three; SFT has twenty-five boxes above display threshold, including extra overlapping detections. High-IoU results are sensitive to small box margins.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 65,
+      "file_name": "WIN_20250204_10_52_13_Pro_jpg.rf.790c7d9f5f5e4e161550ec95fbcd83ba.jpg",
+      "source_original_name": "WIN_20250204_10_52_13_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 295,
+          "image_id": 65,
+          "category_id": 1,
+          "bbox": [
+            346,
+            197,
+            67,
+            29
+          ],
+          "area": 1943,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 296,
+          "image_id": 65,
+          "category_id": 1,
+          "bbox": [
+            132,
+            161,
+            61,
+            52
+          ],
+          "area": 3172,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 297,
+          "image_id": 65,
+          "category_id": 1,
+          "bbox": [
+            105,
+            188,
+            54,
+            58
+          ],
+          "area": 3132,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/065-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three green/yellow capsules including a touching pair. Source boxes identify three separate objects; lamp reflections excluded.",
+      "prediction_assessment": "All models locate three; no coordinate-axis issue visible.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 137,
+      "file_name": "WIN_20241118_13_43_02_Pro_jpg.rf.baabc7314c7685b1785f256c6671ed9f.jpg",
+      "source_original_name": "WIN_20241118_13_43_02_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 572,
+          "image_id": 137,
+          "category_id": 1,
+          "bbox": [
+            311,
+            313,
+            128,
+            51
+          ],
+          "area": 6528,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/137-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "One blue pill in strong specular glare. Source box extends farther right than the most visible pill edge; glare makes the exact boundary uncertain. This is boundary ambiguity, not a confirmed label error.",
+      "prediction_assessment": "All models locate one; frontier boxes are tighter than source at the right edge.",
+      "visual_confidence": "moderate",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 150,
+      "file_name": "WIN_20241025_14_54_39_Pro_jpg.rf.bee38346cdf10d10026da90db943623c.jpg",
+      "source_original_name": "WIN_20241025_14_54_39_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 627,
+          "image_id": 150,
+          "category_id": 1,
+          "bbox": [
+            342,
+            224,
+            72,
+            128
+          ],
+          "area": 9216,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 628,
+          "image_id": 150,
+          "category_id": 1,
+          "bbox": [
+            406,
+            289,
+            125,
+            61
+          ],
+          "area": 7625,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 629,
+          "image_id": 150,
+          "category_id": 1,
+          "bbox": [
+            578,
+            243,
+            125,
+            71
+          ],
+          "area": 8875,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/150-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three beige tablets. Source boxes capture three distinct tablets; reflected arm and ceiling structure correctly excluded.",
+      "prediction_assessment": "All models locate three with modest boundary differences.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 290,
+      "file_name": "WIN_20250126_16_33_21_Pro_jpg.rf.14fdae01346db3fce1c9fb63e4ef18b4.jpg",
+      "source_original_name": "WIN_20250126_16_33_21_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 1227,
+          "image_id": 290,
+          "category_id": 1,
+          "bbox": [
+            228,
+            79,
+            61,
+            42
+          ],
+          "area": 2562,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1228,
+          "image_id": 290,
+          "category_id": 1,
+          "bbox": [
+            115,
+            62,
+            61,
+            52
+          ],
+          "area": 3172,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1229,
+          "image_id": 290,
+          "category_id": 1,
+          "bbox": [
+            149,
+            317,
+            58,
+            61
+          ],
+          "area": 3538,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/290-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three orange capsules. Source boxes identify all three; reflected person and room excluded.",
+      "prediction_assessment": "All models locate three.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 217,
+      "file_name": "WIN_20240701_14_45_18_Pro_jpg.rf.e88dce2a5af2033d3762d19d0383ef19.jpg",
+      "source_original_name": "WIN_20240701_14_45_18_Pro_jpg",
+      "selection": "fixed12",
+      "ground_truth_annotations": [
+        {
+          "id": 964,
+          "image_id": 217,
+          "category_id": 1,
+          "bbox": [
+            1272,
+            707,
+            126,
+            89
+          ],
+          "area": 11214,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 965,
+          "image_id": 217,
+          "category_id": 1,
+          "bbox": [
+            969,
+            484,
+            89,
+            127
+          ],
+          "area": 11303,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 966,
+          "image_id": 217,
+          "category_id": 1,
+          "bbox": [
+            841,
+            601,
+            126,
+            107
+          ],
+          "area": 13482,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/217-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Three small white oblong tablets. No obvious omitted pill or duplicate source box; bright reflections are background.",
+      "prediction_assessment": "All models locate three with small boundary differences.",
+      "visual_confidence": "moderate-high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 242,
+      "file_name": "WIN_20241116_11_42_07_Pro_jpg.rf.f64edcee69fd41569678c8542fb00dcb.jpg",
+      "source_original_name": "WIN_20241116_11_42_07_Pro_jpg",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 1049,
+          "image_id": 242,
+          "category_id": 1,
+          "bbox": [
+            397,
+            217,
+            110,
+            116
+          ],
+          "area": 12760,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/242-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "One dark oblong pill against reflected ceiling fan. Source box is plausible despite low contrast and glare.",
+      "prediction_assessment": "Frontiers locate the pill. SFT top confidence is 0.22610656917095184, so visualization at 0.25 hides it; native AP still includes that detection. Do not describe this display-only absence as a native-AP false negative.",
+      "visual_confidence": "moderate-high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 409,
+      "file_name": "IMG_7630_jpg.rf.616b7a33a8deb977ce152043a447cac1.jpg",
+      "source_original_name": "IMG_7630_jpg",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 1749,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1125,
+            1135,
+            205,
+            315
+          ],
+          "area": 64575,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1750,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1720,
+            1075,
+            295,
+            280
+          ],
+          "area": 82600,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1751,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1165,
+            1435,
+            340,
+            200
+          ],
+          "area": 68000,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1752,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1810,
+            1395,
+            335,
+            220
+          ],
+          "area": 73700,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1753,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            685,
+            1840,
+            320,
+            250
+          ],
+          "area": 80000,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1754,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1090,
+            1715,
+            340,
+            220
+          ],
+          "area": 74800,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1755,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1505,
+            1560,
+            325,
+            230
+          ],
+          "area": 74750,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1756,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1830,
+            1845,
+            350,
+            185
+          ],
+          "area": 64750,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1757,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1410,
+            2065,
+            335,
+            165
+          ],
+          "area": 55275,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1758,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            895,
+            2245,
+            355,
+            195
+          ],
+          "area": 69225,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1759,
+          "image_id": 409,
+          "category_id": 1,
+          "bbox": [
+            1560,
+            2480,
+            335,
+            190
+          ],
+          "area": 63650,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/409-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "detail_crop": "runs/pills-visual-audit/409-crop.jpg",
+      "crop_xyxy": [
+        397,
+        787,
+        2467,
+        2957
+      ],
+      "annotation_assessment": "Full-resolution crop confirms eleven separated white tablets and eleven source boxes, no obvious omission or duplicate.",
+      "prediction_assessment": "Opus returns eleven boxes with a systematic upward displacement and shorter vertical spans; actual raw normalized coordinates reproduce these misplaced boxes. Image dimensions/content match request metadata and source. Argon and SFT place boxes on the pills. SFT has one extra overlapping box above 0.25.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 180,
+      "file_name": "WIN_20241025_14_40_16_Pro_jpg.rf.d7f788d630750d39f244ac84a61b6fd7.jpg",
+      "source_original_name": "WIN_20241025_14_40_16_Pro_jpg",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 778,
+          "image_id": 180,
+          "category_id": 1,
+          "bbox": [
+            284,
+            375,
+            104,
+            132
+          ],
+          "area": 13728,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 779,
+          "image_id": 180,
+          "category_id": 1,
+          "bbox": [
+            388,
+            368,
+            98,
+            129
+          ],
+          "area": 12642,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 780,
+          "image_id": 180,
+          "category_id": 1,
+          "bbox": [
+            451,
+            207,
+            111,
+            118
+          ],
+          "area": 13098,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 781,
+          "image_id": 180,
+          "category_id": 1,
+          "bbox": [
+            453,
+            132,
+            131,
+            96
+          ],
+          "area": 12576,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/180-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Four oblong tablets, including two low-contrast upper tablets and two lower dark silhouettes. Four source boxes are visually plausible; no source scope mismatch found.",
+      "prediction_assessment": "Opus returns only two upper boxes and misses the lower pair. Argon and SFT locate four.",
+      "visual_confidence": "moderate-high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 332,
+      "file_name": "WIN_20241023_18_54_20_Pro_jpg.rf.37ba478a334996ede5d0253e1191e427.jpg",
+      "source_original_name": "WIN_20241023_18_54_20_Pro_jpg",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 1401,
+          "image_id": 332,
+          "category_id": 1,
+          "bbox": [
+            551,
+            207,
+            116,
+            95
+          ],
+          "area": 11020,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1402,
+          "image_id": 332,
+          "category_id": 1,
+          "bbox": [
+            498,
+            397,
+            73,
+            124
+          ],
+          "area": 9052,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/332-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Two clearly visible beige tablets separated vertically. Source boxes match both pills.",
+      "prediction_assessment": "Argon returns only lower pill; upper pill is a genuine visual omission in this response. Opus and SFT locate both.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 347,
+      "file_name": "WIN_20240621_14_03_01_Pro_jpg.rf.420b0dcf161fa2b602325bc02867f046.jpg",
+      "source_original_name": "WIN_20240621_14_03_01_Pro_jpg",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 1482,
+          "image_id": 347,
+          "category_id": 1,
+          "bbox": [
+            941,
+            826,
+            273,
+            174
+          ],
+          "area": 47502,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1483,
+          "image_id": 347,
+          "category_id": 1,
+          "bbox": [
+            1160,
+            968,
+            127,
+            296
+          ],
+          "area": 37592,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1484,
+          "image_id": 347,
+          "category_id": 1,
+          "bbox": [
+            1250,
+            901,
+            142,
+            289
+          ],
+          "area": 41038,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 1485,
+          "image_id": 347,
+          "category_id": 1,
+          "bbox": [
+            1463,
+            82,
+            211,
+            248
+          ],
+          "area": 52328,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/347-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "annotation_assessment": "Four white tablets with a bright reflected ceiling lamp. Four source boxes are plausible; no lamp components annotated as pills.",
+      "prediction_assessment": "Opus boxes for the lower group extend too far down; Argon and SFT are closer to source.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    },
+    {
+      "image_id": 86,
+      "file_name": "IMG_7918_JPG.rf.9cec3bfa68ec98f57c16d6d58dedf025.jpg",
+      "source_original_name": "IMG_7918_JPG",
+      "selection": "largest_disagreement6",
+      "ground_truth_annotations": [
+        {
+          "id": 359,
+          "image_id": 86,
+          "category_id": 1,
+          "bbox": [
+            836,
+            1373,
+            123,
+            174
+          ],
+          "area": 21402,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 360,
+          "image_id": 86,
+          "category_id": 1,
+          "bbox": [
+            1114,
+            1185,
+            169,
+            130
+          ],
+          "area": 21970,
+          "segmentation": [],
+          "iscrowd": 0
+        },
+        {
+          "id": 361,
+          "image_id": 86,
+          "category_id": 1,
+          "bbox": [
+            1316,
+            1188,
+            177,
+            116
+          ],
+          "area": 20532,
+          "segmentation": [],
+          "iscrowd": 0
+        }
+      ],
+      "overlay": "runs/pills-visual-audit/086-overlay.jpg",
+      "review_status": "visually_reviewed",
+      "detail_crop": "runs/pills-visual-audit/086-crop.jpg",
+      "crop_xyxy": [
+        717,
+        1066,
+        1611,
+        1665
+      ],
+      "annotation_assessment": "Three dark tablets on clear/reflective dish. Detailed crop shows solid pill edges and no extra pill. Source boxes include slightly more margin than Opus.",
+      "prediction_assessment": "All models locate three; Opus under-covers parts of visible edges, reducing high-IoU agreement.",
+      "visual_confidence": "high",
+      "confirmed_annotation_defect": false
+    }
+  ],
+  "structural_annotation_check": {
+    "images": 48,
+    "annotations": 221,
+    "same_image_annotation_pairs_iou_at_least_0_9": []
+  },
+  "summary": {
+    "reviewer": "AI-assisted visual audit; no independent human annotator adjudication",
+    "reviewed_images": 18,
+    "fixed_sample_images": 12,
+    "disagreement_selected_images": 6,
+    "reviewed_annotations": 92,
+    "confirmed_omitted_or_duplicate_ground_truth_objects": 0,
+    "confirmed_annotation_scope_mismatches": 0,
+    "interpretation": "No chess-like prompt/label scope defect found in this reviewed subset. This is a limited spot-check, not certification of the entire dataset.",
+    "native_metrics_context": {
+      "same_validation48_sft_AP": 0.8326803200548932,
+      "same_validation48_argon_AP": 0.7017051961634964,
+      "same_validation48_opus_AP": 0.5435166367394482,
+      "argon_iou50_tp_fp_fn": [
+        217,
+        0,
+        4
+      ],
+      "argon_false_negative_decomposition": {
+        "schema_failure_valid35": 3,
+        "missed_pill_valid332": 1
+      },
+      "conclusion": "Argon is strong at finding/counting pills at IoU 0.5 on these 48. Lower AP50:95 chiefly reflects box-boundary precision plus one schema failure; avoid a claim that it generally fails to see/count pills."
+    },
+    "occlusion_convention": "Most reviewed objects are fully visible, touching, or only mildly overlapping. Boxes generally bound whole visible pills. The few ambiguous overlaps do not establish a reliable universal amodal/full-shape annotation convention.",
+    "boundary_uncertainty_image_ids": [
+      35,
+      137,
+      403
+    ],
+    "source_unchanged": true,
+    "test_annotations_or_images_opened": false,
+    "limitations": [
+      "12 fixed samples plus 6 disagreement-selected images do not estimate dataset-wide annotation error rate.",
+      "There was no blinded independent human review or relabeling.",
+      "Reflection/background identity and obscured extent are visually inferred.",
+      "A display score threshold of 0.25 does not change the native AP evaluation, which retains all scores.",
+      "No classes, labels, images, predictions, prompts, thresholds used for scoring, or test selections were changed by this audit.",
+      "Model inputs matched local image hashes/dimensions; internal remote-provider preprocessing was not independently observed."
+    ]
+  },
+  "completed_at": "2026-10-16T03:35:21.893849+00:00"
+}

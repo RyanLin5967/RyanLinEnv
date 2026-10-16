@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "registered_at_utc": "2026-10-16T03:45:11Z",
+  "benchmark": "RF100-VL/countingpills-exf0r-gfkt/v2",
+  "phase": "validation discovery; native 200-image final test not evaluated",
+  "amendment": "Conservative grouping for the preregistered final paired bootstrap",
+  "previous_exploratory_validation_grouping": "Earlier validation analyses could treat images lacking an explicit WIN capture timestamp as independent singleton groups.",
+  "final_grouping_rule": {
+    "explicit_capture": "Read image extra.name, otherwise file_name before .rf.; match WIN_YYYYMMDD_HH_MM_SS_Pro; group by YYYYMMDD and capture hour HH.",
+    "unknown_capture": "Every image without that explicit metadata belongs to the same unknown_capture_shared_cluster, never an inferred independent singleton.",
+    "minimum_groups": 2,
+    "resampling": "Sample capture groups uniformly with replacement; include all member images of each selected group. Use the same sampled groups for specialist and frontier.",
+    "bootstrap_samples": 2000,
+    "bootstrap_seed": 42
+  },
+  "reason": "Images without explicit capture metadata may be correlated. Treating all such images as one shared cluster avoids assuming independence unsupported by provenance. This can widen uncertainty and reduce effective sample size; it is a declared conservative grouping policy, not a guarantee that all remaining groups are independent.",
+  "unchanged_primary_requirements": {
+    "minimum_specialist_ap": 0.8,
+    "minimum_margin_over_each_frontier": 0.2,
+    "minimum_cluster_bootstrap_lower95_margin": 0.1,
+    "allowed_primary_errors": 0
+  },
+  "freeze_contract": "freeze-final writes capture-groups.json containing the complete native-test image-to-group map and includes its SHA-256 in immutable freeze.json artifacts. Each final comparison reports resampling_units and group_sizes. Preserve the map beside the published result.",
+  "test_results_used_for_this_decision": false,
+  "test_predictions_used_for_this_decision": false,
+  "earlier_validation_reports": "Remain unchanged as exploratory evidence. Their group assumptions must be distinguished from the final registered grouping rule."
+}

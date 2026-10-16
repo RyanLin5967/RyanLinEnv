@@ -74,3 +74,26 @@ class CountTrainingAgent(BaseAgent):
         (self.logs_dir / "training.log").write_text((result.stdout or "") + (result.stderr or ""))
         if result.return_code != 0:
             raise RuntimeError(f"Count policy training failed with status {result.return_code}")
+
+
+class DetectionTrainingAgent(BaseAgent):
+    """Train a detector and reward-driven refiner in a generated Harbor task."""
+
+    @staticmethod
+    def name() -> str:
+        return "vision-rl-detection-training"
+
+    def version(self) -> str:
+        return "0.2.0"
+
+    async def setup(self, environment: BaseEnvironment) -> None:
+        pass
+
+    async def run(
+        self, instruction: str, environment: BaseEnvironment, context: AgentContext
+    ) -> None:
+        result = await environment.exec(command="bash /app/train.sh", timeout_sec=86400)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        (self.logs_dir / "training.log").write_text((result.stdout or "") + (result.stderr or ""))
+        if result.return_code != 0:
+            raise RuntimeError(f"Detection training failed with status {result.return_code}")

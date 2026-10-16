@@ -1,0 +1,261 @@
+{
+  "title": "Pill localization: development snapshot, final test sealed",
+  "workspace": "$WORKSPACE",
+  "dataset": {
+    "name": "RF100-VL countingpills v2",
+    "source_url": "https://universe.roboflow.com/rf100-vl/countingpills-exf0r-gfkt/dataset/2",
+    "limitations": [
+      "All scored rows use the same fixed 48 validation discovery images; these guided selection and are not final test evidence.",
+      "Learning curves use all 423 validation images. The ongoing detector and architectural experiments are incomplete in this snapshot.",
+      "Native splits share capture-hour groups; this does not establish unseen-session generalization. Unknown capture images are conservatively grouped together here.",
+      "Visual review found no confirmed scope or label defect in 18 images with 92 boxes. This was an AI-assisted spot-check, not comprehensive independent human annotation.",
+      "Pill presence is already strong for frontier models; the measured gap concerns precise bounding-box localization."
+    ]
+  },
+  "evaluations": [
+    {
+      "id": "argon-rich-retry2-48",
+      "label": "Argon high \u00b7 freeform",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/argon-rich-retry2-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/argon-rich-retry2-48/summary.json"
+    },
+    {
+      "id": "argon-structured-rich-48",
+      "label": "Argon high \u00b7 native schema",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/argon-structured-rich-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/argon-structured-rich-48/summary.json"
+    },
+    {
+      "id": "argon-structured-fewshot-48",
+      "label": "Argon high \u00b7 native schema + examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/argon-structured-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/argon-structured-fewshot-48/summary.json"
+    },
+    {
+      "id": "opus-fewshot-48",
+      "label": "Opus 5.5 \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/opus-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/opus-fewshot-48/summary.json"
+    },
+    {
+      "id": "astra-fewshot-48",
+      "label": "Astra high \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/astra-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/astra-fewshot-48/summary.json"
+    },
+    {
+      "id": "epoch1-detector",
+      "label": "Epoch 1 \u00b7 detector",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-study/epoch1-specialist-48.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "epoch1-warmup",
+      "label": "Epoch 1 \u00b7 supervised refinement",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-milestone/epoch1-warmup-48.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "epoch1-rl",
+      "label": "Epoch 1 \u00b7 RL refinement",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-milestone/epoch1-rl-48.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "epoch1-rl-flip",
+      "label": "Epoch 1 \u00b7 RL + flip",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-milestone/epoch1-rl-flip-48.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "epoch12-detector",
+      "label": "Epoch 12 \u00b7 detector",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-detector/epoch12-matched48-validation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    }
+  ],
+  "comparisons": [
+    {
+      "a": "epoch12-detector",
+      "b": "argon-rich-retry2-48",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "a": "epoch12-detector",
+      "b": "argon-structured-rich-48",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "a": "epoch12-detector",
+      "b": "opus-fewshot-48",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "a": "epoch12-detector",
+      "b": "astra-fewshot-48",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "a": "epoch12-detector",
+      "b": "argon-structured-fewshot-48",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    }
+  ],
+  "histories": [
+    {
+      "label": "Full RF-DETR Nano \u00b7 423 validation images",
+      "path": "runs/pills-milestone/detector-learning-snapshot.csv",
+      "x": "epoch",
+      "y": "val/mAP_50_95",
+      "x_offset": 1
+    },
+    {
+      "label": "Early-detector refinement \u00b7 423 validation images",
+      "path": "runs/pills-refinement/epoch1-trust-region/history.json",
+      "x": "epoch",
+      "y": "validation_AP"
+    }
+  ],
+  "supplementary_evidence": [
+    {
+      "id": "argon-rich-retry2-48-native",
+      "path": "runs/pills-study/argon-rich-retry2-48/predictions.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "argon-rich-retry2-48-journal",
+      "path": "runs/pills-study/argon-rich-retry2-48/attempts.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "argon-structured-rich-48-native",
+      "path": "runs/pills-study/argon-structured-rich-48/predictions.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "argon-structured-rich-48-journal",
+      "path": "runs/pills-study/argon-structured-rich-48/attempts.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "opus-fewshot-48-native",
+      "path": "runs/pills-study/opus-fewshot-48/predictions.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "opus-fewshot-48-journal",
+      "path": "runs/pills-study/opus-fewshot-48/attempts.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "astra-fewshot-48-native",
+      "path": "runs/pills-study/astra-fewshot-48/predictions.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "astra-fewshot-48-journal",
+      "path": "runs/pills-study/astra-fewshot-48/attempts.jsonl",
+      "description": "Native validation answers and request evidence, including retries."
+    },
+    {
+      "id": "objectives",
+      "path": "runs/pills-study/objectives.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "protocol-amendment",
+      "path": "runs/pills-study/protocol-amendment-before-test.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "cluster-preregistration",
+      "path": "docs/detection-cluster-preregistration.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "data-audit",
+      "path": "data/rf100vl-pills/prepared/audit.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "visual-review",
+      "path": "runs/pills-visual-audit/annotation-review.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "docker-dogfood",
+      "path": "runs/pills-docker-smoke/validation-evidence.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "docker-smoke-subset",
+      "path": "runs/pills-docker-smoke/subset-provenance.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "loop-dogfood",
+      "path": "runs/pills-loop-dogfood/dogfood-evidence.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "sft-plan",
+      "path": "runs/pills-detector/nano-s42/training-plan.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "epoch12-model",
+      "path": "runs/pills-detector/epoch12-model.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "rl-summary",
+      "path": "runs/pills-refinement/epoch1-sharp-keep/summary.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "tta-validation-study",
+      "path": "runs/pills-inference-epoch1/validation-study.json",
+      "description": "Executed development evidence; no native final-test score."
+    },
+    {
+      "id": "argon-structured-fewshot-48-native",
+      "path": "runs/pills-study/argon-structured-fewshot-48/predictions.jsonl",
+      "description": "Native validation answers and request evidence for Gemini native structured output with two fixed training examples."
+    },
+    {
+      "id": "argon-structured-fewshot-48-journal",
+      "path": "runs/pills-study/argon-structured-fewshot-48/attempts.jsonl",
+      "description": "Native validation answers and request evidence for Gemini native structured output with two fixed training examples."
+    },
+    {
+      "id": "full-loop-dogfood",
+      "path": "runs/pills-loop-epoch12-recovery-v2/dogfood-evidence.json",
+      "description": "Actual 1,449-image RL search, independent 423-image replay, recovery without retraining, and image-only inference proof. Final test remains sealed."
+    }
+  ]
+}

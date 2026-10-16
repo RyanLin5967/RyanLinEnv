@@ -1,0 +1,23 @@
+FROM python:3.12.13-slim
+# CPU is the portable default. On a Linux NVIDIA host, pass the matching official
+# CUDA wheel index as TORCH_INDEX_URL and generate a task with device="cuda".
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2 \
+    RF_HOME=/opt/rfdetr-cache HF_HOME=/opt/hf-cache
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir torch==2.14.1 torchvision==0.29.1 \
+    --index-url "${TORCH_INDEX_URL}"
+COPY requirements-detection.txt /opt/requirements-detection.txt
+RUN sed '/^-e /d' /opt/requirements-detection.txt > /opt/detection-dependencies.txt \
+    && pip install --no-cache-dir -r /opt/detection-dependencies.txt
+# This is the published public initialization, never a submitted checkpoint.
+# Cache it while network is available; all Harbor training and grading is offline.
+RUN python -c "from rfdetr import RFDETRNano; RFDETRNano(device='cpu', num_classes=1, amp=False)"
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+COPY pyproject.toml /opt/vision-rl/pyproject.toml
+COPY src /opt/vision-rl/src
+RUN pip install --no-cache-dir /opt/vision-rl \
+    && python -c "from rfdetr import RFDETRNano; RFDETRNano(pretrain_weights=None, device='cpu', num_classes=1, amp=False)"
+CMD ["python", "-m", "vision_rl.detection_training", "--help"]

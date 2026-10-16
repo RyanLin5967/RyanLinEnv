@@ -1,0 +1,316 @@
+[
+  {
+    "label": "Full RF-DETR Nano \u00b7 423 validation images",
+    "phase": "validation",
+    "points": [
+      {
+        "x": 1.0,
+        "AP": 0.8189898729324341,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 2.0,
+        "AP": 0.8543745279312134,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 3.0,
+        "AP": 0.8649614453315735,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 4.0,
+        "AP": 0.8715077638626099,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 5.0,
+        "AP": 0.87848299741745,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 6.0,
+        "AP": 0.8810325264930725,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 7.0,
+        "AP": 0.8842843770980835,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 8.0,
+        "AP": 0.8879622220993042,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 9.0,
+        "AP": 0.8891545534133911,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 10.0,
+        "AP": 0.8900083303451538,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 11.0,
+        "AP": 0.8921924233436584,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 12.0,
+        "AP": 0.8946773409843445,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 13.0,
+        "AP": 0.8937047123908997,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 14.0,
+        "AP": 0.8926212191581726,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 15.0,
+        "AP": 0.8933533430099487,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 16.0,
+        "AP": 0.8933126926422119,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 17.0,
+        "AP": 0.8951762318611145,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 18.0,
+        "AP": 0.8970860242843628,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 19.0,
+        "AP": 0.8974153399467468,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 20.0,
+        "AP": 0.8980454206466675,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 21.0,
+        "AP": 0.8974177241325378,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 22.0,
+        "AP": 0.8974511623382568,
+        "training_phase": "supervised"
+      }
+    ],
+    "metric_field": "val/mAP_50_95"
+  },
+  {
+    "label": "Early-detector refinement \u00b7 423 validation images",
+    "phase": "validation",
+    "points": [
+      {
+        "x": 1.0,
+        "AP": 0.8336654159290782,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 2.0,
+        "AP": 0.828653801720038,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 3.0,
+        "AP": 0.830889738137358,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 4.0,
+        "AP": 0.8300872639670147,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 5.0,
+        "AP": 0.8298003340777823,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 6.0,
+        "AP": 0.8273299330714581,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 7.0,
+        "AP": 0.8361501101059833,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 8.0,
+        "AP": 0.8389492339806018,
+        "training_phase": "supervised_refinement"
+      },
+      {
+        "x": 9.0,
+        "AP": 0.8380616239181937,
+        "training_phase": "rl"
+      },
+      {
+        "x": 10.0,
+        "AP": 0.8391283048402917,
+        "training_phase": "rl"
+      },
+      {
+        "x": 11.0,
+        "AP": 0.8397155352416975,
+        "training_phase": "rl"
+      },
+      {
+        "x": 12.0,
+        "AP": 0.8401563716519787,
+        "training_phase": "rl"
+      },
+      {
+        "x": 13.0,
+        "AP": 0.8401962838719002,
+        "training_phase": "rl"
+      },
+      {
+        "x": 14.0,
+        "AP": 0.8399616337709432,
+        "training_phase": "rl"
+      },
+      {
+        "x": 15.0,
+        "AP": 0.840090005178336,
+        "training_phase": "rl"
+      },
+      {
+        "x": 16.0,
+        "AP": 0.8406555082514473,
+        "training_phase": "rl"
+      },
+      {
+        "x": 17.0,
+        "AP": 0.8396273399450093,
+        "training_phase": "rl"
+      },
+      {
+        "x": 18.0,
+        "AP": 0.8402810942553257,
+        "training_phase": "rl"
+      },
+      {
+        "x": 19.0,
+        "AP": 0.8404490276322645,
+        "training_phase": "rl"
+      },
+      {
+        "x": 20.0,
+        "AP": 0.8400651876213032,
+        "training_phase": "rl"
+      },
+      {
+        "x": 21.0,
+        "AP": 0.8398464243082056,
+        "training_phase": "rl"
+      },
+      {
+        "x": 22.0,
+        "AP": 0.8409259460113712,
+        "training_phase": "rl"
+      },
+      {
+        "x": 23.0,
+        "AP": 0.8407169849478822,
+        "training_phase": "rl"
+      },
+      {
+        "x": 24.0,
+        "AP": 0.8409215257837683,
+        "training_phase": "rl"
+      },
+      {
+        "x": 25.0,
+        "AP": 0.8408351873795324,
+        "training_phase": "rl"
+      },
+      {
+        "x": 26.0,
+        "AP": 0.8408863486250843,
+        "training_phase": "rl"
+      },
+      {
+        "x": 27.0,
+        "AP": 0.8412360897905451,
+        "training_phase": "rl"
+      },
+      {
+        "x": 28.0,
+        "AP": 0.8409783709155362,
+        "training_phase": "rl"
+      },
+      {
+        "x": 29.0,
+        "AP": 0.8414678029379294,
+        "training_phase": "rl"
+      },
+      {
+        "x": 30.0,
+        "AP": 0.8406275794011133,
+        "training_phase": "rl"
+      },
+      {
+        "x": 31.0,
+        "AP": 0.8417200337719095,
+        "training_phase": "rl"
+      },
+      {
+        "x": 32.0,
+        "AP": 0.8412513101167641,
+        "training_phase": "rl"
+      },
+      {
+        "x": 33.0,
+        "AP": 0.8409120887376018,
+        "training_phase": "rl"
+      },
+      {
+        "x": 34.0,
+        "AP": 0.8406520497817893,
+        "training_phase": "rl"
+      },
+      {
+        "x": 35.0,
+        "AP": 0.8415518964346586,
+        "training_phase": "rl"
+      },
+      {
+        "x": 36.0,
+        "AP": 0.8405621043629569,
+        "training_phase": "rl"
+      },
+      {
+        "x": 37.0,
+        "AP": 0.8415071185502142,
+        "training_phase": "rl"
+      },
+      {
+        "x": 38.0,
+        "AP": 0.8417269337912274,
+        "training_phase": "rl"
+      }
+    ],
+    "metric_field": "validation_AP"
+  }
+]

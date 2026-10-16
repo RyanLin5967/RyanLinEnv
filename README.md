@@ -4,7 +4,43 @@
 
 Train specialist vision models for tasks where general models struggle, then compare them on the same held-out examples. Docker supplies the environment, Harbor runs the training agent and independent verifier, and the training backends update model weights from correctness rewards.
 
-This is an **independent Roboflow Labs onboarding and learning project** inspired by its public work on visual capability gaps. It includes a small CPU exercise, a real-image counting specialist, and a CUDA path for training vision-language adapters on your own data. It does not claim a frontier-model win without measured evidence.
+This is an **independent Roboflow Labs onboarding and learning project** inspired by its public work on visual capability gaps. Its detection pipeline fine-tunes a complete RF-DETR transformer, trains a reward-driven box refinement policy, and measures native COCO average precision against live frontier models. A small CPU exercise introduces the same training and verification workflow.
+
+The experiment controller journals candidate runs, resumes interrupted work, selects using validation, freezes model and inference settings, and reserves final evaluation once. Real training, inference, and pristine-container verification are required alongside the software tests.
+
+## Train a full vision specialist
+
+The detector backend updates approximately **30 million parameters** in RF-DETR Nano. Its separate refinement policy learns box corrections and confidence from sampled detection rewards. Reports keep the detector, supervised refinement, and RL stages separate so supervised gains cannot be presented as an RL improvement.
+
+```bash
+uv venv --python 3.12 .venv-detection
+uv pip install --python .venv-detection/bin/python -r requirements-detection.txt
+
+# Public, versioned RF100-VL dataset; uses ROBOFLOW_API_KEY from your environment/.env.
+.venv-detection/bin/python scripts/prepare_pills.py --download
+.venv-detection/bin/python -m vision_rl.detection_training \
+  --source data/rf100vl-pills/clean-coco \
+  --output runs/my-detector --device mps
+```
+
+Use `--device cuda` on a suitable NVIDIA host or `--device cpu` for a small exercise. Full training on this project uses local Apple MPS; Docker runs the CPU verifier. See the [detection walkthrough](docs/detection-onboarding.md) for query caches, RL training, the persistent experiment loop, frontier comparisons, and your own COCO data.
+
+The native benchmark is **one RF100-VL dataset**, pill detection, with 1,449 training, 423 validation, and 200 test images in the downloaded export. Its score is COCO AP50:95 with a 500-detection limit. Capture hours overlap across the native splits; uncertainty is clustered by inferred capture hour, and results describe this within-capture benchmark. They do not establish generalization to new capture sessions or a score across all 100 RF100-VL datasets.
+
+The [development evidence](reports/2026-10-16-pill-development/README.md) includes actual model predictions, training curves, clustered confidence intervals, API response journals, and executed Docker/Harbor runs. In that snapshot, the epoch-12 detector scored **88.74% AP** on the same 48 validation images as **72.82% for GPT-6 Astra high**, **73.19% for Gemini 4 Argon high with native structured output**, and **54.35% for Claude Opus 5.5**. These images guided development; the final 200-image test remains sealed, and the intended 20-point advantage over every baseline has not been established.
+
+```mermaid
+flowchart LR
+    D[Audited train and validation images] --> S[Full detector training]
+    S --> Q[Frozen query features]
+    Q --> R[Supervised and reward-driven refinement]
+    R --> L[Persistent candidate loop]
+    L --> F[Freeze weights and inference protocol]
+    F --> V[Pristine Docker verifier]
+    T[Sealed test images] --> V
+    B[Named frontier models on the same images] --> C[AP and clustered uncertainty]
+    V --> C
+```
 
 ## Start locally
 
@@ -58,6 +94,7 @@ flowchart LR
 ## Use your own data and models
 
 - **Roboflow:** list workspace projects, download a version, and import classification folders or COCO annotations as image questions. Credentials stay in your environment or ignored `.env`.
+- **Native object detection:** fine-tune RF-DETR on COCO data, train a contextual refinement policy, evaluate native detection AP, and package numeric model artifacts for the independent Harbor verifier. `make-detection-task` runs `DetectionTrainingAgent`.
 - **Real-image counting:** train a head over frozen ResNet18 features with a supervised warm start and REINFORCE. Runs on CPU, Apple MPS, or CUDA with the separate `requirements-vision.txt` environment; compare its RL and supervised checkpoints.
 - **VLM training:** run GRPO with LoRA on a supported pretrained vision-language model using a Linux NVIDIA GPU. The optional stack is in `requirements-vlm.txt`; `Dockerfile.gpu` packages it.
 - **Custom Harbor tasks:** `make-count-task` runs `CountTrainingAgent` on CPU; `make-vlm-task` runs `VLMTrainingAgent` on GPU. Both keep test data outside the training image and use separate verifiers.
@@ -96,11 +133,13 @@ The audit confirmed two scope errors: prompts asked for all visible pawns, while
 
 Discover weaknesses on validation, train on training data, freeze the candidate, and evaluate once on an untouched test set. Name the baseline version and inference budget. A claim that a specialist beats a frontier model needs actual baseline predictions under a matching protocol, with uncertainty and errors reported.
 
-**Humanity's Sixth Sense is an open-ended image/video benchmark by Scale AI and Elorian. RF100-VL is a detection benchmark by Roboflow and Carnegie Mellon.** This project's image multiple-choice accuracy is not interchangeable with either benchmark's official score. Native benchmark adapters are future work; their formats and requirements are documented in the research notes.
+**Humanity's Sixth Sense is an open-ended image/video benchmark by Scale AI and Elorian. RF100-VL is a detection benchmark by Roboflow and Carnegie Mellon.** The detector pipeline implements native COCO AP for individual RF100-VL datasets. The separate image multiple-choice exercises are not interchangeable with either benchmark's official score. An HSS adapter still requires its own media and rubric evaluation protocol.
 
 ## Read next
 
 - [Onboarding walkthrough](docs/onboarding.md): CPU exercise, Docker/Harbor, Roboflow import, GPU training, and comparisons.
+- [Full detector and RL walkthrough](docs/detection-onboarding.md): RF-DETR, native AP, resumable experiments, frozen comparisons, and safe Harbor submissions.
+- [Detection research and design](docs/detection-research.md): primary sources, objective design, and dataset limitations.
 - [Research and benchmark choices](docs/research.md): verified Roboflow Labs/Agent announcements and official HSS/RF100-VL sources.
 - [Measured results and validation](docs/results.md): executed experiments, exact scope, and remaining hardware limitations.
 

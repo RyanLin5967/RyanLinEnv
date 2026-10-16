@@ -16,5 +16,8 @@ jobs/
 *.npz
 *.safetensors
 *.pt
+*.pth
+*.ckpt
+*.onnx
 !reports/**/checkpoints/*.pt
 *.zip

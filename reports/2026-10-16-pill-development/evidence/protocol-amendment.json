@@ -1,0 +1,17 @@
+{
+  "created_at": "2026-10-16T03:23:52.502469+00:00",
+  "phase": "validation_discovery; native200testsealed",
+  "original_objectives": "objectives.json",
+  "changes": [
+    {
+      "kind": "strengthen_baselines",
+      "description": "Add GPT-6 Astra high with its native structured absolute pixel xyxy detection protocol, and Argon low rich prompt, selecting strongest validation configuration per named model before final freeze."
+    },
+    {
+      "kind": "supplemental_sensitivity",
+      "description": "If frontier calls fail, retain all failed images and invalidate original primary zero-error gate. Separately evaluate an explicitly synthetic upper bound that grants every failed image perfect ground-truth detections ranked before all completed-image predictions. Compare specialist with that counterfactual bound; never present it as measured frontier output or change original primary criteria."
+    }
+  ],
+  "reason": "Validation exposed rare malformed model responses and HTTP gateway failures; robust evidence must not depend on those failures. Exact current Astra support was verified in official proxy source.",
+  "test_used_for_this_decision": false
+}

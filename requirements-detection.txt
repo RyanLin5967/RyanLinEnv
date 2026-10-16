@@ -1,0 +1,10 @@
+# Isolated optional RF-DETR environment; tested on Apple MPS and Python 3.12.
+-e .
+rfdetr[train]==1.10.0
+torch==2.14.1
+torchvision==0.29.1
+pytorch-lightning==2.6.6
+transformers==5.20.0
+supervision==0.30.9
+pycocotools==2.0.11
+faster-coco-eval==1.8.0

@@ -1,0 +1,24 @@
+{
+  "purpose": "CPU Harbor plumbing validation, not a benchmark result",
+  "native_test_evaluated": false,
+  "smoke_test_source": "native validation images indices 4:7",
+  "model_tensor_count": 466,
+  "model_bytes": 120645480,
+  "changed_detector_tensors_between_zero_lr_and_nonzero_lr_smokes": 462,
+  "model_sha256": "227e7889c77606588e4416cb880734c1cd0789b163280a149487f2222b4524b4",
+  "zero_lr_model_sha256": "564a1a89cd0e91b9a36cf35f5e6dee9cd76322a8858f1e604b8555e0ad5b2de6",
+  "artifact_format": "safetensors",
+  "docker_network": "Harbor no-network policy, separate pristine verifier",
+  "pills-detector-smoke": {
+    "completed_trials": 1,
+    "errored_trials": 0,
+    "finished_at": "2026-10-15T23:12:14.413407",
+    "derived_validation_smoke_AP": 0.12634926802983082
+  },
+  "pills-detector-two-steps": {
+    "completed_trials": 1,
+    "errored_trials": 0,
+    "finished_at": "2026-10-15T23:13:27.320434",
+    "derived_validation_smoke_AP": 0.1383961501878271
+  }
+}

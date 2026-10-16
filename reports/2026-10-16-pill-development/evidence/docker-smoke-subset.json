@@ -1,0 +1,32 @@
+{
+  "purpose": "plumbing smoke only; no native test images used",
+  "source": "data/rf100vl-pills/clean-coco",
+  "splits": {
+    "train": {
+      "original_split": "train",
+      "original_image_ids": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "valid": {
+      "original_split": "valid",
+      "original_image_ids": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    "test": {
+      "original_split": "valid",
+      "original_image_ids": [
+        4,
+        5,
+        6
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "completed_epochs": 38,
+  "best_validation_AP": 0.8458964783625059,
+  "best_rl_validation_AP": 0.8458964783625059,
+  "elapsed_seconds_this_process": 247.12644362499123,
+  "config": {
+    "hidden": 128,
+    "groups": 8,
+    "keep_sampling_temperature": 0.5,
+    "warmup_epochs": 8,
+    "rl_epochs": 30,
+    "batch_size": 4,
+    "learning_rate": 0.0003,
+    "rl_learning_rate": 3e-05,
+    "weight_decay": 0.0001,
+    "entropy_weight": 0.0001,
+    "kl_weight": 0.02,
+    "ap_bonus": 1.0,
+    "iou_shaping": 0.05,
+    "geometry_step": 0.03,
+    "geometry_inference": "mean",
+    "identity_probability": 0.75,
+    "seed": 17,
+    "device": "cpu",
+    "cpu_threads": 1,
+    "gradient_clip": 1.0
+  },
+  "provenance": {
+    "train_cache_sha256": "3545c99b0185422c687733cfd7726e83cfac6c2755da618e0c6bf64c16a829b4",
+    "validation_cache_sha256": "7a3cd1a7cb208604aa4aa9118326962a679496a9cd7fb2ae61b03e8e1d92860e",
+    "validation_annotation_sha256": "1a74d5c4f977e319e016617ea36f854e9b5e33a88684a90a3ffeaecd8302d999",
+    "model_sha256": "9e973c4f882e2feeae7bd9418d732d189fc3d26019076d0b34af27becb8acdba",
+    "train_images": 1449,
+    "validation_images": 423,
+    "policy_parameters": 94546,
+    "selection_metric": "native_validation_AP",
+    "test_used_for_training": false
+  },
+  "checkpoint": "runs/pills-refinement/epoch1-sharp-keep/best.pt",
+  "rl_checkpoint": "runs/pills-refinement/epoch1-sharp-keep/best-rl.pt"
+}

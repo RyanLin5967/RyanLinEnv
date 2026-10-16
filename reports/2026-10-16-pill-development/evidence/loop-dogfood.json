@@ -1,0 +1,43 @@
+{
+  "status": "awaiting_final_evaluation",
+  "test_consumed": false,
+  "selected_candidate": "mean-step03-s101",
+  "plan_sha256": "7ee76d76a598945e591d6f1bc4fdbb4d9740c13747417bfcd1bb143b38e27ad0",
+  "candidates": [
+    {
+      "candidate": "mean-kl005-s103",
+      "AP": 0.8262885819821524,
+      "ablation_scope": "All policies use the same frozen top-128 detector query cache",
+      "errors": 0,
+      "n": 32,
+      "rl_AP": 0.8262885819821524,
+      "rl_gain_over_warmup": 5.8067174959042234e-05,
+      "selected_origin": "rl",
+      "sft_AP": 0.8261862270690085,
+      "split": "validation",
+      "test_access": false,
+      "warmup_AP": 0.8262305148071933,
+      "train_seconds": 4.363836916993023,
+      "replay_seconds": 1.729413458990166
+    },
+    {
+      "candidate": "mean-step03-s101",
+      "AP": 0.8263507308812772,
+      "ablation_scope": "All policies use the same frozen top-128 detector query cache",
+      "errors": 0,
+      "n": 32,
+      "rl_AP": 0.8263507308812772,
+      "rl_gain_over_warmup": 2.9874198412938036e-05,
+      "selected_origin": "rl",
+      "sft_AP": 0.8261862270690085,
+      "split": "validation",
+      "test_access": false,
+      "warmup_AP": 0.8263208566828643,
+      "train_seconds": 5.557570458011469,
+      "replay_seconds": 1.8925912499980768
+    }
+  ],
+  "native_test_access": false,
+  "hosted_requests": 0,
+  "resume_preserved_attempt_count": 2
+}

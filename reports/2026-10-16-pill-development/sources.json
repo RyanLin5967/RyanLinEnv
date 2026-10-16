@@ -1,0 +1,174 @@
+{
+  "$INDEX": {
+    "sha256": "dc6634aba1af530630a3cd7b0442e93ea9e3ef443a797f9f048a3cf46f063359",
+    "bytes": 10446
+  },
+  "runs/pills-study/argon-rich-retry2-48/evaluation.json": {
+    "sha256": "60f746c3ebe2693682435de74089707a52c09e395c68a71476c8992047c70f86",
+    "bytes": 217273
+  },
+  "runs/pills-milestone/validation-capture-groups.json": {
+    "sha256": "08d0bcfe949580d5d4913473b5a8fcde19402dceaeee3e9fd0374eac1daf26a5",
+    "bytes": 12487
+  },
+  "runs/pills-study/argon-rich-retry2-48/summary.json": {
+    "sha256": "897f9a926e2a16026c72f21d1f6a11a228817bafb87f5c436fb6ee5d22591cd3",
+    "bytes": 560
+  },
+  "runs/pills-study/argon-structured-rich-48/evaluation.json": {
+    "sha256": "fba06cda9a9359563928e5d05a14e57830ab1a85a33f42de0edb5038bf7ca3b9",
+    "bytes": 219924
+  },
+  "runs/pills-study/argon-structured-rich-48/summary.json": {
+    "sha256": "41c43472abcc6b6d99d107928d37b485817bf04e4817ff3b6fe6c61f3b179515",
+    "bytes": 546
+  },
+  "runs/pills-study/argon-structured-fewshot-48/evaluation.json": {
+    "sha256": "8d6efcc8813901b9fecf4a252e9b72a13e8ef2694fc0eb42aa642442b1943037",
+    "bytes": 219882
+  },
+  "runs/pills-study/argon-structured-fewshot-48/summary.json": {
+    "sha256": "f99d1766469e8ef850a23c73f7859cf172c8350372f894cd78455f4fa606f470",
+    "bytes": 561
+  },
+  "runs/pills-study/opus-fewshot-48/evaluation.json": {
+    "sha256": "57bc8312065e822b7ff2e934e11db1066e1685e157c8171f99e21a1b345e12a9",
+    "bytes": 219857
+  },
+  "runs/pills-study/opus-fewshot-48/summary.json": {
+    "sha256": "2e56c1ac9eea39b0945fcce75ead59f930c8e20ab15a9005cebd16b871daeaa4",
+    "bytes": 551
+  },
+  "runs/pills-study/astra-fewshot-48/evaluation.json": {
+    "sha256": "1f880c6177977d459333904d99ad7badc3d2b42797db7a457d71589181c28bbd",
+    "bytes": 220085
+  },
+  "runs/pills-study/astra-fewshot-48/summary.json": {
+    "sha256": "7cf5a7d254af8027a1a76622d4f2878f2ad98f073080cc6c921a7b110f763155",
+    "bytes": 543
+  },
+  "runs/pills-study/epoch1-specialist-48.json": {
+    "sha256": "d91ddfb66378fd008507f3960d8ad27cdd54b6d7d37f543d8a18b0bd214d1dea",
+    "bytes": 11114399
+  },
+  "runs/pills-milestone/epoch1-warmup-48.json": {
+    "sha256": "d6e6f56967b0c694d93167b04f41cd4bbd953bb833775a93ee3edf82c1797db7",
+    "bytes": 4800845
+  },
+  "runs/pills-milestone/epoch1-rl-48.json": {
+    "sha256": "9bcee82b05700f9fcf6494afa72bdcd7b62348ee9055a52cbfb5725bb58a8b87",
+    "bytes": 4801624
+  },
+  "runs/pills-milestone/epoch1-rl-flip-48.json": {
+    "sha256": "2e30337144150d2d4a5f8e438ff7f72c9d8ac91c525e1d1ee40f295ba0fe25a9",
+    "bytes": 7456752
+  },
+  "runs/pills-detector/epoch12-matched48-validation.json": {
+    "sha256": "46e6c06ab79f46a1ef1d98930c3a9a03070e87d5c04f999216640c02433b8468",
+    "bytes": 11111261
+  },
+  "runs/pills-milestone/detector-learning-snapshot.csv": {
+    "sha256": "7bed1d69083acbc38481ae4d44ed69d8142d8c70e7efd692e34ac035c7dedb21",
+    "bytes": 29669
+  },
+  "runs/pills-refinement/epoch1-trust-region/history.json": {
+    "sha256": "fd95c6bab6d2e887a2a5ba246d0c461da12daa0489613518db3739bed495dd36",
+    "bytes": 15187
+  },
+  "runs/pills-study/argon-rich-retry2-48/predictions.jsonl": {
+    "sha256": "88df3f1644430c2bf4845adfbee5f883fe8daa55087167ee27f1986415c68ff0",
+    "bytes": 45902
+  },
+  "runs/pills-study/argon-rich-retry2-48/attempts.jsonl": {
+    "sha256": "a4e15ce08f81818c79b07298403b2f9896116014426be56a81540bcc1f7b2fc1",
+    "bytes": 241243
+  },
+  "runs/pills-study/argon-structured-rich-48/predictions.jsonl": {
+    "sha256": "35d414bdac7d08c37e7b7e83dc6b6f87dd59541c5060bed43b6c3d2409a7d624",
+    "bytes": 42141
+  },
+  "runs/pills-study/argon-structured-rich-48/attempts.jsonl": {
+    "sha256": "40d652ea6bdce679d5919eb7de2de1b78d18e46726bd0f10c4b35d137fd192e6",
+    "bytes": 235188
+  },
+  "runs/pills-study/opus-fewshot-48/predictions.jsonl": {
+    "sha256": "05c6d234f343d7500793df0f720af89e3ab6c8a11d705bc4107ca8bd0ce0451c",
+    "bytes": 46194
+  },
+  "runs/pills-study/opus-fewshot-48/attempts.jsonl": {
+    "sha256": "e54be083dae424e80a3b68060207ab2080f504ed217d94bb34adb23d091e1395",
+    "bytes": 201965
+  },
+  "runs/pills-study/astra-fewshot-48/predictions.jsonl": {
+    "sha256": "72f06217be7d95aa993b4f066e6e5b012ab697a080b10e2695ff40d64c7a91d3",
+    "bytes": 38839
+  },
+  "runs/pills-study/astra-fewshot-48/attempts.jsonl": {
+    "sha256": "9365c19d5d4b4615a50d121787a2dfbaa89bdf56a7f88b0a021b247810b71958",
+    "bytes": 434020
+  },
+  "runs/pills-study/objectives.json": {
+    "sha256": "e90fadf679defcfd6075729e448c5560f53683b00b8ea3e9149ad94548855367",
+    "bytes": 1011
+  },
+  "runs/pills-study/protocol-amendment-before-test.json": {
+    "sha256": "29890d5b7c843d29de521dabbf5500a3dcde16aa3096c6a0c6e5e0a01a6fa384",
+    "bytes": 1170
+  },
+  "docs/detection-cluster-preregistration.json": {
+    "sha256": "aa4fc7b490aebd52a3f589c25fd305a9dee113e198248f645936e68e88184331",
+    "bytes": 2177
+  },
+  "data/rf100vl-pills/prepared/audit.json": {
+    "sha256": "a47e29f161db07f100d0f6722840b33c0498e77fd324c9803ea2f27eb7337dd2",
+    "bytes": 404377
+  },
+  "runs/pills-visual-audit/annotation-review.json": {
+    "sha256": "67fc405df6a8d8224efdaa72ff3f7f8fcd2dcddaf6894d0886e61b6b423370cd",
+    "bytes": 61652
+  },
+  "runs/pills-docker-smoke/validation-evidence.json": {
+    "sha256": "d75be439137b465f66669b8bf0599945aae6fd1ffb6059f0af8d0cb5e5b2a87b",
+    "bytes": 974
+  },
+  "runs/pills-docker-smoke/subset-provenance.json": {
+    "sha256": "cfbfe3b319939ec882fd8943b9be4cb284eae8ef27cd414d84083d64670474a7",
+    "bytes": 526
+  },
+  "runs/pills-loop-dogfood/dogfood-evidence.json": {
+    "sha256": "0e53d531ee77f549cca6a91fb44206ae98e9d68338e332f0c2c8c514bdbd647c",
+    "bytes": 1399
+  },
+  "runs/pills-detector/nano-s42/training-plan.json": {
+    "sha256": "7ea6266663cf6767fb8ffe17621a7ffc1c663c46c993a572e29236b77df24284",
+    "bytes": 143733
+  },
+  "runs/pills-detector/epoch12-model.json": {
+    "sha256": "3a7167562243d4f257b1ef66f829a63eef93b777e482ddbdf5a8dd81570f65ef",
+    "bytes": 258
+  },
+  "runs/pills-refinement/epoch1-sharp-keep/summary.json": {
+    "sha256": "0c2abd641a8c8cbdbb4b22c6980cf48e5a05afd3265cf71c0cfd0d3f5fd44b39",
+    "bytes": 1419
+  },
+  "runs/pills-inference-epoch1/validation-study.json": {
+    "sha256": "0896b3ddbac45dccc61b1ab7c11609b9f52231a0221e2faa0c830f79a8224489",
+    "bytes": 3666
+  },
+  "runs/pills-study/argon-structured-fewshot-48/predictions.jsonl": {
+    "sha256": "069b440bdc3d2906e5c21272f38bb53b64b174d91c2886bd0ba979220c711871",
+    "bytes": 42177
+  },
+  "runs/pills-study/argon-structured-fewshot-48/attempts.jsonl": {
+    "sha256": "16849ba42880571ab531eabe53b7813841d9ec9c9bc7e49cb33be4318b13b135",
+    "bytes": 226713
+  },
+  "runs/pills-loop-epoch12-recovery-v2/dogfood-evidence.json": {
+    "sha256": "b2dc585595cb124eeef09100553fe034da903400e2bf57a414830cdae04d390d",
+    "bytes": 3991
+  },
+  "scripts/pills_report.py": {
+    "sha256": "a1925d9fff4bc0e679159cf3aec21c880a73717edc6488421d25a3c9a3ed9840",
+    "bytes": 26679
+  }
+}

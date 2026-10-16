@@ -1,0 +1,7 @@
+{
+  "format": "safetensors",
+  "parameters": 30147076,
+  "safetensors_sha256": "fd08716944517fcfad4937221ffebf2999cd4f75e4363f12343a3f2d0555da43",
+  "source_sha256": "5c819410626f264d8f1348ded64a10c49fc979a454eae574def37a6240389226",
+  "tensor_count": 466
+}

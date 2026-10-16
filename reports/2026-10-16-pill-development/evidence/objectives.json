@@ -1,0 +1,27 @@
+{
+  "created_at": "2026-10-16T02:53:17.876028+00:00",
+  "benchmark": "RF100-VL/countingpills-exf0r-gfkt/v2",
+  "primary_metric": "COCO AP50:95, maxDets500, annotated classes",
+  "substantial_win": {
+    "minimum_specialist_ap": 0.8,
+    "minimum_margin_over_each_frontier": 0.2,
+    "minimum_cluster_bootstrap_lower95_margin": 0.1,
+    "transport_or_parse_failures_allowed_for_claim": 0
+  },
+  "baselines": [
+    "gemini-4-argon/high",
+    "claude-opus-5-5/adaptive"
+  ],
+  "validation_discovery": {
+    "filename_hash_seed": 1729,
+    "initial_examples": 48,
+    "prompt_candidates": [
+      "minimal",
+      "rich",
+      "rich+2trainingexamples"
+    ]
+  },
+  "test": "Entire downloaded native test split once after model+protocol freeze; no test selection",
+  "compute": "Local Apple MPS; hosted inference on existing Roboflow credits only; no purchases",
+  "scope_limitation": "Native within-capture-context benchmark; session overlap audited and group bootstrap used. Not unseen-session generalization."
+}

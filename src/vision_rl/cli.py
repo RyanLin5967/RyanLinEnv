@@ -120,6 +120,21 @@ def parser() -> argparse.ArgumentParser:
     count_task.add_argument("--output", type=Path, required=True)
     count_task.add_argument("--sft-epochs", type=int, default=160)
     count_task.add_argument("--rl-steps", type=int, default=800)
+    detection_task = sub.add_parser(
+        "make-detection-task", help="Package a native COCO detector and RL refinement task"
+    )
+    detection_task.add_argument("--source", type=Path, required=True)
+    detection_task.add_argument("--output", type=Path, required=True)
+    detection_task.add_argument("--detector-epochs", type=int, default=40)
+    detection_task.add_argument("--rl-epochs", type=int, default=30)
+    detection_task.add_argument("--warmup-epochs", type=int, default=8)
+    detection_task.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    detection_task.add_argument("--batch-size", type=int, default=1)
+    detection_task.add_argument("--grad-accum-steps", type=int, default=4)
+    detection_task.add_argument("--preflight-batches", type=int, default=0)
+    detection_task.add_argument("--queries", type=int, default=128)
+    detection_task.add_argument("--base-image", default="vision-rl:detection")
+    detection_task.add_argument("--timeout-sec", type=int, default=86460)
     sub.add_parser(
         "doctor", help="Check Python, Docker and credential presence without showing secrets"
     )
@@ -181,9 +196,15 @@ def main() -> None:
             from vision_rl.count_task_builder import make_count_task
 
             result = make_count_task(**args)
+        elif command == "make-detection-task":
+            from vision_rl.detection_task_builder import make_detection_task
+
+            result = make_detection_task(**args)
         elif command == "doctor":
+            import importlib.util
             import os
             import platform
+            from importlib.metadata import PackageNotFoundError, version
 
             try:
                 process = subprocess.run(
@@ -201,6 +222,20 @@ def main() -> None:
                 "roboflow_key_present": bool(os.getenv("ROBOFLOW_API_KEY")),
                 "model_key_present": bool(os.getenv("MODEL_API_KEY")),
             }
+            result["packages"] = {}
+            for package in ("harbor", "torch", "rfdetr", "pycocotools", "safetensors"):
+                try:
+                    result["packages"][package] = version(package)
+                except PackageNotFoundError:
+                    result["packages"][package] = None
+            result["devices"] = ["cpu"]
+            if importlib.util.find_spec("torch"):
+                import torch
+
+                if torch.cuda.is_available():
+                    result["devices"].append("cuda")
+                if torch.backends.mps.is_available():
+                    result["devices"].append("mps")
         else:
             from vision_rl import roboflow
 

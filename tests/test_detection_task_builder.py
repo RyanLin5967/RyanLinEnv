@@ -1,0 +1,426 @@
+import hashlib
+import json
+import os
+import tomllib
+
+import pytest
+from PIL import Image
+
+from vision_rl.detection_task_builder import (
+    _inference_configuration,
+    _stage_artifact,
+    make_detection_replay_task,
+    make_detection_task,
+    verify_detection_submission,
+)
+
+
+@pytest.fixture
+def coco_dataset(tmp_path):
+    source = tmp_path / "source"
+    for split, color in (("train", "red"), ("valid", "green"), ("test", "blue")):
+        directory = source / split
+        directory.mkdir(parents=True)
+        Image.new("RGB", (16, 16), color).save(directory / f"private-{split}-name.png")
+        document = {
+            "images": [
+                {
+                    "id": 7,
+                    "file_name": f"private-{split}-name.png",
+                    "width": 16,
+                    "height": 16,
+                    "original_source": "/a/private/path",
+                }
+            ],
+            "annotations": [
+                {
+                    "id": 0,
+                    "image_id": 7,
+                    "category_id": 1,
+                    "bbox": [2, 3, 5, 4],
+                }
+            ],
+            "categories": [
+                {"id": 0, "name": "pill-parent", "supercategory": "none"},
+                {"id": 1, "name": "pill", "supercategory": "pill-parent"},
+            ],
+        }
+        (directory / "_annotations.coco.json").write_text(json.dumps(document))
+    return source
+
+
+def test_task_keeps_test_images_out_of_build_context(tmp_path, coco_dataset):
+    output = tmp_path / "task"
+    result = make_detection_task(
+        coco_dataset,
+        output,
+        detector_epochs=1,
+        rl_epochs=2,
+        warmup_epochs=0,
+        grad_accum_steps=1,
+        preflight_batches=1,
+    )
+    assert result["counts"] == {"train": 1, "valid": 1, "test": 1}
+    assert result["test_in_build_context"] is False
+    assert result["smoke_test_only"] is True
+    assert result["agent"] == "vision_rl.harbor_agent:DetectionTrainingAgent"
+    assert sorted(p.name for p in (output / "environment/data").iterdir()) == ["train", "valid"]
+    assert (output / "tests/data/test/image-000000.png").read_bytes() == (
+        coco_dataset / "test/private-test-name.png"
+    ).read_bytes()
+    public = "\n".join(
+        p.read_text()
+        for p in (output / "environment").rglob("*")
+        if p.is_file() and p.suffix != ".png"
+    )
+    for forbidden in ("private-test-name", str(coco_dataset), "/a/private/path", "data/test"):
+        assert forbidden not in public
+    train = (output / "environment/train.py").read_text()
+    compile(train, "generated-train.py", "exec")
+    assert "export_detector_safetensors" in train
+    assert 'output / "model.safetensors"' in train
+    assert 'output / "refiner.safetensors"' in train
+    assert 'output / "refiner-rl-ablation.safetensors"' in train
+    assert 'split="test"' not in train
+    assert "bash /app/train.sh" in (output / "solution/solve.sh").read_text()
+    config = tomllib.loads((output / "task.toml").read_text())
+    assert config["environment"]["network_mode"] == "no-network"
+    assert config["verifier"]["environment_mode"] == "separate"
+    assert "gpus" not in config["environment"]
+    assert "COPY ." not in (output / "environment/Dockerfile").read_text()
+    assert "python -I /tests/verify.py" in (output / "tests/test.sh").read_text()
+    pytest.importorskip("harbor")
+    from harbor.models.task.task import Task
+    from harbor.models.task.verifier_mode import resolve_verifier_environment_definition
+
+    task = Task(output)
+    verifier = resolve_verifier_environment_definition(task.config, task.paths)
+    assert verifier.directory == output / "environment"
+    assert verifier.bundled_tests is False
+
+
+def test_cuda_task_requests_gpu_but_keeps_offline_verifier(tmp_path, coco_dataset):
+    output = tmp_path / "task"
+    make_detection_task(coco_dataset, output, device="cuda", base_image="registry/vision:cuda")
+    config = tomllib.loads((output / "task.toml").read_text())
+    assert config["environment"]["gpus"] == 1
+    assert config["environment"]["memory_mb"] == 16384
+    assert config["environment"]["network_mode"] == "no-network"
+    assert (output / "environment/Dockerfile").read_text().startswith("FROM registry/vision:cuda\n")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"detector_epochs": 0},
+        {"rl_epochs": True},
+        {"warmup_epochs": -1},
+        {"preflight_batches": 2},
+        {"batch_size": 0},
+        {"grad_accum_steps": 0},
+        {"device": "mps"},
+        {"queries": 64},
+        {"base_image": "image\nRUN bad"},
+        {"timeout_sec": float("inf")},
+    ],
+)
+def test_invalid_training_configuration_is_rejected(tmp_path, coco_dataset, kwargs):
+    output = tmp_path / "task"
+    with pytest.raises(ValueError):
+        make_detection_task(coco_dataset, output, **kwargs)
+    assert not output.exists()
+
+
+def test_task_rejects_pixel_leakage_even_with_different_file_bytes(tmp_path, coco_dataset):
+    Image.open(coco_dataset / "train/private-train-name.png").save(
+        coco_dataset / "test/private-test-name.png", compress_level=0
+    )
+    assert (coco_dataset / "train/private-train-name.png").read_bytes() != (
+        coco_dataset / "test/private-test-name.png"
+    ).read_bytes()
+    with pytest.raises(ValueError, match="leakage"):
+        make_detection_task(coco_dataset, tmp_path / "task")
+
+
+def test_task_rejects_escape_and_preserves_existing_destination(tmp_path, coco_dataset):
+    annotation = coco_dataset / "test/_annotations.coco.json"
+    doc = json.loads(annotation.read_text())
+    doc["images"][0]["file_name"] = "../train/private-train-name.png"
+    annotation.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="escapes"):
+        make_detection_task(coco_dataset, tmp_path / "task")
+    output = tmp_path / "existing"
+    output.mkdir()
+    (output / "keep").write_text("untouched")
+    with pytest.raises(ValueError, match="already exists"):
+        make_detection_task(coco_dataset, output)
+    assert (output / "keep").read_text() == "untouched"
+
+
+def test_task_rejects_inconsistent_categories(tmp_path, coco_dataset):
+    annotation = coco_dataset / "test/_annotations.coco.json"
+    doc = json.loads(annotation.read_text())
+    doc["categories"][1]["name"] = "different object"
+    annotation.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="categories must match"):
+        make_detection_task(coco_dataset, tmp_path / "task")
+
+
+@pytest.mark.parametrize(
+    "kind", ["valid", "missing", "empty", "oversized", "symlink", "parent-link", "fifo"]
+)
+def test_artifact_staging_rejects_unsafe_files(tmp_path, kind):
+    # macOS's /var is itself a symlink. Tests use the real absolute directory,
+    # matching Linux's canonical /logs/artifacts mount in production.
+    directory = tmp_path.resolve()
+    source = directory / "source"
+    source.mkdir()
+    file = source / "model.safetensors"
+    if kind != "missing":
+        file.write_bytes(
+            b"safe"
+            if kind not in {"empty", "oversized"}
+            else (b"" if kind == "empty" else b"x" * 11)
+        )
+    if kind == "symlink":
+        target = source / "target"
+        file.rename(target)
+        file.symlink_to(target)
+    elif kind == "parent-link":
+        link = directory / "link"
+        link.symlink_to(source, target_is_directory=True)
+        file = link / file.name
+    elif kind == "fifo":
+        file.unlink()
+        os.mkfifo(file)
+    destination = directory / "staged"
+    if kind == "valid":
+        _stage_artifact(file, destination, 10)
+        assert destination.read_bytes() == b"safe"
+    else:
+        with pytest.raises((ValueError, OSError)):
+            _stage_artifact(file, destination, 10)
+
+
+@pytest.mark.parametrize("kind", ["valid", "bad-model", "missing-refiner", "nan-score"])
+def test_verifier_uses_only_numeric_artifacts_and_pristine_inference(tmp_path, monkeypatch, kind):
+    pytest.importorskip("torch")
+    import vision_rl.detection_eval as evaluation
+    import vision_rl.detection_rl as refinement
+    import vision_rl.detection_training as training
+
+    directory = tmp_path.resolve()
+    artifacts, logs, test = (directory / name for name in ("artifacts", "logs", "test"))
+    artifacts.mkdir()
+    (artifacts / "model.safetensors").write_bytes(b"mocked-model")
+    if kind != "missing-refiner":
+        (artifacts / "refiner.safetensors").write_bytes(b"mocked-refiner")
+    (artifacts / "evil.py").write_text("raise RuntimeError('must never run')")
+    (artifacts / "config.json").write_text('{"architecture": "untrusted"}')
+    (artifacts / "queries.pt").write_bytes(b"untrusted-cache")
+    calls = []
+
+    def export(model, split_directory, cache_path, **kwargs):
+        calls.append("export")
+        assert model.read_bytes() == b"mocked-model"
+        assert sorted(p.name for p in model.parent.iterdir()) == [
+            "model.safetensors",
+            "refiner.safetensors",
+        ]
+        assert split_directory == test
+        assert kwargs == {"split": "test", "device": "cpu", "queries": 128, "batch_size": 1}
+        if kind == "bad-model":
+            raise ValueError("model tensors invalid")
+        cache_path.write_bytes(b"trusted-generated-queries")
+
+    def load(cache_path):
+        assert cache_path.read_bytes() == b"trusted-generated-queries"
+        return {"generated": True}
+
+    def predict(cache, refiner, *, device):
+        calls.append("predict")
+        assert cache == {"generated": True}
+        assert refiner.read_bytes() == b"mocked-refiner"
+        assert device == "cpu"
+        return ["trusted-predictions"]
+
+    def evaluate(annotation, predictions, **kwargs):
+        calls.append("evaluate")
+        assert annotation == test / "_annotations.coco.json"
+        assert predictions == ["trusted-coco"]
+        return {"AP": float("nan") if kind == "nan-score" else 0.625}
+
+    monkeypatch.setattr(training, "export_queries", export)
+    monkeypatch.setattr(refinement, "load_cache", load)
+    monkeypatch.setattr(refinement, "predict_refinement_safetensors", predict, raising=False)
+    monkeypatch.setattr(refinement, "coco_predictions", lambda *args: ["trusted-coco"])
+    monkeypatch.setattr(evaluation, "evaluate_coco", evaluate)
+    result = verify_detection_submission(artifacts, test, logs)
+    if kind == "valid":
+        assert result["AP"] == 0.625
+        assert calls == ["export", "predict", "evaluate"]
+        assert (logs / "reward.txt").read_text() == "0.625\n"
+    else:
+        assert result["AP"] == 0
+        assert (logs / "reward.txt").read_text() == "0\n"
+        assert set(json.loads((logs / "error.json").read_text())) == {"type"}
+
+
+@pytest.mark.parametrize(
+    "inference,configuration",
+    [
+        ("unknown", None),
+        ("native128", {}),
+        ("label_free", {"device": "cuda"}),
+        ("label_free", {"architecture": "untrusted"}),
+        ("label_free", {"resolutions": [384, 384]}),
+        ("label_free", {"resolutions": [2048]}),
+        ("label_free", {"resolutions": [384.0]}),
+        ("label_free", {"horizontal_flip": "yes"}),
+        ("label_free", {"fusion_iou": float("nan")}),
+        ("label_free", {"checkpoint_resolution": 256}),
+    ],
+)
+def test_verifier_configuration_is_bounded(inference, configuration):
+    with pytest.raises(ValueError):
+        _inference_configuration(inference, configuration)
+
+
+def test_replay_task_pins_only_numeric_artifacts_and_seals_test_data(tmp_path, coco_dataset):
+    model, refiner = tmp_path / "model.safetensors", tmp_path / "policy.safetensors"
+    model.write_bytes(b"numeric model")
+    refiner.write_bytes(b"numeric policy")
+    (tmp_path / "evil.py").write_text("raise RuntimeError('untrusted code')")
+    output = tmp_path / "replay"
+    result = make_detection_replay_task(
+        coco_dataset / "test",
+        model,
+        refiner,
+        output,
+        inference="label_free",
+        inference_config={
+            "resolutions": [384, 512],
+            "horizontal_flip": True,
+            "checkpoint_resolution": 512,
+        },
+    )
+    assert result["agent"] == "oracle"
+    assert result["test_images"] == 1
+    assert result["model_sha256"] == hashlib.sha256(model.read_bytes()).hexdigest()
+    assert result["refiner_sha256"] == hashlib.sha256(refiner.read_bytes()).hexdigest()
+    assert result["test_in_build_context"] is False
+    assert sorted(path.name for path in (output / "environment").iterdir()) == [
+        "Dockerfile",
+        "submission",
+    ]
+    assert sorted(path.name for path in (output / "environment/submission").iterdir()) == [
+        "model.safetensors",
+        "refiner.safetensors",
+    ]
+    verify = (output / "tests/verify.py").read_text()
+    compile(verify, "frozen-replay-verifier.py", "exec")
+    assert result["model_sha256"] in verify
+    assert result["refiner_sha256"] in verify
+    assert "checkpoint_resolution" in verify
+    assert "evil.py" not in verify
+    solve = (output / "solution/solve.sh").read_text()
+    assert "cp /app/submission/model.safetensors" in solve
+    assert "python" not in solve
+    config = tomllib.loads((output / "task.toml").read_text())
+    assert config["environment"]["network_mode"] == "no-network"
+    assert config["verifier"]["environment_mode"] == "separate"
+    with pytest.raises(ValueError, match="already exists"):
+        make_detection_replay_task(coco_dataset / "test", model, refiner, output)
+
+
+def test_replay_rejects_pickle_path_without_creating_task(tmp_path, coco_dataset):
+    model, refiner = tmp_path / "model.pth", tmp_path / "refiner.safetensors"
+    model.write_bytes(b"pickle")
+    refiner.write_bytes(b"policy")
+    with pytest.raises(ValueError, match="only safetensors"):
+        make_detection_replay_task(coco_dataset / "test", model, refiner, tmp_path / "replay")
+    assert not (tmp_path / "replay").exists()
+
+
+def test_replay_rejects_artifact_that_differs_from_frozen_hash(tmp_path):
+    pytest.importorskip("torch")
+    directory = tmp_path.resolve()
+    artifacts = directory / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "model.safetensors").write_bytes(b"different model")
+    (artifacts / "refiner.safetensors").write_bytes(b"policy")
+    result = verify_detection_submission(
+        artifacts,
+        directory / "unused-test",
+        directory / "logs",
+        expected_model_sha256="0" * 64,
+    )
+    assert result == {"error": {"type": "ValueError"}, "AP": 0.0}
+    assert not (directory / "logs/predictions.json").exists()
+
+
+def test_label_free_replay_uses_trusted_config_and_image_only_manifest(
+    tmp_path,
+    coco_dataset,
+    monkeypatch,
+):
+    pytest.importorskip("torch")
+    import vision_rl.detection_eval as evaluation
+    import vision_rl.detection_inference as inference
+    import vision_rl.detection_training as training
+
+    artifacts, logs = tmp_path.resolve() / "artifacts", tmp_path.resolve() / "logs"
+    artifacts.mkdir()
+    (artifacts / "model.safetensors").write_bytes(b"model")
+    (artifacts / "refiner.safetensors").write_bytes(b"policy")
+    calls = []
+
+    def load(model, **kwargs):
+        assert model.read_bytes() == b"model"
+        assert kwargs == {
+            "architecture": "nano",
+            "num_classes": 1,
+            "device": "cpu",
+            "resolution": 512,
+        }
+        return "trusted-model"
+
+    def infer(model, images, categories, config, **kwargs):
+        calls.append("infer")
+        assert model == "trusted-model" and categories == (1,)
+        assert len(images) == 1
+        assert set(images[0]) == {"id", "file_name", "width", "height", "path"}
+        assert images[0]["path"].is_file()
+        assert config.resolutions == (384, 512)
+        assert config.checkpoint_resolution == 512
+        assert config.horizontal_flip is True
+        assert config.architecture == "nano" and config.device == "cpu"
+        assert config.max_detections == 500 and config.batch_size == 1
+        assert kwargs["refinement"].read_bytes() == b"policy"
+        assert kwargs["detector_sha256"] == hashlib.sha256(b"model").hexdigest()
+        return [{"image_id": 7, "category_id": 1, "bbox": [2, 3, 5, 4], "score": 0.9}], {
+            "images": 1,
+            "elapsed_seconds": 1,
+        }
+
+    monkeypatch.setattr(training, "load_detector_safetensors", load)
+    monkeypatch.setattr(inference, "infer_images", infer)
+    monkeypatch.setattr(evaluation, "evaluate_coco", lambda *a, **kw: {"AP": 0.75})
+    result = verify_detection_submission(
+        artifacts,
+        coco_dataset / "test",
+        logs,
+        inference="label_free",
+        inference_config={
+            "resolutions": [384, 512],
+            "horizontal_flip": True,
+            "checkpoint_resolution": 512,
+        },
+    )
+    assert result == {"AP": 0.75}
+    assert calls == ["infer"]
+    assert len(json.loads((logs / "predictions.json").read_text())) == 1
+    provenance = json.loads((logs / "inference.json").read_text())
+    assert provenance["configuration"]["checkpoint_resolution"] == 512
+    assert provenance["configuration"]["resolutions"] == [384, 512]
+    assert provenance["submitted_code_executed"] is False

@@ -1,0 +1,115 @@
+{
+  "split": "validation",
+  "checkpoint_sha256": "9e973c4f882e2feeae7bd9418d732d189fc3d26019076d0b34af27becb8acdba",
+  "images": 423,
+  "candidate_selection_metric": "native COCO AP50:95 maxDets500",
+  "candidates": [
+    {
+      "name": "native",
+      "configuration": {
+        "resolutions": [
+          384
+        ],
+        "horizontal_flip": false,
+        "fusion_iou": 0.55,
+        "max_detections": 500,
+        "batch_size": 4,
+        "cpu_threads": 2,
+        "device": "cpu",
+        "architecture": "nano"
+      },
+      "AP": 0.8189655505489036,
+      "AP50": 0.9832892912873316,
+      "AP75": 0.9570143016601956,
+      "AR": 0.8746153846153846,
+      "elapsed_seconds": 60.31187466700794,
+      "images_per_second": 7.013544220527956,
+      "preprocessing_seconds": 7.881832004961325,
+      "model_forward_seconds": 49.52479149798455,
+      "postprocessing_seconds": 2.872870709950803,
+      "prediction_sha256": "c2688421aa08144ce76f70f8b660f5105218c44028aec953ecefaa74894e759a"
+    },
+    {
+      "name": "flip",
+      "configuration": {
+        "resolutions": [
+          384
+        ],
+        "horizontal_flip": true,
+        "fusion_iou": 0.55,
+        "max_detections": 500,
+        "batch_size": 4,
+        "cpu_threads": 2,
+        "device": "cpu",
+        "architecture": "nano"
+      },
+      "AP": 0.8360641605574652,
+      "AP50": 0.9855814211775308,
+      "AP75": 0.9653581792090978,
+      "AR": 0.8869230769230771,
+      "elapsed_seconds": 83.43943483299518,
+      "images_per_second": 5.069545363611804,
+      "preprocessing_seconds": 5.064301708203857,
+      "model_forward_seconds": 66.74682000491885,
+      "postprocessing_seconds": 11.584773495022091,
+      "prediction_sha256": "4a4c5a7c6f6b2effa7b79878812fd7add30871e90b0eccaaf5098c542b5b2840"
+    },
+    {
+      "name": "scales",
+      "configuration": {
+        "resolutions": [
+          384,
+          512,
+          640
+        ],
+        "horizontal_flip": false,
+        "fusion_iou": 0.55,
+        "max_detections": 500,
+        "batch_size": 4,
+        "cpu_threads": 2,
+        "device": "cpu",
+        "architecture": "nano"
+      },
+      "AP": 0.799614360875234,
+      "AP50": 0.9894132813937789,
+      "AP75": 0.9702341447670789,
+      "AR": 0.879010989010989,
+      "elapsed_seconds": 179.84502920799423,
+      "images_per_second": 2.3520249731828415,
+      "preprocessing_seconds": 10.117984839875135,
+      "model_forward_seconds": 150.36978326312965,
+      "postprocessing_seconds": 19.298583622890874,
+      "prediction_sha256": "fc5da5afad5ce1d11e2b79859f9a063798c79b92988bd582d751615da5808252"
+    },
+    {
+      "name": "scales-flip",
+      "configuration": {
+        "resolutions": [
+          384,
+          512,
+          640
+        ],
+        "horizontal_flip": true,
+        "fusion_iou": 0.55,
+        "max_detections": 500,
+        "batch_size": 4,
+        "cpu_threads": 2,
+        "device": "cpu",
+        "architecture": "nano"
+      },
+      "AP": 0.8099431944008455,
+      "AP50": 0.9907815566595324,
+      "AP75": 0.9747367033526405,
+      "AR": 0.8854395604395604,
+      "elapsed_seconds": 371.2534021669999,
+      "images_per_second": 1.1393834979853548,
+      "preprocessing_seconds": 9.958599634031998,
+      "model_forward_seconds": 298.6654041130678,
+      "postprocessing_seconds": 62.522662347138976,
+      "prediction_sha256": "b88618faa4416c2bc041636d74c398bbc3e7dff735ade2350d3e3a8ea5bd8255"
+    }
+  ],
+  "test_access": false,
+  "caveat": "Early epoch1 checkpoint; this is not the final trained detector. CPU measurements occurred while other local development/training processes were active.",
+  "selected_candidate": "flip"
+}
