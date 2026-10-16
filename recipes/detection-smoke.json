@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "detector": {
+    "architecture": "nano",
+    "device": "cpu",
+    "epochs": 1,
+    "batch_size": 1,
+    "grad_accum_steps": 1,
+    "eval_batch_size": 1,
+    "workers": 0,
+    "cpu_threads": 2,
+    "preflight_batches": 2
+  },
+  "progressive": {"epochs": 1, "preflight_batches": 2},
+  "export": {"device": "cpu", "batch_size": 1, "cpu_threads": 2},
+  "candidates": [
+    {
+      "id": "query-rl512-smoke",
+      "query_rl": {
+        "device": "cpu",
+        "cpu_threads": 1,
+        "warmup_epochs": 0,
+        "rl_epochs": 1,
+        "groups": 2,
+        "geometry_inference": "mean"
+      },
+      "inference": {"batch_size": 1, "cpu_threads": 2}
+    }
+  ],
+  "minimum_ap": 0.0,
+  "budget": {
+    "max_attempts": 2,
+    "max_wall_seconds": 1800,
+    "command_timeout_seconds": 600
+  }
+}

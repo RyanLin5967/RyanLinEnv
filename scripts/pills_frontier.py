@@ -18,6 +18,37 @@ from dotenv import load_dotenv
 from vision_rl.data import write_json
 
 BENCHMARK = "RF100-VL/countingpills-exf0r-gfkt/v2"
+ROUTER_COORDINATES = {"qwen": "xyxy_1000", "kimi": "named_normalized"}
+
+
+def router_protocol_fields(provider):
+    return {
+        "coordinate_format": ROUTER_COORDINATES[provider], "privacy_level": "deny",
+        "quantizations": ["fp8", "bf16", "fp32"] if provider == "qwen" else None,
+    }
+
+
+def router_prompt(categories, provider, rich=True):
+    if provider == "qwen":
+        return gemini_structured_prompt(categories, rich).replace(
+            "ymin,xmin,ymax,xmax", "xmin,ymin,xmax,ymax"
+        )
+    labels = [item["name"] for item in categories]
+    detail = (
+        " Detect every visible individual pill/tablet. Include its full visible extent; "
+        "for partly obscured pills estimate the full shape from visible portions. "
+        "Exclude shadows, reflections, and objects too indistinct to identify as pills."
+        if rich and labels == ["pill"] else ""
+    )
+    return (
+        f"Locate every object belonging to these classes: {json.dumps(labels)}.{detail} "
+        'Return JSON {"detections":[{"x_min":0.1,"y_min":0.2,"x_max":0.3,"y_max":0.4,'
+        '"class_name":"class name","confidence":0.95}]}. '
+        "Coordinates must be normalized to 0..1 relative to the entire image: "
+        "x_min/y_min are top-left and x_max/y_max are bottom-right. "
+        "Confidence is from 0 to 1. Use only the listed labels. "
+        'Return {"detections":[]} if no objects are present.'
+    )
 
 
 def gemini_response_schema(categories):
@@ -141,13 +172,14 @@ def image_path(directory, item):
 def build_protocol(args):
     """Describe fixed image bytes and prompts without running inference."""
     from vision_rl.detection_eval import detection_prompt, load_coco
+    from vision_rl.frontier import PROVIDERS
 
     source = args.source.resolve()
     split = "valid" if args.split == "validation" else args.split
     annotation = source / split / "_annotations.coco.json"
     dataset = load_coco(annotation)
     provider = getattr(args, "provider", "gemini")
-    if provider not in {"gemini", "anthropic", "openai"}:
+    if provider not in PROVIDERS:
         raise ValueError("Unsupported protocol provider")
     detail = getattr(args, "image_detail", None)
     structured = getattr(args, "structured_output", False)
@@ -169,6 +201,8 @@ def build_protocol(args):
         prompt = gemini_structured_prompt(dataset["categories"], rich=args.prompt == "rich")
     if provider == "openai":
         prompt = astra_prompt(dataset["categories"], "{width}", "{height}", args.prompt == "rich")
+    elif provider in ROUTER_COORDINATES:
+        prompt = router_prompt(dataset["categories"], provider, args.prompt == "rich")
 
     def item_prompt(item):
         if provider == "openai":
@@ -196,6 +230,15 @@ def build_protocol(args):
                 if ann["image_id"] != item["id"]:
                     continue
                 x, y, w, h = ann["bbox"]
+                if provider == "kimi":
+                    boxes.append({
+                        "x_min": round(x / item["width"], 6),
+                        "y_min": round(y / item["height"], 6),
+                        "x_max": round((x + w) / item["width"], 6),
+                        "y_max": round((y + h) / item["height"], 6),
+                        "class_name": names[ann["category_id"]], "confidence": 1.0,
+                    })
+                    continue
                 coordinates = (
                     [round(x), round(y), round(x + w), round(y + h)]
                     if provider == "openai"
@@ -208,6 +251,8 @@ def build_protocol(args):
                 )
                 if structured:
                     coordinates = [round(value) for value in coordinates]
+                elif provider == "qwen":
+                    coordinates = [round(coordinates[i]) for i in (1, 0, 3, 2)]
                 boxes.append(
                     {"box_2d": coordinates, "label": names[ann["category_id"]]}
                     if structured
@@ -221,7 +266,7 @@ def build_protocol(args):
                     "image": str(path),
                     "prompt": item_prompt(item),
                     "response": json.dumps(
-                        {"detections": boxes} if provider == "openai" else boxes
+                        {"detections": boxes} if provider in {"openai", "kimi"} else boxes
                     ),
                     "file_sha256": sha(path),
                 }
@@ -269,6 +314,8 @@ def build_protocol(args):
             structured_output=True,
             response_schema=gemini_response_schema(dataset["categories"]),
         )
+    elif provider in ROUTER_COORDINATES:
+        protocol.update(schema_version=2, provider=provider, **router_protocol_fields(provider))
     return protocol
 
 
@@ -287,7 +334,7 @@ def protocol_identity(protocol):
 
 
 def baseline_config(config):
-    from vision_rl.frontier import PROVIDERS
+    from vision_rl.frontier import DEFAULT_EFFORTS, PROVIDERS, SUPPORTED_EFFORTS
 
     allowed = {
         "provider",
@@ -303,6 +350,8 @@ def baseline_config(config):
         "image_detail",
         "coordinate_format",
         "structured_output",
+        "privacy_level",
+        "quantizations",
     }
     if not isinstance(config, dict) or set(config) - allowed:
         raise ValueError("Unknown frozen baseline configuration field")
@@ -313,7 +362,7 @@ def baseline_config(config):
     if type(structured) is not bool or (structured and provider != "gemini"):
         raise ValueError("structured_output is an explicit Gemini-only boolean setting")
     result = {
-        "effort": "adaptive" if provider == "anthropic" else "high",
+        "effort": DEFAULT_EFFORTS[provider],
         "max_output_tokens": 16384,
         "prompt": "rich",
         "seed": 1729,
@@ -323,14 +372,7 @@ def baseline_config(config):
         "retry_delay_seconds": 2.0,
         **config,
     }
-    if (
-        (provider == "gemini" and result["effort"] not in {"high", "low"})
-        or (provider == "anthropic" and result["effort"] != "adaptive")
-        or (
-            provider == "openai"
-            and result["effort"] not in {"low", "medium", "high", "xhigh", "max"}
-        )
-    ):
+    if result["effort"] not in SUPPORTED_EFFORTS[provider]:
         raise ValueError("Frozen baseline has unsupported effort")
     if provider == "openai":
         result.setdefault("image_detail", "original")
@@ -339,11 +381,22 @@ def baseline_config(config):
             raise ValueError("Frozen baseline has unsupported image_detail")
         if result["coordinate_format"] != "xyxy_pixels":
             raise ValueError("Astra requires the explicit xyxy_pixels coordinate protocol")
+    elif provider in ROUTER_COORDINATES:
+        for key, value in router_protocol_fields(provider).items():
+            result.setdefault(key, value)
+            if result[key] != value:
+                raise ValueError("Frozen OpenRouter routing differs from declared defaults")
+        if "image_detail" in config or result["max_output_tokens"] > 16384:
+            raise ValueError("Unsupported OpenRouter detail or token ceiling")
     elif "image_detail" in config or (
         "coordinate_format" in config
         and not (structured and config["coordinate_format"] == "yxyx_1000")
     ):
         raise ValueError("OpenAI-specific protocol fields cannot configure another provider")
+    if provider not in ROUTER_COORDINATES and any(
+        key in config for key in ("privacy_level", "quantizations")
+    ):
+        raise ValueError("OpenRouter routing cannot configure another provider")
     if structured:
         result["coordinate_format"] = "yxyx_1000"
     else:
@@ -501,6 +554,128 @@ def prepare(args):
     )
 
 
+def complement_settings(protocol):
+    """Fields that must remain identical when extending a validation sample."""
+    return {
+        key: value for key, value in protocol_identity(protocol).items()
+        if key not in {"rows", "selection", "validation_complement"}
+    }
+
+
+def checked_discovery(input_path, run_path):
+    """Bind an existing validation protocol to the actual original request identity."""
+    from vision_rl import frontier
+
+    protocol = json.loads(Path(input_path).read_text())
+    if protocol.get("split") != "validation" or protocol.get("validation_complement"):
+        raise ValueError("Complement source must be an original validation discovery protocol")
+    verify_protocol(protocol)
+    run = json.loads(Path(run_path).read_text())
+    if run.get("identity_sha256") != frontier._digest(run["identity"]):
+        raise ValueError("Discovery run identity checksum changed")
+    for name in ("rows", "examples"):
+        prepared = [
+            frontier._public(frontier._prepare(row, example=name == "examples"))
+            for row in protocol[name]
+        ]
+        if prepared != run["identity"][name]:
+            raise ValueError("Discovery run images, prompts, or examples disagree with protocol")
+    config = run["identity"]["config"]
+    if (
+        config.get("response_schema") != protocol.get("response_schema")
+        or config.get("response_format") != protocol.get("response_format")
+        or config.get("image_detail") != protocol.get("image_detail")
+        or config.get("privacy_level") != protocol.get("privacy_level")
+        or config.get("quantizations") != protocol.get("quantizations")
+        or config["max_requests"] != len(protocol["rows"]) * (
+            1 + config.get("max_transient_retries", 0)
+        )
+    ):
+        raise ValueError("Discovery request settings disagree with prepared protocol")
+    if protocol.get("provider") and config["provider"] != protocol["provider"]:
+        raise ValueError("Discovery provider disagrees with protocol")
+    return protocol, config
+
+
+def prepare_complement(args):
+    """Extend a fixed discovery protocol to all remaining native validation images."""
+    if args.output.exists():
+        raise ValueError("Choose a new output directory; prepared experiments are immutable")
+    input_path = (args.input / "inputs.json").resolve()
+    run_path = (args.from_run / "run.json").resolve()
+    discovery, config = checked_discovery(input_path, run_path)
+    full = build_protocol(
+        SimpleNamespace(
+            source=Path(discovery["annotation"]).parent.parent,
+            split="validation", count=None, seed=discovery["sampling_seed"],
+            prompt=discovery["prompt_mode"], examples=len(discovery["examples"]),
+            provider=config["provider"], image_detail=discovery.get("image_detail"),
+            structured_output=discovery.get("structured_output", False),
+        )
+    )
+    if complement_settings(full) != complement_settings(discovery):
+        raise ValueError("Reconstructed protocol differs from discovery settings or examples")
+    expected = {row["id"]: row for row in full["rows"]}
+    if any(row != expected.get(row["id"]) for row in discovery["rows"]):
+        raise ValueError("Reconstructed discovery image prompts or hashes differ")
+    excluded = [row["id"] for row in discovery["rows"]]
+    full["rows"] = [row for row in full["rows"] if row["id"] not in set(excluded)]
+    if not full["rows"]:
+        raise ValueError("Discovery already includes every validation image")
+    full["selection"] = "all native validation images outside pinned discovery sample"
+    full["validation_complement"] = {
+        "source_inputs": {"path": str(input_path), "sha256": sha(input_path)},
+        "source_run": {"path": str(run_path), "sha256": sha(run_path)},
+        "excluded_ids": excluded,
+        "request_config": config,
+        "scope": "Development confirmation only; never a final-test result or final win.",
+    }
+    verify_protocol(full)
+    args.output.mkdir(parents=True)
+    write_json(args.output / "inputs.json", full)
+    print(json.dumps({
+        "prepared": str(args.output), "split": "validation", "images": len(full["rows"]),
+        "excluded": len(excluded),
+    }))
+
+
+def verify_complement(protocol, images):
+    """Prevent changing settings, sampling a subset, or re-answering discovery images."""
+    reference = protocol["validation_complement"]
+    if protocol["split"] != "validation":
+        raise ValueError("Complements are validation-only")
+    for key in ("source_inputs", "source_run"):
+        source = reference[key]
+        if sha(source["path"]) != source["sha256"]:
+            raise ValueError("Pinned complement discovery source changed")
+    discovery, config = checked_discovery(
+        reference["source_inputs"]["path"], reference["source_run"]["path"]
+    )
+    if reference["request_config"] != config:
+        raise ValueError("Complement request settings differ from discovery run")
+    if complement_settings(protocol) != complement_settings(discovery):
+        raise ValueError("Complement protocol settings or examples differ from discovery")
+    excluded = [row["id"] for row in discovery["rows"]]
+    if reference["excluded_ids"] != excluded:
+        raise ValueError("Complement excluded IDs differ from pinned discovery")
+    expected = sorted(
+        [item for identifier, item in images.items() if identifier not in set(excluded)],
+        key=lambda row: hashlib.sha256(
+            f"{protocol['sampling_seed']}:{row['file_name']}".encode()
+        ).hexdigest(),
+    )
+    if [row["id"] for row in protocol["rows"]] != [str(item["id"]) for item in expected]:
+        raise ValueError("Complement must contain every remaining validation image in fixed order")
+    for row in protocol["rows"]:
+        prompt = protocol["prompt"]
+        if protocol.get("provider") == "openai":
+            prompt = prompt.replace("{width}", str(row["width"])).replace(
+                "{height}", str(row["height"])
+            )
+        if row["prompt"] != prompt:
+            raise ValueError("Complement image prompt differs from pinned template")
+
+
 def verify_protocol(protocol):
     from vision_rl.detection_eval import load_coco
 
@@ -517,7 +692,9 @@ def verify_protocol(protocol):
             or protocol.get("coordinate_format") != "xyxy_pixels"
             or protocol.get("image_detail") not in {"low", "high", "original", "auto"}
             or protocol.get("response_format") != astra_response_format(dataset["categories"])
-            or any(key in protocol for key in ("response_schema", "structured_output"))
+            or any(key in protocol for key in (
+                "response_schema", "structured_output", "privacy_level", "quantizations"
+            ))
         ):
             raise ValueError("Invalid explicit OpenAI coordinate/image/schema protocol")
     elif protocol.get("provider") == "gemini":
@@ -526,14 +703,28 @@ def verify_protocol(protocol):
             or protocol.get("structured_output") is not True
             or protocol.get("coordinate_format") != "yxyx_1000"
             or protocol.get("response_schema") != gemini_response_schema(dataset["categories"])
-            or any(key in protocol for key in ("image_detail", "response_format"))
+            or any(key in protocol for key in (
+                "image_detail", "response_format", "privacy_level", "quantizations"
+            ))
         ):
             raise ValueError("Invalid explicit Gemini structured-output protocol")
+    elif protocol.get("provider") in ROUTER_COORDINATES:
+        if (
+            protocol.get("schema_version") != 2
+            or any(protocol.get(key) != value for key, value in router_protocol_fields(
+                protocol["provider"]
+            ).items())
+            or any(key in protocol for key in (
+                "image_detail", "response_format", "response_schema", "structured_output"
+            ))
+        ):
+            raise ValueError("Invalid explicit OpenRouter detection/routing protocol")
     elif any(
         key in protocol
         for key in (
             "coordinate_format", "image_detail", "response_format", "response_schema",
             "structured_output",
+            "privacy_level", "quantizations",
         )
     ):
         raise ValueError("Unexpected provider-specific protocol fields")
@@ -554,6 +745,8 @@ def verify_protocol(protocol):
     for row in [*protocol["rows"], *protocol["examples"]]:
         if sha(row["image"]) != row["file_sha256"]:
             raise ValueError("Image changed after experiment preparation")
+    if "validation_complement" in protocol:
+        verify_complement(protocol, images)
     reference = protocol.get("frozen_experiment")
     if protocol["split"] == "test" and not reference:
         raise ValueError("Final test requires a verified freeze record")
@@ -582,6 +775,8 @@ def frozen_baseline(frozen, protocol, args):
         settings.update(image_detail=protocol["image_detail"], coordinate_format="xyxy_pixels")
     elif protocol.get("structured_output"):
         settings.update(structured_output=True, coordinate_format="yxyx_1000")
+    elif args.provider in ROUTER_COORDINATES:
+        settings.update(router_protocol_fields(args.provider))
     matches = [
         entry
         for entry in frozen["baselines"]
@@ -706,6 +901,16 @@ def run(args):
         "image_detail"
     ):
         raise ValueError("Image detail differs from prepared protocol")
+    complement_config = protocol.get("validation_complement", {}).get("request_config")
+    if complement_config:
+        actual = {
+            "provider": args.provider, "model": args.model, "effort": args.effort,
+            "max_output_tokens": args.max_tokens, "max_inflight": args.concurrency,
+            "max_transient_retries": args.max_transient_retries,
+            "retry_delay_seconds": args.retry_delay_seconds,
+        }
+        if any(actual[key] != complement_config.get(key) for key in actual):
+            raise ValueError("Complement runtime settings differ from pinned discovery run")
     if frozen:
         baseline = frozen_baseline(frozen, protocol, args)
         reserve_final_output(protocol["frozen_experiment"], baseline, args.output, args.resume)
@@ -723,6 +928,9 @@ def run(args):
         image_detail=protocol.get("image_detail"),
         response_format=protocol.get("response_format"),
         response_schema=protocol.get("response_schema"),
+        privacy_level=protocol.get("privacy_level"),
+        quantizations=protocol.get("quantizations"),
+        timeout_seconds=complement_config["timeout_seconds"] if complement_config else 240,
         **policy,
     )
     # Never score against labels or protocol bytes that changed while requests ran.
@@ -745,6 +953,14 @@ def run(args):
             "coordinate_format": protocol.get("coordinate_format", "yxyx_1000"),
             "image_detail": protocol.get("image_detail", "provider-default"),
             "structured_output": bool(protocol.get("structured_output")),
+            **(
+                {key: protocol[key] for key in ("privacy_level", "quantizations")}
+                if args.provider in ROUTER_COORDINATES else {}
+            ),
+            **(
+                {"validation_complement": protocol["validation_complement"]}
+                if complement_config else {}
+            ),
         },
     )
     write_json(args.output / "detections.json", report.pop("detections"))
@@ -763,6 +979,7 @@ def run(args):
 
 
 def main():
+    from vision_rl.frontier import PROVIDERS
     load_dotenv(Path.cwd() / ".env", override=False)
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -775,12 +992,16 @@ def main():
     p.add_argument("--prompt", choices=["minimal", "rich"], default="rich")
     p.add_argument("--examples", type=int, choices=range(0, 5), default=0)
     p.add_argument("--freeze", type=Path)
-    p.add_argument("--provider", choices=["gemini", "anthropic", "openai"], default="gemini")
+    p.add_argument("--provider", choices=list(PROVIDERS), default="gemini")
     p.add_argument("--image-detail", choices=["low", "high", "original", "auto"])
     p.add_argument(
         "--structured-output", action="store_true",
         help="Gemini only: native schema-constrained normalized boxes (new explicit protocol)",
     )
+    c = sub.add_parser("prepare-complement", help="extend fixed discovery to remaining validation")
+    c.add_argument("--input", type=Path, required=True, help="original discovery input directory")
+    c.add_argument("--from-run", type=Path, required=True, help="original completed run directory")
+    c.add_argument("--output", type=Path, required=True)
     f = sub.add_parser("freeze", help="pin checkpoint bytes and final baseline protocols")
     f.add_argument("--source", type=Path, required=True)
     f.add_argument("--checkpoint", type=Path, required=True)
@@ -796,7 +1017,7 @@ def main():
     r = sub.add_parser("run")
     r.add_argument("--input", type=Path, required=True)
     r.add_argument("--output", type=Path, required=True)
-    r.add_argument("--provider", choices=["gemini", "anthropic", "openai"], required=True)
+    r.add_argument("--provider", choices=list(PROVIDERS), required=True)
     r.add_argument("--model", required=True)
     r.add_argument("--effort", default="high")
     r.add_argument("--max-tokens", type=int, default=16384)
@@ -831,7 +1052,8 @@ def main():
             )
         )
     else:
-        (prepare if args.command == "prepare" else run)(args)
+        commands = {"prepare": prepare, "prepare-complement": prepare_complement, "run": run}
+        commands[args.command](args)
 
 
 if __name__ == "__main__":

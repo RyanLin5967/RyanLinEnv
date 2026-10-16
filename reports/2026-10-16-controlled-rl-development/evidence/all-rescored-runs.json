@@ -1,0 +1,837 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-16T05:05:49.055862+00:00",
+  "complete": true,
+  "scope": "Offline validation evaluator revision; no final-test access",
+  "amendment": {
+    "schema_version": 1,
+    "created_at": "2026-10-16T05:05:24.546564+00:00",
+    "phase": "Development validation only; recorded before revised scores are computed. Native200 test remains sealed.",
+    "decision": "Accept bbox_2d as an explicit mutually exclusive alias alongside box and box_2d for every array coordinate format. Native named-normalized format still rejects array aliases.",
+    "motivation": "Actual Qwen replies used the documented bbox_2d field. Rejecting that field measured a naming mismatch rather than localization.",
+    "primary_source": {
+      "url": "https://github.com/QwenLM/Qwen3-VL/blob/96588727e44c78b25ba03ea03b8e12f7e64fd0da/cookbooks/2d_grounding.ipynb",
+      "scope": "Official family grounding cookbook documents bbox_2d with XYXY relative0..1000. Current Qwen3.8 model card lacks a separate grounding schema; no claim that it documents this schema."
+    },
+    "unchanged": [
+      "Model outputs and all native HTTP attempt journals",
+      "Every prompt, image bytes, examples, native model settings",
+      "Declared coordinate order and scale; no automatic guessing, clipping, inversion repair, class-name rewriting, or answer selection",
+      "COCO AP50:95 metric and original image denominators"
+    ],
+    "application": "Rescore every recorded validation experiment consistently, including all providers,smokes,discovery,and interruptedconfirmation. Keep old scores and nativejournals byte-identical; write new immutable nested artifact bundle. Credit-stopped scopes remain ineligible.",
+    "new_hosted_calls": 0,
+    "candidate_count": 25,
+    "candidates": [
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-fewshot-48",
+        "original_evaluation_sha256": "9ee890b25c683c87f9b3cff4e8cd7f78f4c1477471d98daf33d31e3987d44af3",
+        "original_journal_sha256": "f1c5c69b3b4d188ae1eb43dc6ffd88ad6dbc14794e79b9d8894aef762e5adaed"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-low-rich-48",
+        "original_evaluation_sha256": "c72e73db8ea94abb398b7b559a4054ac3250c1af6cf00f34176e720857ba6c14",
+        "original_journal_sha256": "ab9a07b65a41b44ce8c41e464ab777894a740869c37ed460bfd6cddeb197308b"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-minimal-48",
+        "original_evaluation_sha256": "16b834d6ce9867d46f2782d6f575571acdaa5da89011ecb60b6bacc956cf62db",
+        "original_journal_sha256": "1908cb8c67982d9211407bdcea054ac8d4878b070a7b8e3c9f76333d65f52fd1"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-rich-48",
+        "original_evaluation_sha256": "94eb4c286d8ecb4639a3bc6aa54a7c72b368f1d0df9b76bd11ea8191ec881983",
+        "original_journal_sha256": "15d841b0b86540d2e8e90d594d64df0816814a0c7b6d7dda85ccc0129812d859"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-rich-retry2-48",
+        "original_evaluation_sha256": "60f746c3ebe2693682435de74089707a52c09e395c68a71476c8992047c70f86",
+        "original_journal_sha256": "a4e15ce08f81818c79b07298403b2f9896116014426be56a81540bcc1f7b2fc1"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+        "result": "$WORKSPACE/runs/pills-study/argon-rich-smoke",
+        "original_evaluation_sha256": "5fce41189c55e685114e0fc2200e1f5747e2762f624934da5dd822742f536ed8",
+        "original_journal_sha256": "6f903b2f630677eb73ede294d5090338709b20fc05bb1b408227e5d2a6361d75"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48",
+        "original_evaluation_sha256": "8d6efcc8813901b9fecf4a252e9b72a13e8ef2694fc0eb42aa642442b1943037",
+        "original_journal_sha256": "16849ba42880571ab531eabe53b7813841d9ec9c9bc7e49cb33be4318b13b135"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-complement375",
+        "result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375",
+        "original_evaluation_sha256": "e324cc1ea9ea38049776776e31f6cddfa4aa762bffe7bf491a8243084d5ed568",
+        "original_journal_sha256": "d662598a0519db57c96d30274c1ea800ca5a4aaa84a794b117b95ecf387b06f7"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/argon-structured-rich-48",
+        "original_evaluation_sha256": "fba06cda9a9359563928e5d05a14e57830ab1a85a33f42de0edb5038bf7ca3b9",
+        "original_journal_sha256": "40d652ea6bdce679d5919eb7de2de1b78d18e46726bd0f10c4b35d137fd192e6"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/astra-fewshot-48",
+        "original_evaluation_sha256": "1f880c6177977d459333904d99ad7badc3d2b42797db7a457d71589181c28bbd",
+        "original_journal_sha256": "9365c19d5d4b4615a50d121787a2dfbaa89bdf56a7f88b0a021b247810b71958"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/astra-max-fewshot-48",
+        "original_evaluation_sha256": "196aaccf94bfba4068467d116a31163d2d0b469ec0849831278e3eb362bb02a2",
+        "original_journal_sha256": "546b7892d9f4d95d251343fa45aeb874a79ee686aab1c2f58deff66267cdbc17"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-astra-minimal-48",
+        "result": "$WORKSPACE/runs/pills-study/astra-minimal-48",
+        "original_evaluation_sha256": "6c79b1bfd130bca23216f2bdda26ae9372877b39f760b632087300c43a3b0ee4",
+        "original_journal_sha256": "99fa1258ef3a81f40cbcff216f2523c7a8a14eebf60687c60b0c62cd560ef60a"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-astra-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/astra-rich-48",
+        "original_evaluation_sha256": "9d70760c888ef698222487dbdc7e83310ae809aff7d9932baf0b72292bf013ba",
+        "original_journal_sha256": "2dcb75c111a04af4d634f41c80f1ed506839548faea5ec7ed84a8683fd34a6ed"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-astra-rich-smoke",
+        "result": "$WORKSPACE/runs/pills-study/astra-rich-smoke",
+        "original_evaluation_sha256": "e1293cc9de392e2f2d6f6e475606fe0f808070f1fa414fc1bfc1a82502775541",
+        "original_journal_sha256": "a021a620a4af1d04f5c3ce8757aea3eab88d7f60d8aa67017a53b2fc627846e5"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-kimi-minimal-48",
+        "result": "$WORKSPACE/runs/pills-study/kimi-minimal-48",
+        "original_evaluation_sha256": "44877895d02b33886bde8cb158d1d0c92f3d6d234db8c9ba72a2b325869d34a6",
+        "original_journal_sha256": "5b3684a3e4e3430791860642f4909454e74e3b2473fff464da33ccb264a0f385"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/kimi-rich-48",
+        "original_evaluation_sha256": "59dc22bbb9869e5576e1c3a9477b4c3ef966bd851563cf3a2c75b458ff8fb81f",
+        "original_journal_sha256": "f2d3b70711d9b35efb704afd9de72f51ff5a7361e388037e35221386d68d1d45"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-smoke",
+        "result": "$WORKSPACE/runs/pills-study/kimi-rich-smoke",
+        "original_evaluation_sha256": "eb3cdb8087feba28d1e61c68a700b60c823755d484fe99086ecbe76c20c9ece8",
+        "original_journal_sha256": "9b5de1f1379528ff5832676c14333109270f58dba310d2e1dc4b100c47c586c2"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/opus-fewshot-48",
+        "original_evaluation_sha256": "57bc8312065e822b7ff2e934e11db1066e1685e157c8171f99e21a1b345e12a9",
+        "original_journal_sha256": "e54be083dae424e80a3b68060207ab2080f504ed217d94bb34adb23d091e1395"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+        "result": "$WORKSPACE/runs/pills-study/opus-minimal-48",
+        "original_evaluation_sha256": "2eff8576c303406cd83d41d2ac6fe95c02fc0e2dfcb5ce219aa5d00706ebb19b",
+        "original_journal_sha256": "31b4311d16e875d270f583187d6bb80b8034d35e2669ba49ebec83255bc2938b"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/opus-rich-48",
+        "original_evaluation_sha256": "418502d9801e10bae9760ac894756042a6b6df903d9dd35c000d942ae894052b",
+        "original_journal_sha256": "669d694f1b7705443ccc9ddb993ac07f7f41b61327082d8e9fc8fe2228def7d3"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+        "result": "$WORKSPACE/runs/pills-study/opus-rich-smoke",
+        "original_evaluation_sha256": "253776bcd3f33c4af7c02b10bc808c31d6a0c1bea5e359160e02e4d45d0162b9",
+        "original_journal_sha256": "f16310fc041adc4f34aece7a241bb8eaea8142407c654828fe1192215b088afc"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-qwen-fewshot-48",
+        "result": "$WORKSPACE/runs/pills-study/qwen-fewshot-48",
+        "original_evaluation_sha256": "7fb4fd0c36069ee8271cdd55773a6d69468e8f46a11907de64a58e30475ed6d1",
+        "original_journal_sha256": "e87250c7a00b09ac5770f48fcf4756fb18bc3d46524031aa8904656edea4af19"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-qwen-minimal-48",
+        "result": "$WORKSPACE/runs/pills-study/qwen-minimal-48",
+        "original_evaluation_sha256": "0e1940ee7ead391554d9018ce78ffc02743e6a624f82e60ba46a07939541af5d",
+        "original_journal_sha256": "b454c962746e774bd0ce310f98d87579723e22de304d7caa6441bbcd4dacece3"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-48",
+        "result": "$WORKSPACE/runs/pills-study/qwen-rich-48",
+        "original_evaluation_sha256": "3d403741d75698d574400bbad25af7dc8d79f5b3579749136ba8a7e05ec6e0b7",
+        "original_journal_sha256": "0dd2199218e33d8c866435adaea1e23639140fbc946526b3ca93b66283660b13"
+      },
+      {
+        "input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-smoke",
+        "result": "$WORKSPACE/runs/pills-study/qwen-rich-smoke",
+        "original_evaluation_sha256": "8e9b041f9c507be33f1095b5dd556777c628c2acf0301d043969168829744b8b",
+        "original_journal_sha256": "e1a8776372945e86274d565e473ef95d5567a455e3d3a4492d5660b3cc3237cd"
+      }
+    ],
+    "evaluator_after_alias_sha256": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+    "destination": "runs/pills-study/validation-rescore-bbox2d-v1"
+  },
+  "source_hashes": {
+    "$WORKSPACE/runs/pills-study/bbox2d-alias-before-rescore-amendment.json": "1347f8c9ce9e60d90b17b10de5fc4b680ab36a53cfdfc8ffeb3cdd8088e33afa",
+    "$WORKSPACE/runs/pills-study/validation-fewshot-48/inputs.json": "36777b6bf138e2b35a7b4f25ea9a82a7415872a26d30a09b5feffb4185378055",
+    "$WORKSPACE/runs/pills-study/argon-fewshot-48/run.json": "bd0711f41308eaace302191810a6633723eb3e56622691df0103b4db7f10b8a1",
+    "$WORKSPACE/runs/pills-study/argon-fewshot-48/attempts.jsonl": "f1c5c69b3b4d188ae1eb43dc6ffd88ad6dbc14794e79b9d8894aef762e5adaed",
+    "$WORKSPACE/runs/pills-study/argon-fewshot-48/predictions.jsonl": "9d57d9fded63e035296070c0ab3b5855868387066f02beaa29233f9d22174dde",
+    "$WORKSPACE/runs/pills-study/argon-fewshot-48/summary.json": "b3876a44abf151274a0de517eadbc8b69e8c6c6bc963a390521848c8443bb6d9",
+    "$WORKSPACE/runs/pills-study/argon-fewshot-48/evaluation.json": "9ee890b25c683c87f9b3cff4e8cd7f78f4c1477471d98daf33d31e3987d44af3",
+    "$WORKSPACE/runs/pills-study/validation-rich-48/inputs.json": "f6b8b9d6165553571d79859e765067738f9c459e2e76509df36b1dd3c218a01d",
+    "$WORKSPACE/runs/pills-study/argon-low-rich-48/run.json": "b6cfd3490ce82c005133a2d35a1a7104b072ec4c8b3844edeffd523eb48881b1",
+    "$WORKSPACE/runs/pills-study/argon-low-rich-48/attempts.jsonl": "ab9a07b65a41b44ce8c41e464ab777894a740869c37ed460bfd6cddeb197308b",
+    "$WORKSPACE/runs/pills-study/argon-low-rich-48/predictions.jsonl": "0a53d67a89e51266f94310017c0f3c996890833dd52a16926c65af73e1bca20e",
+    "$WORKSPACE/runs/pills-study/argon-low-rich-48/summary.json": "406da1cdaad17f67269c01be34ccec60159699afe117c920ff656c37c1c3ba59",
+    "$WORKSPACE/runs/pills-study/argon-low-rich-48/evaluation.json": "c72e73db8ea94abb398b7b559a4054ac3250c1af6cf00f34176e720857ba6c14",
+    "$WORKSPACE/runs/pills-study/validation-minimal-48/inputs.json": "88cd2a5a62982d6930a946fa655b09a181c7bf06e57f671df63240ec06cdb370",
+    "$WORKSPACE/runs/pills-study/argon-minimal-48/run.json": "727b8d9e7784e872b1ffaaacce164fc7734cc76fe3518d631fee860d2fb905cd",
+    "$WORKSPACE/runs/pills-study/argon-minimal-48/attempts.jsonl": "1908cb8c67982d9211407bdcea054ac8d4878b070a7b8e3c9f76333d65f52fd1",
+    "$WORKSPACE/runs/pills-study/argon-minimal-48/predictions.jsonl": "4cf55ee6bace54f4ddbd21957f28fa8034fe1a52fc13e800ce72cd2ee7429dfd",
+    "$WORKSPACE/runs/pills-study/argon-minimal-48/summary.json": "b48f547c5fd79c54807d6508b7243e7349715d8780f398a7fd59b6f6e30d9dd4",
+    "$WORKSPACE/runs/pills-study/argon-minimal-48/evaluation.json": "16b834d6ce9867d46f2782d6f575571acdaa5da89011ecb60b6bacc956cf62db",
+    "$WORKSPACE/runs/pills-study/argon-rich-48/run.json": "eeb4e6e3cf5711e65b2beefb584267c030420af656888d6fa0063adab6c2ef3f",
+    "$WORKSPACE/runs/pills-study/argon-rich-48/attempts.jsonl": "15d841b0b86540d2e8e90d594d64df0816814a0c7b6d7dda85ccc0129812d859",
+    "$WORKSPACE/runs/pills-study/argon-rich-48/predictions.jsonl": "5338aa1f6bae925784e5b6e52c92d3daeae8265a7325252a8d127c21699adbc5",
+    "$WORKSPACE/runs/pills-study/argon-rich-48/summary.json": "a6b877ef077a88f9a5e177b2e6d2100a41a3b658c6041f76d62ca05515bc7611",
+    "$WORKSPACE/runs/pills-study/argon-rich-48/evaluation.json": "94eb4c286d8ecb4639a3bc6aa54a7c72b368f1d0df9b76bd11ea8191ec881983",
+    "$WORKSPACE/runs/pills-study/argon-rich-retry2-48/run.json": "01459fb775433a3abb724a1b5fbaac93b0e768c9b6b1b2f2d351fd9e8a4ed4af",
+    "$WORKSPACE/runs/pills-study/argon-rich-retry2-48/attempts.jsonl": "a4e15ce08f81818c79b07298403b2f9896116014426be56a81540bcc1f7b2fc1",
+    "$WORKSPACE/runs/pills-study/argon-rich-retry2-48/predictions.jsonl": "88df3f1644430c2bf4845adfbee5f883fe8daa55087167ee27f1986415c68ff0",
+    "$WORKSPACE/runs/pills-study/argon-rich-retry2-48/summary.json": "897f9a926e2a16026c72f21d1f6a11a228817bafb87f5c436fb6ee5d22591cd3",
+    "$WORKSPACE/runs/pills-study/argon-rich-retry2-48/evaluation.json": "60f746c3ebe2693682435de74089707a52c09e395c68a71476c8992047c70f86",
+    "$WORKSPACE/runs/pills-study/validation-rich-smoke/inputs.json": "706b1f5d0746a08a5de75da9bda798ee0d62a9737981b5139a41ebe4cc53d7d4",
+    "$WORKSPACE/runs/pills-study/argon-rich-smoke/run.json": "113f5356e78da333336ae6d47323cc14b364f8b3d6f088665f492f0545eea746",
+    "$WORKSPACE/runs/pills-study/argon-rich-smoke/attempts.jsonl": "6f903b2f630677eb73ede294d5090338709b20fc05bb1b408227e5d2a6361d75",
+    "$WORKSPACE/runs/pills-study/argon-rich-smoke/predictions.jsonl": "ff6f6a64da6761eb7c202ca4fd5368a47748e537a7157ffeef6a7df16b468fb1",
+    "$WORKSPACE/runs/pills-study/argon-rich-smoke/summary.json": "a86e6301a6f18366d580783504c1f58e8e349d3253e7183c618040a1f1263d86",
+    "$WORKSPACE/runs/pills-study/argon-rich-smoke/evaluation.json": "5fce41189c55e685114e0fc2200e1f5747e2762f624934da5dd822742f536ed8",
+    "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-48/inputs.json": "0c23256a75a85274577d3b490a1c5bcebed935fe39643885f93310deb6da03ad",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48/run.json": "fae2afe2a653621d267fdf5d3dfbbdc47b8d9edcb9ac0052acc01e0cf9906dbe",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48/attempts.jsonl": "16849ba42880571ab531eabe53b7813841d9ec9c9bc7e49cb33be4318b13b135",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48/predictions.jsonl": "069b440bdc3d2906e5c21272f38bb53b64b174d91c2886bd0ba979220c711871",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48/summary.json": "f99d1766469e8ef850a23c73f7859cf172c8350372f894cd78455f4fa606f470",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48/evaluation.json": "8d6efcc8813901b9fecf4a252e9b72a13e8ef2694fc0eb42aa642442b1943037",
+    "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-complement375/inputs.json": "a008114ca386b18efb29a0328a1f413a5eb5ec5f44da3dc00d56a6ce2d2ed710",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375/run.json": "f21660cec94668664b8c066329136aadcd9936a4d87a06705a30ed86c061de5f",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375/attempts.jsonl": "d662598a0519db57c96d30274c1ea800ca5a4aaa84a794b117b95ecf387b06f7",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375/predictions.jsonl": "9462b42b23978a6845633bebfbcfd50dfe36f625f0d66be836e8ee6de4adeabd",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375/summary.json": "f0130700fe2b845d23efdcae7b5bb5d171d901dac1b86d9df2d4b79c29fb7f24",
+    "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375/evaluation.json": "e324cc1ea9ea38049776776e31f6cddfa4aa762bffe7bf491a8243084d5ed568",
+    "$WORKSPACE/runs/pills-study/validation-argon-structured-rich-48/inputs.json": "03bc944051f709aefb680f3758194ac16f3ad97138af398b6aece7772e15a2e8",
+    "$WORKSPACE/runs/pills-study/argon-structured-rich-48/run.json": "64485d291977c0186dd044347196ddb994d786036b4acab341cfef07353b32fd",
+    "$WORKSPACE/runs/pills-study/argon-structured-rich-48/attempts.jsonl": "40d652ea6bdce679d5919eb7de2de1b78d18e46726bd0f10c4b35d137fd192e6",
+    "$WORKSPACE/runs/pills-study/argon-structured-rich-48/predictions.jsonl": "35d414bdac7d08c37e7b7e83dc6b6f87dd59541c5060bed43b6c3d2409a7d624",
+    "$WORKSPACE/runs/pills-study/argon-structured-rich-48/summary.json": "41c43472abcc6b6d99d107928d37b485817bf04e4817ff3b6fe6c61f3b179515",
+    "$WORKSPACE/runs/pills-study/argon-structured-rich-48/evaluation.json": "fba06cda9a9359563928e5d05a14e57830ab1a85a33f42de0edb5038bf7ca3b9",
+    "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48/inputs.json": "dd296b8a71e2d4a887540acd8d918524a5084fe87fe169126c196f7c4d4df8a9",
+    "$WORKSPACE/runs/pills-study/astra-fewshot-48/run.json": "cd0d478bf7ca89d35035a507d9f8f5b3d9e5c35c79654ef8a2144d49b4d3af5f",
+    "$WORKSPACE/runs/pills-study/astra-fewshot-48/attempts.jsonl": "9365c19d5d4b4615a50d121787a2dfbaa89bdf56a7f88b0a021b247810b71958",
+    "$WORKSPACE/runs/pills-study/astra-fewshot-48/predictions.jsonl": "72f06217be7d95aa993b4f066e6e5b012ab697a080b10e2695ff40d64c7a91d3",
+    "$WORKSPACE/runs/pills-study/astra-fewshot-48/summary.json": "7cf5a7d254af8027a1a76622d4f2878f2ad98f073080cc6c921a7b110f763155",
+    "$WORKSPACE/runs/pills-study/astra-fewshot-48/evaluation.json": "1f880c6177977d459333904d99ad7badc3d2b42797db7a457d71589181c28bbd",
+    "$WORKSPACE/runs/pills-study/astra-max-fewshot-48/run.json": "08754e04066a7162b31302d9e8f17761daee059cf935b588b93404f9fb1354fa",
+    "$WORKSPACE/runs/pills-study/astra-max-fewshot-48/attempts.jsonl": "546b7892d9f4d95d251343fa45aeb874a79ee686aab1c2f58deff66267cdbc17",
+    "$WORKSPACE/runs/pills-study/astra-max-fewshot-48/predictions.jsonl": "4fdb5459979af7841da428e26d5158b03d5940beeb0d17d0f52f1e9e604ec880",
+    "$WORKSPACE/runs/pills-study/astra-max-fewshot-48/summary.json": "a73e9f556f5e390fada21bd002f2e3393f05653273fa3d153bf6bb59f14c3b54",
+    "$WORKSPACE/runs/pills-study/astra-max-fewshot-48/evaluation.json": "196aaccf94bfba4068467d116a31163d2d0b469ec0849831278e3eb362bb02a2",
+    "$WORKSPACE/runs/pills-study/validation-astra-minimal-48/inputs.json": "5db7b84e5a400495d4776236e36f32add38181bd481b644536d4dca9aecab63b",
+    "$WORKSPACE/runs/pills-study/astra-minimal-48/run.json": "41aa8b6f621d3d77fe6cd8f7b63c2bdef0c53f05e3e5ad2bad770e44a75133c9",
+    "$WORKSPACE/runs/pills-study/astra-minimal-48/attempts.jsonl": "99fa1258ef3a81f40cbcff216f2523c7a8a14eebf60687c60b0c62cd560ef60a",
+    "$WORKSPACE/runs/pills-study/astra-minimal-48/predictions.jsonl": "58ca583823c2d350ad1c8d61abd839284be4d89d6903b46f42906f75f727ab05",
+    "$WORKSPACE/runs/pills-study/astra-minimal-48/summary.json": "a9cae7b838e52fb9c881409466a9fe1da94217617ddf15ff062468c239b2a632",
+    "$WORKSPACE/runs/pills-study/astra-minimal-48/evaluation.json": "6c79b1bfd130bca23216f2bdda26ae9372877b39f760b632087300c43a3b0ee4",
+    "$WORKSPACE/runs/pills-study/validation-astra-rich-48/inputs.json": "4eb810333b575f26fda28eebdcf63df526ff42100172f8115b4c01f6be1ef33c",
+    "$WORKSPACE/runs/pills-study/astra-rich-48/run.json": "9ffdeff4851e8d6a1e6d57bea04b4342508d17fee3f093978e4b4791a6d32022",
+    "$WORKSPACE/runs/pills-study/astra-rich-48/attempts.jsonl": "2dcb75c111a04af4d634f41c80f1ed506839548faea5ec7ed84a8683fd34a6ed",
+    "$WORKSPACE/runs/pills-study/astra-rich-48/predictions.jsonl": "8369f5e3cffae04272967c0d0809211af418e1c4a00176c3a62c3cb004927ed9",
+    "$WORKSPACE/runs/pills-study/astra-rich-48/summary.json": "cfc882e67f7d20b8ef73b61ffbdf36b760c08495697060075621132628403169",
+    "$WORKSPACE/runs/pills-study/astra-rich-48/evaluation.json": "9d70760c888ef698222487dbdc7e83310ae809aff7d9932baf0b72292bf013ba",
+    "$WORKSPACE/runs/pills-study/validation-astra-rich-smoke/inputs.json": "694a070b18c95e55bdbf7b4d6431807076164067711a24a4ba4d8393a51890dd",
+    "$WORKSPACE/runs/pills-study/astra-rich-smoke/run.json": "e8745ce5e239d769a67776d0f02e8f87dff840f10ea2dfd1e543ccd77130d824",
+    "$WORKSPACE/runs/pills-study/astra-rich-smoke/attempts.jsonl": "a021a620a4af1d04f5c3ce8757aea3eab88d7f60d8aa67017a53b2fc627846e5",
+    "$WORKSPACE/runs/pills-study/astra-rich-smoke/predictions.jsonl": "d74c9efde0445dcd62c143fc4f171934baf5e1d081fb1b8f1f429399cefb9a7d",
+    "$WORKSPACE/runs/pills-study/astra-rich-smoke/summary.json": "3c6943f92671e520030aca21537a9eeb7fc4b2b79a1723605f478f85e0af19d9",
+    "$WORKSPACE/runs/pills-study/astra-rich-smoke/evaluation.json": "e1293cc9de392e2f2d6f6e475606fe0f808070f1fa414fc1bfc1a82502775541",
+    "$WORKSPACE/runs/pills-study/validation-kimi-minimal-48/inputs.json": "dcef79f87770a541f4bd9302a6024e34d992225b1855a6e714a63c84bf0aba6f",
+    "$WORKSPACE/runs/pills-study/kimi-minimal-48/run.json": "a89540c409a1370db1991aa6be2afe42734153dda35fa5b9802bd3cbb08258e1",
+    "$WORKSPACE/runs/pills-study/kimi-minimal-48/attempts.jsonl": "5b3684a3e4e3430791860642f4909454e74e3b2473fff464da33ccb264a0f385",
+    "$WORKSPACE/runs/pills-study/kimi-minimal-48/predictions.jsonl": "650e5e0eb50aa46ef01d64cae58947805eed4028bcc814b1a0f78475ff843f77",
+    "$WORKSPACE/runs/pills-study/kimi-minimal-48/summary.json": "6118ff7fc17eb52e9e9f179c46f3ecc4ad5cb85fe6c8cd66def4c8da3cfdf7f6",
+    "$WORKSPACE/runs/pills-study/kimi-minimal-48/evaluation.json": "44877895d02b33886bde8cb158d1d0c92f3d6d234db8c9ba72a2b325869d34a6",
+    "$WORKSPACE/runs/pills-study/validation-kimi-rich-48/inputs.json": "4459ca05be02944232c51afa4bc8b1050f63b666253a0e0c66bcdc901446f896",
+    "$WORKSPACE/runs/pills-study/kimi-rich-48/run.json": "9c1a4d29e2ed41fb0ee015f671b7d8ccbbbc654b385f284c4cfc5aaedc95b0a0",
+    "$WORKSPACE/runs/pills-study/kimi-rich-48/attempts.jsonl": "f2d3b70711d9b35efb704afd9de72f51ff5a7361e388037e35221386d68d1d45",
+    "$WORKSPACE/runs/pills-study/kimi-rich-48/predictions.jsonl": "f9a9d101397d95ea66f54d55072fe6f8e75e74d136cc8a7bff3aa196b3833a8f",
+    "$WORKSPACE/runs/pills-study/kimi-rich-48/summary.json": "691267acf7a6c5588ddfaace6056e64cb3e079de48cf32729f3a15abf48a88dc",
+    "$WORKSPACE/runs/pills-study/kimi-rich-48/evaluation.json": "59dc22bbb9869e5576e1c3a9477b4c3ef966bd851563cf3a2c75b458ff8fb81f",
+    "$WORKSPACE/runs/pills-study/validation-kimi-rich-smoke/inputs.json": "b29c080a388721a48d085812259d6560bce7ec4cb1ef1f9225dbc816c0f497e5",
+    "$WORKSPACE/runs/pills-study/kimi-rich-smoke/run.json": "e12313035745a6f5725433daca849bbf63548a01e9457e9f8810064e56cb6ae8",
+    "$WORKSPACE/runs/pills-study/kimi-rich-smoke/attempts.jsonl": "9b5de1f1379528ff5832676c14333109270f58dba310d2e1dc4b100c47c586c2",
+    "$WORKSPACE/runs/pills-study/kimi-rich-smoke/predictions.jsonl": "08b6bdb71c2c37fabb2de219bcd5949152aff365b6853694bf15acd93b1755e8",
+    "$WORKSPACE/runs/pills-study/kimi-rich-smoke/summary.json": "469a1b52fa884c6d3bff92f235840533005f21bcd731cad8d02b8afd02b67eca",
+    "$WORKSPACE/runs/pills-study/kimi-rich-smoke/evaluation.json": "eb3cdb8087feba28d1e61c68a700b60c823755d484fe99086ecbe76c20c9ece8",
+    "$WORKSPACE/runs/pills-study/opus-fewshot-48/run.json": "74c017b7de44524e2edb20a60f000ec234bda944a3b572eeb46e1c658754cb3c",
+    "$WORKSPACE/runs/pills-study/opus-fewshot-48/attempts.jsonl": "e54be083dae424e80a3b68060207ab2080f504ed217d94bb34adb23d091e1395",
+    "$WORKSPACE/runs/pills-study/opus-fewshot-48/predictions.jsonl": "05c6d234f343d7500793df0f720af89e3ab6c8a11d705bc4107ca8bd0ce0451c",
+    "$WORKSPACE/runs/pills-study/opus-fewshot-48/summary.json": "2e56c1ac9eea39b0945fcce75ead59f930c8e20ab15a9005cebd16b871daeaa4",
+    "$WORKSPACE/runs/pills-study/opus-fewshot-48/evaluation.json": "57bc8312065e822b7ff2e934e11db1066e1685e157c8171f99e21a1b345e12a9",
+    "$WORKSPACE/runs/pills-study/opus-minimal-48/run.json": "4ed5c4c2b54413dc4c99a663e4d7cb7b28ec761e482c2cac57a349ff6d547e2e",
+    "$WORKSPACE/runs/pills-study/opus-minimal-48/attempts.jsonl": "31b4311d16e875d270f583187d6bb80b8034d35e2669ba49ebec83255bc2938b",
+    "$WORKSPACE/runs/pills-study/opus-minimal-48/predictions.jsonl": "6178ee718122f90bf82d2145b78457d172a61523d398e76365490e1367dbe24d",
+    "$WORKSPACE/runs/pills-study/opus-minimal-48/summary.json": "cab00747f0249d5ac9409859f882656494606b1ac0d2a4ca60af82664bf6b3de",
+    "$WORKSPACE/runs/pills-study/opus-minimal-48/evaluation.json": "2eff8576c303406cd83d41d2ac6fe95c02fc0e2dfcb5ce219aa5d00706ebb19b",
+    "$WORKSPACE/runs/pills-study/opus-rich-48/run.json": "1d2c4d6a9427da72f9415234f7a0379b743f45683165151ad9e7b74fe0f129f4",
+    "$WORKSPACE/runs/pills-study/opus-rich-48/attempts.jsonl": "669d694f1b7705443ccc9ddb993ac07f7f41b61327082d8e9fc8fe2228def7d3",
+    "$WORKSPACE/runs/pills-study/opus-rich-48/predictions.jsonl": "466daaecb00bebb6a59fc50795f9d27950001d6fe2ac1f4b82cb186de7968864",
+    "$WORKSPACE/runs/pills-study/opus-rich-48/summary.json": "a2f6b15144a1a67b4e99bd2fdf907b87db36b7467e81a8b12b27cb177951ebfa",
+    "$WORKSPACE/runs/pills-study/opus-rich-48/evaluation.json": "418502d9801e10bae9760ac894756042a6b6df903d9dd35c000d942ae894052b",
+    "$WORKSPACE/runs/pills-study/opus-rich-smoke/run.json": "b217942fe995e936809b5df4d7b64b8ebe7b9b37f46288561f98e2b85328eb1b",
+    "$WORKSPACE/runs/pills-study/opus-rich-smoke/attempts.jsonl": "f16310fc041adc4f34aece7a241bb8eaea8142407c654828fe1192215b088afc",
+    "$WORKSPACE/runs/pills-study/opus-rich-smoke/predictions.jsonl": "403d9f144c5a0d1b92bff68c06c550bb38d9e7d084999dae2845940fe44923b4",
+    "$WORKSPACE/runs/pills-study/opus-rich-smoke/summary.json": "c5795cdeee523c699da238b615696deb99b7511b35b837be8e2a1f22a2c3127d",
+    "$WORKSPACE/runs/pills-study/opus-rich-smoke/evaluation.json": "253776bcd3f33c4af7c02b10bc808c31d6a0c1bea5e359160e02e4d45d0162b9",
+    "$WORKSPACE/runs/pills-study/validation-qwen-fewshot-48/inputs.json": "a3a4b4d77eeae20ea1c5c8b4c7c78dbcd82a8e20bfbc5f49e6635cfe286e700c",
+    "$WORKSPACE/runs/pills-study/qwen-fewshot-48/run.json": "ab4eb9633e227264d85e09039c9db7b15b96d9d819040c04897a1d814717d737",
+    "$WORKSPACE/runs/pills-study/qwen-fewshot-48/attempts.jsonl": "e87250c7a00b09ac5770f48fcf4756fb18bc3d46524031aa8904656edea4af19",
+    "$WORKSPACE/runs/pills-study/qwen-fewshot-48/predictions.jsonl": "621e3a9c4af816edad8619c4e86665241b0cb5ec230bdfadc62ad2dd0c38a4d2",
+    "$WORKSPACE/runs/pills-study/qwen-fewshot-48/summary.json": "cce63a5e8c2da228cd570b5d4e8a2e263a3b9afc3bd32d567098ca9822fb2eae",
+    "$WORKSPACE/runs/pills-study/qwen-fewshot-48/evaluation.json": "7fb4fd0c36069ee8271cdd55773a6d69468e8f46a11907de64a58e30475ed6d1",
+    "$WORKSPACE/runs/pills-study/validation-qwen-minimal-48/inputs.json": "e6a9770575b708c889661aefe4ab6fdb6c1c685ea7073680bb5ba4ab358c95f2",
+    "$WORKSPACE/runs/pills-study/qwen-minimal-48/run.json": "f76aa475c5c870b27cb86b763c711bfad15af749c3f2fefd89d387c88c80c4ad",
+    "$WORKSPACE/runs/pills-study/qwen-minimal-48/attempts.jsonl": "b454c962746e774bd0ce310f98d87579723e22de304d7caa6441bbcd4dacece3",
+    "$WORKSPACE/runs/pills-study/qwen-minimal-48/predictions.jsonl": "b02582b779dfefc314f430eed43b4e31315c4995f294867001a60a5a7b59aaee",
+    "$WORKSPACE/runs/pills-study/qwen-minimal-48/summary.json": "16aa8ff41533b4791e4ca0e70c2cac22410a55093757c510faaa5ddf840dc314",
+    "$WORKSPACE/runs/pills-study/qwen-minimal-48/evaluation.json": "0e1940ee7ead391554d9018ce78ffc02743e6a624f82e60ba46a07939541af5d",
+    "$WORKSPACE/runs/pills-study/validation-qwen-rich-48/inputs.json": "97e644b32d8418941a98b0d0b0f4eeea05390a5b5a1a98ff4a2524c26cfed5eb",
+    "$WORKSPACE/runs/pills-study/qwen-rich-48/run.json": "562ece84e796fbafdb6185c4aace44333ae528499eebaa6af25256107d05aa7a",
+    "$WORKSPACE/runs/pills-study/qwen-rich-48/attempts.jsonl": "0dd2199218e33d8c866435adaea1e23639140fbc946526b3ca93b66283660b13",
+    "$WORKSPACE/runs/pills-study/qwen-rich-48/predictions.jsonl": "9174694bb237264541f7cbee1c3d2831cb6d84fa2c5593aca6d00a4e470c71e6",
+    "$WORKSPACE/runs/pills-study/qwen-rich-48/summary.json": "1bdc59ad4a80624dae17be26925b3627587f195ba96abbb2a18f1aa28fbf6ce9",
+    "$WORKSPACE/runs/pills-study/qwen-rich-48/evaluation.json": "3d403741d75698d574400bbad25af7dc8d79f5b3579749136ba8a7e05ec6e0b7",
+    "$WORKSPACE/runs/pills-study/validation-qwen-rich-smoke/inputs.json": "b14656a36f36507170589ddd0299b2eb9a922faaa732b27cd961b6fbbf7cdf89",
+    "$WORKSPACE/runs/pills-study/qwen-rich-smoke/run.json": "240ed4ce2205fdd3e7fb1eece194f860e965a7dfb50a101cf30fa6dcc236fc9d",
+    "$WORKSPACE/runs/pills-study/qwen-rich-smoke/attempts.jsonl": "e1a8776372945e86274d565e473ef95d5567a455e3d3a4492d5660b3cc3237cd",
+    "$WORKSPACE/runs/pills-study/qwen-rich-smoke/predictions.jsonl": "95ddac82b345d9d4580237b1b4b92084ff4fbf7aa2b0901e9509a96a2c5bdbba",
+    "$WORKSPACE/runs/pills-study/qwen-rich-smoke/summary.json": "c3a091f819a952e3fe2d00937e22582a2e9f2bd7ee60ec8823d50586b99fc3eb",
+    "$WORKSPACE/runs/pills-study/qwen-rich-smoke/evaluation.json": "8e9b041f9c507be33f1095b5dd556777c628c2acf0301d043969168829744b8b"
+  },
+  "evaluator_hashes": {
+    "$WORKSPACE/scripts/rescore_frontier.py": "fe9d099c0f28ee3ed1dfe0b88b9093f82ce9ccb8754b49c0dac6b5ac7cea3adb",
+    "$WORKSPACE/src/vision_rl/detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+    "$WORKSPACE/scripts/pills_frontier.py": "918011a0686690c10b31009210d5241380231e61f925a97ddb3e90081cf8ff1f",
+    "$WORKSPACE/scripts/pills_loop.py": "f36ef5dac7dc8af5b64f667a04d79f272c9defe3bca05a21fda2058c8e54bb0e",
+    "$WORKSPACE/src/vision_rl/frontier.py": "95c75d8a7f131aa179307ecd03eb3ff903a53c64fad978f0899d83e080ac9ecf"
+  },
+  "new_hosted_calls": 0,
+  "native_evidence_copied_without_changes": true,
+  "candidates": [
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-fewshot-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.6970914833495157,
+        "AP50": 0.9504950495049505,
+        "errors": 3
+      },
+      "new_metrics": {
+        "AP": 0.6970914833495157,
+        "AP50": 0.9504950495049505,
+        "errors": 3
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-low-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-low-rich-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.5426872458899012,
+        "AP50": 0.8415841584158416,
+        "errors": 4
+      },
+      "new_metrics": {
+        "AP": 0.5426872458899012,
+        "AP50": 0.8415841584158416,
+        "errors": 4
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-minimal-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-minimal-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.6447611754296633,
+        "AP50": 0.8910891089108911,
+        "errors": 1
+      },
+      "new_metrics": {
+        "AP": 0.6447611754296633,
+        "AP50": 0.8910891089108911,
+        "errors": 1
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.5609159034948956,
+        "AP50": 0.7722772277227723,
+        "errors": 7
+      },
+      "new_metrics": {
+        "AP": 0.5609159034948956,
+        "AP50": 0.7722772277227723,
+        "errors": 7
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-rich-retry2-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-retry2-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.7017051961634964,
+        "AP50": 0.9801980198019802,
+        "errors": 1
+      },
+      "new_metrics": {
+        "AP": 0.7017051961634964,
+        "AP50": 0.9801980198019802,
+        "errors": 1
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-rich-smoke",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-smoke",
+      "images": 2,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.6663366336633664,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.6663366336633664,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.7319102606913038,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.7319102606913038,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-complement375",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-complement375",
+      "images": 375,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.39804305260157313,
+        "AP50": 0.5245511393244587,
+        "errors": 185
+      },
+      "new_metrics": {
+        "AP": 0.39804305260157313,
+        "AP50": 0.5245511393244587,
+        "errors": 185
+      },
+      "hard_stopped": true,
+      "scope": "Incomplete; not a model-comparison result"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-argon-structured-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/argon-structured-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-rich-48",
+      "images": 48,
+      "provider": "gemini",
+      "model": "gemini-4-argon",
+      "old_metrics": {
+        "AP": 0.6982160125040843,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.6982160125040843,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/astra-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/astra-fewshot-48",
+      "images": 48,
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "old_metrics": {
+        "AP": 0.7281819244375448,
+        "AP50": 0.9783776583936418,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.7281819244375448,
+        "AP50": 0.9783776583936418,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/astra-max-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/astra-max-fewshot-48",
+      "images": 48,
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "old_metrics": {
+        "AP": 0.6222211831988408,
+        "AP50": 0.8316831683168316,
+        "errors": 3
+      },
+      "new_metrics": {
+        "AP": 0.6222211831988408,
+        "AP50": 0.8316831683168316,
+        "errors": 3
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-astra-minimal-48",
+      "original_result": "$WORKSPACE/runs/pills-study/astra-minimal-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/astra-minimal-48",
+      "images": 48,
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "old_metrics": {
+        "AP": 0.7184040494686765,
+        "AP50": 0.9783776583936418,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.7184040494686765,
+        "AP50": 0.9783776583936418,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-astra-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/astra-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/astra-rich-48",
+      "images": 48,
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "old_metrics": {
+        "AP": 0.7076568186759359,
+        "AP50": 0.9702970297029703,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.7076568186759359,
+        "AP50": 0.9702970297029703,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-astra-rich-smoke",
+      "original_result": "$WORKSPACE/runs/pills-study/astra-rich-smoke",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/astra-rich-smoke",
+      "images": 2,
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "old_metrics": {
+        "AP": 0.41485148514851483,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.41485148514851483,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-kimi-minimal-48",
+      "original_result": "$WORKSPACE/runs/pills-study/kimi-minimal-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/kimi-minimal-48",
+      "images": 48,
+      "provider": "kimi",
+      "model": "moonshotai/kimi-k3",
+      "old_metrics": {
+        "AP": 0.6457014114827866,
+        "AP50": 0.8280390608633417,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.6457014114827866,
+        "AP50": 0.8280390608633417,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/kimi-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/kimi-rich-48",
+      "images": 48,
+      "provider": "kimi",
+      "model": "moonshotai/kimi-k3",
+      "old_metrics": {
+        "AP": 0.3915408886800724,
+        "AP50": 0.4940596234969575,
+        "errors": 19
+      },
+      "new_metrics": {
+        "AP": 0.3915408886800724,
+        "AP50": 0.4940596234969575,
+        "errors": 19
+      },
+      "hard_stopped": true,
+      "scope": "Incomplete; not a model-comparison result"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-smoke",
+      "original_result": "$WORKSPACE/runs/pills-study/kimi-rich-smoke",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/kimi-rich-smoke",
+      "images": 2,
+      "provider": "kimi",
+      "model": "moonshotai/kimi-k3",
+      "old_metrics": {
+        "AP": 0.5306930693069307,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.5306930693069307,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/opus-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/opus-fewshot-48",
+      "images": 48,
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "old_metrics": {
+        "AP": 0.5435166367394482,
+        "AP50": 0.8813237488132375,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.5435166367394482,
+        "AP50": 0.8813237488132375,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+      "original_result": "$WORKSPACE/runs/pills-study/opus-minimal-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/opus-minimal-48",
+      "images": 48,
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "old_metrics": {
+        "AP": 0.5072165588417507,
+        "AP50": 0.8386898525918164,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.5072165588417507,
+        "AP50": 0.8386898525918164,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/opus-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/opus-rich-48",
+      "images": 48,
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "old_metrics": {
+        "AP": 0.4605943848032808,
+        "AP50": 0.8409512184095121,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.4605943848032808,
+        "AP50": 0.8409512184095121,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+      "original_result": "$WORKSPACE/runs/pills-study/opus-rich-smoke",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/opus-rich-smoke",
+      "images": 2,
+      "provider": "anthropic",
+      "model": "claude-opus-5-5",
+      "old_metrics": {
+        "AP": 0.6,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.6,
+        "AP50": 1.0,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-qwen-fewshot-48",
+      "original_result": "$WORKSPACE/runs/pills-study/qwen-fewshot-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/qwen-fewshot-48",
+      "images": 48,
+      "provider": "qwen",
+      "model": "qwen/qwen3.8-27b",
+      "old_metrics": {
+        "AP": 0.14921311016962824,
+        "AP50": 0.35589227503937937,
+        "errors": 15
+      },
+      "new_metrics": {
+        "AP": 0.23459306640377517,
+        "AP50": 0.5665358772364796,
+        "errors": 1
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-qwen-minimal-48",
+      "original_result": "$WORKSPACE/runs/pills-study/qwen-minimal-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/qwen-minimal-48",
+      "images": 48,
+      "provider": "qwen",
+      "model": "qwen/qwen3.8-27b",
+      "old_metrics": {
+        "AP": 0.154330749234174,
+        "AP50": 0.25538268112525536,
+        "errors": 34
+      },
+      "new_metrics": {
+        "AP": 0.5752297223993798,
+        "AP50": 0.9571430960663635,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-48",
+      "original_result": "$WORKSPACE/runs/pills-study/qwen-rich-48",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-48",
+      "images": 48,
+      "provider": "qwen",
+      "model": "qwen/qwen3.8-27b",
+      "old_metrics": {
+        "AP": 0.2948508219811,
+        "AP50": 0.5523509185450918,
+        "errors": 15
+      },
+      "new_metrics": {
+        "AP": 0.39535165091141006,
+        "AP50": 0.800085722858,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    },
+    {
+      "original_input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-smoke",
+      "original_result": "$WORKSPACE/runs/pills-study/qwen-rich-smoke",
+      "new_result": "$WORKSPACE/runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-smoke",
+      "images": 2,
+      "provider": "qwen",
+      "model": "qwen/qwen3.8-27b",
+      "old_metrics": {
+        "AP": 0.1495049504950495,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "new_metrics": {
+        "AP": 0.1495049504950495,
+        "AP50": 0.6633663366336634,
+        "errors": 0
+      },
+      "hard_stopped": false,
+      "scope": "validation"
+    }
+  ]
+}

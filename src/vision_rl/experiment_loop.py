@@ -31,6 +31,13 @@ Declare baseline margins, confidence bounds, and sample-size gates in the plan.
 An interrupted/failed final test consumes the test; resume never reruns it.
 ``evaluation_mode: "development"`` freezes the selected artifacts at
 ``awaiting_final_evaluation`` without executing or consuming a final test.
+
+Optional ``setup`` stages run in order before candidates using this same journal.
+Each has ``id``, ``command`` argv, ``artifacts`` beneath ``{setup_dir}/``, and an
+explicit ``resume`` argv if it can recover its own partial outputs. Completed
+stages never rerun. ``{setup:stage-id}`` references a preceding completed stage's
+directory. Setup attempts have their own per-stage ``max_attempts`` (default 2),
+while sharing the experiment's wall-clock budget and process locks.
 """
 
 from __future__ import annotations
@@ -186,6 +193,56 @@ def validate_plan(plan: dict, base: Path) -> dict:
     for key in ("max_wall_seconds", "command_timeout_seconds"):
         if _number(budget.get(key), f"budget.{key}") <= 0:
             raise LoopError(f"budget.{key} must be positive")
+    setup = plan.get("setup", [])
+    if not isinstance(setup, list):
+        raise LoopError("setup must be an ordered list")
+    setup_ids = set()
+    for stage in setup:
+        if not isinstance(stage, dict) or set(stage) - {
+            "id",
+            "command",
+            "resume",
+            "artifacts",
+            "max_attempts",
+        }:
+            raise LoopError("unknown setup stage fields")
+        identifier = stage.get("id")
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", identifier)
+            or identifier in setup_ids
+        ):
+            raise LoopError("setup IDs must be unique safe filenames")
+        attempts = stage.setdefault("max_attempts", 2)
+        if type(attempts) is not int or not 1 <= attempts <= 100:
+            raise LoopError("setup max_attempts must be an integer in 1..100")
+        for command_name in ("command", "resume"):
+            if command_name == "resume" and command_name not in stage:
+                continue
+            command = stage.get(command_name)
+            if (
+                not isinstance(command, list)
+                or not command
+                or any(not isinstance(arg, str) or "\0" in arg for arg in command)
+                or not command[0]
+            ):
+                raise LoopError("setup command/resume must be nonempty argv lists")
+            for argument in command:
+                if any(
+                    name not in setup_ids for name in re.findall(r"\{setup:([^}]+)\}", argument)
+                ):
+                    raise LoopError("setup references must name a preceding stage")
+        artifacts = stage.get("artifacts")
+        if (
+            not isinstance(artifacts, list)
+            or not artifacts
+            or any(
+                not isinstance(path, str) or not path.startswith("{setup_dir}/")
+                for path in artifacts
+            )
+        ):
+            raise LoopError("setup artifacts must be beneath {setup_dir}/")
+        setup_ids.add(identifier)
     if not isinstance(plan.get("selection_metric"), str) or not plan["selection_metric"]:
         raise LoopError("selection_metric must be a non-empty JSON metric path")
     for name in ("validation_gate", "test_gate"):
@@ -232,6 +289,11 @@ def validate_plan(plan: dict, base: Path) -> dict:
                 or not command[0]
             ):
                 raise LoopError(f"{identifier}.{stage} must be a non-empty argv list")
+            for argument in command:
+                if any(
+                    name not in setup_ids for name in re.findall(r"\{setup:([^}]+)\}", argument)
+                ):
+                    raise LoopError("candidate references an unknown setup stage")
         outputs = [candidate.get("validation_metrics")]
         if mode == "automatic":
             outputs.append(candidate.get("test_metrics"))
@@ -312,9 +374,17 @@ class _Runner:
         _atomic_json(self.directory / "state.json", self.state)
 
     def integrity(self, hashes: dict[str, str] | None = None) -> None:
-        for name, expected in (
-            hashes if hashes is not None else self.state["input_hashes"]
-        ).items():
+        if hashes is None:
+            hashes = {
+                **self.state["input_hashes"],
+                **{
+                    name: digest
+                    for record in self.state.get("setup", {}).values()
+                    if record.get("status") == "completed"
+                    for name, digest in record["artifact_hashes"].items()
+                },
+            }
+        for name, expected in (hashes).items():
             try:
                 current = _hash_path(Path(name))
             except (OSError, LoopError) as exc:
@@ -332,7 +402,15 @@ class _Runner:
             "{state_dir}": str(self.directory),
             "{candidate_id}": candidate["id"],
             "{candidate_dir}": attempt["directory"],
+            "{setup_dir}": attempt["directory"],
         }
+        replacements.update(
+            {
+                "{setup:" + name + "}": record["directory"]
+                for name, record in self.state.get("setup", {}).items()
+                if record.get("status") == "completed"
+            }
+        )
         for token, replacement in replacements.items():
             value = value.replace(token, replacement)
         return value
@@ -445,6 +523,65 @@ class _Runner:
         self.event("run_finished", status=status, **values)
         return self.state
 
+    def setup_stages(self) -> bool:
+        """Complete shared prerequisites without treating a stage as a candidate."""
+        for specification in self.plan.get("setup", []):
+            identifier = specification["id"]
+            record = self.state.setdefault("setup", {}).setdefault(
+                identifier, {"status": "pending", "attempts_started": 0}
+            )
+            self.integrity()
+            if record["status"] == "completed":
+                continue
+            if self.remaining() <= 0:
+                self.finish("budget_exhausted", reason="wall_time_during_setup")
+                return False
+            previous = record["attempts_started"]
+            if previous >= specification["max_attempts"] or (
+                previous and "resume" not in specification
+            ):
+                self.finish(
+                    "setup_failed", reason="setup_retry_unavailable", setup_stage=identifier
+                )
+                return False
+            directory = self.directory / "setup" / identifier
+            if previous == 0:
+                directory.mkdir(parents=True, exist_ok=False)
+            elif record["directory"] != str(directory):
+                raise IntegrityError("setup recovery directory changed")
+            number = previous + 1
+            record.update(status="running", attempts_started=number, directory=str(directory))
+            self.state["status"] = "setting_up"
+            self.save()
+            self.event(
+                "setup_started", setup_stage=identifier, attempt=number, recovering=bool(previous)
+            )
+            command = {
+                "id": "setup-" + identifier,
+                "setup": specification["resume" if previous else "command"],
+                "artifacts": specification["artifacts"],
+            }
+            attempt = {"number": number, "directory": str(directory)}
+            result = self.command(command, attempt, "setup")
+            record["last_result"] = result
+            self.integrity()
+            if result["returncode"] != 0 or result["reason"] != "exited":
+                record["status"] = "failed"
+                self.finish("setup_failed", reason="setup_command_failed", setup_stage=identifier)
+                return False
+            try:
+                hashes = self.artifact_hashes(command, attempt)
+            except (OSError, ValueError) as exc:
+                record.update(status="failed", error=str(exc))
+                self.finish(
+                    "setup_failed", reason="setup_artifacts_invalid", setup_stage=identifier
+                )
+                return False
+            record.update(status="completed", artifact_hashes=hashes)
+            self.save()
+            self.event("setup_completed", setup_stage=identifier, artifact_hashes=hashes)
+        return True
+
     def candidate(self, candidate: dict, record: dict) -> None:
         if record.get("status") == "training":
             # A crash may have left outputs. A new directory prevents stale artifacts
@@ -508,11 +645,41 @@ class _Runner:
 
     def execute(self) -> dict:
         if self.state["status"] in TERMINAL:
+            # A terminal resume performs no work, but must not silently endorse
+            # a historical result after its pinned inputs or selected weights changed.
+            self.integrity()
+            if self.state.get("selected_candidate"):
+                freeze = _read_json(self.directory / "frozen-selection.json")
+                if _digest(freeze) != self.state.get("frozen_selection_sha256"):
+                    raise IntegrityError("selected artifact freeze changed")
+                self.integrity(freeze["artifact_hashes"])
+                selected = self.state["candidates"][self.state["selected_candidate"]]
+                specification = next(
+                    c
+                    for c in self.plan["candidates"]
+                    if c["id"] == self.state["selected_candidate"]
+                )
+                validation = self.output(
+                    specification["validation_metrics"], specification, selected["attempt"]
+                )
+                if _hash_path(validation) != freeze["validation_metrics_sha256"]:
+                    raise IntegrityError("selected validation metrics changed")
             return self.state
         if self.state.get("test_consumed"):
             return self.finish("test_interrupted", reason="final_test_already_started; never rerun")
         try:
             self.integrity()
+            # The inherited flock, not an integer PID, establishes worker ownership.
+            # A surviving child retains the lock after controller death. Once this
+            # runner owns it, stale PID metadata is informational and never killed
+            # (the operating system may already have reused that PID).
+            if self.state.get("worker"):
+                self.event(
+                    "stale_worker_record_discarded", previous_worker=self.state.pop("worker")
+                )
+                self.save()
+            if not self.setup_stages():
+                return self.state
             self.state["status"] = "searching"
             self.save()
             self.event("runner_started", pid=os.getpid())
@@ -587,7 +754,14 @@ class _Runner:
             "candidate": candidate["id"],
             "frozen_at": time.time(),
             "artifact_hashes": record["artifact_hashes"],
-            "input_hashes": self.state["input_hashes"],
+            "input_hashes": {
+                **self.state["input_hashes"],
+                **{
+                    name: digest
+                    for item in self.state.get("setup", {}).values()
+                    for name, digest in item["artifact_hashes"].items()
+                },
+            },
             "validation_metrics_sha256": record["validation_metrics_sha256"],
             "validation_checks": record["validation_checks"],
             "test_gate": self.plan["test_gate"],

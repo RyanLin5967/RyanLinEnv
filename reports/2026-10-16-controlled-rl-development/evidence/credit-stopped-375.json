@@ -1,0 +1,21 @@
+{
+  "requested_model": "gemini-4-argon",
+  "provider": "gemini",
+  "examples": 375,
+  "reserved_attempts": 191,
+  "completed_attempts": 191,
+  "retry_attempts": 0,
+  "max_transient_retries": 2,
+  "http_status_counts": {
+    "200": 190,
+    "429": 1
+  },
+  "hard_stopped": true,
+  "stop_reasons": [
+    "rate_limit"
+  ],
+  "errors": 185,
+  "latency_seconds_all_completed_attempts": 3041.6242369210377,
+  "usage_unknown_attempts": 1,
+  "billing": "Existing Roboflow credits; billed amount not returned by this API. Failed gateway requests may still be charged; their usage is unknown."
+}

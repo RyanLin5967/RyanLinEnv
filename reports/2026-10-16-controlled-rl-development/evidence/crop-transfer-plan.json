@@ -1,0 +1,26 @@
+{
+  "composition": {
+    "blend": 0.75,
+    "checkpoint_sha256": "05cbfc77c114a18391b3c793bbcecd541881a79c75363ea5284a3b75d3ad96c9",
+    "deployment_detector_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+    "manifest_sha256": "70dfd0f2fc3882d2aaa9f92960f6fa72ffde3e95d756c03130927eef20601380",
+    "proposals_sha256": "e73e51638213740b8efedaac710e8e2b34eebc084f1af0ba7a0648324e0c5c56",
+    "quality_blend": 0.0
+  },
+  "cpu_threads": 2,
+  "device": "cpu",
+  "historical_artifact_preserved": true,
+  "inference_implementation_sha256": "ff32ce8f21da787a26a8be3292bdbf7104a6dc049691c7f3a53afe5394e4651b",
+  "test_accessed": false,
+  "training_implementation_sha256": "e3fca2ca569db82b15bf580c74e12c26f252da3f64ce14b22fafaa6136cf2b84",
+  "unchanged_numerical_function_AST": [
+    "make_model",
+    "crop_pixels",
+    "relative_box",
+    "absolute_box",
+    "predict_bank",
+    "apply_refinement",
+    "_batch",
+    "supervised_loss"
+  ]
+}

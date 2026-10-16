@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "detector": {
+    "architecture": "nano",
+    "device": "cpu",
+    "epochs": 40,
+    "batch_size": 4,
+    "grad_accum_steps": 4,
+    "eval_batch_size": 8,
+    "cpu_threads": 2,
+    "workers": 2,
+    "seed": 42
+  },
+  "progressive": {
+    "epochs": 12,
+    "lr": 0.00001,
+    "lr_encoder": 0.00001
+  },
+  "export": {"device": "cpu", "batch_size": 4, "cpu_threads": 2},
+  "candidates": [
+    {"id": "detector384", "detector_stage": "base"},
+    {"id": "detector512", "detector_stage": "progressive"},
+    {
+      "id": "query-rl512",
+      "detector_stage": "progressive",
+      "query_rl": {
+        "device": "cpu",
+        "cpu_threads": 1,
+        "warmup_epochs": 8,
+        "rl_epochs": 30,
+        "seed": 17,
+        "geometry_inference": "mean"
+      },
+      "inference": {"horizontal_flip": true}
+    }
+  ],
+  "minimum_ap": 0.8,
+  "budget": {
+    "max_attempts": 6,
+    "max_wall_seconds": 172800,
+    "command_timeout_seconds": 86400
+  }
+}

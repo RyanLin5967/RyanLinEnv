@@ -557,3 +557,292 @@ def test_gemini_structured_flag_cannot_configure_other_providers(provider, model
         WRAPPER["baseline_config"](
             {"provider": provider, "model": model, "structured_output": True}
         )
+
+
+@pytest.fixture(params=["gemini", "openai"])
+def complement(experiment, request, monkeypatch):
+    *_, preparation, args = experiment
+    preparation.provider = request.param
+    preparation.structured_output = request.param == "gemini"
+    preparation.split, preparation.freeze, preparation.count = "validation", None, 1
+    WRAPPER["prepare"](preparation)
+    original = json.loads((preparation.output / "inputs.json").read_text())
+    native = (
+        {
+            "modelVersion": "gemini-4-argon", "responseId": "test-native",
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "[]"}]}}],
+        }
+        if request.param == "gemini" else {
+            "model": "gpt-6-astra", "id": "test-native", "status": "completed",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "{}"}]}],
+        }
+    )
+    monkeypatch.setenv("ROBOFLOW_API_KEY", "test-complement-key")
+    monkeypatch.setattr(frontier, "_request", lambda *a: (200, native, {}))
+    frontier.run_frontier(
+        original["rows"], args.output, provider=request.param,
+        examples=original["examples"], max_requests=3, max_transient_retries=2,
+        image_detail=original.get("image_detail"), response_format=original.get("response_format"),
+        response_schema=original.get("response_schema"),
+    )
+    command = SimpleNamespace(
+        input=preparation.output, from_run=args.output,
+        output=preparation.output.with_name("complement-inputs"),
+    )
+    WRAPPER["prepare_complement"](command)
+    args.input, args.output = command.output, args.output.with_name("complement-results")
+    args.provider, args.model = request.param, frontier.PROVIDERS[request.param][0]
+    args.max_transient_retries = 2
+    return command, args, original
+
+
+def test_complement_derives_exact_remaining_images_and_unchanged_settings(complement):
+    command, _, original = complement
+    protocol = json.loads((command.output / "inputs.json").read_text())
+    assert len(protocol["rows"]) == 1
+    assert {r["id"] for r in original["rows"]}.isdisjoint(r["id"] for r in protocol["rows"])
+    assert len({r["id"] for r in [*original["rows"], *protocol["rows"]]}) == 2
+    assert protocol["examples"] == original["examples"]
+    assert WRAPPER["complement_settings"](protocol) == WRAPPER["complement_settings"](original)
+    assert protocol["validation_complement"]["excluded_ids"] == [original["rows"][0]["id"]]
+    assert WRAPPER["verify_protocol"](protocol) is None
+
+
+@pytest.mark.parametrize(
+    "field,value", [("effort", "low"), ("max_tokens", 32768), ("concurrency", 1)]
+)
+def test_complement_runtime_cannot_change_original_model_settings(
+    complement, transport, field, value
+):
+    _, args, _ = complement
+    setattr(args, field, value)
+    with pytest.raises(ValueError, match="runtime settings"):
+        WRAPPER["run"](args)
+    assert transport == []
+
+
+def test_complement_run_uses_original_native_schema_and_new_attempt_budget(complement, transport):
+    pytest.importorskip("pycocotools")
+    _, args, _ = complement
+    WRAPPER["run"](args)
+    assert transport[0]["max_requests"] == 3
+    assert transport[0]["max_transient_retries"] == 2
+    assert len(transport[0]["rows"]) == 1
+    assert transport[0]["timeout_seconds"] == 240
+    assert transport[0]["response_format"] or transport[0]["response_schema"]
+
+
+@pytest.mark.parametrize("mutation", ["overlap", "prompt", "excluded", "settings", "source"])
+def test_complement_rejects_drift_before_hosted_calls(complement, transport, mutation):
+    command, args, original = complement
+    if mutation == "source":
+        path = command.input / "inputs.json"
+        path.write_text(path.read_text() + " ")
+    else:
+        def change(p):
+            if mutation == "overlap":
+                p["rows"] = original["rows"]
+            elif mutation == "prompt":
+                p["rows"][0]["prompt"] += " changed"
+            elif mutation == "excluded":
+                p["validation_complement"]["excluded_ids"] = []
+            else:
+                p["validation_complement"]["request_config"]["effort"] = "low"
+        mutate_protocol(args, change)
+    with pytest.raises(ValueError):
+        WRAPPER["run"](args)
+    assert transport == []
+
+
+def test_complement_cannot_be_prepared_from_test_or_nested_complement(experiment, complement):
+    command, _, _ = complement
+    command.input = command.output
+    command.output = command.output.with_name("nested")
+    with pytest.raises(ValueError, match="original validation discovery"):
+        WRAPPER["prepare_complement"](command)
+    *_, preparation, _ = experiment
+    original = json.loads((preparation.output / "inputs.json").read_text())
+    original["split"] = "test"
+    (preparation.output / "inputs.json").write_text(json.dumps(original))
+    command.input = preparation.output
+    with pytest.raises(ValueError, match="original validation discovery"):
+        WRAPPER["prepare_complement"](command)
+
+
+@pytest.mark.parametrize("provider", ["qwen", "kimi"])
+def test_openrouter_prepare_examples_and_scoring_use_explicit_provider_contract(
+    experiment, monkeypatch, provider
+):
+    pytest.importorskip("pycocotools")
+    *_, preparation, args = experiment
+    preparation.split, preparation.freeze, preparation.count = "validation", None, 2
+    preparation.provider = provider
+    args.provider = provider
+    args.model = frontier.PROVIDERS[provider][0]
+    args.effort = frontier.DEFAULT_EFFORTS[provider]
+    WRAPPER["prepare"](preparation)
+    protocol = json.loads((preparation.output / "inputs.json").read_text())
+    example = json.loads(protocol["examples"][0]["response"])
+    expected = (
+        [{"label": "pill", "box_2d": [125, 125, 375, 375]}]
+        if provider == "qwen" else {
+            "detections": [{"class_name": "pill", "x_min": 0.125, "y_min": 0.125,
+                            "x_max": 0.375, "y_max": 0.375, "confidence": 1.0}]
+        }
+    )
+    assert example == expected
+    assert protocol["coordinate_format"] == (
+        "xyxy_1000" if provider == "qwen" else "named_normalized"
+    )
+    assert protocol["privacy_level"] == "deny"
+    calls = []
+
+    def infer(rows, output, **kwargs):
+        output.mkdir()
+        calls.append(kwargs)
+        return {r["id"]: {"response": json.dumps(expected)} for r in rows}
+
+    monkeypatch.setattr(frontier, "run_frontier", infer)
+    WRAPPER["run"](args)
+    report = json.loads((args.output / "evaluation.json").read_text())
+    assert report["AP"] == pytest.approx(1) and report["errors"] == 0
+    assert calls[0]["privacy_level"] == "deny"
+    assert calls[0]["quantizations"] == (["fp8", "bf16", "fp32"] if provider == "qwen" else None)
+
+
+@pytest.mark.parametrize("provider", ["qwen", "kimi"])
+def test_openrouter_frozen_native_contract_is_model_specific(experiment, provider):
+    source, checkpoint, policy, frozen_path, _, preparation, _ = experiment
+    config = {"provider": provider, "model": frontier.PROVIDERS[provider][0], "examples": 1}
+    frozen = WRAPPER["create_freeze"](
+        source, checkpoint, [config], {"AP_margin_min": 0.2},
+        frozen_path.with_name(provider + "-freeze.json"), [policy],
+    )
+    settings = frozen["baselines"][0]["config"]
+    assert settings["effort"] == frontier.DEFAULT_EFFORTS[provider]
+    assert settings["coordinate_format"] == WRAPPER["ROUTER_COORDINATES"][provider]
+    assert settings["privacy_level"] == "deny"
+    assert frozen["baselines"][0]["protocol"]["provider"] == provider
+    with pytest.raises(ValueError, match="routing"):
+        WRAPPER["baseline_config"]({**config, "privacy_level": "allow"})
+
+
+def complete_complement(complement):
+    command, args, _ = complement
+    protocol = json.loads((args.input / "inputs.json").read_text())
+    frontier.run_frontier(
+        protocol["rows"], args.output, provider=args.provider,
+        examples=protocol["examples"], max_requests=3, max_transient_retries=2,
+        image_detail=protocol.get("image_detail"), response_format=protocol.get("response_format"),
+        response_schema=protocol.get("response_schema"),
+    )
+    merge = runpy.run_path(str(Path(__file__).parents[1] / "scripts/merge_frontier_validation.py"))
+    params = {
+        "discovery_input": command.input, "discovery_run": command.from_run,
+        "complement_input": args.input, "complement_run": args.output,
+        "output": args.output.with_name("merged-validation"),
+    }
+    return merge["merge"], params
+
+
+def test_validation_union_replays_saved_journals_without_any_hosted_request(
+    complement, monkeypatch
+):
+    pytest.importorskip("pycocotools")
+    merge, params = complete_complement(complement)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Offline merge must never send a hosted request")
+
+    monkeypatch.setattr(frontier, "_request", forbidden)
+    report = merge(**params)
+    assert report["n"] == 2 and set(report["image_ids"]) == {0, 1}
+    record = json.loads((params["output"] / "merge.json").read_text())
+    assert record["partition_sizes"] == [1, 1]
+    assert record["hosted_requests_made_by_merge"] == 0
+    assert len((params["output"] / "predictions.jsonl").read_text().splitlines()) == 2
+    with pytest.raises(ValueError, match="immutable"):
+        merge(**params)
+
+
+def test_validation_union_rejects_replaced_completed_answers(complement):
+    merge, params = complete_complement(complement)
+    path = params["complement_run"] / "predictions.jsonl"
+    prediction = json.loads(path.read_text())
+    prediction["response"] = "replaced answer"
+    path.write_text(json.dumps(prediction) + "\n")
+    with pytest.raises(ValueError, match="final journaled attempt"):
+        merge(**params)
+    assert not params["output"].exists()
+
+
+def test_validation_union_rejects_overlapping_ids(complement):
+    merge, params = complete_complement(complement)
+    params["complement_input"] = params["discovery_input"]
+    params["complement_run"] = params["discovery_run"]
+    with pytest.raises(ValueError, match="overlap"):
+        merge(**params)
+    assert not params["output"].exists()
+
+
+def test_validation_union_rejects_credit_stopped_confirmation(complement, monkeypatch):
+    monkeypatch.setattr(
+        frontier, "_request",
+        lambda *args: (429, {"error": "Roboflow credits exceeded"}, {"retry_after": None}),
+    )
+    merge, params = complete_complement(complement)
+    with pytest.raises(ValueError, match="hard-stopped"):
+        merge(**params)
+    assert not params["output"].exists()
+
+
+def rescore_fixture(complement):
+    command, _, protocol = complement
+    source = command.from_run
+    predictions = {
+        row["id"]: row for row in (
+            json.loads(line) for line in (source / "predictions.jsonl").read_text().splitlines()
+        )
+    }
+    config = json.loads((source / "run.json").read_text())["identity"]["config"]
+    old = WRAPPER["score_predictions"](
+        protocol, predictions, {"name": "original-evaluator", "provider": config["provider"]}
+    )
+    (source / "evaluation.json").write_text(json.dumps(old) + "\n")
+    amendment = source.parent / "evaluator-amendment.json"
+    amendment.write_text(json.dumps({"change": "Explicit validation-only evaluator revision"}))
+    api = runpy.run_path(str(Path(__file__).parents[1] / "scripts/rescore_frontier.py"))
+    return api, [(command.input, source)], source.with_name("revision"), amendment
+
+
+def test_rescore_keeps_native_evidence_and_prior_scores_byte_identical(complement, monkeypatch):
+    api, candidates, output, amendment = rescore_fixture(complement)
+    original = candidates[0][1]
+    before = {path.name: path.read_bytes() for path in original.glob("*.json*")}
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Re-scoring must never send a provider request")
+
+    monkeypatch.setattr(frontier, "_request", forbidden)
+    record = api["rescore"](candidates, output, amendment)
+    assert record["complete"] and record["new_hosted_calls"] == 0
+    for name, contents in before.items():
+        assert (original / name).read_bytes() == contents
+    for name in api["NATIVE_FILES"]:
+        assert (output / original.name / name).read_bytes() == before[name]
+    result = json.loads((output / original.name / "evaluation.json").read_text())
+    assert result["evaluation_revision"]["original_result"] == str(original)
+    assert result["model"]["request_config"]["provider"] in {"gemini", "openai"}
+    with pytest.raises(ValueError, match="immutable"):
+        api["rescore"](candidates, output, amendment)
+
+
+def test_rescore_cannot_open_final_test_protocol(complement):
+    api, candidates, output, amendment = rescore_fixture(complement)
+    path = candidates[0][0] / "inputs.json"
+    protocol = json.loads(path.read_text())
+    protocol["split"] = "test"
+    path.write_text(json.dumps(protocol))
+    with pytest.raises(ValueError, match="only re-score validation"):
+        api["rescore"](candidates, output, amendment)
+    assert not output.exists()

@@ -1,0 +1,15 @@
+{
+  "export_semantics": "exact stored tensors, without model reconstruction or interpolation",
+  "format": "safetensors",
+  "parameters": 30147076,
+  "positional_embedding_shapes": {
+    "backbone.0.encoder.encoder.embeddings.position_embeddings": [
+      1,
+      577,
+      384
+    ]
+  },
+  "safetensors_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+  "source_sha256": "d7631129662f1a736e48b354cca68b3fcaedff0d6c20febcf5fbab4f0c60d6d7",
+  "tensor_count": 466
+}

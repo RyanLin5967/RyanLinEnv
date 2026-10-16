@@ -120,6 +120,31 @@ def test_real_worker_search_selects_best_then_evaluates_once(setup):
     assert len(invocations(directory)) == 5
 
 
+@pytest.mark.parametrize("modified", ["input", "artifact", "validation", "freeze"])
+def test_terminal_resume_rechecks_integrity_without_restarting_work(setup, modified):
+    _, directory, initialize, _ = setup
+    initialize()
+    state = loop.run_loop(directory)
+    before = invocations(directory)
+    selected = Path(state["candidates"][state["selected_candidate"]]["attempt"]["directory"])
+    path = {
+        "input": directory.parent / "dataset.json",
+        "artifact": selected / "policy.bin",
+        "validation": selected / "validation.json",
+        "freeze": directory / "frozen-selection.json",
+    }[modified]
+    if modified == "freeze":
+        value = json.loads(path.read_text())
+        value["candidate"] = "modified"
+        path.write_text(json.dumps(value))
+    else:
+        path.write_text("changed after completion")
+    with pytest.raises(loop.IntegrityError, match="changed"):
+        loop.run_loop(directory)
+    assert invocations(directory) == before
+    assert json.loads((directory / "state.json").read_text())["test_consumed"] is True
+
+
 def test_failure_on_final_test_needs_fresh_test_and_never_retrains(setup):
     plan, directory, initialize, candidate = setup
     plan["candidates"] = [candidate("overfit", 0.99, 0.6)]
@@ -382,3 +407,193 @@ def test_cli_background_worker_completes_and_status_is_read_only(setup, capsys):
     assert json.loads(capsys.readouterr().out)["test_gate_passed"]
     assert len(invocations(directory)) == before
     assert sys.executable in (directory / "events.jsonl").read_text()
+
+
+SETUP_WORKER = """
+import json, os, pathlib, sys, time
+directory = pathlib.Path(os.environ['LOOP_CANDIDATE_DIR'])
+state = pathlib.Path(os.environ['LOOP_STATE_DIR'])
+mode, source = sys.argv[1:3]
+with (state/'setup-invocations.jsonl').open('a') as f:
+    f.write(json.dumps({'mode':mode,'stage':os.environ['LOOP_CANDIDATE_ID']})+'\\n')
+if mode == 'slow':
+    (directory/'worker-ready').write_text(str(os.getpid()))
+    time.sleep(30)
+if mode == 'fail':
+    raise SystemExit(9)
+if source != 'none':
+    assert (pathlib.Path(source)/'model.bin').read_text() == 'trained'
+if not (directory/'epochs.txt').exists():
+    (directory/'epochs.txt').write_text('1')
+(directory/'model.bin').write_text('trained')
+"""
+
+
+def add_setup(plan, directory):
+    (directory.parent / "setup_worker.py").write_text(SETUP_WORKER)
+    plan["inputs"].append("setup_worker.py")
+    plan["setup"] = [
+        {
+            "id": "base",
+            "command": ["{python}", "setup_worker.py", "first", "none"],
+            "resume": ["{python}", "setup_worker.py", "resume", "none"],
+            "artifacts": ["{setup_dir}/model.bin", "{setup_dir}/epochs.txt"],
+        },
+        {
+            "id": "progressive",
+            "command": ["{python}", "setup_worker.py", "first", "{setup:base}"],
+            "resume": ["{python}", "setup_worker.py", "resume", "{setup:base}"],
+            "artifacts": ["{setup_dir}/model.bin", "{setup_dir}/epochs.txt"],
+        },
+    ]
+
+
+def test_shared_setup_runs_once_then_freezes_dependencies(setup):
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    initialize()
+    result = loop.run_loop(directory)
+    assert result["status"] == "completed"
+    assert all(record["status"] == "completed" for record in result["setup"].values())
+    assert [row["attempts_started"] for row in result["setup"].values()] == [1, 1]
+    frozen = json.loads((directory / "frozen-selection.json").read_text())
+    assert str(directory / "setup/base/model.bin") in frozen["input_hashes"]
+    before = (directory / "setup-invocations.jsonl").read_bytes()
+    loop.run_loop(directory)
+    assert before == (directory / "setup-invocations.jsonl").read_bytes()
+
+
+def test_interrupted_setup_resumes_without_repeating_completed_epochs(setup, monkeypatch):
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    initialize()
+    original = loop._Runner.command
+
+    def interrupted(self, candidate, attempt, stage):
+        result = original(self, candidate, attempt, stage)
+        if candidate["id"] == "setup-progressive":
+            raise KeyboardInterrupt()
+        return result
+
+    monkeypatch.setattr(loop._Runner, "command", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        loop.run_loop(directory)
+    assert invocations(directory) == []
+    monkeypatch.setattr(loop._Runner, "command", original)
+    result = loop.run_loop(directory)
+    assert result["status"] == "completed"
+    assert result["setup"]["base"]["attempts_started"] == 1
+    assert result["setup"]["progressive"]["attempts_started"] == 2
+    for name in ("base", "progressive"):
+        assert (directory / "setup" / name / "epochs.txt").read_text() == "1"
+    assert (directory / "logs/setup-progressive-a0001-setup.stdout.log").exists()
+    assert (directory / "logs/setup-progressive-a0002-setup.stdout.log").exists()
+
+
+@pytest.mark.parametrize("changed", ["source", "setup_artifact"])
+def test_setup_integrity_change_blocks_resume_and_selection(setup, changed):
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    plan["setup"][1]["command"][2] = "fail"
+    initialize()
+    result = loop.run_loop(directory)
+    assert result["status"] == "setup_failed" and not result["test_consumed"]
+    assert invocations(directory) == [] and not (directory / "frozen-selection.json").exists()
+    path = (
+        directory.parent / "setup_worker.py"
+        if changed == "source"
+        else directory / "setup/base/model.bin"
+    )
+    path.write_text("changed")
+    assert loop.run_loop(directory)["status"] == "integrity_error"
+    assert invocations(directory) == []
+
+
+def test_failed_setup_explicit_resume_and_stale_pid_are_safe(setup, monkeypatch):
+    import os
+
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    plan["setup"][1]["command"][2] = "fail"
+    initialize()
+    assert loop.run_loop(directory)["status"] == "setup_failed"
+    state = loop.status(directory)
+    state["worker"] = {"pid": os.getpid(), "candidate": "setup-progressive", "stage": "setup"}
+    loop._atomic_json(directory / "state.json", state)
+    monkeypatch.setattr(os, "killpg", lambda *args: pytest.fail("Must never signal a stale PID"))
+    result = loop.run_loop(directory)
+    assert result["status"] == "completed"
+    events = (directory / "events.jsonl").read_text()
+    assert "stale_worker_record_discarded" in events
+
+
+def test_surviving_setup_worker_holds_lock_after_controller_death(setup):
+    import os
+    import signal
+    import subprocess
+
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    plan["setup"] = plan["setup"][:1]
+    plan["setup"][0]["command"][2] = "slow"
+    initialize()
+    parent = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "vision_rl.experiment_loop",
+            "resume",
+            "--state-dir",
+            str(directory),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    child_pid = None
+    try:
+        marker = directory / "setup/base/worker-ready"
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert marker.exists()
+        child_pid = int(marker.read_text())
+        parent.kill()
+        parent.wait(timeout=5)
+        with pytest.raises(loop.LoopError, match="holds this experiment lock"):
+            loop.run_loop(directory)
+        os.kill(child_pid, signal.SIGTERM)
+        child_pid = None
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                result = loop.run_loop(directory)
+                break
+            except loop.LoopError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.02)
+        assert result["status"] == "completed"
+        assert result["setup"]["base"]["attempts_started"] == 2
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)
+        if child_pid is not None:
+            os.kill(child_pid, signal.SIGTERM)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda p: p["setup"][0].update(command="shell command"),
+        lambda p: p["setup"][0].update(artifacts=["/outside/model"]),
+        lambda p: p["setup"][0]["command"].append("{setup:progressive}"),
+        lambda p: p["setup"][0].update(max_attempts=True),
+    ],
+)
+def test_setup_plan_rejects_invalid_contract(setup, change):
+    plan, directory, initialize, _ = setup
+    add_setup(plan, directory)
+    change(plan)
+    with pytest.raises(loop.LoopError):
+        initialize()

@@ -1,5 +1,8 @@
 """Exact reward equivalence, including ties and incomplete recall."""
 
+import json
+
+import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -10,11 +13,14 @@ from vision_rl.detection_rewards import interpolated_ap  # noqa: E402
 def brute_force_ap(hits, keep, num_targets):
     if num_targets == 0 or hits.shape[-1] == 0:
         return torch.zeros(hits.shape[0], device=hits.device)
-    cumulative_hits = hits.float().cumsum(-1)
-    precision = cumulative_hits / keep[:, None].cumsum(-1).clamp_min(1)
+    # Independent NumPy float64 reference follows native COCO's recall grid;
+    # reproducing the tensor kernel's float32 linspace concealed a 1/101 error.
+    cumulative_hits = hits.cpu().numpy().cumsum(-1, dtype=np.float64)
+    precision = cumulative_hits / np.maximum(keep.cpu().numpy()[:, None].cumsum(-1), 1)
     recall = cumulative_hits / num_targets
-    eligible = recall[..., None] >= torch.linspace(0, 1, 101, device=hits.device)
-    return precision[..., None].masked_fill(~eligible, 0).amax(-2).mean((-1, -2))
+    eligible = recall[..., None] >= np.linspace(0, 1, 101)
+    result = np.where(eligible, precision[..., None], 0).max(-2).mean((-1, -2))
+    return torch.tensor(result, dtype=torch.float32, device=hits.device)
 
 
 @pytest.mark.parametrize("queries", [0, 1, 2, 11, 128, 500])
@@ -27,7 +33,9 @@ def test_matches_brute_force_for_random_retained_detections(queries):
     num_targets = max(queries // 3, 1)
     hits = raw_hits & (raw_hits.cumsum(-1) <= num_targets)
     expected = brute_force_ap(hits, keep, num_targets)
-    torch.testing.assert_close(interpolated_ap(hits, keep, num_targets), expected, rtol=0, atol=0)
+    torch.testing.assert_close(
+        interpolated_ap(hits, keep, num_targets), expected, rtol=0, atol=1e-7
+    )
 
 
 @pytest.mark.parametrize(
@@ -51,7 +59,7 @@ def test_adversarial_precision_recall_curves(matches, retained, targets, expecte
     keep = torch.tensor([retained], dtype=torch.bool)
     actual = interpolated_ap(hits, keep, targets)
     assert actual.item() == pytest.approx(expected, abs=1e-7)
-    torch.testing.assert_close(actual, brute_force_ap(hits, keep, targets), rtol=0, atol=0)
+    torch.testing.assert_close(actual, brute_force_ap(hits, keep, targets), rtol=0, atol=1e-7)
 
 
 def test_noncontiguous_views_and_empty_group():
@@ -76,9 +84,51 @@ def test_bad_contracts_fail_explicitly():
         interpolated_ap(hits[:, :0], keep, 2)
 
 
+@pytest.mark.parametrize(("targets", "matches"), [(10, 7), (20, 13), (25, 21)])
+def test_recall_boundaries_match_actual_native_coco(tmp_path, targets, matches):
+    pytest.importorskip("pycocotools")
+    from vision_rl.detection_eval import evaluate_coco
+
+    annotations = [
+        {
+            "id": i + 1,
+            "image_id": 1,
+            "category_id": 1,
+            "bbox": [20 * i, 0, 10, 10],
+            "area": 100,
+            "iscrowd": 0,
+        }
+        for i in range(targets)
+    ]
+    document = {
+        "images": [{"id": 1, "file_name": "synthetic.png", "width": targets * 20, "height": 10}],
+        "categories": [{"id": 1, "name": "object"}],
+        "annotations": annotations,
+    }
+    path = tmp_path / "annotations.json"
+    path.write_text(json.dumps(document))
+    predictions = [
+        {"image_id": 1, "category_id": 1, "bbox": row["bbox"], "score": 1 - i / (matches + 1)}
+        for i, row in enumerate(annotations[:matches])
+    ]
+    native = evaluate_coco(path, predictions)["AP"]
+    actual = interpolated_ap(
+        torch.ones(1, 10, matches, dtype=torch.bool),
+        torch.ones(1, matches, dtype=torch.bool),
+        targets,
+    )
+    assert actual.item() == pytest.approx(native, abs=1e-7)
+
+
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS hardware unavailable")
-def test_mps_matches_cpu():
-    hits = torch.tensor([[[0, 1, 0, 1]]], dtype=torch.bool).expand(2, 10, -1)
-    keep = torch.ones(2, 4, dtype=torch.bool)
-    expected = interpolated_ap(hits, keep, 2)
-    torch.testing.assert_close(interpolated_ap(hits.to("mps"), keep.to("mps"), 2).cpu(), expected)
+@pytest.mark.parametrize(("targets", "matches"), [(2, 1), (10, 7), (20, 13), (25, 21)])
+def test_mps_matches_cpu(targets, matches):
+    hits = torch.ones(2, 10, matches, dtype=torch.bool)
+    keep = torch.ones(2, matches, dtype=torch.bool)
+    expected = interpolated_ap(hits, keep, targets)
+    torch.testing.assert_close(
+        interpolated_ap(hits.to("mps"), keep.to("mps"), targets).cpu(),
+        expected,
+        rtol=0,
+        atol=1e-7,
+    )

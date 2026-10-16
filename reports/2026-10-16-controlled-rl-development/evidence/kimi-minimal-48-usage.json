@@ -1,0 +1,19 @@
+{
+  "requested_model": "moonshotai/kimi-k3",
+  "provider": "kimi",
+  "examples": 48,
+  "reserved_attempts": 49,
+  "completed_attempts": 49,
+  "retry_attempts": 1,
+  "max_transient_retries": 2,
+  "http_status_counts": {
+    "200": 48,
+    "502": 1
+  },
+  "hard_stopped": false,
+  "stop_reasons": [],
+  "errors": 0,
+  "latency_seconds_all_completed_attempts": 505.4189806270151,
+  "usage_unknown_attempts": 1,
+  "billing": "Existing Roboflow credits; billed amount not returned by this API. Failed gateway requests may still be charged; their usage is unknown."
+}

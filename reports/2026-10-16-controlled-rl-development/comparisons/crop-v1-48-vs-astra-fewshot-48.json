@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "protocol": "coco-bbox/AP50:95/101-recall/maxDets500/v1",
+  "dataset_fingerprint": "f459bf45240f03455eb460d3c3fa87472c154214e57f0b840ed88dabc23b0733",
+  "image_ids": [
+    2,
+    9,
+    11,
+    16,
+    19,
+    26,
+    32,
+    35,
+    65,
+    66,
+    71,
+    78,
+    82,
+    86,
+    95,
+    103,
+    121,
+    129,
+    137,
+    138,
+    150,
+    162,
+    168,
+    180,
+    184,
+    187,
+    217,
+    221,
+    229,
+    242,
+    258,
+    282,
+    290,
+    313,
+    319,
+    332,
+    342,
+    345,
+    347,
+    358,
+    367,
+    397,
+    403,
+    404,
+    406,
+    409,
+    412,
+    415
+  ],
+  "n": 48,
+  "model_a": {
+    "name": "RF-DETR Nano final384 + supervised crop v1",
+    "detector_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+    "crop_sha256": "05cbfc77c114a18391b3c793bbcecd541881a79c75363ea5284a3b75d3ad96c9",
+    "source_predictions_sha256": "a048d620585cf57e69cd4bfdf778e9754b164bf5439889b3dae79853ea69323b",
+    "scope": "Existing validation predictions filtered offline; no new inference"
+  },
+  "model_b": {
+    "provider": "openai",
+    "name": "gpt-6-astra",
+    "effort": "high",
+    "max_output_tokens": 16384,
+    "protocol_sha256": "dd296b8a71e2d4a887540acd8d918524a5084fe87fe169126c196f7c4d4df8a9",
+    "frozen_experiment": null,
+    "coordinate_format": "xyxy_pixels",
+    "image_detail": "original",
+    "structured_output": false,
+    "request_config": {
+      "provider": "openai",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "max_output_tokens": 16384,
+      "max_requests": 144,
+      "max_inflight": 2,
+      "timeout_seconds": 240,
+      "temperature": "provider-default",
+      "source_commit": "150577969c6dbe5c0da854942c5961fe3f293088",
+      "anthropic_effort": null,
+      "max_transient_retries": 2,
+      "retry_delay_seconds": 2.0,
+      "retryable_http_statuses": [
+        502,
+        503,
+        504
+      ],
+      "image_detail": "original",
+      "response_format": {
+        "format": {
+          "type": "json_schema",
+          "name": "detections",
+          "strict": true,
+          "schema": {
+            "type": "object",
+            "properties": {
+              "detections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "enum": [
+                        "pill"
+                      ]
+                    },
+                    "box_2d": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      },
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "box_2d"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "detections"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  },
+  "AP_a": 0.9091012597539435,
+  "AP_b": 0.7281819244375448,
+  "AP_difference": 0.1809193353163987,
+  "AP_difference_ci95": [
+    0.13165505500917288,
+    0.2335149355070145
+  ],
+  "bootstrap_method": "paired capture-group percentile bootstrap",
+  "bootstrap_samples": 2000,
+  "bootstrap_defined_samples": 2000,
+  "bootstrap_undefined_samples": 0,
+  "bootstrap_seed": 42,
+  "resampling_units": 19,
+  "group_sizes": [
+    2,
+    4,
+    4,
+    4,
+    1,
+    3,
+    3,
+    1,
+    3,
+    1,
+    6,
+    3,
+    2,
+    3,
+    4,
+    1,
+    1,
+    1,
+    1
+  ],
+  "required_margin": 0.2,
+  "required_ci_lower": 0.1,
+  "evaluation_errors": {
+    "a": 0,
+    "b": 0
+  },
+  "synthetic_oracle_evidence": {
+    "a": false,
+    "b": false
+  },
+  "comparison_valid": true,
+  "margin_target_met": false,
+  "limitation": "Conditional on this dataset and model selection; annotation quality and capture independence require separate audit.",
+  "a": "crop-v1-48",
+  "b": "astra-fewshot-48",
+  "phase": "validation"
+}

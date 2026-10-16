@@ -1,5 +1,6 @@
 """Report gates must distinguish development evidence, failed APIs and frozen tests."""
 
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -205,3 +206,26 @@ def test_stale_score_does_not_enter_chart_or_tables(evidence):
         reporter.build_report(
             write_json(root / "index.json", index), root / "out", bootstrap_samples=10
         )
+
+
+def test_compressed_predictions_and_journals_preserve_evidence(evidence):
+    root, index = evidence
+    index["compress_predictions"] = True
+    index["overview"] = ["This development result is not an RL success."]
+    (root / "attempts.jsonl").write_text('{"response":"native answer","api_key":"secret"}\n')
+    (root / "checks.log").write_text("12 passed, 2 skipped\n")
+    index["supplementary_evidence"] = [
+        {"id": "attempts", "path": "attempts.jsonl", "compress": True},
+        {"id": "checks", "path": "checks.log"},
+    ]
+    reporter.build_report(
+        write_json(root / "index.json", index), root / "out", bootstrap_samples=10
+    )
+    with gzip.open(root / "out/predictions/trained.csv.gz", "rt") as handle:
+        assert len(handle.read().splitlines()) == 5
+    with gzip.open(root / "out/evidence/attempts.jsonl.gz", "rt") as handle:
+        assert json.loads(handle.read()) == {"response": "native answer"}
+    assert (root / "out/evidence/checks.log").read_text() == "12 passed, 2 skipped\n"
+    assert "not an RL success" in (root / "out/README.md").read_text()
+    checksums = json.loads((root / "out/checksums.json").read_text())
+    assert all(reporter._sha(root / "out" / name) == digest for name, digest in checksums.items())

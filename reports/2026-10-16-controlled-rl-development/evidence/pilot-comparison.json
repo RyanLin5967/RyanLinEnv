@@ -1,0 +1,19 @@
+{
+  "scope": "Training-only diagnostics, mean per-image AP; not global validation AP or a trained policy result",
+  "images": 128,
+  "mean_train_image_AP": 0.9708225931123703,
+  "dense_seconds": 18.196966792005696,
+  "dense_go": false,
+  "dense_best_sample_gain": 0.005535968142632655,
+  "dense_counterfactual_output_SNR": 1.0443788369357272,
+  "dense_loo_output_SNR": 0.3296648871307469,
+  "sparse_seconds": 18.0978065829986,
+  "sparse_go": false,
+  "sparse_best_sample_gain": 0.015344203476969208,
+  "required_sample_gain": 0.02,
+  "source_hashes": {
+    "runs/pills-direct-policy/pilot128-v1/summary.json": "2e87ad28f29ba8ed19c7ec9ee93f36255569a91b344c955a82aa6ed10e891d96",
+    "runs/pills-direct-policy/pilot128-v1/items.json": "b66548b5e9d2f4834de78cde769891a3dcae68098d383bb2eff14c37beaa1322",
+    "runs/pills-direct-policy/pilot128-sparse-v2/summary.json": "dbe14a7a2d5aa52dd4fc6f11c2e2bc9e4aa65a43de728a89de9903151f09b42f"
+  }
+}

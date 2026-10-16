@@ -346,6 +346,126 @@ def test_explicit_pixel_xyxy_parser_does_not_autodetect_scale_or_order():
         parse_detection_response("[]", image, {"pill": 1}, coordinate_format="auto")
 
 
+def test_explicit_normalized_xyxy_parser_has_correct_axes_and_scale():
+    image = {"id": 7, "width": 200, "height": 100}
+    text = '```json\n[{"label":"pill","box_2d":[100,200,600,700]}]\n```'
+    result = parse_detection_response(text, image, {"pill": 3}, coordinate_format="xyxy_1000")
+    assert result == [
+        {"image_id": 7, "category_id": 3, "score": 1.0, "bbox": [20.0, 20.0, 100.0, 50.0]}
+    ]
+    assert parse_detection_response(text, image, {"pill": 3})[0]["bbox"] == [
+        40.0,
+        10.0,
+        100.0,
+        50.0,
+    ]
+    tiny = '[{"label":"pill","box":[0.1,0.2,0.6,0.7]}]'
+    assert parse_detection_response(tiny, image, {"pill": 3}, coordinate_format="xyxy_1000")[0][
+        "bbox"
+    ] == pytest.approx([0.02, 0.02, 0.1, 0.05])
+
+
+@pytest.mark.parametrize(
+    "box", [[600, 200, 100, 700], [100, 700, 600, 200], [-1, 0, 600, 700], [0, 0, 1001, 700]]
+)
+def test_normalized_xyxy_parser_rejects_reversed_and_out_of_range_boxes(box):
+    with pytest.raises(ValueError, match="ordered xyxy"):
+        parse_detection_response(
+            json.dumps([{"label": "pill", "box_2d": box}]),
+            {"id": 7, "width": 200, "height": 100},
+            {"pill": 3},
+            coordinate_format="xyxy_1000",
+        )
+
+
+def test_explicit_named_normalized_parser_matches_roboflow_contract():
+    obj = {
+        "class_name": "pill",
+        "x_min": 0.1,
+        "y_min": 0.2,
+        "x_max": 0.6,
+        "y_max": 0.7,
+        "confidence": 0.8,
+    }
+    image = {"id": 7, "width": 200, "height": 100}
+    text = json.dumps({"detections": [obj]})
+    result = parse_detection_response(
+        text, image, {"pill": 3}, coordinate_format="named_normalized"
+    )
+    assert result[0]["bbox"] == pytest.approx([20, 20, 100, 50])
+    assert result[0]["score"] == 0.8
+    with pytest.raises(ValueError):
+        parse_detection_response(text, image, {"pill": 3})
+    for changes in (
+        {"x_max": 100},
+        {"y_max": 0.1},
+        {"box": [0.1, 0.2, 0.6, 0.7]},
+        {"bbox_2d": [0.1, 0.2, 0.6, 0.7]},
+        {"label": "pill"},
+        {"class_name": "unknown"},
+        {"x_min": True},
+    ):
+        with pytest.raises(ValueError):
+            parse_detection_response(
+                json.dumps([obj | changes]),
+                image,
+                {"pill": 3},
+                coordinate_format="named_normalized",
+            )
+    array_with_named = {"label": "pill", "box": [100, 200, 600, 700], "x_min": 0.1}
+    with pytest.raises(ValueError, match="cannot contain named"):
+        parse_detection_response(
+            json.dumps([array_with_named]), image, {"pill": 3}, coordinate_format="xyxy_1000"
+        )
+
+
+@pytest.mark.parametrize("coordinate_format", ["yxyx_1000", "xyxy_1000", "xyxy_pixels"])
+def test_bbox_alias_preserves_explicit_geometry_and_confidence(coordinate_format):
+    image = {"id": 7, "width": 200, "height": 100}
+    obj = {"label": "pill", "confidence": 0.8}
+    predictions = [
+        parse_detection_response(
+            json.dumps({"detections": [{**obj, key: [10, 20, 60, 70]}]}),
+            image,
+            {"pill": 3},
+            coordinate_format=coordinate_format,
+        )
+        for key in ("box", "box_2d", "bbox_2d")
+    ]
+    assert predictions[0] == predictions[1] == predictions[2]
+    expected = {
+        "yxyx_1000": [4, 1, 10, 5],
+        "xyxy_1000": [2, 2, 10, 5],
+        "xyxy_pixels": [10, 20, 50, 50],
+    }
+    assert predictions[2][0]["bbox"] == pytest.approx(expected[coordinate_format])
+    assert predictions[2][0]["score"] == 0.8
+
+
+@pytest.mark.parametrize("other_key", ["box", "box_2d"])
+@pytest.mark.parametrize("coordinate_format", ["yxyx_1000", "xyxy_1000", "xyxy_pixels"])
+def test_bbox_alias_is_mutually_exclusive_even_if_values_agree(other_key, coordinate_format):
+    box = [10, 20, 60, 70]
+    with pytest.raises(ValueError, match="exactly one"):
+        parse_detection_response(
+            json.dumps([{"label": "pill", "bbox_2d": box, other_key: box}]),
+            {"id": 7, "width": 200, "height": 100},
+            {"pill": 3},
+            coordinate_format=coordinate_format,
+        )
+
+
+@pytest.mark.parametrize("box", [[600, 200, 100, 700], [0, 0, 1001, 700]])
+def test_native_qwen_bbox_alias_does_not_repair_invalid_coordinates(box):
+    with pytest.raises(ValueError, match="ordered xyxy"):
+        parse_detection_response(
+            json.dumps([{"label": "pill", "bbox_2d": box}]),
+            {"id": 7, "width": 200, "height": 100},
+            {"pill": 3},
+            coordinate_format="xyxy_1000",
+        )
+
+
 @pytest.mark.parametrize(
     "marker",
     [{"synthetic_oracle_bound": True}, {"evaluation_kind": "annotation_oracle_upper_bound"}],

@@ -1,0 +1,53 @@
+{
+  "created_at": "2026-10-16T05:11:13.062933+00:00",
+  "evidence_hashes": {
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/candidates/imported-pipeline/attempt-0001/artifacts/crop-refiner.safetensors": "05cbfc77c114a18391b3c793bbcecd541881a79c75363ea5284a3b75d3ad96c9",
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/candidates/imported-pipeline/attempt-0001/artifacts/detector.safetensors": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/candidates/imported-pipeline/attempt-0001/artifacts/pipeline.json": "b7f0cdcbefea01d74b41d393ec850951a9417f813a4b443bf1329416de79c762",
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/events.jsonl": "66c80c85cba213bfc232281e72abad94f4289851d468dde77ebd3f2ca79d8d5c",
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/frozen-selection.json": "f23a6d7dbd84f37dd7a6f1072a9f6cfdf422be74cf3d4854fbb0f911c30d2fb4",
+    "$WORKSPACE/runs/pipeline-bridge-smoke-v3/state.json": "4eb39ca45bfe3b1147205b742d72e916f2035aee5a10216ed14fe692b5a67c7f"
+  },
+  "independent_replay": {
+    "predictions_byte_identical": true,
+    "seconds": 2.533413583005313,
+    "sha256": "3a1b45d363a59bfdfafcc9ea1c156de4e4caf016bbf5ae7811e4ebf3a95e3a17"
+  },
+  "native_freeze_rejected_before_test_read": "Native final freeze requires all 423 validation images; smoke cannot qualify",
+  "package_versions": {
+    "numpy": "2.5.4",
+    "pillow": "12.3.0",
+    "pycocotools": "2.0.11",
+    "rfdetr": "1.10.0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "transformers": "5.20.0"
+  },
+  "profile_sha256": "b7f0cdcbefea01d74b41d393ec850951a9417f813a4b443bf1329416de79c762",
+  "proposal_pipeline_sha256": "62f90766b4bbcfb7f43a48c1c190ec1acb428665c07e141fe715934f3c6315db",
+  "schema_version": 1,
+  "scope": "2 validation-derived images; integration proof only, not native benchmark evidence",
+  "selected_training_origin": "supervised_detector_plus_supervised_crop_v1",
+  "source_hashes": {
+    "crop_refinement.py": "ff32ce8f21da787a26a8be3292bdbf7104a6dc049691c7f3a53afe5394e4651b",
+    "detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+    "detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106",
+    "detection_recipe.py": "88e0bb085ccc8ae17673f466fdbaf7207b1cbf18b51f7be2b6eaa74ebe6300a0",
+    "detection_rewards.py": "611793e42bbc87872325d1f6b8fd6442504fb283c56cdaf52233b7e29abb015c",
+    "detection_rl.py": "6afafd98263a814977abbf2d68ac35072aed7073f738bfeeab8a6699ea0993f0",
+    "detection_training.py": "bfb636c6effa518056cafcc70888457066bc8b07a15b6104588b0c5f80a31233",
+    "experiment_loop.py": "5d54e94685452d9e73226e8d15776f2d0cef6e4c11e68c22e8b65b553ee674e1"
+  },
+  "state": "awaiting_final_evaluation",
+  "terminal_resume": {
+    "additional_commands": 0,
+    "all_evidence_unchanged": true,
+    "returncode": 0
+  },
+  "test_access": false,
+  "test_consumed": false,
+  "training_performed": false,
+  "validation_AP": 0.9080386610089581,
+  "validation_images": 2
+}

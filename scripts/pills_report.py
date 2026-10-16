@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -300,15 +301,20 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
         sources[key] = {"sha256": _sha(path), "bytes": path.stat().st_size}
         return path
 
-    def write(name: str, value, *, raw: bool = False):
+    def write(name: str, value, *, raw: bool = False, compress: bool = False):
+        if compress:
+            name += ".gz"
         path = output / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        if raw:
-            path.write_text(value)
+        payload = (
+            value
+            if raw
+            else json.dumps(_sanitize(value, workspace), indent=2, allow_nan=False) + "\n"
+        )
+        if compress:
+            path.write_bytes(gzip.compress(payload.encode(), mtime=0))
         else:
-            path.write_text(
-                json.dumps(_sanitize(value, workspace), indent=2, allow_nan=False) + "\n"
-            )
+            path.write_text(payload)
         written.add(name)
 
     records, evaluations, histories = {}, [], []
@@ -367,6 +373,7 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
             f"predictions/{eid}.csv",
             _csv(predictions, ["image_id", "category_id", "x", "y", "width", "height", "score"]),
             raw=True,
+            compress=index.get("compress_predictions", False),
         )
         if spec.get("usage_path"):
             write(f"evidence/{eid}-usage.json", _json(source(spec["usage_path"])))
@@ -493,11 +500,16 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
                 for line in path.read_text().splitlines()
                 if line.strip()
             ]
-            write(name, "\n".join(lines) + "\n", raw=True)
-        elif path.suffix == ".csv":
-            write(name, _sanitize(path.read_text(), workspace), raw=True)
+            write(name, "\n".join(lines) + "\n", raw=True, compress=spec.get("compress", False))
+        elif path.suffix in (".csv", ".log", ".txt"):
+            write(
+                name,
+                _sanitize(path.read_text(), workspace),
+                raw=True,
+                compress=spec.get("compress", False),
+            )
         else:
-            raise ValueError("supplementary evidence must be JSON, JSONL or CSV")
+            raise ValueError("supplementary evidence must be JSON, JSONL, CSV, LOG or TXT")
     summary = {
         "schema_version": 1,
         "title": index.get("title", "Pill detection study"),
@@ -511,6 +523,8 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
         "final_gate": final_status,
         "bootstrap_samples": bootstrap_samples,
         "seed": seed,
+        "overview": index.get("overview", []),
+        "prediction_compression": "gzip" if index.get("compress_predictions") else "none",
     }
     write("summary.json", summary)
     write("histories.json", histories)
@@ -546,6 +560,7 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
     lines = [
         f"# {summary['title']}",
         "",
+        *[part for paragraph in summary["overview"] for part in (paragraph, "")],
         "![Measured study results](measured-results.svg)",
         "",
         "Only measured persisted evidence appears below. Validation data guided training "
@@ -649,7 +664,8 @@ def build_report(index_path: Path, output: Path, *, bootstrap_samples: int = 200
         "",
         "Compact evaluation JSON preserves model identity, source fingerprints "
         "and per-image counts. "
-        "Prediction CSV files preserve every scored box and confidence. "
+        "Prediction CSV files (gzip-compressed when configured) preserve every scored box "
+        "and confidence. "
         "Matching caches are omitted from this bundle; "
         "Recompute them from these predictions and the source COCO annotations "
         "using `evaluate_coco`. "

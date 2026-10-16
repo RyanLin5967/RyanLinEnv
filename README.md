@@ -25,9 +25,24 @@ uv pip install --python .venv-detection/bin/python -r requirements-detection.txt
 
 Use `--device cuda` on a suitable NVIDIA host or `--device cpu` for a small exercise. Full training on this project uses local Apple MPS; Docker runs the CPU verifier. See the [detection walkthrough](docs/detection-onboarding.md) for query caches, RL training, the persistent experiment loop, frontier comparisons, and your own COCO data.
 
+The complete development recipe runs detector training at 384 pixels, a progressive 512-pixel stage, refinement candidates, and independent validation through one persistent controller:
+
+```bash
+.venv-detection/bin/python -m vision_rl.detection_recipe run \
+  --source data/rf100vl-pills/clean-coco \
+  --recipe recipes/detection-progressive.json \
+  --state-dir runs/full-recipe --background
+.venv-detection/bin/python -m vision_rl.detection_recipe status \
+  --state-dir runs/full-recipe
+```
+
+The example recipe defaults to CPU; set `detector.device` to `mps` or `cuda` in your copy for accelerated training. Completed stages are reused on resume, with configuration, weights, source, package versions, and input bytes checked. The controller stops before final test evaluation. An imported trained pipeline can use the same validation and freezing path without claiming that its weights were trained by that run.
+
 The native benchmark is **one RF100-VL dataset**, pill detection, with 1,449 training, 423 validation, and 200 test images in the downloaded export. Its score is COCO AP50:95 with a 500-detection limit. Capture hours overlap across the native splits; uncertainty is clustered by inferred capture hour, and results describe this within-capture benchmark. They do not establish generalization to new capture sessions or a score across all 100 RF100-VL datasets.
 
-The [development evidence](reports/2026-10-16-pill-development/README.md) includes actual model predictions, training curves, clustered confidence intervals, API response journals, and executed Docker/Harbor runs. In that snapshot, the epoch-12 detector scored **88.74% AP** on the same 48 validation images as **72.82% for GPT-6 Astra high**, **73.19% for Gemini 4 Argon high with native structured output**, and **54.35% for Claude Opus 5.5**. These images guided development; the final 200-image test remains sealed, and the intended 20-point advantage over every baseline has not been established.
+The [latest development evidence](reports/2026-10-16-controlled-rl-development/README.md) records **90.09% AP** for the final 384-pixel detector and **91.93%** with a supervised crop refiner across all 423 validation images. On the same 48 discovery images used by the frontier models, that crop pipeline scores **90.91%**, versus **73.19% for Gemini 4 Argon high**, **72.82% for GPT-6 Astra high**, **64.57% for Kimi K3**, **57.52% for Qwen3.8-27B**, and **54.35% for Claude Opus 5.5**. Qwen's score includes a documented parser correction applied consistently to the original responses from every provider.
+
+These are development results. The intended 20-point advantage over every baseline is not established, and the final 200-image test remains sealed. The strongest completed query policy improved only **0.029 AP points** over its supervised control. Two subsequent direct-detector RL exploration pilots failed their preregistered threshold; the next controlled experiment moves to the harder public wheat dataset. Supervised gains are not counted as RL gains. The report preserves both failed pilots, corrected baselines, credit-exhausted incomplete runs, and executed Docker/Harbor evidence; the [earlier snapshot](reports/2026-10-16-pill-development/README.md) remains available.
 
 ```mermaid
 flowchart LR

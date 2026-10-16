@@ -9,15 +9,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir torch==2.14.1 torchvision==0.29.1 \
     --index-url "${TORCH_INDEX_URL}"
-COPY requirements-detection.txt /opt/requirements-detection.txt
-RUN sed '/^-e /d' /opt/requirements-detection.txt > /opt/detection-dependencies.txt \
-    && pip install --no-cache-dir -r /opt/detection-dependencies.txt
+COPY requirements-detection.lock /opt/requirements-detection.lock
+# All common runtime and build dependencies have exact versions and hashes.
+# --no-deps preserves the explicit backend above; the lock includes torch's
+# shared dependencies but never substitutes PyPI's CUDA torch for CPU torch.
+RUN pip install --no-cache-dir --no-deps --require-hashes \
+    -r /opt/requirements-detection.lock && pip check
 # This is the published public initialization, never a submitted checkpoint.
 # Cache it while network is available; all Harbor training and grading is offline.
 RUN python -c "from rfdetr import RFDETRNano; RFDETRNano(device='cpu', num_classes=1, amp=False)"
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 COPY pyproject.toml /opt/vision-rl/pyproject.toml
 COPY src /opt/vision-rl/src
-RUN pip install --no-cache-dir /opt/vision-rl \
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /opt/vision-rl \
+    && pip check \
     && python -c "from rfdetr import RFDETRNano; RFDETRNano(pretrain_weights=None, device='cpu', num_classes=1, amp=False)"
 CMD ["python", "-m", "vision_rl.detection_training", "--help"]

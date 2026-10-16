@@ -182,6 +182,45 @@ def test_auth_billing_and_quota_stop_current_and_resumed_run(rows, tmp_path, sta
     assert result["1"]["error"] == "not_requested_hard_stop"
 
 
+@pytest.mark.parametrize("provider", ["gemini", "kimi"])
+def test_actual_managed_credit_exhaustion_is_not_a_transient_rate_limit(
+    rows, tmp_path, provider
+):
+    output = tmp_path / "credits-exceeded"
+    native = {"error": "Roboflow credits exceeded"}
+    with patch(
+        "vision_rl.frontier._request",
+        return_value=(429, native, {"retry_after": None}),
+    ) as request:
+        run_frontier(
+            rows, output, provider=provider, max_inflight=1, max_transient_retries=2
+        )
+        before = (output / "attempts.jsonl").read_bytes()
+        run_frontier(
+            rows, output, provider=provider, max_inflight=1,
+            max_transient_retries=2, resume=True,
+        )
+    assert request.call_count == 1
+    assert (output / "attempts.jsonl").read_bytes() == before
+    summary = json.loads((output / "summary.json").read_text())
+    assert summary["hard_stopped"] and summary["stop_reasons"] == ["billing_or_credits"]
+    completed = json.loads(before.splitlines()[1])
+    assert completed["raw_response"] == native
+    assert completed["transport"] == {"retry_after": None}
+
+
+def test_transient_429_remains_distinct_from_credit_exhaustion(rows, tmp_path):
+    output = tmp_path / "rate-limit"
+    with patch(
+        "vision_rl.frontier._request",
+        return_value=(429, {"error": "Too many requests"}, {"retry_after": "60"}),
+    ) as request:
+        run_frontier(rows, output, max_inflight=1, max_transient_retries=2)
+    assert request.call_count == 1
+    summary = json.loads((output / "summary.json").read_text())
+    assert summary["stop_reasons"] == ["rate_limit"]
+
+
 def test_concurrency_never_exceeds_two(rows, tmp_path):
     lock = threading.Lock()
     current = peak = 0
@@ -553,3 +592,79 @@ def test_gemini_schema_rejects_other_providers_before_sending(rows, tmp_path, pr
         with pytest.raises(ValueError, match="Gemini-specific"):
             run_frontier(rows[:1], tmp_path / provider, provider=provider, response_schema={})
     request.assert_not_called()
+
+
+def router_native(provider="qwen", finish="stop", content="[]"):
+    return {
+        "id": "router-request", "model": (
+            "qwen/qwen3.8-27b" if provider == "qwen" else "moonshotai/kimi-k3"
+        ),
+        "provider": "native-route-name",
+        "choices": [{"finish_reason": finish, "message": {
+            "content": content, "reasoning": "private reasoning retained only in raw response"
+        }}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130,
+                  "completion_tokens_details": {"reasoning_tokens": 20}},
+    }
+
+
+@pytest.mark.parametrize("provider,effort", [("qwen", "xhigh"), ("kimi", "max")])
+def test_openrouter_native_payload_usage_and_identity(rows, tmp_path, provider, effort):
+    native = router_native(provider)
+    example = {**rows[1], "split": "train", "response": "[]"}
+    with patch("vision_rl.frontier._request", return_value=(200, native)) as request:
+        result = run_frontier(rows[:1], tmp_path / provider, provider=provider, examples=[example])
+    url, payload, *_ = request.call_args.args
+    assert url.endswith("/apiproxy/openrouter")
+    assert payload["openrouter_api_key"] == "rf_key:account"
+    assert payload["reasoning"] == {"effort": effort}
+    assert payload["privacy_level"] == "deny" and payload["max_tokens"] == 16384
+    assert [x["role"] for x in payload["messages"]] == ["user", "assistant", "user"]
+    assert payload["messages"][0]["content"][0]["type"] == "image_url"
+    assert payload["messages"][0]["content"][1]["type"] == "text"
+    assert (payload.get("quantizations") == ["fp8", "bf16", "fp32"]) == (provider == "qwen")
+    assert result["0"]["response"] == "[]" and result["0"]["usage"] == native["usage"]
+    assert result["0"]["provider_model"] == native["model"]
+    assert "temperature" not in payload
+
+
+@pytest.mark.parametrize("finish", ["length", "content_filter", "error", None])
+def test_openrouter_never_retries_truncated_or_failed_native_answers(rows, tmp_path, finish):
+    with patch(
+        "vision_rl.frontier._request", return_value=(200, router_native(finish=finish))
+    ) as request:
+        result = run_frontier(
+            rows[:1], tmp_path / "router-failed", provider="qwen", max_transient_retries=2
+        )
+    assert result["0"]["error"] == "Provider did not finish normally"
+    assert request.call_count == 1
+
+
+def test_openrouter_rejected_effort_has_no_silent_fallback(rows, tmp_path):
+    with patch(
+        "vision_rl.frontier._request", return_value=(400, {"error": "invalid reasoning"})
+    ) as request:
+        result = run_frontier(
+            rows[:1], tmp_path / "router-rejected", provider="qwen", max_transient_retries=2
+        )
+    assert result["0"]["error"] == "HTTP 400" and request.call_count == 1
+    with pytest.raises(ValueError, match="Unsupported effort"):
+        run_frontier(rows[:1], tmp_path / "stale-high", provider="qwen", effort="high")
+    with pytest.raises(ValueError, match="16384"):
+        run_frontier(
+            rows[:1], tmp_path / "too-many-tokens", provider="kimi", max_output_tokens=32768
+        )
+
+
+def test_openrouter_route_filters_are_pinned_and_model_aliases_are_not_guessed(rows, tmp_path):
+    output = tmp_path / "router-fixed"
+    with patch("vision_rl.frontier._request", return_value=(200, router_native())):
+        run_frontier(rows[:1], output, provider="qwen")
+    with patch("vision_rl.frontier._request") as request:
+        for change in ({"privacy_level": "allow"}, {"quantizations": ["bf16"]}):
+            with pytest.raises(ValueError, match="identity"):
+                run_frontier(rows[:1], output, provider="qwen", resume=True, **change)
+    request.assert_not_called()
+    native = router_native()
+    native["model"] = "qwen/qwen3.8-max"
+    assert "identity" in _native(native, {"provider": "qwen", "model": "qwen/qwen3.8-27b"})["error"]

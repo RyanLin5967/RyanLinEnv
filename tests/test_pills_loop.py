@@ -259,6 +259,89 @@ def test_final_profile_rejects_gpu_before_loading_any_model(tmp_path):
         PIPE.checked_inference_profile(configuration, tmp_path, {}, tmp_path)
 
 
+@pytest.fixture
+def portable_evidence(caches, monkeypatch):
+    from vision_rl import detection_inference, detection_recipe, detection_training
+    from vision_rl.detection_eval import evaluate_coco, load_coco
+
+    source = caches.output.parent
+    selected = source / "typed-candidate"
+    detection_recipe.package_profile(
+        caches.detector,
+        {"checkpoint_resolution": 384},
+        selected / "artifacts",
+        category_ids=[1],
+        training_origin="imported fixture detector",
+    )
+    annotation = source / "valid/_annotations.coco.json"
+    document = load_coco(annotation)
+    PIPE.write(selected / "validation-images.json", {"images": document["images"]})
+    predictions = [
+        {"image_id": i, "category_id": 1, "bbox": [16, 16, 32, 32], "score": 1} for i in range(2)
+    ]
+    monkeypatch.setattr(detection_training, "load_detector_safetensors", lambda *a, **k: object())
+    monkeypatch.setattr(
+        detection_inference,
+        "infer_images",
+        lambda *a, **k: (predictions, {"elapsed_seconds": 0.01}),
+    )
+    profile = selected / "artifacts/pipeline.json"
+    evidence = selected / "image-validation"
+    detection_recipe.predict_profile(
+        profile, selected / "validation-images.json", annotation.parent, evidence
+    )
+    report = evaluate_coco(annotation, predictions)
+    report.update(errors=0, split="validation", test_access=False)
+    PIPE.write(evidence / "evaluation.json", report)
+    return profile, evidence, annotation
+
+
+@pytest.mark.parametrize("tamper", [None, "image", "predictions", "packages", "score"])
+def test_pipeline_bridge_requires_exact_full_validation_evidence(portable_evidence, tamper):
+    profile, evidence, annotation = portable_evidence
+    if tamper == "image":
+        image = PIPE.read(annotation)["images"][0]
+        Image.new("RGB", (64, 64), "red").save(annotation.parent / image["file_name"])
+    elif tamper == "predictions":
+        PIPE.write(evidence / "predictions.coco.json", [])
+    elif tamper == "packages":
+        provenance = PIPE.read(evidence / "provenance.json")
+        provenance["runtime_packages"]["torch"] = "0.1.0"
+        PIPE.write(evidence / "provenance.json", provenance)
+    elif tamper == "score":
+        report = PIPE.read(evidence / "evaluation.json")
+        report["AP"] = 0.1
+        PIPE.write(evidence / "evaluation.json", report)
+    if tamper:
+        with pytest.raises(ValueError, match="differs"):
+            PIPE.checked_pipeline_validation(profile, evidence, annotation)
+    else:
+        _, artifacts, report, _ = PIPE.checked_pipeline_validation(profile, evidence, annotation)
+        assert set(artifacts) == {"detector"} and report["AP"] > 0.99
+
+
+def test_pipeline_smoke_cannot_authorize_native_final_before_any_test_read(caches, tmp_path):
+    from vision_rl.detection_training import inspect_split
+
+    source = caches.output.parent
+    (source / "test").write_text("Not readable as a native test directory")
+    context = tmp_path / "typed-context.json"
+    PIPE.write(
+        context,
+        {
+            "source": str(source),
+            "splits": {
+                "train": inspect_split(source / "train"),
+                "validation": inspect_split(source / "valid"),
+            },
+        },
+    )
+    args = SimpleNamespace(source=source, output=tmp_path / "forbidden-final")
+    with pytest.raises(ValueError, match="all 423 validation"):
+        PIPE.freeze_pipeline_final(args, {}, {"pipeline_context": str(context)}, tmp_path, -1)
+    assert not args.output.exists()
+
+
 def test_profile_helper_replays_only_validation_and_binds_code(caches, monkeypatch):
     from vision_rl import detection_inference, detection_training
 
@@ -408,6 +491,7 @@ def saved_frontiers(caches):
 def test_select_strongest_three_providers_preserves_schema_and_errors(saved_frontiers):
     result = PIPE.select_baselines(saved_frontiers)
     assert len(result["baselines"]) == 3
+    assert result["required_providers"] == ["anthropic", "gemini", "openai"]
     selected = {row["config"]["provider"]: row for row in result["selected"]}
     assert selected["gemini"]["config"]["structured_output"] is True
     assert selected["gemini"]["errors"] == 1 and selected["gemini"]["AP"] > 0
@@ -417,6 +501,48 @@ def test_select_strongest_three_providers_preserves_schema_and_errors(saved_fron
     PIPE.check_baseline_selection(result)
     result["baselines"][0] = result["baselines"][-1]
     with pytest.raises(ValueError, match="strongest measured"):
+        PIPE.check_baseline_selection(result)
+
+
+def test_unavailable_required_model_is_recorded_but_cannot_count_as_win(saved_frontiers):
+    from vision_rl.frontier import PROVIDERS
+
+    unavailable = saved_frontiers.output.with_name("unavailable.json")
+    PIPE.write(
+        unavailable,
+        [
+            {
+                "provider": "qwen",
+                "model": PROVIDERS["qwen"][0],
+                "reason": "Managed route unavailable in this fixture",
+            }
+        ],
+    )
+    saved_frontiers.required_provider = ["gemini", "anthropic", "openai", "qwen"]
+    saved_frontiers.unavailable_models = unavailable
+    result = PIPE.select_baselines(saved_frontiers)
+    assert result["selection_complete"] is False
+    assert result["missing_required_providers"] == ["qwen"]
+    assert result["unavailable_models"][0]["reason"]
+    assert len(result["baselines"]) == 3
+    with pytest.raises(ValueError, match="cannot count as wins"):
+        PIPE.check_baseline_selection(result)
+
+
+def test_hard_stopped_scope_is_retained_but_cannot_be_selected(saved_frontiers):
+    output = saved_frontiers.candidate[-1][1]
+    path = output / "attempts.jsonl"
+    events = [json.loads(line) for line in path.read_text().splitlines()]
+    events[-1].update(hard_stop=True, stop_reason="rate_limit", status_code=429)
+    path.write_text("".join(json.dumps(row) + "\n" for row in events))
+    result = PIPE.select_baselines(saved_frontiers)
+    assert len(result["considered"]) == 4
+    assert result["considered"][-1]["availability"]["hard_stops"][0]["status_code"] == 429
+    assert result["missing_required_providers"] == ["openai"]
+    assert not result["selection_complete"]
+    assert all(row["provider"] != "openai" for row in result["baselines"])
+    assert result["unavailable_models"][0]["provider"] == "openai"
+    with pytest.raises(ValueError, match="cannot count as wins"):
         PIPE.check_baseline_selection(result)
 
 
@@ -453,8 +579,9 @@ def test_finalize_requires_development_selection_before_loading_detector(tmp_pat
     assert not args.output.exists()
 
 
-def test_final_consumption_precedes_detector_and_cannot_be_repeated(tmp_path, monkeypatch):
-    from vision_rl import detection_inference, detection_training
+@pytest.mark.parametrize("backend", ["legacy", "portable_pipeline"])
+def test_final_consumption_precedes_detector_and_cannot_be_repeated(tmp_path, monkeypatch, backend):
+    from vision_rl import detection_inference, detection_recipe, detection_training
 
     seed = tmp_path / "input.json"
     seed.write_text("{}")
@@ -512,6 +639,9 @@ def test_final_consumption_precedes_detector_and_cannot_be_repeated(tmp_path, mo
         {
             "source": str(source),
             "detector": str(seed),
+            "inference_backend": backend,
+            "pipeline_profile": str(seed),
+            "test_image_hashes": {"0": loop._hash_path(seed)},
             "implementation_hashes": {},
             "inference_configuration": {},
             "inference_contract": {"final_test_images": 1},
@@ -526,7 +656,9 @@ def test_final_consumption_precedes_detector_and_cannot_be_repeated(tmp_path, mo
     PIPE.write(state_dir / "state.json", state)
     monkeypatch.setattr(PIPE, "wrapper", lambda: {"check_freeze": lambda path: {}})
     monkeypatch.setattr(PIPE, "offline_baselines", lambda *args: ({}, {}))
-    monkeypatch.setattr(detection_inference, "load_image_manifest", lambda *args: [{"id": 0}])
+    monkeypatch.setattr(
+        detection_inference, "load_image_manifest", lambda *args: [{"id": 0, "path": seed}]
+    )
     calls = []
 
     def interrupted(*args, **kwargs):
@@ -535,6 +667,7 @@ def test_final_consumption_precedes_detector_and_cannot_be_repeated(tmp_path, mo
         raise RuntimeError("simulated detector failure after durable reservation")
 
     monkeypatch.setattr(detection_training, "load_detector_safetensors", interrupted)
+    monkeypatch.setattr(detection_recipe, "predict_profile", interrupted)
     args = SimpleNamespace(state_dir=state_dir, output=tmp_path / "final", baseline=[])
     with pytest.raises(RuntimeError, match="simulated detector"):
         PIPE.finalize(args)

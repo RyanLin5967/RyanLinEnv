@@ -161,12 +161,18 @@ def parse_detection_response(
 
     Accept fences, surrounding prose, and one objects/detections/predictions
     envelope. Default yxyx_1000 uses normalized coordinates in 0..1000;
-    xyxy_pixels uses absolute x1,y1,x2,y2 pixel coordinates. The format is never
+    xyxy_1000 uses normalized x1,y1,x2,y2 coordinates in 0..1000, while
+    xyxy_pixels uses absolute x1,y1,x2,y2 pixel coordinates. named_normalized
+    requires class_name and x_min/y_min/x_max/y_max fields in 0..1. The format is never
     inferred from values, and reversed coordinates are never repaired.
+    Array formats accept exactly one of box, box_2d, or bbox_2d; field spelling
+    never changes the caller-selected coordinate format.
     Empty JSON arrays are valid.
     """
-    if coordinate_format not in ("yxyx_1000", "xyxy_pixels"):
-        raise ValueError("coordinate_format must be yxyx_1000 or xyxy_pixels")
+    if coordinate_format not in ("yxyx_1000", "xyxy_1000", "xyxy_pixels", "named_normalized"):
+        raise ValueError(
+            "coordinate_format must be yxyx_1000, xyxy_1000, xyxy_pixels, or named_normalized"
+        )
     labels = _label_map(categories)
     _integer(image.get("id"), "image id")
     for axis in ("width", "height"):
@@ -180,27 +186,43 @@ def parse_detection_response(
         raise ValueError("response contains too many detections")
     predictions = []
     for obj in objects:
-        if not isinstance(obj, dict) or not isinstance(obj.get("label"), str):
-            raise ValueError("each detection requires a label")
-        label = obj["label"].strip().casefold()
+        label_key = "class_name" if coordinate_format == "named_normalized" else "label"
+        if not isinstance(obj, dict) or not isinstance(obj.get(label_key), str):
+            raise ValueError(f"each detection requires a {label_key}")
+        label = obj[label_key].strip().casefold()
         if label not in labels:
             raise ValueError("response contains an unknown class label")
-        keys = [k for k in ("box", "box_2d") if k in obj]
-        if len(keys) != 1:
-            raise ValueError("each detection requires exactly one box or box_2d")
-        coords = obj[keys[0]]
-        if not isinstance(coords, list) or len(coords) != 4:
-            raise ValueError("box must contain four coordinates")
+        named_keys = ("x_min", "y_min", "x_max", "y_max")
+        if coordinate_format == "named_normalized":
+            if any(key in obj for key in ("box", "box_2d", "bbox_2d", "label")) or not all(
+                key in obj for key in named_keys
+            ):
+                raise ValueError("named_normalized requires only named coordinates and class_name")
+            coords = [obj[key] for key in named_keys]
+        else:
+            if any(key in obj for key in (*named_keys, "class_name")):
+                raise ValueError("array box format cannot contain named coordinates or class_name")
+            keys = [k for k in ("box", "box_2d", "bbox_2d") if k in obj]
+            if len(keys) != 1:
+                raise ValueError("each detection requires exactly one box, box_2d, or bbox_2d")
+            coords = obj[keys[0]]
+            if not isinstance(coords, list) or len(coords) != 4:
+                raise ValueError("box must contain four coordinates")
         numbers = [_number(v, "coordinate") for v in coords]
-        if coordinate_format == "yxyx_1000":
-            ymin, xmin, ymax, xmax = numbers
-            if not (0 <= ymin < ymax <= 1000 and 0 <= xmin < xmax <= 1000):
-                raise ValueError("box must be ordered yxyx with coordinates in 0..1000")
+        if coordinate_format in ("yxyx_1000", "xyxy_1000", "named_normalized"):
+            if coordinate_format == "yxyx_1000":
+                ymin, xmin, ymax, xmax = numbers
+            else:
+                xmin, ymin, xmax, ymax = numbers
+            scale = 1 if coordinate_format == "named_normalized" else 1000
+            if not (0 <= ymin < ymax <= scale and 0 <= xmin < xmax <= scale):
+                order = "yxyx" if coordinate_format == "yxyx_1000" else "xyxy"
+                raise ValueError(f"box must be ordered {order} with coordinates in 0..{scale}")
             bbox = [
-                xmin * image["width"] / 1000,
-                ymin * image["height"] / 1000,
-                (xmax - xmin) * image["width"] / 1000,
-                (ymax - ymin) * image["height"] / 1000,
+                xmin * image["width"] / scale,
+                ymin * image["height"] / scale,
+                (xmax - xmin) * image["width"] / scale,
+                (ymax - ymin) * image["height"] / scale,
             ]
         else:
             xmin, ymin, xmax, ymax = numbers

@@ -58,6 +58,19 @@ def test_empty_targets_reward_false_positives_without_nan():
     assert torch.isfinite(reward).all()
 
 
+def test_equal_iou_ties_match_later_annotation_like_native_coco():
+    targets = torch.tensor([[0.0, 0.0, 10.0, 10.0], [10.0, 0.0, 20.0, 10.0]])
+    boxes = torch.tensor([[[0.0, 0.0, 20.0, 10.0], [0.0, 0.0, 10.0, 10.0]]])
+    _, statistics = rl.matching_rewards(
+        boxes, torch.ones(1, 2, dtype=torch.bool), torch.tensor([0.9, 0.8]), targets
+    )
+    # Straddler ties at IoU .5; assigning it to the later GT preserves both
+    # matches at .5. At the other nine thresholds only the second query hits.
+    expected = (1 + 9 * (0.5 * 51 / 101)) / 10
+    assert statistics["AP"].item() == pytest.approx(expected, abs=1e-7)
+    assert statistics["tp_fraction"].tolist()[0] == pytest.approx([0.1, 1.0])
+
+
 def test_leave_one_out_excludes_current_sample():
     rewards = torch.tensor([[1.0, 3], [2, 6], [3, 9]])
     assert rl.leave_one_out_advantage(rewards).tolist() == [[-1.5, -4.5], [0, 0], [1.5, 4.5]]

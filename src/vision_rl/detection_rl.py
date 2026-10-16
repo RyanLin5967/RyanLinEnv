@@ -305,7 +305,9 @@ def matching_rewards(
         claimed = torch.zeros(groups, 10, len(targets), dtype=torch.bool, device=boxes.device)
         for query in range(queries):
             available = ious[:, query, None, :].expand(-1, 10, -1).masked_fill(claimed, -1)
-            best_iou, best_target = available.max(-1)
+            # COCO updates a match on equal IoU, so the later annotation wins.
+            best_iou, reverse_target = available.flip(-1).max(-1)
+            best_target = len(targets) - 1 - reverse_target
             hit = (best_iou >= thresholds) & sorted_keep[:, query, None]
             hits[:, :, query] = hit
             claimed.scatter_(

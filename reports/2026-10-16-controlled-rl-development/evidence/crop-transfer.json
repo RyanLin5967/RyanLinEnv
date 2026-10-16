@@ -1,0 +1,72 @@
+{
+  "AP95_gain": 0.09855069144478984,
+  "AP_gain": 0.01841105837265722,
+  "cpu_milliseconds_per_image": 14.929569444442157,
+  "evaluator_source_sha256": "ac30e0f924a58d6b211c309343b3400261c8b92c72c80f65ebe031ef882e9f8d",
+  "format": "fixed-supervised-crop-transfer-v1",
+  "images": 423,
+  "inference": {
+    "batch_size": 64,
+    "blend": 0.75,
+    "checkpoint_sha256": "05cbfc77c114a18391b3c793bbcecd541881a79c75363ea5284a3b75d3ad96c9",
+    "cpu_threads": 2,
+    "crop_seconds": 1.9079813749995083,
+    "deployment_detector_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+    "device": "cpu",
+    "format": "native-pixel-cascade-predictions-v1",
+    "image_tree_sha256": "1d3f7ccaf8037583c36fd20a4de7673b80dea553e3abddac6a4fd7b15b7db532",
+    "images": 423,
+    "inference_source_sha256": "ff32ce8f21da787a26a8be3292bdbf7104a6dc049691c7f3a53afe5394e4651b",
+    "labels_available_to_predictor": false,
+    "load_seconds": 0.01463487499859184,
+    "manifest_sha256": "70dfd0f2fc3882d2aaa9f92960f6fa72ffde3e95d756c03130927eef20601380",
+    "prediction_seconds": 3.14867445800337,
+    "proposals": 126900,
+    "proposals_sha256": "e73e51638213740b8efedaac710e8e2b34eebc084f1af0ba7a0648324e0c5c56",
+    "quality_blend": 0.0,
+    "refined_proposals": 1976,
+    "training_detector_sha256": "fd08716944517fcfad4937221ffebf2999cd4f75e4363f12343a3f2d0555da43",
+    "training_proposals_sha256": "e41a6f66ebb994e431e1a940fab0b5d7fc5799b92b00d4adab2bb5689724d387",
+    "training_source_sha256": "e3fca2ca569db82b15bf580c74e12c26f252da3f64ce14b22fafaa6136cf2b84",
+    "wall_seconds": 6.315207874999032
+  },
+  "metrics": {
+    "base": {
+      "AP": 0.9008788282880842,
+      "AP50": 0.9900605577448548,
+      "AP75": 0.9860956836144799,
+      "AP95": 0.33090677951981695,
+      "AR": 0.9270879120879121,
+      "dataset_fingerprint": "5bfd11489e78407c481ecfeb0f4f1664be0cd65b211e9b9fc87e599ffafa8626",
+      "evaluation_seconds": 4.911145208010566,
+      "n": 423,
+      "prediction_count": 126900,
+      "protocol": "coco-bbox/AP50:95/101-recall/maxDets500/v1"
+    },
+    "crop": {
+      "AP": 0.9192898866607414,
+      "AP50": 0.9900825721753138,
+      "AP75": 0.9896332942939403,
+      "AP95": 0.4294574709646068,
+      "AR": 0.9473076923076924,
+      "dataset_fingerprint": "5bfd11489e78407c481ecfeb0f4f1664be0cd65b211e9b9fc87e599ffafa8626",
+      "evaluation_seconds": 4.617548583002645,
+      "n": 423,
+      "prediction_count": 126900,
+      "protocol": "coco-bbox/AP50:95/101-recall/maxDets500/v1"
+    }
+  },
+  "prediction_sha256": "a048d620585cf57e69cd4bfdf778e9754b164bf5439889b3dae79853ea69323b",
+  "proposal_parity": {
+    "after": 126900,
+    "before": 126900,
+    "geometry_changed": 1976,
+    "image_category_score_order_exact": true,
+    "low_confidence_proposals_exact": true,
+    "per_image_counts_exact": true
+  },
+  "source_annotation_sha256": "1a74d5c4f977e319e016617ea36f854e9b5e33a88684a90a3ffeaecd8302d999",
+  "split": "validation",
+  "test_accessed": false,
+  "training_kind": "supervised control; this improvement is not an RL gain"
+}

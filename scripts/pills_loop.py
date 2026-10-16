@@ -22,6 +22,7 @@ from vision_rl import experiment_loop as loop
 
 ROOT = Path(__file__).resolve().parents[1]
 CLUSTER_REGISTRATION = ROOT / "docs/detection-cluster-preregistration.json"
+DEFAULT_REQUIRED_PROVIDERS = ("gemini", "anthropic", "openai")
 DEFAULT_CRITERIA = {
     "minimum_specialist_ap": 0.8,
     "minimum_margin_over_each_frontier": 0.2,
@@ -383,6 +384,10 @@ def checked_saved_responses(input_dir, output_dir):
         raise ValueError("OpenAI detail/schema differs from the detection protocol")
     if config.get("response_schema") != protocol.get("response_schema"):
         raise ValueError("Gemini structured-output schema differs from the detection protocol")
+    if config["provider"] in {"qwen", "kimi"} and any(
+        config.get(key) != protocol.get(key) for key in ("privacy_level", "quantizations")
+    ):
+        raise ValueError("Managed model routing/privacy differs from the prepared protocol")
     predictions = {}
     for line in (output_dir / "predictions.jsonl").read_text().splitlines():
         row = json.loads(line)
@@ -497,8 +502,47 @@ def selected_baseline_config(protocol, measured, retries, delay):
                 if measured["provider"] == "openai"
                 else {}
             ),
+            **(
+                {
+                    key: protocol[key]
+                    for key in ("privacy_level", "quantizations", "coordinate_format")
+                }
+                if measured["provider"] in {"qwen", "kimi"}
+                else {}
+            ),
         }
     )
+
+
+def response_availability(output_dir):
+    """Preserve infrastructure stops without ranking missing answers as capability."""
+    events = [json.loads(line) for line in (output_dir / "attempts.jsonl").read_text().splitlines()]
+    predictions = [
+        json.loads(line) for line in (output_dir / "predictions.jsonl").read_text().splitlines()
+    ]
+    missing = [
+        row["id"]
+        for row in predictions
+        if str(row.get("error", "")).startswith("not_requested_")
+        or row.get("error") == "unknown_after_interruption"
+    ]
+    stops = [
+        {
+            "id": row["id"],
+            "status_code": row.get("status_code"),
+            "stop_reason": row.get("stop_reason"),
+            "attempt": row["attempt"],
+        }
+        for row in events
+        if row.get("hard_stop")
+    ]
+    return {
+        "scope_complete": not missing and not stops,
+        "missing_answer_ids": missing,
+        "hard_stops": stops,
+        "transport_error_answers": sum(bool(row.get("error")) for row in predictions),
+        "reason": "incomplete or infrastructure-stopped run" if missing or stops else None,
+    }
 
 
 def select_baselines(args):
@@ -536,26 +580,69 @@ def select_baselines(args):
                 "config": config,
                 "AP": report["AP"],
                 "errors": report.get("errors", 0),
+                "availability": response_availability(result_dir),
                 "inputs": str(input_dir),
                 "results": str(result_dir),
                 "measured_request_configuration": request_config,
                 "hashes": {**hashes, **pinned([result_dir / "evaluation.json"])},
             }
         )
-    if {record["config"]["provider"] for record in records} != set(PROVIDERS):
-        raise ValueError("Final selection must include every configured frontier provider")
+    eligible = [row for row in records if row["availability"]["scope_complete"]]
+    present = {record["config"]["provider"] for record in eligible}
+    required = getattr(args, "required_provider", None) or list(DEFAULT_REQUIRED_PROVIDERS)
+    if (
+        not isinstance(required, list)
+        or not required
+        or len(set(required)) != len(required)
+        or set(required) - set(PROVIDERS)
+    ):
+        raise ValueError("Required providers must be a nonempty explicit unique supported set")
+    unavailable_path = getattr(args, "unavailable_models", None)
+    unavailable = read(unavailable_path) if unavailable_path else []
+    if not isinstance(unavailable, list) or any(
+        not isinstance(row, dict)
+        or set(row) != {"provider", "model", "reason"}
+        or row["provider"] not in PROVIDERS
+        or row["model"] != PROVIDERS[row["provider"]][0]
+        or not isinstance(row["reason"], str)
+        or not row["reason"].strip()
+        for row in unavailable
+    ):
+        raise ValueError("Unavailable models require exact provider/model and a nonempty reason")
+    missing = set(required) - present
+    for provider in sorted(missing):
+        stopped = [row for row in records if row["config"]["provider"] == provider]
+        if stopped and provider not in {row["provider"] for row in unavailable}:
+            unavailable.append(
+                {
+                    "provider": provider,
+                    "model": PROVIDERS[provider][0],
+                    "reason": "All supplied protocols are incomplete or infrastructure-stopped",
+                }
+            )
+    if missing - {row["provider"] for row in unavailable}:
+        raise ValueError(
+            "Missing required baseline; record unavailable model and reason explicitly"
+        )
     chosen = [
         max(
-            (row for row in records if row["config"]["provider"] == provider),
+            (row for row in eligible if row["config"]["provider"] == provider),
             key=lambda row: row["AP"],
         )
-        for provider in sorted(PROVIDERS)
+        for provider in sorted(present)
     ]
     result = {
         "schema_version": 1,
         "selection_split": "validation",
         "test_access": False,
-        "rule": "Highest observed AP per provider; errors retained, never silently excluded",
+        "required_providers": sorted(required),
+        "selection_complete": not missing,
+        "missing_required_providers": sorted(missing),
+        "unavailable_models": unavailable,
+        "rule": (
+            "Highest observed AP per provider among complete request scopes without hard stops; "
+            "all incomplete protocols and completed-answer errors retained"
+        ),
         "considered": records,
         "selected": chosen,
         "baselines": [row["config"] for row in chosen],
@@ -573,8 +660,24 @@ def check_baseline_selection(record):
     if record.get("selection_split") != "validation" or record.get("test_access"):
         raise ValueError("Frontier protocols must have been selected on validation")
     considered = record["considered"]
-    if {row["config"]["provider"] for row in considered} != set(PROVIDERS):
-        raise ValueError("Baseline selection must include every frontier provider")
+    eligible = []
+    for row in considered:
+        availability = response_availability(Path(row["results"]))
+        if row.get("availability", availability) != availability:
+            raise ValueError("Baseline availability differs from its pinned request journal")
+        if availability["scope_complete"]:
+            eligible.append(row)
+    present = {row["config"]["provider"] for row in eligible}
+    required = record.get("required_providers", list(DEFAULT_REQUIRED_PROVIDERS))
+    if (
+        not isinstance(required, list)
+        or not required
+        or len(set(required)) != len(required)
+        or set(required) - set(PROVIDERS)
+    ):
+        raise ValueError("Invalid explicit required provider set")
+    if set(required) - present or record.get("selection_complete") is False:
+        raise ValueError("Missing required baseline; unavailable models cannot count as wins")
     for row in considered:
         check_hashes(row["hashes"])
         if not math.isfinite(row["AP"]) or not 0 <= row["AP"] <= 1:
@@ -596,10 +699,10 @@ def check_baseline_selection(record):
             raise ValueError("Baseline ranking differs from its pinned measured report")
     expected = [
         max(
-            (row for row in considered if row["config"]["provider"] == provider),
+            (row for row in eligible if row["config"]["provider"] == provider),
             key=lambda row: row["AP"],
         )
-        for provider in sorted(PROVIDERS)
+        for provider in sorted(present)
     ]
     if record["selected"] != expected or record["baselines"] != [row["config"] for row in expected]:
         raise ValueError("Final baselines must be the strongest measured validation selections")
@@ -780,6 +883,175 @@ def checked_inference_profile(config_path, validation_dir, context, selected):
     ]
 
 
+def checked_pipeline_validation(profile_path, validation_dir, annotation):
+    """Independently replay scoring for the exact portable image-only pipeline."""
+    from vision_rl import detection_recipe as recipe
+    from vision_rl.detection_eval import evaluate_coco, load_coco
+    from vision_rl.detection_inference import load_image_manifest
+
+    profile, _, artifacts = recipe.load_profile(profile_path)
+    if profile["schema_version"] != 2:
+        raise ValueError("Final pipelines require schema2 package and source provenance")
+    provenance = read(validation_dir / "provenance.json")
+    prediction_path = validation_dir / "predictions.coco.json"
+    report = read_result(validation_dir / "evaluation.json")
+    manifest = validation_dir.parent / "validation-images.json"
+    native = load_coco(annotation)
+    rows = load_image_manifest(manifest, annotation.parent)
+    expected = [
+        {key: image[key] for key in ("id", "file_name", "width", "height")}
+        for image in native["images"]
+    ]
+    if read(manifest) != {"images": expected}:
+        raise ValueError("Pipeline validation must cover every native validation image")
+    if (
+        provenance.get("label_access") is not False
+        or provenance.get("profile_sha256") != loop._hash_path(profile_path)
+        or provenance.get("manifest_sha256") != loop._hash_path(manifest)
+        or provenance.get("predictions_sha256") != loop._hash_path(prediction_path)
+        or provenance.get("implementation_hashes") != profile["implementation_hashes"]
+        or provenance.get("runtime_packages") != profile["runtime_packages"]
+        or provenance.get("proposal_pipeline_sha256") != recipe.proposal_pipeline_sha256(profile)
+        or provenance.get("artifacts")
+        != {key: recipe.descriptor(path) for key, path in artifacts.items()}
+        or provenance.get("image_hashes")
+        != {str(row["path"]): loop._hash_path(row["path"]) for row in rows}
+    ):
+        raise ValueError(
+            "Pipeline evidence differs from frozen weights, code, packages, or image bytes"
+        )
+    replay = evaluate_coco(annotation, read_result(prediction_path))
+    if (
+        report.get("split") != "validation"
+        or report.get("test_access") is not False
+        or report.get("errors") != 0
+        or any(
+            report.get(key) != replay.get(key)
+            for key in ("AP", "AP50", "AP75", "image_ids", "source_annotation_sha256")
+        )
+    ):
+        raise ValueError("Pipeline validation report differs from its saved native predictions")
+    return (
+        profile,
+        artifacts,
+        report,
+        [
+            profile_path,
+            manifest,
+            prediction_path,
+            validation_dir / "provenance.json",
+            validation_dir / "evaluation.json",
+            *artifacts.values(),
+        ],
+    )
+
+
+def freeze_pipeline_final(args, state, plan, selected, lock_fd):
+    """Bind a selected typed pipeline to the existing once-only final protocol."""
+    from vision_rl import detection_recipe as recipe
+    from vision_rl.detection_eval import load_coco
+    from vision_rl.detection_training import inspect_split
+
+    source, output = args.source.resolve(), args.output.resolve()
+    context = read(plan.get("recipe") or plan["pipeline_context"])
+    if Path(context["source"]) != source:
+        raise ValueError("Final source differs from the development recipe")
+    for name, dirname in (("train", "train"), ("validation", "valid")):
+        current_split = inspect_split(source / dirname)
+        if any(
+            context["splits"][name][key] != current_split[key]
+            for key in ("fingerprint", "images", "categories")
+        ):
+            raise ValueError("Development data changed before final freeze")
+    if context["splits"]["validation"]["images"] != 423:
+        raise ValueError(
+            "Native final freeze requires all 423 validation images; smoke cannot qualify"
+        )
+    profile_path = selected / "artifacts/pipeline.json"
+    profile, artifacts, report, evidence = checked_pipeline_validation(
+        profile_path, selected / "image-validation", source / "valid/_annotations.coco.json"
+    )
+    if report["n"] != 423:
+        raise ValueError("Native final freeze requires all 423 measured validation images")
+    if report["AP"] != read(selected / "validation.json")["AP"]:
+        raise ValueError("Selected candidate metrics differ from full pipeline validation")
+    baselines = read(args.baseline_selection)
+    check_baseline_selection(baselines)
+    test = load_coco(source / "test/_annotations.coco.json")
+    if len(test["images"]) != 200:
+        raise ValueError("Native countingpills final evaluation requires all 200 test images")
+    groups = capture_groups(test["images"])
+    output.mkdir(parents=True)
+    sources = [
+        *implementation_paths(),
+        *recipe.source_paths(),
+        ROOT / "src/vision_rl/detection_sensitivity.py",
+    ]
+    specialist = {
+        "schema_version": 2,
+        "source": str(source),
+        "detector": str(artifacts["detector"]),
+        "detector_sha256": profile["detector"]["sha256"],
+        "inference_backend": "portable_pipeline",
+        "pipeline_profile": str(profile_path),
+        "selected_origin": profile["training_origin"],
+        "inference_contract": {"final_test_images": 200},
+        "implementation_hashes": pinned(sources),
+        "runtime_packages": profile["runtime_packages"],
+        "proposal_pipeline_sha256": recipe.proposal_pipeline_sha256(profile),
+        "development_plan_sha256": state["plan_sha256"],
+        "development_selection_sha256": state["frozen_selection_sha256"],
+        "required_providers": baselines.get("required_providers", list(DEFAULT_REQUIRED_PROVIDERS)),
+        "unavailable_models": baselines.get("unavailable_models", []),
+        "test_image_hashes": {
+            str(row["id"]): loop._hash_path(source / "test" / row["file_name"])
+            for row in test["images"]
+        },
+        "selection_rule": "Keep the complete validation-selected pipeline; never adapt to test",
+    }
+    write(output / "specialist.json", specialist)
+    write(
+        output / "capture-groups.json",
+        {"rule": "WIN hour; all unknown captures share one cluster", "groups": groups},
+    )
+    pinned_files = list(
+        dict.fromkeys(
+            [
+                *evidence,
+                *sources,
+                output / "specialist.json",
+                output / "capture-groups.json",
+                args.baseline_selection.resolve(),
+                CLUSTER_REGISTRATION,
+            ]
+        )
+    )
+    frozen = wrapper()["create_freeze"](
+        source,
+        artifacts["detector"],
+        baselines["baselines"],
+        DEFAULT_CRITERIA,
+        output / "freeze.json",
+        [path for path in pinned_files if path != artifacts["detector"]],
+    )
+    runner = loop._Runner(args.state_dir.resolve(), lock_fd)
+    runner.state["final_protocol"] = {
+        "directory": str(output),
+        "freeze_sha256": loop._hash_path(output / "freeze.json"),
+        "specialist_sha256": loop._hash_path(output / "specialist.json"),
+    }
+    runner.save()
+    runner.event("native_final_protocol_frozen", **runner.state["final_protocol"])
+    return {
+        "status": "awaiting_final_evaluation",
+        "freeze": str(output / "freeze.json"),
+        "baselines": len(frozen["baselines"]),
+        "native_test_images": 200,
+        "test_consumed": False,
+        "selected_origin": profile["training_origin"],
+    }
+
+
 def freeze_final(args):
     from vision_rl.detection_eval import load_coco
 
@@ -790,6 +1062,8 @@ def freeze_final(args):
         state, plan, selected = development_selection(state_dir)
         if output.exists() or state.get("final_protocol"):
             raise ValueError("A final protocol is already frozen; never create a replacement")
+        if "recipe" in plan or "pipeline_context" in plan:
+            return freeze_pipeline_final(args, state, plan, selected, lock_fd)
         context = read(plan["pills_context"])
         if context["truncated_development"]:
             raise ValueError(
@@ -990,42 +1264,69 @@ def finalize(args):
             images = load_image_manifest(output / "test-images.json", source / "test")
             if len(images) != specialist["inference_contract"]["final_test_images"]:
                 raise ValueError("Native final manifest does not contain all frozen test images")
-            config = InferenceConfig(**specialist["inference_configuration"])
-            config.validate()
-            detector = load_detector_safetensors(
-                Path(specialist["detector"]),
-                architecture=config.architecture,
-                device=config.device,
-                resolution=config.checkpoint_resolution,
-            )
-            ablations, inference_cache = {}, {}
-            for name, path in specialist["policies"].items():
-                artifact_hash = loop._hash_path(Path(path))
-                if artifact_hash not in inference_cache:
-                    inference_cache[artifact_hash] = infer_images(
-                        detector,
-                        images,
-                        category_ids=tuple(category["id"] for category in native["categories"]),
-                        config=config,
-                        refinement=Path(path),
-                        detector_sha256=specialist["detector_sha256"],
-                    )
-                boxes, timing = inference_cache[artifact_hash]
-                write(output / f"{name}-predictions.json", boxes)
-                write(output / f"{name}-inference.json", timing)
+            if specialist.get("inference_backend") == "portable_pipeline":
+                from vision_rl import detection_recipe as recipe
+
+                image_hashes = {str(row["id"]): loop._hash_path(row["path"]) for row in images}
+                if image_hashes != specialist["test_image_hashes"]:
+                    raise ValueError("Final image bytes differ from the pretest freeze")
+                recipe.predict_profile(
+                    Path(specialist["pipeline_profile"]),
+                    output / "test-images.json",
+                    source / "test",
+                    output / "selected-inference",
+                )
+                boxes = read_result(output / "selected-inference/predictions.coco.json")
                 report = evaluate_coco(
                     source / "test/_annotations.coco.json",
                     boxes,
                     image_ids=[image["id"] for image in images],
                     model={
-                        "name": name,
+                        "name": "selected",
                         "selected_origin": specialist["selected_origin"],
-                        "artifact_sha256": artifact_hash,
+                        "profile_sha256": loop._hash_path(Path(specialist["pipeline_profile"])),
                     },
                 )
                 report.update(errors=0, split="test")
-                write(output / f"{name}-evaluation.json", report)
-                ablations[name] = report
+                write(output / "selected-evaluation.json", report)
+                ablations = {"selected": report}
+            else:
+                config = InferenceConfig(**specialist["inference_configuration"])
+                config.validate()
+                detector = load_detector_safetensors(
+                    Path(specialist["detector"]),
+                    architecture=config.architecture,
+                    device=config.device,
+                    resolution=config.checkpoint_resolution,
+                )
+                ablations, inference_cache = {}, {}
+                for name, path in specialist["policies"].items():
+                    artifact_hash = loop._hash_path(Path(path))
+                    if artifact_hash not in inference_cache:
+                        inference_cache[artifact_hash] = infer_images(
+                            detector,
+                            images,
+                            category_ids=tuple(category["id"] for category in native["categories"]),
+                            config=config,
+                            refinement=Path(path),
+                            detector_sha256=specialist["detector_sha256"],
+                        )
+                    boxes, timing = inference_cache[artifact_hash]
+                    write(output / f"{name}-predictions.json", boxes)
+                    write(output / f"{name}-inference.json", timing)
+                    report = evaluate_coco(
+                        source / "test/_annotations.coco.json",
+                        boxes,
+                        image_ids=[image["id"] for image in images],
+                        model={
+                            "name": name,
+                            "selected_origin": specialist["selected_origin"],
+                            "artifact_sha256": artifact_hash,
+                        },
+                    )
+                    report.update(errors=0, split="test")
+                    write(output / f"{name}-evaluation.json", report)
+                    ablations[name] = report
             criteria = frozen["success_criteria"]
             options = {
                 "bootstrap_samples": criteria["bootstrap_samples"],
@@ -1072,8 +1373,12 @@ def finalize(args):
                 "selected_origin": specialist["selected_origin"],
                 "native_test_images": len(images),
                 "selected_AP": ablations["selected"]["AP"],
-                "warmup_AP": ablations["warmup"]["AP"],
-                "rl_AP": ablations["rl"]["AP"],
+                "warmup_AP": ablations.get("warmup", {}).get("AP"),
+                "rl_AP": ablations.get("rl", {}).get("AP"),
+                "required_providers": specialist.get(
+                    "required_providers", list(DEFAULT_REQUIRED_PROVIDERS)
+                ),
+                "unavailable_models": specialist.get("unavailable_models", []),
                 "criteria": criteria,
                 "comparisons": comparisons,
                 "supplemental_failure_sensitivity": sensitivity,
@@ -1141,6 +1446,16 @@ def main(argv=None):
     baselines.add_argument("--output", type=Path, required=True)
     baselines.add_argument("--max-transient-retries", type=int, choices=(0, 1, 2), default=0)
     baselines.add_argument("--retry-delay-seconds", type=float, default=2)
+    baselines.add_argument(
+        "--required-provider",
+        action="append",
+        help="Repeat to fix the required provider set; default gemini, anthropic, openai",
+    )
+    baselines.add_argument(
+        "--unavailable-models",
+        type=Path,
+        help="JSON provider/model/reason records; missing required models block final freeze",
+    )
     profile = sub.add_parser(
         "validate-profile",
         help="replay selected weights on full validation using image-only CPU inference",
@@ -1152,11 +1467,11 @@ def main(argv=None):
         "state-dir",
         "source",
         "baseline-selection",
-        "inference-config",
-        "inference-validation",
         "output",
     ):
         freeze.add_argument("--" + name, type=Path, required=True)
+    for name in ("inference-config", "inference-validation"):
+        freeze.add_argument("--" + name, type=Path, help="Required for legacy cached-query plans")
     final = sub.add_parser("finalize", help="explicit one-shot native test; no new hosted calls")
     final.add_argument("--state-dir", type=Path, required=True)
     final.add_argument("--output", type=Path, required=True)

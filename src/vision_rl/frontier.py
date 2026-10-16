@@ -37,6 +37,18 @@ PROVIDERS = {
     "gemini": ("gemini-4-argon", "https://api.roboflow.com/apiproxy/gemini"),
     "anthropic": ("claude-opus-5-5", "https://api.roboflow.com/apiproxy/anthropic"),
     "openai": ("gpt-6-astra", "https://api.roboflow.com/apiproxy/openai/v2"),
+    "qwen": ("qwen/qwen3.8-27b", "https://api.roboflow.com/apiproxy/openrouter"),
+    "kimi": ("moonshotai/kimi-k3", "https://api.roboflow.com/apiproxy/openrouter"),
+}
+OPENROUTER_PROVIDERS = frozenset({"qwen", "kimi"})
+DEFAULT_EFFORTS = {
+    "gemini": "high", "anthropic": "adaptive", "openai": "high",
+    "qwen": "xhigh", "kimi": "max",
+}
+SUPPORTED_EFFORTS = {
+    "gemini": ("low", "high"), "anthropic": ("adaptive",),
+    "openai": ("low", "medium", "high", "xhigh", "max"),
+    "qwen": ("none", "low", "medium", "xhigh"), "kimi": ("low", "high", "max"),
 }
 MAX_RESPONSE_BYTES = 16 * 1024**2
 MAX_IMAGE_PIXELS = 20_000_000
@@ -116,6 +128,27 @@ def _image_data(row: dict) -> str:
 
 
 def _payload(row: dict, examples: list[dict], config: dict) -> dict:
+    if config["provider"] in OPENROUTER_PROVIDERS:
+        messages = []
+        for item in [*examples, row]:
+            messages.append({
+                "role": "user", "content": [
+                    {"type": "image_url", "image_url": {
+                        "url": f"data:{item['image_media_type']};base64,{_image_data(item)}"
+                    }},
+                    {"type": "text", "text": item["prompt"]},
+                ],
+            })
+            if "response" in item:
+                messages.append({"role": "assistant", "content": item["response"]})
+        payload = {
+            "model": config["model"], "openrouter_api_key": "rf_key:account",
+            "messages": messages, "max_tokens": config["max_output_tokens"],
+            "privacy_level": config["privacy_level"], "reasoning": {"effort": config["effort"]},
+        }
+        if config["quantizations"] is not None:
+            payload["quantizations"] = config["quantizations"]
+        return payload
     if config["provider"] == "gemini":
         contents = []
         for item in [*examples, row]:
@@ -274,6 +307,17 @@ def _native(raw: Any, config: dict) -> dict:
         model, response_id = raw.get("model"), raw.get("id")
         usage = raw.get("usage", {})
         finished = finish == "completed"
+    elif config["provider"] in OPENROUTER_PROVIDERS:
+        choices = raw.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise ValueError("Expected one native OpenRouter choice")
+        choice = choices[0]
+        finish = choice.get("finish_reason")
+        content = choice.get("message", {}).get("content")
+        texts = [content] if isinstance(content, str) else []
+        model, response_id = raw.get("model"), raw.get("id")
+        usage = raw.get("usage", {})
+        finished = finish == "stop"
     else:
         finish = raw.get("stop_reason")
         texts = [
@@ -330,6 +374,10 @@ def _stop_reason(status: int, raw: Any) -> str | None:
             "billing",
             "payment required",
             "credits exhausted",
+            "credits exceeded",
+            "credit limit exceeded",
+            "out of credits",
+            "not enough credits",
         )
     ):
         return "billing_or_credits"
@@ -400,6 +448,8 @@ def run_frontier(
     image_detail: str | None = None,
     response_format: dict | None = None,
     response_schema: dict | None = None,
+    privacy_level: str | None = None,
+    quantizations: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, dict]:
     """Infer with a crash-safe journal and a fixed, bounded transport policy.
 
@@ -412,6 +462,10 @@ def run_frontier(
     ``response_format`` is the native Responses ``text`` configuration, typically
     a strict JSON schema. Gemini optionally accepts its native ``response_schema``
     in generationConfig. These settings are pinned in the journal identity.
+    Qwen and Kimi use managed OpenRouter, with xhigh/max requested respectively.
+    Routing privacy defaults to deny. Qwen requests fp8/bf16/fp32 endpoints;
+    Kimi uses native routing without a precision allowlist. Returned route/model
+    and usage remain in the raw evidence; no unsupported-effort fallback occurs.
 
     ``max_requests`` bounds total reserved attempts across resumes, not per invocation.
     Retries are disabled by default. ``max_transient_retries`` permits up to two
@@ -426,20 +480,32 @@ def run_frontier(
     other images use PNG. No image is resized implicitly.
     """
     if provider not in PROVIDERS:
-        raise ValueError("provider must be gemini, anthropic or openai")
+        raise ValueError("Unsupported frontier provider")
     model = model or PROVIDERS[provider][0]
     if model != PROVIDERS[provider][0]:
         raise ValueError("Only the verified current frontier model for this provider is supported")
-    effort = effort or ("adaptive" if provider == "anthropic" else "high")
-    if (
-        (provider == "gemini" and effort not in ("low", "high"))
-        or (provider == "anthropic" and effort != "adaptive")
-        or (provider == "openai" and effort not in ("low", "medium", "high", "xhigh", "max"))
-    ):
+    effort = effort or DEFAULT_EFFORTS[provider]
+    if effort not in SUPPORTED_EFFORTS[provider]:
         raise ValueError(
-            "Unsupported effort: Gemini low/high; Claude adaptive/provider-default; "
-            "Astra low/medium/high/xhigh/max"
+            "Unsupported effort; Claude uses adaptive/provider-default. "
+            f"Allowed for {provider}: {SUPPORTED_EFFORTS[provider]}"
         )
+    if provider in OPENROUTER_PROVIDERS:
+        privacy_level = privacy_level or "deny"
+        if privacy_level not in {"allow", "deny", "zdr"}:
+            raise ValueError("Unsupported OpenRouter privacy_level")
+        if quantizations is None and provider == "qwen":
+            quantizations = ["fp8", "bf16", "fp32"]
+        if quantizations is not None:
+            if not isinstance(quantizations, (list, tuple)) or not quantizations or any(
+                q not in {"fp4", "mxfp4", "fp8", "fp16", "bf16", "fp32"} for q in quantizations
+            ):
+                raise ValueError("quantizations must name explicit supported precision labels")
+            quantizations = list(quantizations)
+        if max_output_tokens > 16384:
+            raise ValueError("Managed OpenRouter max_output_tokens cannot exceed 16384")
+    elif privacy_level is not None or quantizations is not None:
+        raise ValueError("privacy_level and quantizations are OpenRouter-specific parameters")
     if provider != "openai" and (image_detail is not None or response_format is not None):
         raise ValueError("image_detail and response_format are OpenAI-specific parameters")
     if response_schema is not None:
@@ -519,6 +585,8 @@ def run_frontier(
         config.update(image_detail=image_detail, response_format=response_format)
     if response_schema is not None:
         config["response_schema"] = response_schema
+    if provider in OPENROUTER_PROVIDERS:
+        config.update(privacy_level=privacy_level, quantizations=quantizations)
     identity = {
         "schema_version": 2,
         "config": config,

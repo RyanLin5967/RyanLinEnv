@@ -1,0 +1,102 @@
+{
+  "benchmark": "RF100-VL/countingpills-exf0r-gfkt/v2",
+  "candidates": [
+    {
+      "additional_training_epochs": 0,
+      "candidate": "mean-t05-s17",
+      "metrics": {
+        "AP": 0.8960020272479278,
+        "ablation_scope": "All policies use the same frozen top-128 detector query cache",
+        "errors": 0,
+        "n": 423,
+        "rl_AP": 0.8931997613076788,
+        "rl_gain_over_warmup": -0.0028022659402490158,
+        "selected_origin": "supervised_refinement",
+        "sft_AP": 0.8946992696605156,
+        "split": "validation",
+        "test_access": false,
+        "warmup_AP": 0.8960020272479278
+      },
+      "original_completed_epochs": 38,
+      "original_train_seconds": 221.52761345800536,
+      "recovery_seconds": 21.6426340409962,
+      "replay_seconds": 12.34062516700942,
+      "safe_artifact_hashes": {
+        "policy": "5be33b3573861649c9508945fd0fc28e96b19b91cf6a4fac1bc0f7682b8bdce0",
+        "rl-policy": "29b587c196ef9b60142ccf2a617021351c8501340a04f04a7ec8aad30597877a",
+        "warmup-policy": "5be33b3573861649c9508945fd0fc28e96b19b91cf6a4fac1bc0f7682b8bdce0"
+      }
+    },
+    {
+      "additional_training_epochs": 0,
+      "candidate": "mean-t1-s17",
+      "metrics": {
+        "AP": 0.8962889318089852,
+        "ablation_scope": "All policies use the same frozen top-128 detector query cache",
+        "errors": 0,
+        "n": 423,
+        "rl_AP": 0.8962889318089852,
+        "rl_gain_over_warmup": 0.0002869045610573995,
+        "selected_origin": "rl",
+        "sft_AP": 0.8946992696605156,
+        "split": "validation",
+        "test_access": false,
+        "warmup_AP": 0.8960020272479278
+      },
+      "original_completed_epochs": 38,
+      "original_train_seconds": 233.5078046250128,
+      "recovery_seconds": 20.422682749995147,
+      "replay_seconds": 10.682946832996095,
+      "safe_artifact_hashes": {
+        "policy": "4d46391e9aed5cc817347efec6b6de19d26f74ade05dc71fcbef1eb4df4d4509",
+        "rl-policy": "4d46391e9aed5cc817347efec6b6de19d26f74ade05dc71fcbef1eb4df4d4509",
+        "warmup-policy": "5be33b3573861649c9508945fd0fc28e96b19b91cf6a4fac1bc0f7682b8bdce0"
+      }
+    }
+  ],
+  "created_at_utc": "2026-10-16T04:04:00.180499+00:00",
+  "current_generation": "runs/pills-loop-epoch12-recovery-v2",
+  "development_images": {
+    "train": 1449,
+    "validation": 423
+  },
+  "hosted_requests": 0,
+  "image_only_profile": {
+    "AP": 0.9041409146164923,
+    "checked_evidence_hashes": {
+      "$WORKSPACE/runs/pills-loop-epoch12-validation384-flip-v2/evaluation.json": "cadaa60c0c8cac6dcf9bde6a63975f82125ef767ecd2ec9fb0b59e83a90a1f07",
+      "$WORKSPACE/runs/pills-loop-epoch12-validation384-flip-v2/predictions.coco.json": "2fcee0e97e7af263bb892cb337dacd4e8d13e022eee16c13678f0498169c171d",
+      "$WORKSPACE/runs/pills-loop-epoch12-validation384-flip-v2/profile.json": "f689f5b4e80b3b5f79e9747427dc338fa07c0d1abf3bbb1a5ec8468aaea55369",
+      "$WORKSPACE/runs/pills-loop-epoch12-validation384-flip-v2/provenance.json": "b00825b476d99388c43e6b0f91355f7c3d0fbd793bd44621ec9087dcd33bffbb",
+      "$WORKSPACE/src/vision_rl/detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106"
+    },
+    "configuration": {
+      "architecture": "nano",
+      "batch_size": 4,
+      "checkpoint_resolution": 384,
+      "cpu_threads": 2,
+      "device": "cpu",
+      "fusion_iou": 0.55,
+      "horizontal_flip": true,
+      "max_detections": 500,
+      "resolutions": [
+        384
+      ]
+    },
+    "evidence_directory": "runs/pills-loop-epoch12-validation384-flip-v2",
+    "images_per_second": 6.446154183553263,
+    "inference_seconds": 65.62052162500913,
+    "n": 423,
+    "prediction_sha256": "2fcee0e97e7af263bb892cb337dacd4e8d13e022eee16c13678f0498169c171d"
+  },
+  "intermediate_generation": "runs/pills-loop-epoch12-recovery",
+  "interpretation": "Development proof only. ActualRL gain over warmup is tiny(.000286905 AP); native200test remainssealed, no frontierwin claimed.",
+  "plan_sha256": "49f3505d640636282dde483c80c45b4684d86a1db67e6f1a8d8f34691db1cdfc",
+  "profile_checker_repair": "Use trusted load_coco foregroundmapping, excluding unusedRoboflowsupercategory0. Oldmodelpredictions unchanged, preserved; finalreplayproducesbyte-identicalpredictions.",
+  "resume_repeated_training": false,
+  "selected_candidate": "mean-t1-s17",
+  "source_failure": "Completed both38epoch fits; full42.18MiB matchingreport exceeded10MiB configurationreader. Separate bounded256MiB resultreader now fixes integration. Originalfailedstate retained.",
+  "source_generation": "runs/pills-loop-epoch12",
+  "status": "awaiting_final_evaluation",
+  "test_consumed": false
+}

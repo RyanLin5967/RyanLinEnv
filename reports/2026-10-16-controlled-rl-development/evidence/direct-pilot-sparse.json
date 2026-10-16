@@ -1,0 +1,147 @@
+{
+  "status": "pilot_completed",
+  "scales": {
+    "0.25": {
+      "mean_best_of_samples_AP_gain": 0.0138469458142444,
+      "useful_images_fraction": 0.4921875,
+      "mean_oracle_geometry_AP_gain": 0.01381040809246058,
+      "go": false
+    },
+    "0.5": {
+      "mean_best_of_samples_AP_gain": 0.015180857290474827,
+      "useful_images_fraction": 0.53125,
+      "mean_oracle_geometry_AP_gain": 0.017924979618511864,
+      "go": false
+    },
+    "1.0": {
+      "mean_best_of_samples_AP_gain": 0.015344203476969208,
+      "useful_images_fraction": 0.5390625,
+      "mean_oracle_geometry_AP_gain": 0.02037513497426739,
+      "go": false
+    }
+  },
+  "selected_pixel_std": 1.0,
+  "go": false,
+  "signal_to_noise": {
+    "loo": {
+      "mean_gradient_norm": 555.4686585027326,
+      "noise_norm": 1358.5046865797765,
+      "output_gradient_SNR": 0.4088824013564516,
+      "repetitions": 8,
+      "images": 8,
+      "wall_seconds": 0.15103495799121447,
+      "scope": "gradient at native actor outputs, not full parameter gradient"
+    },
+    "counterfactual": {
+      "mean_gradient_norm": 60.77969004358879,
+      "noise_norm": 99.87304489809011,
+      "output_gradient_SNR": 0.6085695104781078,
+      "repetitions": 8,
+      "images": 8,
+      "wall_seconds": 0.9007279579964234,
+      "scope": "gradient at native actor outputs, not full parameter gradient"
+    }
+  },
+  "native_gradient_probe": {
+    "transformer.decoder.": {
+      "tensors": 50,
+      "finite": true,
+      "absolute_sum": 3322.15359306708
+    },
+    "class_embed.": {
+      "tensors": 2,
+      "finite": true,
+      "absolute_sum": 73.31496658921242
+    },
+    "bbox_embed.": {
+      "tensors": 6,
+      "finite": true,
+      "absolute_sum": 33.825598917901516
+    }
+  },
+  "gradient_probe_seconds": 0.08702112500031944,
+  "gradient_probe_metrics": {
+    "actor_loss": 0.893105485304922,
+    "joint_KL": 0.0,
+    "KL_per_query": 0.0,
+    "reward": 0.9198314927646611,
+    "sampled_AP": 0.958189737242955,
+    "sampled_AP95": 0.7663985148514851,
+    "reward_std": 0.12356526068930866,
+    "useful_factor_fraction": 0.109375
+  },
+  "trainable_scope": {
+    "names": [
+      "transformer.decoder.layers.0.self_attn.in_proj_weight",
+      "transformer.decoder.layers.0.self_attn.in_proj_bias",
+      "transformer.decoder.layers.0.self_attn.out_proj.weight",
+      "transformer.decoder.layers.0.self_attn.out_proj.bias",
+      "transformer.decoder.layers.0.norm1.weight",
+      "transformer.decoder.layers.0.norm1.bias",
+      "transformer.decoder.layers.0.cross_attn.sampling_offsets.weight",
+      "transformer.decoder.layers.0.cross_attn.sampling_offsets.bias",
+      "transformer.decoder.layers.0.cross_attn.attention_weights.weight",
+      "transformer.decoder.layers.0.cross_attn.attention_weights.bias",
+      "transformer.decoder.layers.0.cross_attn.value_proj.weight",
+      "transformer.decoder.layers.0.cross_attn.value_proj.bias",
+      "transformer.decoder.layers.0.cross_attn.output_proj.weight",
+      "transformer.decoder.layers.0.cross_attn.output_proj.bias",
+      "transformer.decoder.layers.0.linear1.weight",
+      "transformer.decoder.layers.0.linear1.bias",
+      "transformer.decoder.layers.0.linear2.weight",
+      "transformer.decoder.layers.0.linear2.bias",
+      "transformer.decoder.layers.0.norm2.weight",
+      "transformer.decoder.layers.0.norm2.bias",
+      "transformer.decoder.layers.0.norm3.weight",
+      "transformer.decoder.layers.0.norm3.bias",
+      "transformer.decoder.layers.1.self_attn.in_proj_weight",
+      "transformer.decoder.layers.1.self_attn.in_proj_bias",
+      "transformer.decoder.layers.1.self_attn.out_proj.weight",
+      "transformer.decoder.layers.1.self_attn.out_proj.bias",
+      "transformer.decoder.layers.1.norm1.weight",
+      "transformer.decoder.layers.1.norm1.bias",
+      "transformer.decoder.layers.1.cross_attn.sampling_offsets.weight",
+      "transformer.decoder.layers.1.cross_attn.sampling_offsets.bias",
+      "transformer.decoder.layers.1.cross_attn.attention_weights.weight",
+      "transformer.decoder.layers.1.cross_attn.attention_weights.bias",
+      "transformer.decoder.layers.1.cross_attn.value_proj.weight",
+      "transformer.decoder.layers.1.cross_attn.value_proj.bias",
+      "transformer.decoder.layers.1.cross_attn.output_proj.weight",
+      "transformer.decoder.layers.1.cross_attn.output_proj.bias",
+      "transformer.decoder.layers.1.linear1.weight",
+      "transformer.decoder.layers.1.linear1.bias",
+      "transformer.decoder.layers.1.linear2.weight",
+      "transformer.decoder.layers.1.linear2.bias",
+      "transformer.decoder.layers.1.norm2.weight",
+      "transformer.decoder.layers.1.norm2.bias",
+      "transformer.decoder.layers.1.norm3.weight",
+      "transformer.decoder.layers.1.norm3.bias",
+      "transformer.decoder.norm.weight",
+      "transformer.decoder.norm.bias",
+      "transformer.decoder.ref_point_head.layers.0.weight",
+      "transformer.decoder.ref_point_head.layers.0.bias",
+      "transformer.decoder.ref_point_head.layers.1.weight",
+      "transformer.decoder.ref_point_head.layers.1.bias",
+      "class_embed.weight",
+      "class_embed.bias",
+      "bbox_embed.layers.0.weight",
+      "bbox_embed.layers.0.bias",
+      "bbox_embed.layers.1.weight",
+      "bbox_embed.layers.1.bias",
+      "bbox_embed.layers.2.weight",
+      "bbox_embed.layers.2.bias",
+      "refpoint_embed.weight",
+      "query_feat.weight"
+    ],
+    "parameters": 4288438,
+    "native_model_parameters": 30147076,
+    "eval_mode_with_gradients": true,
+    "last_encoder_blocks": []
+  },
+  "total_wall_seconds": 18.0978065829986,
+  "forward_images_per_second": 17.80172790611704,
+  "reference_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+  "not_a_model_score": true,
+  "native_test_accessed": false,
+  "validation_accessed": false
+}

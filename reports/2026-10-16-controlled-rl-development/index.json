@@ -1,0 +1,430 @@
+{
+  "workspace": ".",
+  "title": "Pill localization: controlled development results",
+  "compress_predictions": true,
+  "overview": [
+    "The strongest completed 384-pixel detector plus supervised crop refinement reaches 91.93% AP50:95 on all 423 validation images, up from 90.09% for the detector alone. AP at IoU 0.95 rises from 33.09% to 42.95%. This improvement is supervised; the project has not demonstrated the requested substantial RL advantage or a final-test frontier win.",
+    "The controlled query-RL result is 89.6289% AP versus 89.6002% for its supervised control, only +0.0287 percentage points. These use an earlier detector and the same frozen top-128 proposal cache. Two direct-policy pilots also fail the predeclared +2-point sampled-headroom gate. The direct trainer remains unfinished; a finite gradient probe is not a completed RL training result.",
+    "All frontier discovery rows below use the same 48 validation images. Correcting the documented bbox_2d alias changes Qwen's prompt ranking: minimal 57.52%, detailed 39.54%, two examples 23.46% with one remaining invalid response. The minimal prompt is Qwen's strongest measured variant, not the strongest overall frontier. Gemini 4 Argon high with two examples remains at 73.19%; GPT-6 Astra high at 72.82%. All 25 recorded runs were rescored consistently without new API calls.",
+    "The 200-image native test remains sealed. The separate 375-image Gemini confirmation stopped with 185 failed or missing responses after credit exhaustion and is invalid for primary comparisons. The live 512-pixel training run and local 8-bit Qwen download have no completed result in this snapshot. Development is pivoting toward the separately named wheat domain-accuracy protocol without using pills test outcomes to choose the task.",
+    "The pipeline bridge replay produced byte-identical predictions and resumed with zero additional commands. Its native final-freeze check rejected the two-image smoke before test access. Earlier Harbor runs completed both CPU training trials without errors and changed 462 detector tensors under a nonzero learning rate; the current typed crop verifier also ran on three validation-derived images. These establish working integration, not the benchmark objective."
+  ],
+  "dataset": {
+    "name": "RF100-VL countingpills v2",
+    "source_url": "https://universe.roboflow.com/rf100-vl/countingpills-exf0r-gfkt/dataset/2",
+    "limitations": [
+      "Validation guided detector, refinement, and prompt selection. These descriptive intervals do not correct for that selection and do not establish a final win.",
+      "Capture-hour groups cross native splits. All unknown capture images are pooled into one conservative cluster. This benchmark does not establish unseen-session generalization.",
+      "The 128-image pilot mean training-image AP (97.08%) uses per-image averaging and training data; it is not comparable to global validation COCO AP (90.09%).",
+      "Crop runtime is 14.93 ms per image on CPU for refinement over existing proposals, not full detector-plus-crop latency. Provider latency totals sum calls and are not concurrent batch wall time.",
+      "Pipeline replay and Harbor smoke are integration evidence on two or three validation-derived images, not benchmark scores. The typed crop smoke did not perform a full Docker rebuild.",
+      "Published native journals retain model responses but sanitize local paths and credential fields; the immutable rescore manifest records original source hashes. No model weights or giant COCO matching caches are embedded.",
+      "Broad suite evidence is 546 passed/21 skipped/1 deselected in core and 715 passed/6 skipped/5 deselected in detection. Reporter compression changes were separately checked with its 11 tests after those suite runs.",
+      "Pilot wall times start after dataset/model setup. Signal-to-noise values describe gradients at actor outputs on eight images, not full parameter-gradient variance."
+    ]
+  },
+  "evaluations": [
+    {
+      "id": "argon-structured-fewshot-48",
+      "label": "Gemini 4 Argon high \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-48/summary.json"
+    },
+    {
+      "id": "astra-fewshot-48",
+      "label": "GPT-6 Astra high \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-fewshot-48/summary.json"
+    },
+    {
+      "id": "kimi-minimal-48",
+      "label": "Kimi K3 max \u00b7 minimal",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/kimi-minimal-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/kimi-minimal-48/summary.json"
+    },
+    {
+      "id": "qwen-minimal-48",
+      "label": "Qwen3.8-27B xhigh \u00b7 minimal",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-minimal-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-minimal-48/summary.json"
+    },
+    {
+      "id": "opus-fewshot-48",
+      "label": "Claude Opus 5.5 adaptive \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-fewshot-48/summary.json"
+    },
+    {
+      "id": "qwen-rich-48",
+      "label": "Qwen3.8-27B xhigh \u00b7 detailed",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-48/summary.json"
+    },
+    {
+      "id": "qwen-fewshot-48",
+      "label": "Qwen3.8-27B xhigh \u00b7 two examples",
+      "phase": "validation",
+      "role": "frontier",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-fewshot-48/evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json",
+      "usage_path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-fewshot-48/summary.json"
+    },
+    {
+      "id": "final384-full",
+      "label": "Nano384 supervised detector \u00b7 all 423",
+      "phase": "validation",
+      "role": "specialist",
+      "path": "runs/pills-crops/final384-v1-transfer/base-evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "crop-v1-full",
+      "label": "Nano384 + supervised crop v1 \u00b7 all 423",
+      "phase": "validation",
+      "role": "specialist",
+      "path": "runs/pills-crops/final384-v1-transfer/crop-evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "query-warmup-full",
+      "label": "Epoch12 + supervised query control \u00b7 423",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-loop-epoch12-recovery-v2/candidates/mean-t1-s17/attempt-0002/training/warmup-evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "query-rl-full",
+      "label": "Epoch12 + query RL \u00b7 423",
+      "phase": "validation",
+      "role": "ablation",
+      "path": "runs/pills-loop-epoch12-recovery-v2/candidates/mean-t1-s17/attempt-0002/training/best-rl-evaluation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "final384-48",
+      "label": "Nano384 supervised detector \u00b7 matched 48",
+      "phase": "validation",
+      "role": "specialist",
+      "path": "runs/pills-detector/nano384-final-matched48-validation.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    },
+    {
+      "id": "crop-v1-48",
+      "label": "Nano384 + supervised crop v1 \u00b7 matched 48",
+      "phase": "validation",
+      "role": "specialist",
+      "path": "runs/controlled-rl-report-inputs/crop-v1-matched48.json",
+      "groups_path": "runs/pills-milestone/validation-capture-groups.json"
+    }
+  ],
+  "comparisons": [
+    {
+      "a": "crop-v1-full",
+      "b": "final384-full"
+    },
+    {
+      "a": "query-rl-full",
+      "b": "query-warmup-full"
+    },
+    {
+      "a": "crop-v1-48",
+      "b": "argon-structured-fewshot-48"
+    },
+    {
+      "a": "crop-v1-48",
+      "b": "astra-fewshot-48"
+    },
+    {
+      "a": "crop-v1-48",
+      "b": "kimi-minimal-48"
+    },
+    {
+      "a": "crop-v1-48",
+      "b": "qwen-minimal-48"
+    },
+    {
+      "a": "crop-v1-48",
+      "b": "opus-fewshot-48"
+    }
+  ],
+  "histories": [
+    {
+      "label": "Nano384 supervised training \u00b7 all 423 validation",
+      "path": "runs/pills-detector/nano-s42/metrics.csv",
+      "x": "epoch",
+      "y": "val/mAP_50_95",
+      "x_offset": 1
+    },
+    {
+      "label": "Epoch12 query control/RL \u00b7 all 423 validation",
+      "path": "runs/pills-loop-epoch12-recovery-v2/candidates/mean-t1-s17/attempt-0002/training/history.json",
+      "x": "epoch",
+      "y": "validation_AP"
+    }
+  ],
+  "measurements": [
+    {
+      "label": "Crop v1 refinement over existing proposals",
+      "path": "runs/pills-crops/final384-v1-transfer/summary.json",
+      "scope": "423 validation images; CPU, two threads; excludes detector proposal generation.",
+      "fields": {
+        "Wall seconds": "inference.wall_seconds",
+        "Milliseconds per image": "cpu_milliseconds_per_image",
+        "Refined proposals": "inference.refined_proposals",
+        "AP95 before": "metrics.base.AP95",
+        "AP95 after": "metrics.crop.AP95"
+      }
+    },
+    {
+      "label": "Direct-policy training-only diagnostics",
+      "path": "runs/controlled-rl-report-inputs/pilot-comparison.json",
+      "scope": "128 training images; best-of-64 samples per image, not learned-policy or validation scores. Reported pilot seconds exclude initial dataset/model setup.",
+      "fields": {
+        "Mean per-image training AP": "mean_train_image_AP",
+        "Dense pilot seconds": "dense_seconds",
+        "Dense sampled gain": "dense_best_sample_gain",
+        "Dense counterfactual output SNR": "dense_counterfactual_output_SNR",
+        "Dense leave-one-out output SNR": "dense_loo_output_SNR",
+        "Sparse pilot seconds": "sparse_seconds",
+        "Sparse sampled gain": "sparse_best_sample_gain",
+        "Required sampled gain": "required_sample_gain",
+        "Dense gate passed": "dense_go",
+        "Sparse gate passed": "sparse_go"
+      }
+    }
+  ],
+  "supplementary_evidence": [
+    {
+      "id": "crop-transfer",
+      "path": "runs/pills-crops/final384-v1-transfer/summary.json"
+    },
+    {
+      "id": "crop-transfer-plan",
+      "path": "runs/pills-crops/final384-v1-transfer/plan.json"
+    },
+    {
+      "id": "final384-model",
+      "path": "runs/pills-detector/nano384-final-model.json"
+    },
+    {
+      "id": "query-loop-proof",
+      "path": "runs/pills-loop-epoch12-recovery-v2/dogfood-evidence.json"
+    },
+    {
+      "id": "direct-pilot-dense",
+      "path": "runs/pills-direct-policy/pilot128-v1/summary.json"
+    },
+    {
+      "id": "direct-pilot-sparse",
+      "path": "runs/pills-direct-policy/pilot128-sparse-v2/summary.json"
+    },
+    {
+      "id": "pilot-comparison",
+      "path": "runs/controlled-rl-report-inputs/pilot-comparison.json"
+    },
+    {
+      "id": "pipeline-loop-proof",
+      "path": "runs/pipeline-bridge-smoke-v3/dogfood-evidence.json"
+    },
+    {
+      "id": "harbor-training-smoke",
+      "path": "runs/pills-docker-smoke/validation-evidence.json"
+    },
+    {
+      "id": "typed-crop-smoke",
+      "path": "runs/pills-docker-smoke/crop-v1-typed-development-r2/evidence.json"
+    },
+    {
+      "id": "alias-amendment",
+      "path": "runs/pills-study/bbox2d-alias-before-rescore-amendment.json"
+    },
+    {
+      "id": "all-rescored-runs",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/manifest.json"
+    },
+    {
+      "id": "frontier-all-25",
+      "path": "runs/controlled-rl-report-inputs/frontier-all-25.csv"
+    },
+    {
+      "id": "core-tests",
+      "path": "runs/milestone-core-tests.log"
+    },
+    {
+      "id": "detection-tests",
+      "path": "runs/milestone-detection-tests.log"
+    },
+    {
+      "id": "cluster-preregistration",
+      "path": "docs/detection-cluster-preregistration.json"
+    },
+    {
+      "id": "data-audit",
+      "path": "data/rf100vl-pills/prepared/audit.json"
+    },
+    {
+      "id": "credit-stopped-375",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-complement375/summary.json"
+    },
+    {
+      "id": "argon-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-low-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-low-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-minimal-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-minimal-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-rich-retry2-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-retry2-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-rich-smoke-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-rich-smoke/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-structured-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-structured-fewshot-complement375-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-complement375/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "argon-structured-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "astra-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "astra-max-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-max-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "astra-minimal-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-minimal-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "astra-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "astra-rich-smoke-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/astra-rich-smoke/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "kimi-minimal-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/kimi-minimal-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "kimi-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/kimi-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "kimi-rich-smoke-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/kimi-rich-smoke/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "opus-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "opus-minimal-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-minimal-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "opus-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "opus-rich-smoke-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/opus-rich-smoke/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "qwen-fewshot-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-fewshot-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "qwen-minimal-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-minimal-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "qwen-rich-48-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-48/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "qwen-rich-smoke-native-journal",
+      "path": "runs/pills-study/validation-rescore-bbox2d-v1/qwen-rich-smoke/attempts.jsonl",
+      "compress": true
+    },
+    {
+      "id": "pilot128-v1-plan",
+      "path": "runs/pills-direct-policy/pilot128-v1/plan.json"
+    },
+    {
+      "id": "pilot128-v1-items",
+      "path": "runs/pills-direct-policy/pilot128-v1/items.json"
+    },
+    {
+      "id": "pilot128-sparse-v2-plan",
+      "path": "runs/pills-direct-policy/pilot128-sparse-v2/plan.json"
+    },
+    {
+      "id": "pilot128-sparse-v2-items",
+      "path": "runs/pills-direct-policy/pilot128-sparse-v2/items.json"
+    }
+  ]
+}

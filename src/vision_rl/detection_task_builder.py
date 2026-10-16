@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import stat
 import tempfile
@@ -24,6 +25,7 @@ from .detection_training import inspect_split
 
 MODEL_LIMIT = 200 * 1024**2
 REFINER_LIMIT = 8 * 1024**2
+PROFILE_LIMIT = 64 * 1024
 
 
 def _inference_configuration(inference: str, configuration: dict | None) -> dict:
@@ -117,8 +119,9 @@ def verify_detection_submission(
     inference_config: dict | None = None,
     expected_model_sha256: str | None = None,
     expected_refiner_sha256: str | None = None,
+    trusted_profile: Path | None = None,
 ) -> dict:
-    """Evaluate only two staged safetensors with pristine CPU inference code.
+    """Evaluate declared numeric safetensors with pristine CPU inference code.
 
     Only trusted generated ``/tests/verify.py`` calls this in Harbor. Arguments
     permit local auditing; they are never obtained from an agent's configuration.
@@ -127,6 +130,15 @@ def verify_detection_submission(
     logs.mkdir(parents=True, exist_ok=True)
     (logs / "reward.txt").write_text("0\n")
     try:
+        if trusted_profile is not None:
+            if (
+                inference != "native128"
+                or inference_config is not None
+                or expected_model_sha256 is not None
+                or expected_refiner_sha256 is not None
+            ):
+                raise ValueError("A frozen pipeline profile cannot be mixed with legacy overrides")
+            return _verify_pipeline_submission(artifacts, test, logs, trusted_profile)
         configuration = _inference_configuration(inference, inference_config)
         from .detection_eval import evaluate_coco
         from .detection_rl import (
@@ -137,7 +149,7 @@ def verify_detection_submission(
         from .detection_training import export_queries
 
         with tempfile.TemporaryDirectory(prefix="trusted-detector-") as temporary:
-            staged = Path(temporary)
+            staged = Path(temporary).resolve()
             model, refiner = staged / "model.safetensors", staged / "refiner.safetensors"
             _stage_artifact(artifacts / model.name, model, MODEL_LIMIT)
             _stage_artifact(artifacts / refiner.name, refiner, REFINER_LIMIT)
@@ -224,6 +236,72 @@ def verify_detection_submission(
         return {"error": error, "AP": 0.0}
 
 
+def _verify_pipeline_submission(
+    artifacts: Path, test: Path, logs: Path, profile_path: Path
+) -> dict:
+    """Stage only the trusted profile's declared weights and reuse its image-only runner."""
+    from .detection_eval import evaluate_coco
+    from .detection_recipe import load_profile, predict_profile, profile_artifacts, read
+
+    with tempfile.TemporaryDirectory(prefix="trusted-pipeline-") as temporary:
+        # The verifier creates this directory itself. Canonicalize platform
+        # temp roots such as macOS /var before strict no-follow model loaders;
+        # submitted artifact paths still pass the original no-follow checks.
+        staged = Path(temporary).resolve()
+        trusted = staged / "pipeline.json"
+        _stage_artifact(profile_path, trusted, PROFILE_LIMIT)
+        profile = read(trusted)
+        specifications = profile_artifacts(profile)
+        for specification in specifications.values():
+            name = specification["file"]
+            _stage_artifact(artifacts / name, staged / name, specification["max_bytes"])
+        load_profile(trusted)
+        # The trusted grader owns annotations. Only image metadata enters the
+        # pipeline API, so optional crop or RL stages cannot access test labels.
+        document = load_coco(test / "_annotations.coco.json")
+        if sorted(row["id"] for row in document["categories"]) != sorted(profile["category_ids"]):
+            raise ValueError("Test categories differ from the frozen training mapping")
+        manifest = staged / "images.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {key: row[key] for key in ("id", "file_name", "width", "height")}
+                        for row in document["images"]
+                    ]
+                }
+            )
+            + "\n"
+        )
+        evidence = staged / "inference"
+        predict_profile(trusted, manifest, test, evidence)
+        predictions_path = evidence / "predictions.coco.json"
+        if predictions_path.stat().st_size > 256 * 1024**2:
+            raise ValueError("Pipeline predictions exceed 256 MiB")
+        predictions = json.loads(predictions_path.read_text())
+        provenance = {
+            "pipeline": profile,
+            "profile_sha256": _hash_file(trusted),
+            "artifact_format": "safetensors",
+            "submitted_code_executed": False,
+            "timing": json.loads((evidence / "inference.json").read_text()),
+            "prediction_provenance": json.loads((evidence / "provenance.json").read_text()),
+        }
+        result = evaluate_coco(
+            test / "_annotations.coco.json",
+            predictions,
+            output=logs / "evaluation.json",
+            model=provenance,
+        )
+        reward = float(result["AP"])
+        if not math.isfinite(reward) or not 0 <= reward <= 1:
+            raise ValueError("Native AP must be a finite fraction between zero and one")
+        shutil.copyfile(predictions_path, logs / "predictions.json")
+        (logs / "inference.json").write_text(json.dumps(provenance, indent=2) + "\n")
+        (logs / "reward.txt").write_text(f"{reward}\n")
+        return result
+
+
 def _bundle_coco(source: Path, destination: Path, document: dict) -> None:
     """Copy only declared images; strip source paths and incidental metadata."""
     destination.mkdir(parents=True)
@@ -244,6 +322,120 @@ def _bundle_coco(source: Path, destination: Path, document: dict) -> None:
     categories = [{"id": row["id"], "name": row["name"]} for row in document["categories"]]
     bundled = {"images": images, "annotations": annotations, "categories": categories, "info": {}}
     (destination / "_annotations.coco.json").write_text(json.dumps(bundled) + "\n")
+
+
+def make_pipeline_replay_task(
+    profile: Path,
+    test: Path,
+    output: Path,
+    *,
+    base_image: str = "vision-rl:detection",
+) -> dict:
+    """Replay a frozen typed pipeline, including its explicitly optional stages.
+
+    The profile is task-author input copied into the verifier's private tests,
+    never a submitted configuration. Use only after the relevant model-selection
+    boundary; calling this function reads the specified evaluation split.
+    """
+    from .detection_recipe import load_profile, profile_artifacts
+
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._/:@-]*", base_image):
+        raise ValueError("Invalid base image reference")
+    output = Path(output).absolute()
+    if output.exists() or output.is_symlink():
+        raise ValueError("Task output already exists; choose a new directory")
+    profile = Path(profile).resolve()
+    if profile.stat().st_size > PROFILE_LIMIT:
+        raise ValueError("Trusted pipeline profile exceeds 64 KiB")
+    definition, _, artifacts = load_profile(profile)
+    specifications = profile_artifacts(definition)
+    test = Path(test).resolve()
+    inspected = inspect_split(test)
+    document = load_coco(test / "_annotations.coco.json")
+    if sorted(row["id"] for row in document["categories"]) != sorted(definition["category_ids"]):
+        raise ValueError("Test categories differ from the frozen training mapping")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".pipeline-replay-", dir=output.parent) as temporary:
+        staged = Path(temporary) / "task"
+        environment, tests, solution = (
+            staged / name for name in ("environment", "tests", "solution")
+        )
+        submission = environment / "submission"
+        submission.mkdir(parents=True)
+        solution.mkdir(parents=True)
+        commands = ["#!/bin/bash", "set -euo pipefail", "mkdir -p /logs/artifacts/training"]
+        for role, specification in specifications.items():
+            name = specification["file"]
+            _stage_artifact(
+                artifacts[role].resolve(), submission / name, specification["max_bytes"]
+            )
+            if _hash_file(submission / name) != specification["sha256"]:
+                raise ValueError("Artifact changed during pipeline task packaging")
+            commands.append(
+                shlex.join(
+                    [
+                        "cp",
+                        "/app/submission/" + name,
+                        "/logs/artifacts/training/" + name,
+                    ]
+                )
+            )
+        _bundle_coco(test, tests / "data/test", document)
+        # Canonical trusted profile bytes exclude surrounding source-directory
+        # artifacts; only the schema's declared numeric files enter the image.
+        (tests / "pipeline.json").write_text(
+            json.dumps(definition, sort_keys=True, indent=2) + "\n"
+        )
+        (environment / "Dockerfile").write_text(
+            f'FROM {base_image}\nCOPY submission/ /app/submission/\nCMD ["sleep", "infinity"]\n'
+        )
+        (solution / "solve.sh").write_text("\n".join(commands) + "\n")
+        (tests / "test.sh").write_text(
+            "#!/bin/bash\nset -euo pipefail\nmkdir -p /logs/verifier\n"
+            "echo 0 > /logs/verifier/reward.txt\npython -I /tests/verify.py\n"
+        )
+        (tests / "verify.py").write_text(
+            "from pathlib import Path\n"
+            "from vision_rl.detection_task_builder import verify_detection_submission\n"
+            'verify_detection_submission(trusted_profile=Path("/tests/pipeline.json"))\n'
+        )
+        for script in (solution / "solve.sh", tests / "test.sh"):
+            script.chmod(0o755)
+        (staged / "task.toml").write_text(
+            'schema_version = "1.4"\n\n[task]\nname = "vision-rl/frozen-pipeline-replay"\n'
+            'version = "0.2.0"\ndescription = "Verify a frozen image-only numeric pipeline"\n\n'
+            '[metadata]\ncategory = "machine-learning"\npurpose = "artifact-replay"\n\n'
+            "[agent]\ntimeout_sec = 300.0\n\n"
+            '[verifier]\ntimeout_sec = 14400.0\nenvironment_mode = "separate"\n\n'
+            "[environment]\ncpus = 2\nmemory_mb = 3072\nstorage_mb = 8192\n"
+            'network_mode = "no-network"\n'
+        )
+        (staged / "instruction.md").write_text(
+            "# Replay a frozen specialist pipeline\n\n"
+            "Copy every `.safetensors` file from `/app/submission/` into "
+            "`/logs/artifacts/training/`. The separate verifier owns the frozen typed profile, "
+            "checks each artifact and installed implementation hash, and runs its trusted "
+            "image-only prediction pipeline. Optional stages run only when the frozen profile "
+            "declares them; a detector-only submission needs no refinement head.\n\n"
+            "This verifies already selected artifacts. It performs no training or "
+            "test-based selection. Predictions, provenance, timing, and native COCO AP "
+            "are recorded under `/logs/verifier`.\n"
+        )
+        bundle = {
+            "schema_version": 2,
+            "purpose": "frozen-pipeline-replay",
+            "protocol": PROTOCOL,
+            "pipeline": definition,
+            "profile_sha256": _hash_file(tests / "pipeline.json"),
+            "test_images": inspected["images"],
+            "test_fingerprint": inspected["fingerprint"],
+            "source_annotation_sha256": inspected["annotation_sha256"],
+            "test_in_build_context": False,
+            "submission_format": "safetensors",
+        }
+        (staged / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n")
+        staged.rename(output)
+    return {**bundle, "task": str(output.resolve()), "agent": "oracle"}
 
 
 def make_detection_replay_task(

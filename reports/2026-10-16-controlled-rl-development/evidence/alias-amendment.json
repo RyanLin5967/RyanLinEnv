@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-16T05:05:24.546564+00:00",
+  "phase": "Development validation only; recorded before revised scores are computed. Native200 test remains sealed.",
+  "decision": "Accept bbox_2d as an explicit mutually exclusive alias alongside box and box_2d for every array coordinate format. Native named-normalized format still rejects array aliases.",
+  "motivation": "Actual Qwen replies used the documented bbox_2d field. Rejecting that field measured a naming mismatch rather than localization.",
+  "primary_source": {
+    "url": "https://github.com/QwenLM/Qwen3-VL/blob/96588727e44c78b25ba03ea03b8e12f7e64fd0da/cookbooks/2d_grounding.ipynb",
+    "scope": "Official family grounding cookbook documents bbox_2d with XYXY relative0..1000. Current Qwen3.8 model card lacks a separate grounding schema; no claim that it documents this schema."
+  },
+  "unchanged": [
+    "Model outputs and all native HTTP attempt journals",
+    "Every prompt, image bytes, examples, native model settings",
+    "Declared coordinate order and scale; no automatic guessing, clipping, inversion repair, class-name rewriting, or answer selection",
+    "COCO AP50:95 metric and original image denominators"
+  ],
+  "application": "Rescore every recorded validation experiment consistently, including all providers,smokes,discovery,and interruptedconfirmation. Keep old scores and nativejournals byte-identical; write new immutable nested artifact bundle. Credit-stopped scopes remain ineligible.",
+  "new_hosted_calls": 0,
+  "candidate_count": 25,
+  "candidates": [
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-fewshot-48",
+      "original_evaluation_sha256": "9ee890b25c683c87f9b3cff4e8cd7f78f4c1477471d98daf33d31e3987d44af3",
+      "original_journal_sha256": "f1c5c69b3b4d188ae1eb43dc6ffd88ad6dbc14794e79b9d8894aef762e5adaed"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-low-rich-48",
+      "original_evaluation_sha256": "c72e73db8ea94abb398b7b559a4054ac3250c1af6cf00f34176e720857ba6c14",
+      "original_journal_sha256": "ab9a07b65a41b44ce8c41e464ab777894a740869c37ed460bfd6cddeb197308b"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-minimal-48",
+      "original_evaluation_sha256": "16b834d6ce9867d46f2782d6f575571acdaa5da89011ecb60b6bacc956cf62db",
+      "original_journal_sha256": "1908cb8c67982d9211407bdcea054ac8d4878b070a7b8e3c9f76333d65f52fd1"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-rich-48",
+      "original_evaluation_sha256": "94eb4c286d8ecb4639a3bc6aa54a7c72b368f1d0df9b76bd11ea8191ec881983",
+      "original_journal_sha256": "15d841b0b86540d2e8e90d594d64df0816814a0c7b6d7dda85ccc0129812d859"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-rich-retry2-48",
+      "original_evaluation_sha256": "60f746c3ebe2693682435de74089707a52c09e395c68a71476c8992047c70f86",
+      "original_journal_sha256": "a4e15ce08f81818c79b07298403b2f9896116014426be56a81540bcc1f7b2fc1"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+      "result": "$WORKSPACE/runs/pills-study/argon-rich-smoke",
+      "original_evaluation_sha256": "5fce41189c55e685114e0fc2200e1f5747e2762f624934da5dd822742f536ed8",
+      "original_journal_sha256": "6f903b2f630677eb73ede294d5090338709b20fc05bb1b408227e5d2a6361d75"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-48",
+      "original_evaluation_sha256": "8d6efcc8813901b9fecf4a252e9b72a13e8ef2694fc0eb42aa642442b1943037",
+      "original_journal_sha256": "16849ba42880571ab531eabe53b7813841d9ec9c9bc7e49cb33be4318b13b135"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-fewshot-complement375",
+      "result": "$WORKSPACE/runs/pills-study/argon-structured-fewshot-complement375",
+      "original_evaluation_sha256": "e324cc1ea9ea38049776776e31f6cddfa4aa762bffe7bf491a8243084d5ed568",
+      "original_journal_sha256": "d662598a0519db57c96d30274c1ea800ca5a4aaa84a794b117b95ecf387b06f7"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-argon-structured-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/argon-structured-rich-48",
+      "original_evaluation_sha256": "fba06cda9a9359563928e5d05a14e57830ab1a85a33f42de0edb5038bf7ca3b9",
+      "original_journal_sha256": "40d652ea6bdce679d5919eb7de2de1b78d18e46726bd0f10c4b35d137fd192e6"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/astra-fewshot-48",
+      "original_evaluation_sha256": "1f880c6177977d459333904d99ad7badc3d2b42797db7a457d71589181c28bbd",
+      "original_journal_sha256": "9365c19d5d4b4615a50d121787a2dfbaa89bdf56a7f88b0a021b247810b71958"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-astra-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/astra-max-fewshot-48",
+      "original_evaluation_sha256": "196aaccf94bfba4068467d116a31163d2d0b469ec0849831278e3eb362bb02a2",
+      "original_journal_sha256": "546b7892d9f4d95d251343fa45aeb874a79ee686aab1c2f58deff66267cdbc17"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-astra-minimal-48",
+      "result": "$WORKSPACE/runs/pills-study/astra-minimal-48",
+      "original_evaluation_sha256": "6c79b1bfd130bca23216f2bdda26ae9372877b39f760b632087300c43a3b0ee4",
+      "original_journal_sha256": "99fa1258ef3a81f40cbcff216f2523c7a8a14eebf60687c60b0c62cd560ef60a"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-astra-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/astra-rich-48",
+      "original_evaluation_sha256": "9d70760c888ef698222487dbdc7e83310ae809aff7d9932baf0b72292bf013ba",
+      "original_journal_sha256": "2dcb75c111a04af4d634f41c80f1ed506839548faea5ec7ed84a8683fd34a6ed"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-astra-rich-smoke",
+      "result": "$WORKSPACE/runs/pills-study/astra-rich-smoke",
+      "original_evaluation_sha256": "e1293cc9de392e2f2d6f6e475606fe0f808070f1fa414fc1bfc1a82502775541",
+      "original_journal_sha256": "a021a620a4af1d04f5c3ce8757aea3eab88d7f60d8aa67017a53b2fc627846e5"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-kimi-minimal-48",
+      "result": "$WORKSPACE/runs/pills-study/kimi-minimal-48",
+      "original_evaluation_sha256": "44877895d02b33886bde8cb158d1d0c92f3d6d234db8c9ba72a2b325869d34a6",
+      "original_journal_sha256": "5b3684a3e4e3430791860642f4909454e74e3b2473fff464da33ccb264a0f385"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/kimi-rich-48",
+      "original_evaluation_sha256": "59dc22bbb9869e5576e1c3a9477b4c3ef966bd851563cf3a2c75b458ff8fb81f",
+      "original_journal_sha256": "f2d3b70711d9b35efb704afd9de72f51ff5a7361e388037e35221386d68d1d45"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-kimi-rich-smoke",
+      "result": "$WORKSPACE/runs/pills-study/kimi-rich-smoke",
+      "original_evaluation_sha256": "eb3cdb8087feba28d1e61c68a700b60c823755d484fe99086ecbe76c20c9ece8",
+      "original_journal_sha256": "9b5de1f1379528ff5832676c14333109270f58dba310d2e1dc4b100c47c586c2"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/opus-fewshot-48",
+      "original_evaluation_sha256": "57bc8312065e822b7ff2e934e11db1066e1685e157c8171f99e21a1b345e12a9",
+      "original_journal_sha256": "e54be083dae424e80a3b68060207ab2080f504ed217d94bb34adb23d091e1395"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-minimal-48",
+      "result": "$WORKSPACE/runs/pills-study/opus-minimal-48",
+      "original_evaluation_sha256": "2eff8576c303406cd83d41d2ac6fe95c02fc0e2dfcb5ce219aa5d00706ebb19b",
+      "original_journal_sha256": "31b4311d16e875d270f583187d6bb80b8034d35e2669ba49ebec83255bc2938b"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/opus-rich-48",
+      "original_evaluation_sha256": "418502d9801e10bae9760ac894756042a6b6df903d9dd35c000d942ae894052b",
+      "original_journal_sha256": "669d694f1b7705443ccc9ddb993ac07f7f41b61327082d8e9fc8fe2228def7d3"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-rich-smoke",
+      "result": "$WORKSPACE/runs/pills-study/opus-rich-smoke",
+      "original_evaluation_sha256": "253776bcd3f33c4af7c02b10bc808c31d6a0c1bea5e359160e02e4d45d0162b9",
+      "original_journal_sha256": "f16310fc041adc4f34aece7a241bb8eaea8142407c654828fe1192215b088afc"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-qwen-fewshot-48",
+      "result": "$WORKSPACE/runs/pills-study/qwen-fewshot-48",
+      "original_evaluation_sha256": "7fb4fd0c36069ee8271cdd55773a6d69468e8f46a11907de64a58e30475ed6d1",
+      "original_journal_sha256": "e87250c7a00b09ac5770f48fcf4756fb18bc3d46524031aa8904656edea4af19"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-qwen-minimal-48",
+      "result": "$WORKSPACE/runs/pills-study/qwen-minimal-48",
+      "original_evaluation_sha256": "0e1940ee7ead391554d9018ce78ffc02743e6a624f82e60ba46a07939541af5d",
+      "original_journal_sha256": "b454c962746e774bd0ce310f98d87579723e22de304d7caa6441bbcd4dacece3"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-48",
+      "result": "$WORKSPACE/runs/pills-study/qwen-rich-48",
+      "original_evaluation_sha256": "3d403741d75698d574400bbad25af7dc8d79f5b3579749136ba8a7e05ec6e0b7",
+      "original_journal_sha256": "0dd2199218e33d8c866435adaea1e23639140fbc946526b3ca93b66283660b13"
+    },
+    {
+      "input": "$WORKSPACE/runs/pills-study/validation-qwen-rich-smoke",
+      "result": "$WORKSPACE/runs/pills-study/qwen-rich-smoke",
+      "original_evaluation_sha256": "8e9b041f9c507be33f1095b5dd556777c628c2acf0301d043969168829744b8b",
+      "original_journal_sha256": "e1a8776372945e86274d565e473ef95d5567a455e3d3a4492d5660b3cc3237cd"
+    }
+  ],
+  "evaluator_after_alias_sha256": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+  "destination": "runs/pills-study/validation-rescore-bbox2d-v1"
+}

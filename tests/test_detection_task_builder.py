@@ -1,7 +1,9 @@
 import hashlib
 import json
 import os
+import shlex
 import tomllib
+from dataclasses import asdict
 
 import pytest
 from PIL import Image
@@ -11,6 +13,7 @@ from vision_rl.detection_task_builder import (
     _stage_artifact,
     make_detection_replay_task,
     make_detection_task,
+    make_pipeline_replay_task,
     verify_detection_submission,
 )
 
@@ -424,3 +427,269 @@ def test_label_free_replay_uses_trusted_config_and_image_only_manifest(
     assert provenance["configuration"]["checkpoint_resolution"] == 512
     assert provenance["configuration"]["resolutions"] == [384, 512]
     assert provenance["submitted_code_executed"] is False
+
+
+def _numeric_pipeline(directory, *, query=False, crop=False, name="detector.safetensors"):
+    from vision_rl.detection_inference import InferenceConfig
+    from vision_rl.detection_recipe import descriptor, source_hashes
+
+    directory.mkdir()
+    detector = directory / name
+    detector.write_bytes(b"numeric detector")
+    policy = directory / "query-refiner.safetensors"
+    if query:
+        policy.write_bytes(b"numeric policy")
+    profile = {
+        "schema_version": 1,
+        "kind": "rfdetr_detection_pipeline",
+        "detector": descriptor(detector),
+        "query_refiner": descriptor(policy) if query else None,
+        "crop_refiner": None,
+        "inference": asdict(InferenceConfig(checkpoint_resolution=384, batch_size=1)),
+        "category_ids": [1],
+        "implementation_hashes": source_hashes(),
+        "training_origin": "supervised_detector",
+    }
+    if crop:
+        from vision_rl.detection_recipe import RUNTIME_PACKAGES
+
+        crop_model = directory / "crop-refiner.safetensors"
+        crop_model.write_bytes(b"numeric crop model")
+        profile.update(
+            schema_version=2,
+            crop_refiner=descriptor(crop_model),
+            crop_configuration={
+                "adapter": "crop_refinement",
+                "blend": 0.5,
+                "quality_blend": 0.0,
+                "training_detector_sha256": "1" * 64,
+                "training_proposals_sha256": "2" * 64,
+            },
+            runtime_packages={name: "1.0" for name in RUNTIME_PACKAGES},
+        )
+    path = directory / "pipeline.json"
+    path.write_text(json.dumps(profile))
+    return path
+
+
+@pytest.mark.parametrize("query,crop", [(False, False), (True, False), (False, True), (True, True)])
+def test_pipeline_task_packages_only_declared_weights_with_private_profile(
+    tmp_path,
+    coco_dataset,
+    monkeypatch,
+    query,
+    crop,
+):
+    import vision_rl.detection_recipe as recipe
+
+    profile = _numeric_pipeline(tmp_path / "frozen", query=query, crop=crop)
+    if crop:
+        versions = json.loads(profile.read_text())["runtime_packages"]
+        monkeypatch.setattr(recipe, "runtime_versions", lambda **kwargs: versions)
+    (profile.parent / "untrusted.py").write_text("raise RuntimeError('not submitted')")
+    output = tmp_path / "replay"
+    result = make_pipeline_replay_task(profile, coco_dataset / "test", output)
+    expected = sorted(
+        [
+            "detector.safetensors",
+            *(["query-refiner.safetensors"] if query else []),
+            *(["crop-refiner.safetensors"] if crop else []),
+        ]
+    )
+    assert sorted(p.name for p in (output / "environment/submission").iterdir()) == expected
+    assert not (output / "environment/pipeline.json").exists()
+    assert not (output / "environment/data").exists()
+    assert json.loads((output / "tests/pipeline.json").read_text()) == json.loads(
+        profile.read_text()
+    )
+    assert result["agent"] == "oracle" and result["test_in_build_context"] is False
+    assert result["test_images"] == 1
+    verifier = (output / "tests/verify.py").read_text()
+    compile(verifier, "generated-pipeline-verifier.py", "exec")
+    assert 'trusted_profile=Path("/tests/pipeline.json")' in verifier
+    config = tomllib.loads((output / "task.toml").read_text())
+    assert config["environment"]["network_mode"] == "no-network"
+    assert config["verifier"]["environment_mode"] == "separate"
+    with pytest.raises(ValueError, match="already exists"):
+        make_pipeline_replay_task(profile, coco_dataset / "test", output)
+
+
+def test_pipeline_replay_quotes_numeric_filenames_as_shell_data(tmp_path, coco_dataset):
+    name = "weights;$(touch dangerous).safetensors"
+    profile = _numeric_pipeline(tmp_path / "frozen", name=name)
+    output = tmp_path / "replay"
+    make_pipeline_replay_task(profile, coco_dataset / "test", output)
+    copy = (output / "solution/solve.sh").read_text().splitlines()[-1]
+    assert shlex.split(copy) == [
+        "cp",
+        "/app/submission/" + name,
+        "/logs/artifacts/training/" + name,
+    ]
+    assert "'/app/submission/" in copy
+
+
+@pytest.mark.parametrize("query,crop", [(False, False), (True, False), (False, True), (True, True)])
+def test_pipeline_verifier_stages_optional_weights_and_uses_only_image_manifest(
+    tmp_path,
+    coco_dataset,
+    monkeypatch,
+    query,
+    crop,
+):
+    import vision_rl.detection_eval as evaluation
+    import vision_rl.detection_recipe as recipe
+
+    root = tmp_path.resolve()
+    profile = _numeric_pipeline(root / "frozen", query=query, crop=crop)
+    if crop:
+        versions = json.loads(profile.read_text())["runtime_packages"]
+        monkeypatch.setattr(recipe, "runtime_versions", lambda **kwargs: versions)
+        # Model loaders reject symlinks in every component. The verifier must
+        # canonicalize its own temporary root even on systems where it is an alias.
+        temporary = root / "trusted-temporary"
+        temporary.mkdir()
+        alias = root / "temporary-alias"
+        alias.symlink_to(temporary, target_is_directory=True)
+        monkeypatch.setattr("tempfile.tempdir", str(alias))
+    artifacts, logs = root / "submitted", root / "logs"
+    artifacts.mkdir()
+    for path in profile.parent.glob("*.safetensors"):
+        (artifacts / path.name).write_bytes(path.read_bytes())
+    (artifacts / "pipeline.json").write_text('{"implementation":"evil.py"}')
+    (artifacts / "evil.py").write_text("raise RuntimeError('not trusted')")
+    calls = []
+    predictions = [{"image_id": 7, "category_id": 1, "bbox": [2, 3, 5, 4], "score": 0.9}]
+
+    def predict(staged, manifest, image_root, output):
+        calls.append("predict")
+        assert staged == staged.resolve()
+        assert json.loads(staged.read_text()) == json.loads(profile.read_text())
+        expected_roles = {"detector"}
+        if query:
+            expected_roles.add("query_refiner")
+        if crop:
+            expected_roles.add("crop_refiner")
+        assert recipe.load_profile(staged)[2].keys() == expected_roles
+        assert sorted(path.name for path in staged.parent.iterdir()) == sorted(
+            [
+                "detector.safetensors",
+                "images.json",
+                "pipeline.json",
+                *(["query-refiner.safetensors"] if query else []),
+                *(["crop-refiner.safetensors"] if crop else []),
+            ]
+        )
+        document = json.loads(manifest.read_text())
+        assert set(document) == {"images"}
+        assert set(document["images"][0]) == {"id", "file_name", "width", "height"}
+        assert image_root == coco_dataset / "test"
+        output.mkdir()
+        (output / "predictions.coco.json").write_text(json.dumps(predictions))
+        (output / "inference.json").write_text('{"elapsed_seconds": 1}')
+        (output / "provenance.json").write_text('{"label_access": false}')
+
+    def evaluate(annotation, values, **kwargs):
+        calls.append("evaluate")
+        assert annotation == coco_dataset / "test/_annotations.coco.json"
+        assert values == predictions
+        assert kwargs["model"]["submitted_code_executed"] is False
+        assert kwargs["model"]["prediction_provenance"]["label_access"] is False
+        return {"AP": 0.75}
+
+    monkeypatch.setattr(recipe, "predict_profile", predict)
+    monkeypatch.setattr(evaluation, "evaluate_coco", evaluate)
+    result = verify_detection_submission(
+        artifacts, coco_dataset / "test", logs, trusted_profile=profile
+    )
+    assert result == {"AP": 0.75} and calls == ["predict", "evaluate"]
+    assert (logs / "reward.txt").read_text() == "0.75\n"
+    assert json.loads((logs / "predictions.json").read_text()) == predictions
+
+
+@pytest.mark.parametrize(
+    "failure", ["hash", "missing", "symlink", "source", "category", "override"]
+)
+def test_pipeline_verifier_rejects_invalid_submission_before_inference(
+    tmp_path,
+    coco_dataset,
+    monkeypatch,
+    failure,
+):
+    import vision_rl.detection_recipe as recipe
+
+    root = tmp_path.resolve()
+    profile = _numeric_pipeline(root / "frozen")
+    artifacts = root / "submitted"
+    artifacts.mkdir()
+    detector = artifacts / "detector.safetensors"
+    detector.write_bytes((profile.parent / detector.name).read_bytes())
+    settings = {}
+    if failure == "hash":
+        detector.write_bytes(b"changed weights")
+    elif failure == "missing":
+        detector.unlink()
+    elif failure == "symlink":
+        detector.unlink()
+        detector.symlink_to(profile.parent / detector.name)
+    elif failure in {"source", "category"}:
+        document = json.loads(profile.read_text())
+        if failure == "source":
+            document["implementation_hashes"]["detection_recipe.py"] = "0" * 64
+        else:
+            document["category_ids"] = [9]
+        profile.write_text(json.dumps(document))
+    else:
+        settings["inference"] = "label_free"
+    calls = []
+    monkeypatch.setattr(recipe, "predict_profile", lambda *args: calls.append("inference"))
+    result = verify_detection_submission(
+        artifacts,
+        coco_dataset / "test",
+        root / "logs",
+        trusted_profile=profile,
+        **settings,
+    )
+    assert result["AP"] == 0 and "error" in result
+    assert calls == []
+    assert (root / "logs/reward.txt").read_text() == "0\n"
+    assert not (root / "logs/predictions.json").exists()
+
+
+@pytest.mark.parametrize("failure", ["oversized-crop", "crop-symlink", "runtime-version"])
+def test_pipeline_crop_replay_rejects_unsafe_artifact_or_runtime_before_inference(
+    tmp_path,
+    coco_dataset,
+    monkeypatch,
+    failure,
+):
+    import vision_rl.detection_recipe as recipe
+
+    root = tmp_path.resolve()
+    profile = _numeric_pipeline(root / "frozen", crop=True)
+    definition = json.loads(profile.read_text())
+    versions = dict(definition["runtime_packages"])
+    monkeypatch.setattr(recipe, "runtime_versions", lambda **kwargs: versions)
+    artifacts = root / "submission"
+    artifacts.mkdir()
+    for source in profile.parent.glob("*.safetensors"):
+        (artifacts / source.name).write_bytes(source.read_bytes())
+    crop = artifacts / "crop-refiner.safetensors"
+    if failure == "oversized-crop":
+        with crop.open("wb") as stream:
+            stream.truncate(32 * 1024**2 + 1)
+    elif failure == "crop-symlink":
+        crop.unlink()
+        crop.symlink_to(profile.parent / crop.name)
+    else:
+        versions["torch"] = "2.0"
+    calls = []
+    monkeypatch.setattr(recipe, "predict_profile", lambda *args: calls.append("predict"))
+    result = verify_detection_submission(
+        artifacts,
+        coco_dataset / "test",
+        root / "logs",
+        trusted_profile=profile,
+    )
+    assert result["AP"] == 0 and "error" in result
+    assert calls == []
+    assert (root / "logs/reward.txt").read_text() == "0\n"

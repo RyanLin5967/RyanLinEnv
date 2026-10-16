@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
+import numpy as np
 import torch
 
 
+@lru_cache(maxsize=512)
+def _recall_counts(num_targets: int, queries: int) -> tuple[int, ...]:
+    """Integer TP thresholds reproducing pycocotools' float64 recall grid.
+
+    Construct this small lookup on CPU: MPS has no float64 tensors. Comparing
+    float32 recalls to a float32 linspace can move an entire recall bin (1/101
+    AP), e.g. seven exact matches against ten targets. Native COCO's float64
+    grid also has boundary rounding, so rational ceil(grid * targets) is not
+    interchangeable with its actual searchsorted convention.
+    """
+    recall = np.arange(queries + 1, dtype=np.float64) / num_targets
+    return tuple(np.searchsorted(recall, np.linspace(0, 1, 101), side="left").tolist())
+
+
 @torch.no_grad()
-def interpolated_ap(
-    hits: torch.Tensor, keep: torch.Tensor, num_targets: int
-) -> torch.Tensor:
+def interpolated_ap(hits: torch.Tensor, keep: torch.Tensor, num_targets: int) -> torch.Tensor:
     """COCO's 101-point interpolated AP for each sampled detection set.
 
     ``hits[G,H,Q]`` contains unique-match indicators at ``H`` IoU thresholds,
@@ -20,8 +35,9 @@ def interpolated_ap(
 
     A suffix maximum is the precision envelope. Binary search finds its first
     eligible position at each recall threshold, including the leftmost position
-    when recall is repeated. This is equivalent to maximizing over all eligible
-    queries but avoids materializing a ``[G,H,Q,101]`` tensor.
+    when recall is repeated. Recall eligibility matches native COCO float64 on
+    CPU and MPS; precision integration returns float32. This avoids materializing
+    a ``[G,H,Q,101]`` tensor.
     """
     if hits.ndim != 3 or keep.shape != (hits.shape[0], hits.shape[2]):
         raise ValueError("expected hits[G,H,Q] and keep[G,Q]")
@@ -37,14 +53,13 @@ def interpolated_ap(
     if num_targets == 0 or queries == 0 or groups == 0:
         return torch.zeros(groups, dtype=torch.float32, device=hits.device)
 
-    cumulative_hits = hits.float().cumsum(-1)
-    precision = cumulative_hits / keep[:, None].cumsum(-1).clamp_min(1)
-    recall = cumulative_hits / num_targets
+    cumulative_hits = hits.cumsum(-1)
+    precision = cumulative_hits.float() / keep[:, None].cumsum(-1).clamp_min(1)
     envelope = precision.flip(-1).cummax(-1).values.flip(-1)
-    recall_grid = torch.linspace(0, 1, 101, device=hits.device)
+    required_hits = torch.tensor(_recall_counts(num_targets, queries), device=hits.device)
     indices = torch.searchsorted(
-        recall.contiguous(),
-        recall_grid.expand(groups, thresholds, -1).contiguous(),
+        cumulative_hits.contiguous(),
+        required_hits.expand(groups, thresholds, -1).contiguous(),
         right=False,
     )
     # Binary search returns Q for unattained recall. The sentinel gives it zero.

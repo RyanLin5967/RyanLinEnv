@@ -1,0 +1,28 @@
+{
+  "purpose": "typed crop-v1 CPU plumbing smoke; not a benchmark result",
+  "native_test_evaluated": false,
+  "evaluation_images": "original native validation indices4:7",
+  "images": 3,
+  "AP": 0.9423267326732673,
+  "profile": "$WORKSPACE/runs/pills-docker-smoke/crop-v1-typed-development-r2/frozen/pipeline.json",
+  "profile_sha256": "7e8a4db1c5ece6d4875654fc1d380cc23ec6f2416517b256afc97ee17724f6e2",
+  "detector_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+  "crop_sha256": "05cbfc77c114a18391b3c793bbcecd541881a79c75363ea5284a3b75d3ad96c9",
+  "query_refiner": null,
+  "package_versions": {
+    "numpy": "2.5.4",
+    "pillow": "12.3.0",
+    "pycocotools": "2.0.11",
+    "rfdetr": "1.10.0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "transformers": "5.20.0"
+  },
+  "training_detector_sha256": "fd08716944517fcfad4937221ffebf2999cd4f75e4363f12343a3f2d0555da43",
+  "deployment_detector_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+  "task": "$WORKSPACE/runs/pills-docker-smoke/crop-v1-typed-development-r2/task",
+  "labels_available_to_predictor": false,
+  "full_docker_rebuild_performed": false,
+  "temporary_directory_portability_fix": "Canonical verifier-owned temporary root; submitted paths retain all-component no-follow checks"
+}
