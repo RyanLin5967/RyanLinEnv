@@ -1,0 +1,36 @@
+name: Aircraft CPU first-four reproduction
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aircraft-cpu-first4
+  cancel-in-progress: false
+jobs:
+  first4:
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        arm: [grpo, dr_grpo]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run one frozen CPU arm to its four-update boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPERIMENT_ARM: ${{ matrix.arm }}
+        run: python3 scripts/aircraft_ci_experiment.py run --arm "$EXPERIMENT_ARM"
+      - name: Retain checkpoints and audit evidence, never base weights or images
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-cpu-first4-${{ matrix.arm }}
+          path: runs/aircraft-ci/output/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
