@@ -1,0 +1,22 @@
+{
+  "stage": "completed",
+  "updated_unix": 1792128237.388457,
+  "coordinator_pid": 71938,
+  "test_access": false,
+  "base_selection": {
+    "epoch_1based": 32,
+    "metric": "validation EMA COCO AP@[0.50:0.95], maxDets=500",
+    "AP": 0.9008747339248657,
+    "AP50": 0.990060567855835,
+    "AP75": 0.986095666885376
+  },
+  "phase512_selection": {
+    "epoch_1based": 4,
+    "metric": "validation EMA COCO AP@[0.50:0.95], maxDets=500",
+    "AP": 0.9274556040763855,
+    "AP50": 0.9991269707679749,
+    "AP75": 0.9896495938301086
+  },
+  "base_model_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017",
+  "phase512_model_sha256": "66b9b34df0bcc4751022c40e31dbd17c0ee7658447ca679b61b8cf49a51629c9"
+}

@@ -1,0 +1,24 @@
+{
+  "cache_sha256": "101ea24c26dcd74454fce5854e0aae32a157582c298fcbef8ee329ef53670a6b",
+  "elapsed_seconds": 50.15992908300541,
+  "embedding_dimension": 256,
+  "images": 423,
+  "metadata": {
+    "annotation_path": "$WORKSPACE/data/rf100vl-pills/clean-coco/valid/_annotations.coco.json",
+    "batch_size": 8,
+    "box_format": "normalized_xyxy",
+    "category_id": 1,
+    "cpu_threads": 1,
+    "dataset_fingerprint": "49a621ef69f252f87b02ba2d3c431e84dd265c3aceda18305aa2e6d47acbfada",
+    "device": "cpu",
+    "embedding_source": "last decoder layer, class_embed input",
+    "image_sizes_order": "width,height",
+    "model_sha256": "66b9b34df0bcc4751022c40e31dbd17c0ee7658447ca679b61b8cf49a51629c9",
+    "preprocessing": "rfdetr validation transforms; full RGB decode (draft_size=None)",
+    "resolution": 512,
+    "retained_queries": 128,
+    "source_queries": 300,
+    "truncated_images": false
+  },
+  "queries": 128
+}

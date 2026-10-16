@@ -1,0 +1,98 @@
+{
+  "$INDEX": {
+    "sha256": "2d988dcd048b0e1b30407aa5ddee4000e3a2b92c608e7932bbd006d82b4a3f66",
+    "bytes": 10455
+  },
+  "runs/pills-study/validation-rescore-bbox2d-v1/argon-structured-fewshot-48/evaluation.json": {
+    "sha256": "c197601748a707af60310d185eb09a36c747114f4b353da37bc126edf0eabeef",
+    "bytes": 223051
+  },
+  "runs/pills-milestone/validation-capture-groups.json": {
+    "sha256": "08d0bcfe949580d5d4913473b5a8fcde19402dceaeee3e9fd0374eac1daf26a5",
+    "bytes": 12487
+  },
+  "runs/pills-detector/nano512-final-independent-validation.json": {
+    "sha256": "2e2382acb7b0a1cad68cc3aadbe1c7b32a77617c726bb0b25bdf0dcefaed0452",
+    "bytes": 97984049
+  },
+  "runs/pills-detector/nano384-final-independent-validation.json": {
+    "sha256": "df53e17506c46635dd356d8b42a29014996ac24840b9660789c1dfcd5205c5ea",
+    "bytes": 97973385
+  },
+  "runs/pills-crops/final384-v1-transfer/crop-evaluation.json": {
+    "sha256": "d19add5138ee19b8a99d50395a5823fbf72dbbb8f03e5935b94b0ef1e2c0e49d",
+    "bytes": 97972957
+  },
+  "runs/pills-detector/nano512-final-matched48-validation.json": {
+    "sha256": "e10e8cde556da832ea42aaab14a415f39cd0c832b885538f7ee1709281a718df",
+    "bytes": 11119017
+  },
+  "runs/controlled-rl-report-inputs/crop-v1-matched48.json": {
+    "sha256": "09b2c884de79e4f379d8e82ea0d0fbbea712873bd4c2bfc869cb781a11157eb1",
+    "bytes": 11118214
+  },
+  "runs/pills-detector/nano-s42/metrics.csv": {
+    "sha256": "bec4f7aaa445531bb7541d807f1caa307d91aafeb984a17419182b37bd3af2f4",
+    "bytes": 54466
+  },
+  "runs/pills-detector/nano512-s42/metrics.csv": {
+    "sha256": "cbba12fab803a5d3ebd3014cfe00f2e83a64c9c991abef71edec68fb7b84bc64",
+    "bytes": 16372
+  },
+  "runs/progressive512-report-inputs/resources.json": {
+    "sha256": "872af656bbf542673bb2792ec9e15dfb3cf79c4c25c58ba70a9d900e5f86d127",
+    "bytes": 9454
+  },
+  "runs/pills-detector/nano512-final-model.json": {
+    "sha256": "2db08c48d183ebe998bd8edd3caf8c41ca326a15f0fed009bd494eca0f99ae2d",
+    "bytes": 495
+  },
+  "runs/pills-detector/nano512-final-tensor-verification.json": {
+    "sha256": "1a8567aebb3e9e7e9b0520d79ebe08281262ef8c70357d003a9a8e19035d63c5",
+    "bytes": 423
+  },
+  "runs/pills-detector/nano512-s42/training-plan.json": {
+    "sha256": "0d9cbe78bf558ae8c9dcdc60378100beb63439cc8a06fd5fa51d089f99a4e20a",
+    "bytes": 144088
+  },
+  "runs/pills-detector/nano512-s42/training-evidence.json": {
+    "sha256": "5439fe2b561ddb2466ae80c56a639acf2b73463242aa0c1b2a2d404e56b925a1",
+    "bytes": 1941
+  },
+  "runs/pills-detector/nano512-s42/runtime.json": {
+    "sha256": "224d6b710352a7a61d061c35a269c6287f84e88a766f294241834613c4610526",
+    "bytes": 6645
+  },
+  "runs/pills-detector/nano512-s42/result.json": {
+    "sha256": "9e469cba700bfa3449a24eccca144613ca141c0aca6ffeeae742afbc64883fd7",
+    "bytes": 1874
+  },
+  "runs/pills-detector/nano512-s42/telemetry.jsonl": {
+    "sha256": "de8d1666813d7d4e75a912f0d707246a8d64cfb7b8998baf329c9b54f7b68b96",
+    "bytes": 102063
+  },
+  "runs/pills-detector/progressive-status.json": {
+    "sha256": "182ea80585375490f464f3788e563d85023dc3ddfdda182f5ddb4f656f226f0a",
+    "bytes": 721
+  },
+  "runs/pills-detector/nano512-final-validation.json": {
+    "sha256": "7dfea8baef75d1d3d36670522475282af41292ca9a7b5524fd0c4e02e2f43513",
+    "bytes": 933
+  },
+  "runs/pills-detector/nano-s42/training-evidence.json": {
+    "sha256": "9bff75109c152dd47d2776c87ecaa356fad08bd4195cae9092cb9b0d27777ba0",
+    "bytes": 2060
+  },
+  "reports/2026-10-16-controlled-rl-development/checksums.json": {
+    "sha256": "727f825d0399e9a16255e7d94b021b8d2ce8c001140aabebd66c2e32f1acbe62",
+    "bytes": 11900
+  },
+  "reports/2026-10-16-controlled-rl-development/sources.json": {
+    "sha256": "18199d1e63dad58c5aa954dcae653e9d00024b68d1ffc3b95f4e75bcf9be34c9",
+    "bytes": 13031
+  },
+  "scripts/pills_report.py": {
+    "sha256": "4cc1b9fded4f64304e9cdec37288f083f51639c96485e215a15aca8c63cb8766",
+    "bytes": 27376
+  }
+}

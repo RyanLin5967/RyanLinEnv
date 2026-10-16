@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-16T05:57:16.294377+00:00",
+  "hardware": {
+    "cpu": "Apple M5 Pro",
+    "physical_memory_bytes": 51539607552,
+    "hardware_source": "read-only sysctl on the local training host"
+  },
+  "phase512_fit_seconds": 2196.2285587500082,
+  "base384_recorded_fit_seconds_including_interrupted": 6228.095138624005,
+  "progressive_recorded_fit_seconds": 8424.323697374013,
+  "epochs_completed": 12,
+  "selected_epoch_1based": 4,
+  "optimizer_steps": 1092,
+  "sampled_max_mps_driver_bytes": 8099561472,
+  "sampled_max_rss_bytes": 2973663232,
+  "sampled_max_mps_allocated_bytes": 642111232,
+  "sampled_max_mps_driver_gib": 7.543304443359375,
+  "sampled_max_rss_gib": 2.769439697265625,
+  "train_interval_count": 42,
+  "median_seconds_per_optimizer_step": 1.8734175062498253,
+  "effective_images_per_optimizer_step": 16,
+  "validation_cache_seconds": 50.15992908300541,
+  "validation_cache_images": 423,
+  "validation_cache_ms_per_image": 118.58139263121846,
+  "model_parameters": 30319108,
+  "tensor_count": 466,
+  "step_intervals": [
+    {
+      "epoch_0based": 0,
+      "start_optimizer_step": 20,
+      "end_optimizer_step": 40,
+      "seconds_per_optimizer_step": 1.8849412229501468
+    },
+    {
+      "epoch_0based": 0,
+      "start_optimizer_step": 40,
+      "end_optimizer_step": 60,
+      "seconds_per_optimizer_step": 1.8765991207998014
+    },
+    {
+      "epoch_0based": 0,
+      "start_optimizer_step": 60,
+      "end_optimizer_step": 80,
+      "seconds_per_optimizer_step": 1.8915985646002809
+    },
+    {
+      "epoch_0based": 1,
+      "start_optimizer_step": 100,
+      "end_optimizer_step": 120,
+      "seconds_per_optimizer_step": 1.883612739549426
+    },
+    {
+      "epoch_0based": 1,
+      "start_optimizer_step": 120,
+      "end_optimizer_step": 140,
+      "seconds_per_optimizer_step": 1.8558331937500043
+    },
+    {
+      "epoch_0based": 1,
+      "start_optimizer_step": 140,
+      "end_optimizer_step": 160,
+      "seconds_per_optimizer_step": 1.8805851854500362
+    },
+    {
+      "epoch_0based": 1,
+      "start_optimizer_step": 160,
+      "end_optimizer_step": 180,
+      "seconds_per_optimizer_step": 1.8859534895505932
+    },
+    {
+      "epoch_0based": 2,
+      "start_optimizer_step": 200,
+      "end_optimizer_step": 220,
+      "seconds_per_optimizer_step": 1.9339233020502433
+    },
+    {
+      "epoch_0based": 2,
+      "start_optimizer_step": 220,
+      "end_optimizer_step": 240,
+      "seconds_per_optimizer_step": 1.9184196791997237
+    },
+    {
+      "epoch_0based": 2,
+      "start_optimizer_step": 240,
+      "end_optimizer_step": 260,
+      "seconds_per_optimizer_step": 1.9188507187500363
+    },
+    {
+      "epoch_0based": 3,
+      "start_optimizer_step": 280,
+      "end_optimizer_step": 300,
+      "seconds_per_optimizer_step": 1.845063208299689
+    },
+    {
+      "epoch_0based": 3,
+      "start_optimizer_step": 300,
+      "end_optimizer_step": 320,
+      "seconds_per_optimizer_step": 1.918976714600285
+    },
+    {
+      "epoch_0based": 3,
+      "start_optimizer_step": 320,
+      "end_optimizer_step": 340,
+      "seconds_per_optimizer_step": 1.917674677100149
+    },
+    {
+      "epoch_0based": 3,
+      "start_optimizer_step": 340,
+      "end_optimizer_step": 360,
+      "seconds_per_optimizer_step": 1.9131034707999788
+    },
+    {
+      "epoch_0based": 4,
+      "start_optimizer_step": 380,
+      "end_optimizer_step": 400,
+      "seconds_per_optimizer_step": 1.89929398125023
+    },
+    {
+      "epoch_0based": 4,
+      "start_optimizer_step": 400,
+      "end_optimizer_step": 420,
+      "seconds_per_optimizer_step": 1.8607779145997483
+    },
+    {
+      "epoch_0based": 4,
+      "start_optimizer_step": 420,
+      "end_optimizer_step": 440,
+      "seconds_per_optimizer_step": 1.873625835400162
+    },
+    {
+      "epoch_0based": 5,
+      "start_optimizer_step": 460,
+      "end_optimizer_step": 480,
+      "seconds_per_optimizer_step": 1.8660815167000693
+    },
+    {
+      "epoch_0based": 5,
+      "start_optimizer_step": 480,
+      "end_optimizer_step": 500,
+      "seconds_per_optimizer_step": 1.8565017187494959
+    },
+    {
+      "epoch_0based": 5,
+      "start_optimizer_step": 500,
+      "end_optimizer_step": 520,
+      "seconds_per_optimizer_step": 1.8599106229004974
+    },
+    {
+      "epoch_0based": 5,
+      "start_optimizer_step": 520,
+      "end_optimizer_step": 540,
+      "seconds_per_optimizer_step": 1.8732091770994885
+    },
+    {
+      "epoch_0based": 6,
+      "start_optimizer_step": 560,
+      "end_optimizer_step": 580,
+      "seconds_per_optimizer_step": 1.8761325395498716
+    },
+    {
+      "epoch_0based": 6,
+      "start_optimizer_step": 580,
+      "end_optimizer_step": 600,
+      "seconds_per_optimizer_step": 1.8834072604506218
+    },
+    {
+      "epoch_0based": 6,
+      "start_optimizer_step": 600,
+      "end_optimizer_step": 620,
+      "seconds_per_optimizer_step": 1.8977232145494782
+    },
+    {
+      "epoch_0based": 7,
+      "start_optimizer_step": 640,
+      "end_optimizer_step": 660,
+      "seconds_per_optimizer_step": 1.865644866650109
+    },
+    {
+      "epoch_0based": 7,
+      "start_optimizer_step": 660,
+      "end_optimizer_step": 680,
+      "seconds_per_optimizer_step": 1.8630808895999507
+    },
+    {
+      "epoch_0based": 7,
+      "start_optimizer_step": 680,
+      "end_optimizer_step": 700,
+      "seconds_per_optimizer_step": 1.8533148750000692
+    },
+    {
+      "epoch_0based": 7,
+      "start_optimizer_step": 700,
+      "end_optimizer_step": 720,
+      "seconds_per_optimizer_step": 1.8469593312504002
+    },
+    {
+      "epoch_0based": 8,
+      "start_optimizer_step": 740,
+      "end_optimizer_step": 760,
+      "seconds_per_optimizer_step": 1.849124416650011
+    },
+    {
+      "epoch_0based": 8,
+      "start_optimizer_step": 760,
+      "end_optimizer_step": 780,
+      "seconds_per_optimizer_step": 1.856164022950543
+    },
+    {
+      "epoch_0based": 8,
+      "start_optimizer_step": 780,
+      "end_optimizer_step": 800,
+      "seconds_per_optimizer_step": 1.8713805062499886
+    },
+    {
+      "epoch_0based": 9,
+      "start_optimizer_step": 820,
+      "end_optimizer_step": 840,
+      "seconds_per_optimizer_step": 1.865384714600077
+    },
+    {
+      "epoch_0based": 9,
+      "start_optimizer_step": 840,
+      "end_optimizer_step": 860,
+      "seconds_per_optimizer_step": 1.866134045850049
+    },
+    {
+      "epoch_0based": 9,
+      "start_optimizer_step": 860,
+      "end_optimizer_step": 880,
+      "seconds_per_optimizer_step": 1.8787616270499712
+    },
+    {
+      "epoch_0based": 9,
+      "start_optimizer_step": 880,
+      "end_optimizer_step": 900,
+      "seconds_per_optimizer_step": 1.8580477458497626
+    },
+    {
+      "epoch_0based": 10,
+      "start_optimizer_step": 920,
+      "end_optimizer_step": 940,
+      "seconds_per_optimizer_step": 1.853247320849914
+    },
+    {
+      "epoch_0based": 10,
+      "start_optimizer_step": 940,
+      "end_optimizer_step": 960,
+      "seconds_per_optimizer_step": 1.8745491437497548
+    },
+    {
+      "epoch_0based": 10,
+      "start_optimizer_step": 960,
+      "end_optimizer_step": 980,
+      "seconds_per_optimizer_step": 1.8817119999999705
+    },
+    {
+      "epoch_0based": 10,
+      "start_optimizer_step": 980,
+      "end_optimizer_step": 1000,
+      "seconds_per_optimizer_step": 1.8582275166503677
+    },
+    {
+      "epoch_0based": 11,
+      "start_optimizer_step": 1020,
+      "end_optimizer_step": 1040,
+      "seconds_per_optimizer_step": 1.8607187292000162
+    },
+    {
+      "epoch_0based": 11,
+      "start_optimizer_step": 1040,
+      "end_optimizer_step": 1060,
+      "seconds_per_optimizer_step": 1.8601661416505522
+    },
+    {
+      "epoch_0based": 11,
+      "start_optimizer_step": 1060,
+      "end_optimizer_step": 1080,
+      "seconds_per_optimizer_step": 1.913546147899615
+    }
+  ],
+  "scope": {
+    "fit": "Recorded fit invocation wall time, including training validation/checkpoint overhead; excludes model setup, preflights, reporting, and independent extraction. Base total includes its recorded interrupted attempt.",
+    "memory": "Maximum observed among 82 periodic telemetry samples; not a continuous allocator peak and not a sum of RSS plus shared MPS memory.",
+    "step": "Median elapsed/20 optimizer-step difference between adjacent train_progress records in the same epoch; excludes validation boundaries. Effective batch 16; not total fit throughput.",
+    "validation_cache": "CPU, one thread, batch 8; full RGB decode, preprocessing, forward, query-feature capture, prediction conversion and serialization. Excludes model/dataset setup; not pure forward latency or end-to-end serving latency."
+  },
+  "sources": {
+    "runs/pills-detector/nano512-s42/telemetry.jsonl": "de8d1666813d7d4e75a912f0d707246a8d64cfb7b8998baf329c9b54f7b68b96",
+    "runs/pills-detector/nano512-s42/training-evidence.json": "5439fe2b561ddb2466ae80c56a639acf2b73463242aa0c1b2a2d404e56b925a1",
+    "runs/pills-detector/nano512-s42/result.json": "9e469cba700bfa3449a24eccca144613ca141c0aca6ffeeae742afbc64883fd7",
+    "runs/pills-detector/nano-s42/training-evidence.json": "9bff75109c152dd47d2776c87ecaa356fad08bd4195cae9092cb9b0d27777ba0",
+    "runs/pills-detector/nano512-final-validation.json": "7dfea8baef75d1d3d36670522475282af41292ca9a7b5524fd0c4e02e2f43513",
+    "runs/pills-detector/nano512-final-model.json": "2db08c48d183ebe998bd8edd3caf8c41ca326a15f0fed009bd494eca0f99ae2d"
+  },
+  "test_access": false
+}

@@ -1,0 +1,15 @@
+{
+  "tensor_count": 466,
+  "native_safe_loaded_all_tensors_exact": true,
+  "resolution": 512,
+  "safe_sha256": "66b9b34df0bcc4751022c40e31dbd17c0ee7658447ca679b61b8cf49a51629c9",
+  "native_sha256": "08919c051367af3a4052c242570734b7fa021e53510c4d09c26b01b79ffc4bae",
+  "position_shapes": {
+    "backbone.0.encoder.encoder.embeddings.position_embeddings": [
+      1,
+      1025,
+      384
+    ]
+  },
+  "test_access": false
+}

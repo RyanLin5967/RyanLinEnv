@@ -1,0 +1,58 @@
+{
+  "attempts": [
+    {
+      "attempt_id": "legacy-final",
+      "seconds": 6017.260620165995,
+      "status": "completed"
+    },
+    {
+      "attempt_id": "legacy-interrupted",
+      "seconds": 210.83451845801028,
+      "status": "historical_failure"
+    }
+  ],
+  "final_epoch_metrics": {
+    "__rfdetr_effective_map__": 0.900777280330658,
+    "loss": 0.8574580550193787,
+    "loss_box": 0.00607357919216156,
+    "loss_cls": 0.16599038243293762,
+    "loss_giou": 0.03730190917849541,
+    "train/cardinality_error": 49.37431335449219,
+    "train/cardinality_error_0": 49.44093322753906,
+    "train/cardinality_error_enc": 49.34546661376953,
+    "train/class_error": -1.5300709037546767e-06,
+    "train/loss": 0.9958927035331726,
+    "train/loss_bbox": 0.005986793432384729,
+    "train/loss_bbox_aux": 0.01269665639847517,
+    "train/loss_ce": 0.18767020106315613,
+    "train/loss_ce_aux": 0.4092395007610321,
+    "train/loss_giou": 0.04890801012516022,
+    "train/loss_giou_aux": 0.10387472808361053,
+    "train/lr": 1.9589697919375482e-11,
+    "train/lr_max": 1.9589697919375482e-11,
+    "train/lr_min": 6.332495292027396e-13,
+    "val/F1": 0.9947701692581177,
+    "val/ema_mAP_50": 0.9928392171859741,
+    "val/ema_mAP_50_95": 0.900777280330658,
+    "val/ema_mAP_75": 0.9799907207489014,
+    "val/ema_mAR": 0.9267032742500305,
+    "val/mAP_50": 0.9928392171859741,
+    "val/mAP_50_95": 0.900777280330658,
+    "val/mAP_75": 0.9799907207489014,
+    "val/mAR": 0.9267032742500305,
+    "val/precision": 0.996690571308136,
+    "val/recall": 0.9928571581840515
+  },
+  "resume_semantics": "stateful optimizer/scheduler/EMA resume; not exact stochastic replay",
+  "selection": {
+    "AP": 0.9008747339248657,
+    "AP50": 0.990060567855835,
+    "AP75": 0.986095666885376,
+    "epoch_1based": 32,
+    "metric": "validation EMA COCO AP@[0.50:0.95], maxDets=500"
+  },
+  "status": "completed",
+  "test_access": false,
+  "timing_scope": "fit process wall time; excludes model setup and pauses between attempts",
+  "total_recorded_active_fit_seconds": 6228.095138624005
+}

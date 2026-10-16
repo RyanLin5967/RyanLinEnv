@@ -1,0 +1,53 @@
+{
+  "attempts": [
+    {
+      "attempt_id": "30ac1cc4c2af4fd18340c3b56881cb89",
+      "seconds": 2196.2285587500082,
+      "status": "completed"
+    }
+  ],
+  "final_epoch_metrics": {
+    "__rfdetr_effective_map__": 0.9266108274459839,
+    "loss": 0.9278296232223511,
+    "loss_box": 0.006895845290273428,
+    "loss_cls": 0.18316228687763214,
+    "loss_giou": 0.04449491202831268,
+    "train/cardinality_error": 49.344093322753906,
+    "train/cardinality_error_0": 49.569366455078125,
+    "train/cardinality_error_enc": 49.41964340209961,
+    "train/class_error": -1.5300709037546767e-06,
+    "train/loss": 1.002949833869934,
+    "train/loss_bbox": 0.005923674441874027,
+    "train/loss_bbox_aux": 0.012600723654031754,
+    "train/loss_ce": 0.1905246526002884,
+    "train/loss_ce_aux": 0.4137951731681824,
+    "train/loss_giou": 0.0491526797413826,
+    "train/loss_giou_aux": 0.10385118424892426,
+    "train/lr": 2.462471719588688e-11,
+    "train/lr_max": 2.462471719588688e-11,
+    "train/lr_min": 5.30673161663886e-13,
+    "val/F1": 0.9983489513397217,
+    "val/ema_mAP_50": 0.9990551471710205,
+    "val/ema_mAP_50_95": 0.9266108274459839,
+    "val/ema_mAP_75": 0.9896812438964844,
+    "val/ema_mAR": 0.9493955969810486,
+    "val/mAP_50": 0.9990551471710205,
+    "val/mAP_50_95": 0.9266108274459839,
+    "val/mAP_75": 0.9896812438964844,
+    "val/mAR": 0.9493955969810486,
+    "val/precision": 1.0,
+    "val/recall": 0.9967032670974731
+  },
+  "resume_semantics": "stateful optimizer/scheduler/EMA resume; not exact stochastic replay",
+  "selection": {
+    "AP": 0.9274556040763855,
+    "AP50": 0.9991269707679749,
+    "AP75": 0.9896495938301086,
+    "epoch_1based": 4,
+    "metric": "validation EMA COCO AP@[0.50:0.95], maxDets=500"
+  },
+  "status": "completed",
+  "test_access": false,
+  "timing_scope": "fit process wall time; excludes model setup and pauses between attempts",
+  "total_recorded_active_fit_seconds": 2196.2285587500082
+}

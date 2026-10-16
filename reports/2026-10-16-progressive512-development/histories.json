@@ -1,0 +1,276 @@
+[
+  {
+    "label": "384-pixel supervised phase",
+    "phase": "validation",
+    "points": [
+      {
+        "x": 1.0,
+        "AP": 0.8189898729324341,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 2.0,
+        "AP": 0.8543745279312134,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 3.0,
+        "AP": 0.8649614453315735,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 4.0,
+        "AP": 0.8715077638626099,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 5.0,
+        "AP": 0.87848299741745,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 6.0,
+        "AP": 0.8810325264930725,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 7.0,
+        "AP": 0.8842843770980835,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 8.0,
+        "AP": 0.8879622220993042,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 9.0,
+        "AP": 0.8891545534133911,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 10.0,
+        "AP": 0.8900083303451538,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 11.0,
+        "AP": 0.8921924233436584,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 12.0,
+        "AP": 0.8946773409843445,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 13.0,
+        "AP": 0.8937047123908997,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 14.0,
+        "AP": 0.8926212191581726,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 15.0,
+        "AP": 0.8933533430099487,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 16.0,
+        "AP": 0.8933126926422119,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 17.0,
+        "AP": 0.8951762318611145,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 18.0,
+        "AP": 0.8970860242843628,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 19.0,
+        "AP": 0.8974153399467468,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 20.0,
+        "AP": 0.8980454206466675,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 21.0,
+        "AP": 0.8974177241325378,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 22.0,
+        "AP": 0.8974511623382568,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 23.0,
+        "AP": 0.8968968987464905,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 24.0,
+        "AP": 0.8983219265937805,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 25.0,
+        "AP": 0.8979405164718628,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 26.0,
+        "AP": 0.8980409502983093,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 27.0,
+        "AP": 0.8989161849021912,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 28.0,
+        "AP": 0.898215651512146,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 29.0,
+        "AP": 0.898986279964447,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 30.0,
+        "AP": 0.8990239500999451,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 31.0,
+        "AP": 0.899837076663971,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 32.0,
+        "AP": 0.9008747339248657,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 33.0,
+        "AP": 0.8992359042167664,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 34.0,
+        "AP": 0.8996153473854065,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 35.0,
+        "AP": 0.8991983532905579,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 36.0,
+        "AP": 0.8998449444770813,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 37.0,
+        "AP": 0.8993197083473206,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 38.0,
+        "AP": 0.9006612300872803,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 39.0,
+        "AP": 0.900838315486908,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 40.0,
+        "AP": 0.900777280330658,
+        "training_phase": "supervised"
+      }
+    ],
+    "metric_field": "val/ema_mAP_50_95"
+  },
+  {
+    "label": "512-pixel supervised phase \u00b7 warm-start from selected 384-pixel checkpoint",
+    "phase": "validation",
+    "points": [
+      {
+        "x": 41.0,
+        "AP": 0.9219822883605957,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 42.0,
+        "AP": 0.9260442852973938,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 43.0,
+        "AP": 0.9257925748825073,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 44.0,
+        "AP": 0.9274556040763855,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 45.0,
+        "AP": 0.9264678955078125,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 46.0,
+        "AP": 0.9267665147781372,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 47.0,
+        "AP": 0.9261046051979065,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 48.0,
+        "AP": 0.9265682101249695,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 49.0,
+        "AP": 0.9270816445350647,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 50.0,
+        "AP": 0.9269494414329529,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 51.0,
+        "AP": 0.9266595244407654,
+        "training_phase": "supervised"
+      },
+      {
+        "x": 52.0,
+        "AP": 0.9266108274459839,
+        "training_phase": "supervised"
+      }
+    ],
+    "metric_field": "val/ema_mAP_50_95"
+  }
+]
