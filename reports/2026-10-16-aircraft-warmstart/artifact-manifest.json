@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "scope": "Immutable copies of completed local evidence; no sourceimages,credentials or modelweights",
+  "artifacts": {
+    "warmstart/phase-summary.json": {
+      "source": "runs/aircraft-warmstart-v1/phase-summary.json",
+      "sha256": "6b1d91b737b6cf978ae2893e4520e671312fa3cb50d4dedc60de90b347e5abc6",
+      "bytes": 2852
+    },
+    "warmstart/local_training.json": {
+      "source": "runs/aircraft-warmstart-v1/local_training.json",
+      "sha256": "d7f2f59664abb2f819d491402e422d6e65cc7ba4c639411758207f1e1077e2be",
+      "bytes": 121609
+    },
+    "warmstart/optimizer_audit.jsonl": {
+      "source": "runs/aircraft-warmstart-v1/optimizer_audit.jsonl",
+      "sha256": "a7b031db3e6b56d5903d1b0fcb26d2573dc8c3459cd257678fd08d4011e2dc51",
+      "bytes": 181590
+    },
+    "warmstart/before_train_diagnostic_predictions.json": {
+      "source": "runs/aircraft-warmstart-v1/before_train_diagnostic_predictions.json",
+      "sha256": "fe4e67d47f35daf79ba904a26ff5c9c4bc2b46c11ccdeffac4f4b8ef6617af87",
+      "bytes": 2541
+    },
+    "warmstart/after_train_diagnostic_predictions.json": {
+      "source": "runs/aircraft-warmstart-v1/after_train_diagnostic_predictions.json",
+      "sha256": "7e6c0137bdf3c219064f48464bff7d06a6e8d9e3dc699564f61b9cc33d6df349",
+      "bytes": 2605
+    },
+    "warmstart/guard/supervisor.json": {
+      "source": "runs/aircraft-warmstart-v1-guard/supervisor.json",
+      "sha256": "6ef2f89a2a4d837643a87ec6e3b396891c4dc8a111743f4e2151f37fe9ed6f57",
+      "bytes": 899
+    },
+    "warmstart/guard/mps-summary.json": {
+      "source": "runs/aircraft-warmstart-v1-guard/mps-summary.json",
+      "sha256": "34bca86b691dfe3888fd4cb48131a3220836747651faa0cc33a813328b52736d",
+      "bytes": 379
+    },
+    "warmstart/plan/plan.json": {
+      "source": "runs/aircraft-warmstart-v1-plan/plan.json",
+      "sha256": "cfa109186c3e29263e747524fdcb7634ff35dd9d17131500653d009b032c01bd",
+      "bytes": 43882
+    },
+    "warmstart/plan/launch.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/launch.py",
+      "sha256": "7b54aeb597e4c4301505da059d07228fff6c5e91c1311909907c08f19b67141e",
+      "bytes": 11607
+    },
+    "warmstart/plan/source/vision_rl/__init__.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/__init__.py",
+      "sha256": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
+      "bytes": 85
+    },
+    "warmstart/plan/source/vision_rl/aircraft_data.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/aircraft_data.py",
+      "sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+      "bytes": 2041
+    },
+    "warmstart/plan/source/vision_rl/data.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/data.py",
+      "sha256": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb",
+      "bytes": 3457
+    },
+    "warmstart/plan/source/vision_rl/evaluation.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/evaluation.py",
+      "sha256": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735",
+      "bytes": 11689
+    },
+    "warmstart/plan/source/vision_rl/spatial.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/spatial.py",
+      "sha256": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7",
+      "bytes": 3604
+    },
+    "warmstart/plan/source/vision_rl/training.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/training.py",
+      "sha256": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd",
+      "bytes": 7485
+    },
+    "warmstart/plan/source/vision_rl/vlm.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/vlm.py",
+      "sha256": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+      "bytes": 23030
+    },
+    "warmstart/plan/source/vision_rl/vlm_local_training.py.txt": {
+      "source": "runs/aircraft-warmstart-v1-plan/source/vision_rl/vlm_local_training.py",
+      "sha256": "97824e4c701d6f648bea3538d7c8a8627822ed87b5e158a3e88faf6643f8e244",
+      "bytes": 86276
+    },
+    "support/phase-summary.json": {
+      "source": "runs/aircraft-mechanism32-warm-v1/phase-summary.json",
+      "sha256": "a0a4a4c609b97b6d6a9d41a39c9f02395b8a15f732f3e0a6928229ff59e1f9b3",
+      "bytes": 7136
+    },
+    "support/gate-result.json": {
+      "source": "runs/aircraft-mechanism32-warm-v1/gate-result.json",
+      "sha256": "a3cca0f50266eb01d489f79e6ea8365b83ff4e03bf9012c8fe4eee54cc623372",
+      "bytes": 2402
+    },
+    "support/guard/supervisor.json": {
+      "source": "runs/aircraft-mechanism32-warm-v1-guard/supervisor.json",
+      "sha256": "750533a2b6b598a86442308c3ae4132888f73f82ad978c7848e6952d89fd8255",
+      "bytes": 883
+    },
+    "support/guard/mps-summary.json": {
+      "source": "runs/aircraft-mechanism32-warm-v1-guard/mps-summary.json",
+      "sha256": "e31a11ef6bfd2433843a00d61ea5ca8b0ae76c8193d8dda40b5800facfe2fddd",
+      "bytes": 522
+    },
+    "support/plan/plan.json": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/plan.json",
+      "sha256": "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02",
+      "bytes": 8924
+    },
+    "support/plan/launch.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/launch.py",
+      "sha256": "885f34a5d2fcac41be4d47497bc8adc1abeb03607e34bf38140e5c58d1273b9b",
+      "bytes": 11711
+    },
+    "support/plan/source/vision_rl/__init__.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/__init__.py",
+      "sha256": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
+      "bytes": 85
+    },
+    "support/plan/source/vision_rl/aircraft_data.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/aircraft_data.py",
+      "sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+      "bytes": 2041
+    },
+    "support/plan/source/vision_rl/data.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/data.py",
+      "sha256": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb",
+      "bytes": 3457
+    },
+    "support/plan/source/vision_rl/evaluation.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/evaluation.py",
+      "sha256": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735",
+      "bytes": 11689
+    },
+    "support/plan/source/vision_rl/spatial.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/spatial.py",
+      "sha256": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7",
+      "bytes": 3604
+    },
+    "support/plan/source/vision_rl/training.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/training.py",
+      "sha256": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd",
+      "bytes": 7485
+    },
+    "support/plan/source/vision_rl/vlm.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/vlm.py",
+      "sha256": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+      "bytes": 23030
+    },
+    "support/plan/source/vision_rl/vlm_local_training.py.txt": {
+      "source": "runs/aircraft-mechanism32-warm-v1-plan/source/vision_rl/vlm_local_training.py",
+      "sha256": "678fb009ff9ca09ce606dc1911595fa40357cc29c34da4343f38110562c172d2",
+      "bytes": 87385
+    },
+    "support/think_then_answer/seed-42/reward_groups.jsonl": {
+      "source": "runs/aircraft-mechanism32-warm-v1/think_then_answer/seed-42/reward_groups.jsonl",
+      "sha256": "a0ff18230103666e74a1b9ec0dd6f8be24f60839b13e900d1e015f05fbc86456",
+      "bytes": 17704
+    },
+    "support/think_then_answer/seed-314/reward_groups.jsonl": {
+      "source": "runs/aircraft-mechanism32-warm-v1/think_then_answer/seed-314/reward_groups.jsonl",
+      "sha256": "2c13bbfd26b78ad2f9b1ac2915f9bc466da46b1327083fb7310cceda4730a010",
+      "bytes": 17475
+    },
+    "support/answer_only/seed-42/reward_groups.jsonl": {
+      "source": "runs/aircraft-mechanism32-warm-v1/answer_only/seed-42/reward_groups.jsonl",
+      "sha256": "fca530fbf0681d51e439efb8fab368773a8a4146bd51327d5475dc56cfbe0f81",
+      "bytes": 17159
+    },
+    "support/answer_only/seed-314/reward_groups.jsonl": {
+      "source": "runs/aircraft-mechanism32-warm-v1/answer_only/seed-314/reward_groups.jsonl",
+      "sha256": "2a5cdf78fd2ebf1c7d56198866dd2f9278bd2ece0329438cf79c93cdaa63f201",
+      "bytes": 17225
+    },
+    "independent-score-review.json": {
+      "source": "runs/aircraft-warmstart-root-review.json",
+      "sha256": "1c7e0baa965c4041b9df2f2f4952ce563e19e8bb19bb548294dc3aead23e587b",
+      "bytes": 2296
+    },
+    "assay-amendment.json": {
+      "source": "docs/aircraft-warmstart-assay-amendment-v1.json",
+      "sha256": "161352de55f5271cecaf44268e296432bd3915587e7074ac8e1018327e6cfadc",
+      "bytes": 12722
+    }
+  }
+}

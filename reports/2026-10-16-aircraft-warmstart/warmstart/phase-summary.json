@@ -1,0 +1,81 @@
+{
+  "status": "completed",
+  "optimizer_steps": 400,
+  "optimizer_audit": {
+    "optimizer_steps_observed": 400,
+    "nonzero_gradient_steps": 400,
+    "active_seconds": 1104.8105714548583,
+    "max_gradient_norm_observed": 1.000000010732947,
+    "latest_gradient_norm": 0.27996150719989277,
+    "completed_state_active_seconds": 1104.8105714548583,
+    "first_nonzero_update": {
+      "global_step": 1,
+      "gradient_norm": 0.3253983408402469,
+      "changed_tensors_since_invocation_start": 56,
+      "parameter_delta_l2_since_invocation_start": 0.06328613410229372
+    },
+    "parameter_delta_l2": 2.948117809508776,
+    "changed_tensors": 112,
+    "active_time": {
+      "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+      "total_budget_seconds": 1800,
+      "resumed_committed_active_seconds": 0.0,
+      "invocation_active_seconds": 1104.8105714548583,
+      "completed_state_active_seconds": 1104.8105714548583,
+      "committed_active_seconds": 1104.8105714548583,
+      "committed_global_step": 400,
+      "completed_not_checkpointed_active_seconds": 0.0,
+      "observed_physical_active_seconds": 1104.8105714548583,
+      "observed_reward_journal_io_seconds": 0.0,
+      "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+      "unknown_partial_invocations": 0,
+      "hard_total_physical_compute_cap": false
+    }
+  },
+  "before_train_diagnostic": {
+    "n": 8,
+    "accuracy": 0.25,
+    "mean_class_accuracy": 0.25,
+    "invalid_answers": 0,
+    "per_class_accuracy": {
+      "A340-300": 1.0,
+      "757-200": 0.0,
+      "CRJ-700": 0.0,
+      "DHC-8-100": 0.0,
+      "A340-200": 0.0,
+      "F/A-18": 1.0,
+      "707-320": 0.0,
+      "A330-200": 0.0
+    },
+    "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+  },
+  "after_train_diagnostic": {
+    "n": 8,
+    "accuracy": 0.5,
+    "mean_class_accuracy": 0.5,
+    "invalid_answers": 0,
+    "per_class_accuracy": {
+      "A340-300": 1.0,
+      "757-200": 1.0,
+      "CRJ-700": 0.0,
+      "DHC-8-100": 0.0,
+      "A340-200": 0.0,
+      "F/A-18": 1.0,
+      "707-320": 1.0,
+      "A330-200": 0.0
+    },
+    "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+  },
+  "probe": {
+    "after_train_gold_nll": 0.17246720638789542,
+    "reloaded_train_gold_nll": 0.17246720638789542,
+    "reload_nll_agrees": true,
+    "gold_nll_improved": true,
+    "gradient_and_weight_change": true,
+    "mixed_reward_groups": null,
+    "sampler_teacher_logprob_parity": null,
+    "held_out_benchmark_gain": "not measured by this diagnostic"
+  },
+  "final_adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+  "claim_scope": "SFT warm start on TRAIN only; any gain belongs to SFT"
+}

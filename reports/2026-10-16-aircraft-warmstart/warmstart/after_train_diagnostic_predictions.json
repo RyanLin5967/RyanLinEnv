@@ -1,0 +1,147 @@
+{
+  "0458643": {
+    "completion_ids": [
+      22,
+      20,
+      22,
+      12,
+      17,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 8,
+    "latency_seconds": 0.9448747090063989,
+    "prompt_tokens": 977,
+    "raw_response": "757-200<|im_end|>",
+    "response": "757-200",
+    "terminated": true
+  },
+  "0728571": {
+    "completion_ids": [
+      8973,
+      41,
+      12,
+      17,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 7,
+    "latency_seconds": 0.9351471669942839,
+    "prompt_tokens": 996,
+    "raw_response": "CRJ-200<|im_end|>",
+    "response": "CRJ-200",
+    "terminated": true
+  },
+  "0864665": {
+    "completion_ids": [
+      22,
+      15,
+      22,
+      12,
+      18,
+      17,
+      15,
+      151645
+    ],
+    "completion_tokens": 8,
+    "latency_seconds": 0.9385346669878345,
+    "prompt_tokens": 977,
+    "raw_response": "707-320<|im_end|>",
+    "response": "707-320",
+    "terminated": true
+  },
+  "1028704": {
+    "completion_ids": [
+      35,
+      22455,
+      12,
+      23,
+      12,
+      18,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 9,
+    "latency_seconds": 0.9871889159985585,
+    "prompt_tokens": 996,
+    "raw_response": "DHC-8-300<|im_end|>",
+    "response": "DHC-8-300",
+    "terminated": true
+  },
+  "1184708": {
+    "completion_ids": [
+      32,
+      18,
+      18,
+      15,
+      12,
+      18,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 9,
+    "latency_seconds": 0.9906386250077048,
+    "prompt_tokens": 996,
+    "raw_response": "A330-300<|im_end|>",
+    "response": "A330-300",
+    "terminated": true
+  },
+  "1234832": {
+    "completion_ids": [
+      32,
+      18,
+      19,
+      15,
+      12,
+      18,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 9,
+    "latency_seconds": 0.9661207500030287,
+    "prompt_tokens": 977,
+    "raw_response": "A340-300<|im_end|>",
+    "response": "A340-300",
+    "terminated": true
+  },
+  "1601716": {
+    "completion_ids": [
+      37,
+      10360,
+      12,
+      16,
+      23,
+      151645
+    ],
+    "completion_tokens": 6,
+    "latency_seconds": 0.9117173749982612,
+    "prompt_tokens": 996,
+    "raw_response": "F/A-18<|im_end|>",
+    "response": "F/A-18",
+    "terminated": true
+  },
+  "1922848": {
+    "completion_ids": [
+      32,
+      18,
+      19,
+      15,
+      12,
+      18,
+      15,
+      15,
+      151645
+    ],
+    "completion_tokens": 9,
+    "latency_seconds": 0.9790864170063287,
+    "prompt_tokens": 977,
+    "raw_response": "A340-300<|im_end|>",
+    "response": "A340-300",
+    "terminated": true
+  }
+}

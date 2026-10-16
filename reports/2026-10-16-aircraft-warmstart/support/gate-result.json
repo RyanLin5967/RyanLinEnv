@@ -1,0 +1,96 @@
+{
+  "method_name": "task-only token GRPO (no reasoning claim)",
+  "plan_sha256": "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02",
+  "profiles": {
+    "answer_only": {
+      "accuracy": 0.70703125,
+      "canonical_valid": 243,
+      "canonical_valid_fraction": 0.94921875,
+      "complete_think_blocks": 0,
+      "completions": 256,
+      "correct": 181.0,
+      "distinct_useful_images": 14,
+      "eligible": true,
+      "eos_fraction": 1.0,
+      "generated_tokens": 1746,
+      "groups": 64,
+      "mixed_groups": 26,
+      "recognition_mixed_groups": 22,
+      "seeds": {
+        "314": {
+          "correct": 88.0,
+          "elapsed_seconds": 122.03306875000999
+        },
+        "42": {
+          "correct": 93.0,
+          "elapsed_seconds": 121.59811991600145
+        }
+      },
+      "terminated": 256,
+      "useful_ids": [
+        "0122393",
+        "0143389",
+        "0345781",
+        "0604668",
+        "0728571",
+        "0830001",
+        "1154960",
+        "1255008",
+        "1347237",
+        "1465847",
+        "1833904",
+        "2091929",
+        "2115085",
+        "2259021"
+      ]
+    },
+    "think_then_answer": {
+      "accuracy": 0.5546875,
+      "canonical_valid": 212,
+      "canonical_valid_fraction": 0.828125,
+      "complete_think_blocks": 4,
+      "completions": 256,
+      "correct": 142.0,
+      "distinct_useful_images": 16,
+      "eligible": false,
+      "eos_fraction": 1.0,
+      "generated_tokens": 1838,
+      "groups": 64,
+      "mixed_groups": 31,
+      "recognition_mixed_groups": 22,
+      "seeds": {
+        "314": {
+          "correct": 72.0,
+          "elapsed_seconds": 122.89628662499308
+        },
+        "42": {
+          "correct": 70.0,
+          "elapsed_seconds": 121.98952604099759
+        }
+      },
+      "terminated": 256,
+      "useful_ids": [
+        "0122393",
+        "0143389",
+        "0345781",
+        "0554721",
+        "0728571",
+        "0830001",
+        "1154960",
+        "1255008",
+        "1347237",
+        "1465847",
+        "1770844",
+        "1833904",
+        "2091929",
+        "2115085",
+        "2222405",
+        "2259021"
+      ]
+    }
+  },
+  "schema_version": 1,
+  "scope": "TRAIN policy support only, not RL learning or held-out performance",
+  "selected_response_format": "answer_only",
+  "selection_rule": "reasoning if eligible, else answer-only if eligible, else no-go; never pool"
+}

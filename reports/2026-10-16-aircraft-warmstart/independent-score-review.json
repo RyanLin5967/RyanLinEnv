@@ -1,0 +1,74 @@
+{
+  "reviewed_at": "2026-10-16T08:03:54.112524+00:00",
+  "plan_sha256": "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02",
+  "profiles": {
+    "think_then_answer": {
+      "groups": 64,
+      "completions": 256,
+      "correct": 142,
+      "sampled_accuracy": 0.5546875,
+      "canonical_valid": 212,
+      "canonical_valid_fraction": 0.828125,
+      "EOS": 256,
+      "recognition_mixed_groups": 22,
+      "recognition_mixed_distinct_ids": 16,
+      "recognition_mixed_ids": [
+        "0122393",
+        "0143389",
+        "0345781",
+        "0554721",
+        "0728571",
+        "0830001",
+        "1154960",
+        "1255008",
+        "1347237",
+        "1465847",
+        "1770844",
+        "1833904",
+        "2091929",
+        "2115085",
+        "2222405",
+        "2259021"
+      ],
+      "eligible": false
+    },
+    "answer_only": {
+      "groups": 64,
+      "completions": 256,
+      "correct": 181,
+      "sampled_accuracy": 0.70703125,
+      "canonical_valid": 243,
+      "canonical_valid_fraction": 0.94921875,
+      "EOS": 256,
+      "recognition_mixed_groups": 22,
+      "recognition_mixed_distinct_ids": 14,
+      "recognition_mixed_ids": [
+        "0122393",
+        "0143389",
+        "0345781",
+        "0604668",
+        "0728571",
+        "0830001",
+        "1154960",
+        "1255008",
+        "1347237",
+        "1465847",
+        "1833904",
+        "2091929",
+        "2115085",
+        "2259021"
+      ],
+      "eligible": true
+    }
+  },
+  "selected": "answer_only",
+  "raw_journal_sha256": {
+    "runs/aircraft-mechanism32-warm-v1/think_then_answer/seed-42/reward_groups.jsonl": "a0ff18230103666e74a1b9ec0dd6f8be24f60839b13e900d1e015f05fbc86456",
+    "runs/aircraft-mechanism32-warm-v1/think_then_answer/seed-314/reward_groups.jsonl": "2c13bbfd26b78ad2f9b1ac2915f9bc466da46b1327083fb7310cceda4730a010",
+    "runs/aircraft-mechanism32-warm-v1/answer_only/seed-42/reward_groups.jsonl": "fca530fbf0681d51e439efb8fab368773a8a4146bd51327d5475dc56cfbe0f81",
+    "runs/aircraft-mechanism32-warm-v1/answer_only/seed-314/reward_groups.jsonl": "2a5cdf78fd2ebf1c7d56198866dd2f9278bd2ece0329438cf79c93cdaa63f201"
+  },
+  "all512_parses_rewards_reproduced": true,
+  "torch_imported": false,
+  "scope": "TRAIN-only commonSFT reward-support; no RL or heldout gain"
+}

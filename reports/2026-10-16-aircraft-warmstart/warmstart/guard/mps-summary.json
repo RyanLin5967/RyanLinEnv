@@ -1,0 +1,14 @@
+{
+  "pid": 92515,
+  "phase": "sft_one_pass",
+  "peak_driver_allocated_bytes": 13593608192,
+  "peak_current_allocated_bytes": 10176080128,
+  "recommended_max_memory_bytes": 40200896512,
+  "driver_limit_bytes": 25769803776,
+  "sampling_interval_seconds": 0.5,
+  "allocator_fraction": 0.6410255992253231,
+  "phase_peaks": {
+    "load": 458752,
+    "sft_one_pass": 13593608192
+  }
+}

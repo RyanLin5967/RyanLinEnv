@@ -1,0 +1,182 @@
+{
+  "claim_scope": "TRAIN-only support assay from commonSFT endpoint; no gradients or held-out claim",
+  "guard": {
+    "minimum_free_bytes": 10737418240,
+    "mps_driver_limit_bytes": 17179869184,
+    "output_limit_bytes": 2147483648,
+    "rss_limit_bytes": 17179869184,
+    "wall_limit_seconds": 1800
+  },
+  "ids": [
+    "0056337",
+    "0830001",
+    "0122393",
+    "0604668",
+    "2091929",
+    "0345781",
+    "0857653",
+    "0076836",
+    "1531355",
+    "1840139",
+    "0064202",
+    "2222405",
+    "0143389",
+    "1001973",
+    "1351340",
+    "1255008",
+    "0728571",
+    "1465847",
+    "1347237",
+    "1966540",
+    "0554721",
+    "2259021",
+    "2115085",
+    "1073073",
+    "1754078",
+    "1154960",
+    "1833904",
+    "0877683",
+    "1826520",
+    "1517885",
+    "1770844",
+    "1284223"
+  ],
+  "initial_adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+  "inputs": {
+    "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+    "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/provenance.json": "c525dd2a03c10b4a84acbc33d940d093e782ee2721d07090f76583dd0be3e6c4",
+    "docs/aircraft-warmstart-assay-amendment-v1.json": "161352de55f5271cecaf44268e296432bd3915587e7074ac8e1018327e6cfadc",
+    "runs/aircraft-mechanism32/prepared/selection.json": "2cbc7896cdefd9f04d17c22efa8b956caae2f33e29f8bbc52e5e78d43145870f",
+    "runs/aircraft-mechanism32/prepared/train.jsonl": "9e79b11cac2a2dbef48f2eca043d5e69727491c521424818ff42ab0778dcf5fc",
+    "runs/aircraft-warmstart-v1/final_adapter/adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+    "runs/aircraft-warmstart-v1/final_adapter/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+    "runs/aircraft-warmstart-v1/local_training.json": "d7f2f59664abb2f819d491402e422d6e65cc7ba4c639411758207f1e1077e2be"
+  },
+  "launcher_sha256": "885f34a5d2fcac41be4d47497bc8adc1abeb03607e34bf38140e5c58d1273b9b",
+  "maximum_completions": 512,
+  "model": "Qwen/Qwen2-VL-2B-Instruct",
+  "model_directory": "data/models/Qwen2-VL-2B-Instruct-895c3a49",
+  "model_revision": "895c3a49bc3fa70a340399125c650a463535e71c",
+  "model_source_sha256": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc",
+  "model_visible_pixels": {
+    "0056337": "1fb8ab2877fa49d82115be0334d0aa39313ed4b22b44a0575c7bb79a097addb3",
+    "0064202": "0056a18db9bc1f3d561ab84ba02b3ed6064f48f4503372541b03b274a6a29c4c",
+    "0076836": "3cda699ad3dd13eb41737e92ebc4c203bd1eea4a6ac8c367035e3b01945eb02b",
+    "0122393": "8db77e79e5eb7a93428b2789f61fbea651b37d11d98dae93d65ac29e7e77de21",
+    "0143389": "7032f5f8548342b3cd108b5d6d34b92f12d3184fe27a1578673a17ff8183a0f0",
+    "0345781": "479f13357f6010a686f2c522895017f301c7cf156f01474324a1fae69ba914ed",
+    "0554721": "989625b582a69d3c676af73d8db19e8a3be8265d03066bd7f0c6405d3e948c27",
+    "0604668": "7975512264bb497fe3c37ade9d70fc71a9038eb58b494345e7a58bfa9d5aa95d",
+    "0728571": "81b81bc403c38f7ad8106ba723a0b28298953fab4766e4a3c21b4d1a9688d372",
+    "0830001": "008da906817a3bded7a4ec9b49a2c11f0fdd18eb32105295ad86c1b41615434d",
+    "0857653": "f2fb9cdbc8850c9b2d78ead0f655a3d5b2659277a20d73ba1808e26bc2e5abfb",
+    "0877683": "b8a90a1b55f744c256d7c3b1e4e3b9fffa9c2e41bfe2f1211ffa5ab1b6fa4446",
+    "1001973": "fb8239eae1140266f69b7f749de4b0cca277594b3218398582abe6bb7cf1f5d5",
+    "1073073": "fad397a6c62d3cf03e328ba4eb991334379c58f186ee71dd8402831a34f0b741",
+    "1154960": "4c4c48bf9874c78fca14cacac7dc3a67e0534518b9dbb10d01eab8a5bce28e66",
+    "1255008": "fb636fb84183618087ef2640c55ef1f9f95bd2890c0f9e168601071affae66ba",
+    "1284223": "af3269286c44c720744892c79fdfb64740fefd4dbe6b7d514139ee73e03e0966",
+    "1347237": "5b9346bbae35715a1f19c8df36480b615fa34b16e8efbbca9cb9ef3e56c634fb",
+    "1351340": "494e501a04695aaed02680e35c0f87016cd24f4c0f6dbaf31e170f4c63007c69",
+    "1465847": "6d62b555ccb2d9a342c28ec6c967269d79f756f1b1b3d67d6e92a305905768ec",
+    "1517885": "6e508424c10da712693d5de05fc42b18cf19cb728ebc7c451da5a6eed4dbcfed",
+    "1531355": "ff6f7cd615a2a81f29db934b80dec4ad23cf8ad18ba22bab6761f4377f6ce1f3",
+    "1754078": "20908701048623eb84223b1c54c5bbb0b812a133c12db5f9ddacf2007bc47755",
+    "1770844": "306d80fbe606a67615ce09b798c1012d33e0a6a7fa58f06599cbe8848b841e5f",
+    "1826520": "99aa875d7e41832794285cc4908b64ef001a4dba8099c19ce5c8bb00c68392a6",
+    "1833904": "fe61ef28ccd130b68fc1271ffa0eed007832394ea70bde8d1e60023ff3c864ca",
+    "1840139": "69fa1279c73a93602d48dca12d92fbc2fb3061c86164305c3abbe752d55a2768",
+    "1966540": "3ebb54c04c33b4903834e847ff6f060417dac691022414be52d07d0ac4ff1f36",
+    "2091929": "23144cae9d32cca90ce0b576ad7e4d179e66dce893f87a94f5dcd3aaca142a68",
+    "2115085": "32ee29e8e7ffcb8539421c183657ca6e057b0c28b423eed8346cbed7e51b8e08",
+    "2222405": "14ffb86247c70af6e004b338dacf63588a859d6a9092a13e5444d93e401bd5b4",
+    "2259021": "b3dbad873d5b5ca9e4b9e6056f263cb3da6445cb11ce330f59c62bdd8a309af0"
+  },
+  "output_grammar": "canonical-label-v2/optional-tags",
+  "outputs": {
+    "guard": "runs/aircraft-mechanism32-warm-v1-guard",
+    "root": "runs/aircraft-mechanism32-warm-v1"
+  },
+  "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca",
+  "phases": [
+    {
+      "groups": 32,
+      "response_format": "think_then_answer",
+      "samples_per_group": 4,
+      "seed": 42
+    },
+    {
+      "groups": 32,
+      "response_format": "think_then_answer",
+      "samples_per_group": 4,
+      "seed": 314
+    },
+    {
+      "groups": 32,
+      "response_format": "answer_only",
+      "samples_per_group": 4,
+      "seed": 42
+    },
+    {
+      "groups": 32,
+      "response_format": "answer_only",
+      "samples_per_group": 4,
+      "seed": 314
+    }
+  ],
+  "preflight": {
+    "adapter_source_sha256": "678fb009ff9ca09ce606dc1911595fa40357cc29c34da4343f38110562c172d2",
+    "device": "cpu",
+    "model_downloads": false,
+    "model_execution": "not tested by preflight",
+    "package_versions": {
+      "accelerate": "1.15.0",
+      "datasets": "5.1.0",
+      "fsspec": "2026.7.0",
+      "peft": "0.21.2",
+      "torch": "2.14.1",
+      "torchvision": "0.29.1",
+      "transformers": "5.20.0",
+      "trl": "1.16.0"
+    },
+    "python": "3.12.13",
+    "trl_source_sha256": {
+      "GRPOConfig": "fa6d620785f63f6e8c6e42ec41f38faf249198f0eb182bf0808dde8cd76a6819",
+      "GRPOTrainer": "1c3dc2253fb3653269c11dfce4f946f74201a4cb63e0887a37e8e3bb4a3f5503",
+      "SFTConfig": "4a18512fbdc83c9d16be09ee68529cd4cc07e4243c9ad733686fd3cb70984d6b",
+      "SFTTrainer": "a93001470796c6502a4cf8886a13abbd8280e653357b5a95eb1abd53c6868205"
+    }
+  },
+  "profile": {
+    "dtype": "float32",
+    "lora_rank": 8,
+    "max_completion_length": 256,
+    "max_pixels": 200704,
+    "max_prompt_tokens": 2048,
+    "min_pixels": 50176,
+    "num_generations": 4,
+    "response_format": "think_then_answer",
+    "temperature": 1.0
+  },
+  "prompt_sha256": "5a37649dd8f5e33a521e91f64e0a97a38034e9c850bed6dce564b07c66c6700a",
+  "prompts_sha256": {
+    "answer_only": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+    "think_then_answer": "5a37649dd8f5e33a521e91f64e0a97a38034e9c850bed6dce564b07c66c6700a"
+  },
+  "schema_version": 1,
+  "selection_rule": "Evaluate each prompt independently: >=16 recognition-mixed groups across>=8IDs,>=.90 canonicalvalid,>=.95EOS. Choose reasoning if eligible,elseanswer-onlyifeligible,elseno-go. Neverpool.",
+  "source_files_sha256": {
+    "source/vision_rl/__init__.py": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
+    "source/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+    "source/vision_rl/data.py": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb",
+    "source/vision_rl/evaluation.py": "2527d6d5b0806c30255dcf7f60dfd1a3568fec71f0fb31d026bf167c1a73a735",
+    "source/vision_rl/spatial.py": "e89ce4c540a28846bbca27ccd427f6b1bac7907aa2a81ad09e6f36580146d9b7",
+    "source/vision_rl/training.py": "4d18370f42d8b99b436812840b495d9491c0e25e6e40a6a7f87d7636141207cd",
+    "source/vision_rl/vlm.py": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+    "source/vision_rl/vlm_local_training.py": "678fb009ff9ca09ce606dc1911595fa40357cc29c34da4343f38110562c172d2"
+  },
+  "source_provenance_caveat": "Author image-byte equivalence and full cross-split audit remain pending",
+  "status": "prospectively_frozen_not_executed",
+  "verifier_callsite_correction": "Both prompts now pass allow_reasoning=True to the same unchanged canonical-label-v2 parser. Historical answer-only callers had False; historical outputs and runningwarmup are preserved. Root explicitly approved correction beforeassay.",
+  "warmup_exposure": "400configuration-derived presentations, no instrumented actual-ID ledger in historicalwarmup"
+}

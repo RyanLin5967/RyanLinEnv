@@ -1,0 +1,31 @@
+{
+  "supervisor_pid": 68761,
+  "status": "completed",
+  "plan_sha256": "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02",
+  "command": [
+    "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+    "-B",
+    "/Users/idide/RyanLinEnv/runs/aircraft-mechanism32-warm-v1-plan/launch.py",
+    "--worker",
+    "--expected-plan-sha256",
+    "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02"
+  ],
+  "limits": {
+    "minimum_free_bytes": 10737418240,
+    "mps_driver_limit_bytes": 17179869184,
+    "output_limit_bytes": 2147483648,
+    "rss_limit_bytes": 17179869184,
+    "wall_limit_seconds": 1800
+  },
+  "peak_rss_bytes": 9638658048,
+  "no_hidden_cpu_fallback": true,
+  "former_owner_pids_absent": [
+    92512,
+    92515
+  ],
+  "child_pid": 68775,
+  "elapsed_seconds": 492.65039983300085,
+  "output_bytes": 1203718,
+  "exit_code": 0,
+  "finished": true
+}

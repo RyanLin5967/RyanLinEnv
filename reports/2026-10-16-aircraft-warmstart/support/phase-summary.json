@@ -1,0 +1,194 @@
+{
+  "think_then_answer/seed-42": {
+    "status": "completed",
+    "elapsed_seconds": 121.98952604099759,
+    "optimizer_steps": 0,
+    "reward_audit": {
+      "groups": 32,
+      "mixed_groups": 16,
+      "all_correct_groups": 9,
+      "all_zero_groups": 7,
+      "unique_prompt_ids": 32,
+      "prompt_presentations": 32,
+      "sampled_completions": 128,
+      "generated_tokens": 928,
+      "terminated_completions": 128,
+      "nonterminated_completions": 0,
+      "complete_think_blocks": 3,
+      "task_correct_with_think": 0,
+      "task_correct_without_think": 70,
+      "canonical_completions": 104,
+      "recognition_mixed_groups": 11
+    },
+    "initial_adapter": {
+      "path": "/Users/idide/RyanLinEnv/runs/aircraft-warmstart-v1/final_adapter",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "parent_profile": {
+        "dtype": "float32",
+        "lora_rank": 8,
+        "max_completion_length": 256,
+        "max_pixels": 200704,
+        "max_prompt_tokens": 2048,
+        "min_pixels": 50176,
+        "num_generations": 4,
+        "response_format": "answer_only",
+        "temperature": 1.0
+      },
+      "parent_data_identity": {
+        "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+        "train": {
+          "count": 400,
+          "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+          "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+          "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+        },
+        "validation": null
+      }
+    }
+  },
+  "think_then_answer/seed-314": {
+    "status": "completed",
+    "elapsed_seconds": 122.89628662499308,
+    "optimizer_steps": 0,
+    "reward_audit": {
+      "groups": 32,
+      "mixed_groups": 15,
+      "all_correct_groups": 11,
+      "all_zero_groups": 6,
+      "unique_prompt_ids": 32,
+      "prompt_presentations": 32,
+      "sampled_completions": 128,
+      "generated_tokens": 910,
+      "terminated_completions": 128,
+      "nonterminated_completions": 0,
+      "complete_think_blocks": 1,
+      "task_correct_with_think": 0,
+      "task_correct_without_think": 72,
+      "canonical_completions": 108,
+      "recognition_mixed_groups": 11
+    },
+    "initial_adapter": {
+      "path": "/Users/idide/RyanLinEnv/runs/aircraft-warmstart-v1/final_adapter",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "parent_profile": {
+        "dtype": "float32",
+        "lora_rank": 8,
+        "max_completion_length": 256,
+        "max_pixels": 200704,
+        "max_prompt_tokens": 2048,
+        "min_pixels": 50176,
+        "num_generations": 4,
+        "response_format": "answer_only",
+        "temperature": 1.0
+      },
+      "parent_data_identity": {
+        "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+        "train": {
+          "count": 400,
+          "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+          "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+          "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+        },
+        "validation": null
+      }
+    }
+  },
+  "answer_only/seed-42": {
+    "status": "completed",
+    "elapsed_seconds": 121.59811991600145,
+    "optimizer_steps": 0,
+    "reward_audit": {
+      "groups": 32,
+      "mixed_groups": 12,
+      "all_correct_groups": 16,
+      "all_zero_groups": 4,
+      "unique_prompt_ids": 32,
+      "prompt_presentations": 32,
+      "sampled_completions": 128,
+      "generated_tokens": 866,
+      "terminated_completions": 128,
+      "nonterminated_completions": 0,
+      "complete_think_blocks": 0,
+      "task_correct_with_think": 0,
+      "task_correct_without_think": 93,
+      "canonical_completions": 122,
+      "recognition_mixed_groups": 10
+    },
+    "initial_adapter": {
+      "path": "/Users/idide/RyanLinEnv/runs/aircraft-warmstart-v1/final_adapter",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "parent_profile": {
+        "dtype": "float32",
+        "lora_rank": 8,
+        "max_completion_length": 256,
+        "max_pixels": 200704,
+        "max_prompt_tokens": 2048,
+        "min_pixels": 50176,
+        "num_generations": 4,
+        "response_format": "answer_only",
+        "temperature": 1.0
+      },
+      "parent_data_identity": {
+        "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+        "train": {
+          "count": 400,
+          "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+          "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+          "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+        },
+        "validation": null
+      }
+    }
+  },
+  "answer_only/seed-314": {
+    "status": "completed",
+    "elapsed_seconds": 122.03306875000999,
+    "optimizer_steps": 0,
+    "reward_audit": {
+      "groups": 32,
+      "mixed_groups": 14,
+      "all_correct_groups": 14,
+      "all_zero_groups": 4,
+      "unique_prompt_ids": 32,
+      "prompt_presentations": 32,
+      "sampled_completions": 128,
+      "generated_tokens": 880,
+      "terminated_completions": 128,
+      "nonterminated_completions": 0,
+      "complete_think_blocks": 0,
+      "task_correct_with_think": 0,
+      "task_correct_without_think": 88,
+      "canonical_completions": 121,
+      "recognition_mixed_groups": 12
+    },
+    "initial_adapter": {
+      "path": "/Users/idide/RyanLinEnv/runs/aircraft-warmstart-v1/final_adapter",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "parent_profile": {
+        "dtype": "float32",
+        "lora_rank": 8,
+        "max_completion_length": 256,
+        "max_pixels": 200704,
+        "max_prompt_tokens": 2048,
+        "min_pixels": 50176,
+        "num_generations": 4,
+        "response_format": "answer_only",
+        "temperature": 1.0
+      },
+      "parent_data_identity": {
+        "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+        "train": {
+          "count": 400,
+          "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+          "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+          "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+        },
+        "validation": null
+      }
+    }
+  }
+}

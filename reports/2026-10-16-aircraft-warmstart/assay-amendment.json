@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "amendment_id": "fgvc-aircraft-warmstart-two-prompt-support-v1",
+  "created_at": "2026-10-16T07:42:24.893411+00:00",
+  "status": "AUTHORIZED_PROSPECTIVE_TRAIN_DIAGNOSTIC",
+  "author_agent": "/root",
+  "scope": "This authorizes a bounded TRAIN-only support assay and conditional four-update learning diagnostic. It does not activate the complete candidate study or permit held-out selection before data clearance.",
+  "parent_candidate": "docs/aircraft-rl-protocol-candidate-v1.json",
+  "parent_candidate_sha256": "3beb0ddad18c45637ab59222dd2927f22e2510be1a84b26f8fd622b2bbeb275a",
+  "candidate_file_preserved": true,
+  "reason": "Placeholder-free reasoning request produced only6 valid canonical labels in64 sampled outputs, with1 exact correct and1 useful group outside the frozen400. A separate fixed8 TRAIN pre-warmup direct-answer diagnostic had8 valid outputs and2correct. Different images and decoding prevent attributing an accuracy difference to prompt; the paired prospective assay tests this interface confound.",
+  "warmup": {
+    "plan": "runs/aircraft-warmstart-v1-plan/plan.json",
+    "plan_sha256": "cfa109186c3e29263e747524fdcb7634ff35dd9d17131500653d009b032c01bd",
+    "endpoint": "Exactly400 completed one-prompt SFT updates on frozen400, fixed final endpoint only; no partial adapter adoption",
+    "settings_unchanged": true,
+    "gain_attribution": "All warmup gains are SFT, and every subsequent arm/reference shares this final adapter.",
+    "exposure_caveat": "Current warmup400presentation count is configuration-derived; it predates actual-ID exposure instrumentation. Do not describe it as a recorded training trace."
+  },
+  "data": {
+    "benchmark": "FGVC-Aircraft 2013b, 100-variant classification, author native splits",
+    "selection_plan": "docs/fgvc-aircraft-fourshot-plan-v1.json",
+    "selection_plan_sha256": "44be6969eb2582073f12f7a84594ee0bf1e3c211fa6ac82170a0efbf7302f423",
+    "selected_id_label_split_rows_sha256": "980620364d3c53d1fca93968723b6377044743776442800b97e5721f7bf1838a",
+    "annotation_archive_sha256": "50e4419bd330b68a2e85dbcb32339d31120190efe6944682e87c9b431f5f202a",
+    "shots_per_class": 4,
+    "classes": 100,
+    "train_images": 400,
+    "native_train_pool_images": 3334,
+    "native_validation_images": 3333,
+    "native_test_images": 3333,
+    "train_membership": "Exactly the selected 400 IDs, including any common warm start; no trainval merge, external task labels, synthetic class ambiguity, pseudo-label dataset, or teacher rationales.",
+    "canonical_vocabulary": "Exact complete ordered canonical_labels from the selection plan; never restrict choices to classes represented in a diagnostic batch.",
+    "preprocessing_id": "fgvc-aircraft-rgb-remove-bottom20-v1",
+    "preprocessing": "Decode RGB, reject unexpected EXIF orientation, remove bottom20 rows once, then use the frozen native processor. No GT-box crop, label-bearing filename in prompt, or model-specific underlying pixels.",
+    "clearance_before_heldout_learning_selection": [
+      "Author-original byte equivalence for candidate images verified against the sole archive.",
+      "Complete cross-split ID and decoded-pixel audit recorded; any unresolved duplicate policy fixed before scoring.",
+      "All3333 native validation images ready under the shared transform."
+    ],
+    "test_status": "SEALED: no task-selection, prompt, reward, hyperparameter or checkpoint selection using test.",
+    "dataset_terms": "Non-commercial research only; retain provenance and publish download instructions rather than image files.",
+    "claim_scope": "Fourshot gradient training with disclosed development exposure; no claim against full-data SFT, challenge-leaderboard parity, or absence of pretraining contamination."
+  },
+  "rows": [
+    {
+      "id": "0056337",
+      "label": "727-200",
+      "split": "train"
+    },
+    {
+      "id": "0830001",
+      "label": "737-300",
+      "split": "train"
+    },
+    {
+      "id": "0122393",
+      "label": "737-400",
+      "split": "train"
+    },
+    {
+      "id": "0604668",
+      "label": "737-500",
+      "split": "train"
+    },
+    {
+      "id": "2091929",
+      "label": "747-400",
+      "split": "train"
+    },
+    {
+      "id": "0345781",
+      "label": "A300B4",
+      "split": "train"
+    },
+    {
+      "id": "0857653",
+      "label": "A320",
+      "split": "train"
+    },
+    {
+      "id": "0076836",
+      "label": "A321",
+      "split": "train"
+    },
+    {
+      "id": "1531355",
+      "label": "A330-300",
+      "split": "train"
+    },
+    {
+      "id": "1840139",
+      "label": "A340-600",
+      "split": "train"
+    },
+    {
+      "id": "0064202",
+      "label": "ATR-42",
+      "split": "train"
+    },
+    {
+      "id": "2222405",
+      "label": "ATR-72",
+      "split": "train"
+    },
+    {
+      "id": "0143389",
+      "label": "BAE 146-200",
+      "split": "train"
+    },
+    {
+      "id": "1001973",
+      "label": "BAE-125",
+      "split": "train"
+    },
+    {
+      "id": "1351340",
+      "label": "Boeing 717",
+      "split": "train"
+    },
+    {
+      "id": "1255008",
+      "label": "C-47",
+      "split": "train"
+    },
+    {
+      "id": "0728571",
+      "label": "CRJ-700",
+      "split": "train"
+    },
+    {
+      "id": "1465847",
+      "label": "CRJ-900",
+      "split": "train"
+    },
+    {
+      "id": "1347237",
+      "label": "Cessna 208",
+      "split": "train"
+    },
+    {
+      "id": "1966540",
+      "label": "Challenger 600",
+      "split": "train"
+    },
+    {
+      "id": "0554721",
+      "label": "DC-9-30",
+      "split": "train"
+    },
+    {
+      "id": "2259021",
+      "label": "E-190",
+      "split": "train"
+    },
+    {
+      "id": "2115085",
+      "label": "E-195",
+      "split": "train"
+    },
+    {
+      "id": "1073073",
+      "label": "ERJ 145",
+      "split": "train"
+    },
+    {
+      "id": "1754078",
+      "label": "F-16A/B",
+      "split": "train"
+    },
+    {
+      "id": "1154960",
+      "label": "Falcon 900",
+      "split": "train"
+    },
+    {
+      "id": "1833904",
+      "label": "Gulfstream IV",
+      "split": "train"
+    },
+    {
+      "id": "0877683",
+      "label": "Hawk T1",
+      "split": "train"
+    },
+    {
+      "id": "1826520",
+      "label": "Il-76",
+      "split": "train"
+    },
+    {
+      "id": "1517885",
+      "label": "MD-87",
+      "split": "train"
+    },
+    {
+      "id": "1770844",
+      "label": "SR-20",
+      "split": "train"
+    },
+    {
+      "id": "1284223",
+      "label": "Yak-42",
+      "split": "train"
+    }
+  ],
+  "profiles": [
+    {
+      "name": "reasoning_v2",
+      "response_format": "think_then_answer",
+      "instruction": "Inspect the aircraft\u2019s visible distinguishing features. First give a brief explanation of the visible details, enclosed by <think> and </think>. Then write one label copied exactly from the allowed list on its own line. Do not add a prefix, quotes, or any text after that label.",
+      "full_prompt_sha256": "5a37649dd8f5e33a521e91f64e0a97a38034e9c850bed6dce564b07c66c6700a"
+    },
+    {
+      "name": "answer_only_v2",
+      "response_format": "answer_only",
+      "instruction": "Return one label copied exactly from the allowed list on its own line. Do not add a prefix, quotes, explanations, or any text after that label.",
+      "full_prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1"
+    }
+  ],
+  "sampling": {
+    "seeds": [
+      42,
+      314
+    ],
+    "images_per_profile": 32,
+    "groups_per_profile": 64,
+    "completions_per_group": 4,
+    "completions_per_profile": 256,
+    "total_completions": 512,
+    "max_new_tokens": 256,
+    "max_total_generated_tokens": 131072,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "image_pixels": [
+      50176,
+      200704
+    ],
+    "dtype": "float32",
+    "complete_label_vocabulary": 100,
+    "reference": "Same completed common warm adapter hash and model/processor identity in every invocation; no optimizer updates in assay."
+  },
+  "reward": "Exactly 1 iff the completion terminates with EOS and parses as the exact canonical gold label; otherwise 0. Optional bounded think block and bare/tagged label follow the shared parser.",
+  "parser": "canonical-label-v2/optional-tags",
+  "format_and_length_reward": 0,
+  "per_profile_gate": {
+    "useful_mixed_group": "Contains at least one EOS-terminated valid correct canonical label AND at least one EOS-terminated valid but incorrect canonical label. Correct-versus-invalid-only groups do not qualify.",
+    "minimum_useful_groups": 16,
+    "minimum_distinct_useful_images": 8,
+    "minimum_canonical_valid_fraction": 0.9,
+    "minimum_eos_fraction": 0.95,
+    "pool_profiles_to_pass": false
+  },
+  "selection_rule": [
+    "If reasoning_v2 passes every per-profile gate, select reasoning_v2.",
+    "Otherwise, if answer_only_v2 passes every per-profile gate, select answer_only_v2 and name the method task-only token RL; do not claim a reasoning mechanism.",
+    "If neither passes, preserve outcomes and stop this recipe. Any capacity or objective change requires a separately identified prospective experiment; no unlimited resampling or warmup extension."
+  ],
+  "conditional_learning": {
+    "scope": "Four real GRPO optimizer updates and matched SFT from shared warm adapter on eligible frozen400 TRAIN data; bounded mechanism demonstration, not validation improvement",
+    "one_prompt_per_update": true,
+    "reward_and_reference": "Exact task-only reward; copied immutable warm-adapter reference beta0.04. Record initial current-reference mismatch, sampled/teacher logprobs, actual task-gradient/parameter movement, finite outputs, timing and exposure.",
+    "same_prompt_control": "Strict matched SFT uses the selected RL prompt; stronger answer-only SFT search remains required for any later substantial claim.",
+    "diagnostic_weights": "Never silently adopt diagnostic weights as full-study initialization."
+  },
+  "unchanged_final_requirements": {
+    "units": "Absolute fractions, so0.05 means five percentage points; all conjunctions must pass.",
+    "substantial_rl": {
+      "minimum_absolute_accuracy": 0.8,
+      "minimum_delta_vs_common_initialization": 0.05,
+      "minimum_delta_vs_strongest_sft": 0.05,
+      "minimum_relative_error_reduction_vs_strongest_sft": 0.2,
+      "validation_replicates": "Seed 42 passes. Across seeds 42, 314 and 2718, mean paired RL-minus-corresponding strongest SFT delta is at least 0.05 and each delta is greater than zero. Final test uses predeclared seed 42; do not hide failed seeds.",
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_vs_strongest_sft_strictly_greater_than": 0.0
+    },
+    "named_frontier_comparison": {
+      "minimum_delta": 0.1,
+      "minimum_relative_error_reduction": 0.25,
+      "baseline_quality_gate": "At least0.95valid EOS-terminated outputs on the comparison split; otherwise diagnose interface failure and make no visual-superiority claim. Preserve exact failures in score regardless.",
+      "arithmetic_headroom": "A baseline above 0.90 leaves less than the required 0.10absolute margin. Do not weaken the comparator to create headroom.",
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_strictly_greater_than": 0.05
+    },
+    "relative_error_reduction_formula": "(accuracy_RL-accuracy_comparator)/(1-accuracy_comparator); undefined at comparator 1.0 and the margin is then unattainable.",
+    "interpretation": "These are ambitious project acceptance proposals, not literature-derived expected results. Passing only code tests, a TRAIN gate, a small subset, one weak SFT comparison, or a gain below these margins is insufficient.",
+    "final_claim": "Require substantial-RL validation and replication gates, then the corresponding native-test RL and named-baseline gates. Frontier discovery is a feasibility screen, not an achievement gate. Name the exact baseline, quantization, dataset, shots and split; do not generalize one local open-weight win to all frontier models."
+  },
+  "reporting": [
+    "Retain every completion, raw token ID, EOS/invalid flag, exact label and reward under both prompts and both seeds.",
+    "Report per-profile groups and costs separately, never best-of-G as pass@1.",
+    "No model/manual TEST access; original-image and full cross-split clearance remains required before held-out learning selection.",
+    "This TRAIN assay does not prove recognition generalization, faithful reasoning or a frontier win."
+  ],
+  "execution_freeze": "Trainer owner must additionally bind exact source/environment, warm adapter SHA, selected32 manifest, full prompts and supervisor limits before launching. This amendment fixes the scientific comparison now."
+}

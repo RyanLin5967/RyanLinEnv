@@ -1,0 +1,17 @@
+{
+  "pid": 68775,
+  "phase": "answer_only/seed-314",
+  "peak_driver_allocated_bytes": 9860677632,
+  "peak_current_allocated_bytes": 8999965440,
+  "recommended_max_memory_bytes": 40200896512,
+  "driver_limit_bytes": 17179869184,
+  "sampling_interval_seconds": 0.5,
+  "allocator_fraction": 0.4273503994835487,
+  "phase_peaks": {
+    "load": 458752,
+    "think_then_answer/seed-42": 9860677632,
+    "think_then_answer/seed-314": 9843900416,
+    "answer_only/seed-42": 9852289024,
+    "answer_only/seed-314": 9843900416
+  }
+}
