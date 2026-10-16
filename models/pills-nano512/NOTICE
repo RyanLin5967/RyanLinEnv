@@ -1,0 +1,14 @@
+RF-DETR Nano512 pill detector — modified development weights
+
+Derived from RF-DETR Nano by Roboflow, Inc.
+Copyright 2025 Roboflow, Inc.
+RF-DETR project: https://github.com/roboflow/rf-detr
+License: Apache License, Version 2.0 (included in LICENSE)
+
+Modifications by the RyanLinEnv project, October 2026:
+Supervised fine-tuning on RF100-VL/countingpills-exf0r-gfkt version 2;
+one foreground class, 384-to-512-pixel progressive training, EMA selection,
+and numeric-only safetensors export. These are modified weights and are
+not an official Roboflow release or an established RL performance result.
+
+Dataset images are not redistributed in this release.

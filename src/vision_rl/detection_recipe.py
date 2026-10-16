@@ -65,12 +65,13 @@ def source_paths():
     ]
 
 
-def source_hashes():
-    return {path.name: loop._hash_path(path) for path in source_paths()}
+def source_hashes(*, wheat=False):
+    paths = source_paths() + ([PACKAGE / "wheat_eval.py"] if wheat else [])
+    return {path.name: loop._hash_path(path) for path in paths}
 
 
-def check_sources(expected):
-    if expected != source_hashes():
+def check_sources(expected, *, wheat=False):
+    if expected != source_hashes(wheat=wheat):
         raise ValueError("Recipe implementation changed; preserve this run and prepare a new plan")
 
 
@@ -84,7 +85,7 @@ def runtime_versions(*, public=True):
 
 def upstream_descriptor(profile):
     """Semantic proposal generator identity, independent of images and crop weights."""
-    return {
+    descriptor = {
         "schema_version": 1,
         "detector_sha256": profile["detector"]["sha256"],
         "query_refiner_sha256": (
@@ -93,6 +94,9 @@ def upstream_descriptor(profile):
         "inference": profile["inference"],
         "category_ids": profile["category_ids"],
     }
+    if profile.get("schema_version") == 3:
+        descriptor["wheat"] = profile["wheat"]
+    return descriptor
 
 
 def proposal_pipeline_sha256(profile):
@@ -357,6 +361,7 @@ def package_profile(
     query_refiner=None,
     crop_refiner=None,
     crop_configuration=None,
+    wheat=None,
 ):
     """Import numeric trained artifacts explicitly; this never claims to train them."""
     from vision_rl.detection_inference import InferenceConfig
@@ -366,7 +371,7 @@ def package_profile(
     config = InferenceConfig(**configuration)
     config.validate()
     profile = {
-        "schema_version": 2,
+        "schema_version": 3 if wheat is not None else 2,
         "kind": PROFILE_KIND,
         "detector": {"file": "detector.safetensors", "sha256": loop._hash_path(detector)},
         "query_refiner": None,
@@ -375,9 +380,11 @@ def package_profile(
         "inference": asdict(config),
         "category_ids": category_ids,
         "training_origin": training_origin,
-        "implementation_hashes": source_hashes(),
+        "implementation_hashes": source_hashes(wheat=wheat is not None),
         "runtime_packages": runtime_versions(),
     }
+    if wheat is not None:
+        profile["wheat"] = wheat
     files = {"detector": detector}
     for key, path in (("query_refiner", query_refiner), ("crop_refiner", crop_refiner)):
         if path is not None:
@@ -475,7 +482,8 @@ def _import_profile(context, args):
     _, _, artifacts = load_profile(profile_path)
     destination = args.output / "artifacts"
     destination.mkdir()
-    for path in (profile_path, *artifacts.values()):
+    shutil.copyfile(profile_path, destination / "pipeline.json")
+    for path in artifacts.values():
         shutil.copyfile(path, destination / path.name)
     load_profile(destination / "pipeline.json")
     return {"training_performed": False, "test_access": False}
@@ -497,18 +505,20 @@ def validate_profile(profile):
         "training_origin",
     }
     version = profile.get("schema_version") if isinstance(profile, dict) else None
-    if version == 2:
+    if version in (2, 3):
         keys |= {"runtime_packages", "crop_configuration"}
+    if version == 3:
+        keys.add("wheat")
     if (
         not isinstance(profile, dict)
         or set(profile) != keys
         or type(version) is not int
-        or version not in (1, 2)
+        or version not in (1, 2, 3)
         or profile["kind"] != PROFILE_KIND
     ):
         raise ValueError("Unknown pipeline profile schema or fields")
-    check_sources(profile["implementation_hashes"])
-    if version == 2:
+    check_sources(profile["implementation_hashes"], wheat=version == 3)
+    if version in (2, 3):
         from packaging.version import Version
 
         versions = profile["runtime_packages"]
@@ -531,6 +541,37 @@ def validate_profile(profile):
     if config.checkpoint_resolution not in (384, 512) or config.device != "cpu":
         raise ValueError("Pipeline must fix its trained checkpoint resolution and CPU inference")
     _categories(tuple(profile["category_ids"]))
+    if version == 3:
+        from vision_rl.wheat_eval import BENCHMARK_ID, WHEAT_LOGIT_OFFSETS
+
+        wheat = profile["wheat"]
+        if (
+            not isinstance(wheat, dict)
+            or set(wheat)
+            != {"benchmark_id", "protocol_sha256", "contract_sha256", "foreground_logit_offset"}
+            or wheat["benchmark_id"] != BENCHMARK_ID
+            or type(wheat["foreground_logit_offset"]) not in (int, float)
+            or wheat["foreground_logit_offset"] not in WHEAT_LOGIT_OFFSETS
+            or any(
+                not isinstance(wheat[key], str) or not re.fullmatch(r"[0-9a-f]{64}", wheat[key])
+                for key in ("protocol_sha256", "contract_sha256")
+            )
+        ):
+            raise ValueError(
+                "Wheat pipeline requires its protocol, contract and frozen grid offset"
+            )
+        if (
+            profile["query_refiner"] is not None
+            or profile["crop_refiner"] is not None
+            or profile["category_ids"] != [1]
+            or config.architecture != "nano"
+            or config.horizontal_flip
+            or list(config.resolutions) != [config.checkpoint_resolution]
+            or config.max_detections < 300
+        ):
+            raise ValueError(
+                "Wheat primary deployment requires all300 native Nano queries, one view"
+            )
     crop = profile.get("crop_configuration")
     if profile["crop_refiner"] is not None and version != 2:
         raise ValueError(
@@ -650,6 +691,16 @@ def predict_profile(profile_path: Path, manifest: Path, image_root: Path, output
         refinement=artifacts.get("query_refiner"),
         detector_sha256=profile["detector"]["sha256"],
     )
+    if profile["schema_version"] == 3:
+        from collections import Counter
+
+        from vision_rl.wheat_eval import calibrate_wheat_predictions
+
+        if Counter(row["image_id"] for row in predictions) != {row["id"]: 300 for row in images}:
+            raise ValueError("Wheat native detector must retain exactly300 predictions per image")
+        predictions = calibrate_wheat_predictions(
+            predictions, profile["wheat"]["foreground_logit_offset"]
+        )
     output.mkdir(parents=True)
     if "crop_refiner" in artifacts:
         from vision_rl.crop_refinement import load_model, refine_manifest
@@ -701,13 +752,14 @@ def predict_profile(profile_path: Path, manifest: Path, image_root: Path, output
             "configuration": asdict(config),
             "artifacts": {key: descriptor(value) for key, value in artifacts.items()},
             "label_access": False,
-            "implementation_hashes": source_hashes(),
+            "implementation_hashes": profile["implementation_hashes"],
             "runtime_packages": runtime_versions(),
             "runtime_builds": runtime_versions(public=False),
             "platform": platform.platform(),
             "python": platform.python_version(),
             "proposal_pipeline_sha256": proposal_pipeline_sha256(profile),
             "predictions_sha256": loop._hash_path(output / "predictions.coco.json"),
+            **({"wheat": profile["wheat"]} if profile["schema_version"] == 3 else {}),
         },
     )
     return {"images": len(images), "seconds": timing["end_to_end_seconds"], "label_access": False}
@@ -977,7 +1029,7 @@ def main(argv=None):
     )
     for name in ("detector", "config", "output"):
         package.add_argument("--" + name, type=Path, required=True)
-    for name in ("query-refiner", "crop-refiner", "crop-config"):
+    for name in ("query-refiner", "crop-refiner", "crop-config", "wheat-config"):
         package.add_argument("--" + name, type=Path)
     package.add_argument("--category-ids", type=int, nargs="+", required=True)
     package.add_argument("--training-origin", required=True)
@@ -1011,6 +1063,7 @@ def main(argv=None):
             query_refiner=args.query_refiner,
             crop_refiner=args.crop_refiner,
             crop_configuration=read(args.crop_config) if args.crop_config else None,
+            wheat=read(args.wheat_config) if args.wheat_config else None,
         )
     elif args.command == "predict":
         result = predict_profile(args.profile, args.manifest, args.image_root, args.output)

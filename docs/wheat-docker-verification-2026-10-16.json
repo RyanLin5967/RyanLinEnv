@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "scope": "Linux CPU packaging, evaluator parity, and validation-derived integration only; not a benchmark model result",
+  "sealed_test_accessed": false,
+  "docker": {
+    "platform": "linux/arm64",
+    "cpus": 2,
+    "memory_mb": 3072,
+    "network_during_execution": "none",
+    "global_context_unchanged": true
+  },
+  "dependency_build": {
+    "initial_build_seconds": 155.71864938735962,
+    "initial_cpu_scatter_compile_seconds": 115.42,
+    "sequential_source_refresh_build_seconds": 259.83980202674866,
+    "compiler_jobs": 1,
+    "pip_check": "No broken requirements found",
+    "common_lock_sha256": "24082a4bb9e1cdd4d5b34699b5b36a0920d4894bdef18f82034fe42514d18500",
+    "wheat_lock_sha256": "b9dfae25ce036d11df630f4bf5328f9db22285d3bc37a4454f701318c718002b",
+    "reproducibility_scope": "Distribution/source hashes pinned; compiled CPU scatter bytes depend on platform/compiler/runtime"
+  },
+  "official_parity": {
+    "library": "wilds",
+    "version": "2.0.0",
+    "source_file_sha256": {
+      "DetectionAccuracy": "4fe677510f6e7e11005e0e73f16189c5a5c8a5664fe126055426dcbe5c873d72",
+      "GlobalWheatDataset": "25948859e68e6cb4759709bc0158db060c5ab0d15aa1a467ac1f41383e7fcc1e"
+    },
+    "torch": "2.14.1+cpu",
+    "torchvision": "0.29.1+cpu",
+    "torch_scatter": "2.1.2",
+    "synthetic_cases": {
+      "ambiguous_overlap": {
+        "actual": 0.3333333432674408,
+        "expected": 0.3333333333333333
+      },
+      "exact_iou_half": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "score_exact_half": {
+        "actual": 0.0,
+        "expected": 0.0
+      },
+      "score_above_half": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "duplicate_predictions": {
+        "actual": 0.5,
+        "expected": 0.5
+      },
+      "repeated_native_gt": {
+        "actual": 0.3333333432674408,
+        "expected": 0.3333333333333333
+      },
+      "out_of_frame_native_gt": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "empty_both": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "empty_gt": {
+        "actual": 0.0,
+        "expected": 0.0
+      },
+      "empty_pred": {
+        "actual": 0.0,
+        "expected": 0.0
+      }
+    },
+    "native_dataset_eval_synthetic": {
+      "domain_image_counts": [
+        3,
+        1
+      ],
+      "equal_domain_average": 0.5,
+      "image_average": 0.75,
+      "native_constructor_used": true
+    },
+    "image_loads": 0,
+    "model_inference_calls": 0,
+    "competition_2021_equivalence_claimed": false,
+    "platform": "Linux-6.8.0-117-generic-aarch64-with-glibc2.41",
+    "architecture": "aarch64",
+    "python": "3.12.13",
+    "elapsed_seconds": 2.6133429710007476,
+    "network": "none",
+    "cpus": 2,
+    "memory_limit_bytes": 3221225472,
+    "packages": {
+      "wilds": "2.0.0",
+      "torch-scatter": "2.1.2",
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1"
+    }
+  },
+  "frozen_artifact_harbor_replay": {
+    "trial_id": "4a2cf395-fe04-4f80-8470-f615de5156d3",
+    "task_checksum": "8d083549e718231e9f7b18f393e94a662fda9a16c9df744efacb775ab5236f8a",
+    "total_seconds": 41.221986,
+    "exceptions": 0,
+    "verifier_environment_mode": "separate",
+    "native_validation_images": [
+      2,
+      484,
+      823
+    ],
+    "domains": 2,
+    "preserves_empty_images": true,
+    "native_proposal_count": 900,
+    "metric": "detection_acc_avg_dom",
+    "metrics": {
+      "detection_acc_avg": 0.3333333432674408,
+      "detection_acc_avg_dom": 0.25,
+      "detection_acc_wg": 0.0
+    },
+    "interpretation": "Three-image integration fixture only; ADA0.25 includes empty-image handling and is not a full benchmark score",
+    "model_sha256": "32520bb543ed94362248859cb953fc1de5afd20d73f5db06913783413ed2d54e",
+    "profile_sha256": "694681645866ec9dff0d24c92a255c2cc2e3ae4e3ff88ad581f7585aa57801d6",
+    "foreground_logit_offset": 0.0,
+    "implementation_hashes": {
+      "crop_refinement.py": "ff32ce8f21da787a26a8be3292bdbf7104a6dc049691c7f3a53afe5394e4651b",
+      "detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+      "detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106",
+      "detection_recipe.py": "533f5b63da8cdb4bc221b8561cd60a0b772f3f72825e79be3ad5a83117d4f01e",
+      "detection_rewards.py": "611793e42bbc87872325d1f6b8fd6442504fb283c56cdaf52233b7e29abb015c",
+      "detection_rl.py": "6afafd98263a814977abbf2d68ac35072aed7073f738bfeeab8a6699ea0993f0",
+      "detection_training.py": "713190bfe38ea7c94597525b7637815a31564750568261db972a5e085821c6b6",
+      "experiment_loop.py": "5d54e94685452d9e73226e8d15776f2d0cef6e4c11e68c22e8b65b553ee674e1",
+      "wheat_eval.py": "185a84457283103189c9e56bbda382408eb72a47bb5a2234de98365b92136872"
+    },
+    "runtime_packages": {
+      "numpy": "2.5.4",
+      "pillow": "12.3.0",
+      "pycocotools": "2.0.11",
+      "rfdetr": "1.10.0",
+      "safetensors": "0.8.0",
+      "torch": "2.14.1",
+      "torchvision": "0.29.1",
+      "transformers": "5.20.0"
+    },
+    "evidence_relative_directory": "runs/wheat-docker-smoke/jobs/wheat-replay-v1/task__dNTGfXa"
+  },
+  "training_integration": {
+    "status": "passed",
+    "scope": "Tiny TRAIN-derived integration only; no benchmark gain or exploration-gate claim",
+    "initialization_sha256": "a982a66121449891f497fc7b3a89bd201cc13f66769a9eab15ebc18d38fe3ec2",
+    "configuration": {
+      "resolution": 512,
+      "device": "cpu",
+      "cpu_threads": 2,
+      "seed": 791,
+      "epochs": 2,
+      "batch_images": 1,
+      "groups": 4,
+      "query_samples": 4,
+      "estimator": "loo",
+      "pixel_std": 2.0,
+      "max_relative_center_std": 0.05,
+      "max_log_size_std": 0.1,
+      "score_std": 0.25,
+      "active_query_probability": 1.0,
+      "query_uniform_mixture": 0.1,
+      "ap95_weight": 0.2,
+      "learning_rate": 1e-06,
+      "weight_decay": 0.0001,
+      "gradient_clip": 1.0,
+      "kl_coefficient": 0.05,
+      "kl_target_per_query": 0.05,
+      "train_encoder_last_blocks": 0,
+      "horizontal_flip_probability": 0.5,
+      "pilot_images": 128,
+      "pilot_groups": 64,
+      "pilot_min_AP_gain": 0.02,
+      "pilot_min_useful_fraction": 0.25,
+      "pilot_snr_images": 8,
+      "pilot_snr_repeats": 8,
+      "max_steps": 4,
+      "wall_seconds": null,
+      "reward_backend": "wheat_ada",
+      "domain_balanced_sampling": true,
+      "pilot_min_reward_gain": 0.05,
+      "trust_region_max_kl": 0.1,
+      "trust_region_backtracks": 12,
+      "drift_sentinel_images": 32,
+      "drift_max_mean_kl": 0.5,
+      "drift_max_image_kl": 1.0,
+      "audit_groups": 2
+    },
+    "source_sha256": {
+      "detector_policy_training.py": "fa455dec1eeb9789dff4266d6ffe533291b1291e03567ba98f95a56a3a1706c3",
+      "detection_training.py": "713190bfe38ea7c94597525b7637815a31564750568261db972a5e085821c6b6",
+      "detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106",
+      "detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+      "wheat_eval.py": "185a84457283103189c9e56bbda382408eb72a47bb5a2234de98365b92136872"
+    },
+    "protocol_sha256": "783c397ccd71eb90ef8e12a159e4e61fa6e1842a631affc0fd63496a22915535",
+    "train_images": 4,
+    "validation_images": 2,
+    "all_training_and_selection_images_from_native_TRAIN": true,
+    "fresh_verifier_images_from_native_validation": 3,
+    "sealed_test_accessed": false,
+    "total_seconds": 76.918476,
+    "exceptions": 0,
+    "agent": "vision_rl.harbor_agent:DetectionTrainingAgent",
+    "verifier_environment_mode": "separate",
+    "training_evidence": {
+      "integration_only": true,
+      "scope": "integration check only; not a benchmark result",
+      "native_test_accessed": false,
+      "resume_exact": {},
+      "changed_native_tensors": 60,
+      "maximum_parameter_change": 3.5762786865234375e-06,
+      "RL_updates": 4,
+      "SFT_equal_updates": 4,
+      "RL_active_seconds": 7.055163342000014,
+      "SFT_equal_walltime_seconds": 7.412764294000226,
+      "SFT_equal_walltime_updates": 19,
+      "parameter_changes_alone_do_not_establish_reward_learning": true,
+      "primary_requirement_satisfied": false,
+      "reward_diagnostics": [
+        {
+          "epoch": 1,
+          "optimizer_step": 4,
+          "validation_AP": 0.5001489504538851,
+          "validation_AP95": 0.00011124707976415619,
+          "validation_primary_score": 0.7958656251430511,
+          "primary_metric": "ADA",
+          "actor_loss": 0.10197016332430886,
+          "joint_KL": 0.6164803016195279,
+          "KL_per_query": 0.00205493433873176,
+          "reward": 0.7873650342226028,
+          "sampled_ADA": 0.7873650342226028,
+          "reward_std": 0.024569432048272145,
+          "useful_factor_fraction": 1.0,
+          "deterministic_train_ADA": 0.8100904822349548,
+          "trust_region_step_fraction": 1.0,
+          "trust_region_backtracks": 0.0,
+          "trust_region_post_KL_per_query": 0.0052072377940315705,
+          "trust_region_max_image_KL_per_query": 0.0052072377940315705,
+          "trust_region_preexisting_bound_violations": 0.0,
+          "unclipped_gradient_norm": 157.3425931930542
+        }
+      ],
+      "reward_only_output_gradients": [
+        {
+          "actor_output_gradient_absolute_sum": 1259.0345839988263,
+          "actor_output_gradient_finite": true,
+          "reward_std": 0.007779741913141749,
+          "useful_factor_fraction": 1.0,
+          "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+        },
+        {
+          "actor_output_gradient_absolute_sum": 6531.675998497698,
+          "actor_output_gradient_finite": true,
+          "reward_std": 0.0392983357479468,
+          "useful_factor_fraction": 1.0,
+          "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+        },
+        {
+          "actor_output_gradient_absolute_sum": 5650.2308542915725,
+          "actor_output_gradient_finite": true,
+          "reward_std": 0.035431961507434474,
+          "useful_factor_fraction": 1.0,
+          "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+        },
+        {
+          "actor_output_gradient_absolute_sum": 2392.5371073837846,
+          "actor_output_gradient_finite": true,
+          "reward_std": 0.015767689024565552,
+          "useful_factor_fraction": 1.0,
+          "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+        }
+      ],
+      "selected_model_sha256": "6623345d3a4179b0883364af3e6569da9f95a12c4d83e45335dcdeb264eb442b",
+      "calibration_sha256": "306c7846c46b52d77722d6bce79bc3f1f2858dcb36dbc91de5a5f91139f95895"
+    },
+    "matching_image_augmentation_draw_prefixes_verified": true,
+    "submitted_artifact_identity": {
+      "detector_sha256": "6623345d3a4179b0883364af3e6569da9f95a12c4d83e45335dcdeb264eb442b",
+      "calibration_sha256": "306c7846c46b52d77722d6bce79bc3f1f2858dcb36dbc91de5a5f91139f95895",
+      "foreground_logit_offset": 0.0,
+      "trusted_template_sha256": "cbf77cccbbe64b83e63719c48bb262a7a9b39b5e66fc8e6c677d1784556b907f",
+      "submitted_code_executed": false
+    },
+    "fresh_verifier_metric": "detection_acc_avg_dom",
+    "fresh_verifier_metrics": {
+      "detection_acc_avg": 0.723214328289032,
+      "detection_acc_avg_dom": 0.7566964328289032,
+      "detection_acc_wg": 0.65625
+    },
+    "fresh_verifier_native_proposals": 900,
+    "evidence_relative_directory": "runs/wheat-docker-smoke/jobs/wheat-native-training-v4/task__upA26or",
+    "separate_interrupted_resume_proof": {
+      "task": "native-training-v3",
+      "train_images": 2,
+      "validation_images": 2,
+      "interrupt_after_updates": 2,
+      "resume_to_updates": 4,
+      "exact_state_checks": {
+        "model": true,
+        "buffers": true,
+        "optimizer": true,
+        "scheduler": true,
+        "rng": true,
+        "history": true,
+        "selections": true,
+        "order": true,
+        "cursor": true,
+        "draw_chain_history": true,
+        "draw_chain_sha256": true,
+        "matched_prefix_draw_sha256": true,
+        "kl_coefficient": true,
+        "epoch": true,
+        "epoch_metrics": true
+      },
+      "different_fixture_from_successful_four_image_task": true,
+      "not_a_claim_that_v4_was_interrupted": true
+    },
+    "failed_attempts": [
+      {
+        "task": "native-training-v2",
+        "seconds_approximately": 67,
+        "estimator": "counterfactual",
+        "query_samples": 4,
+        "RL_updates": 4,
+        "sampled_reward_std_approximately": 0.03,
+        "useful_factor_fraction": 0,
+        "reward_gradient": 0,
+        "changed_native_tensors": null,
+        "resume_assertions_passed": true,
+        "failure": "Matched SFT walltime budget not reached before16-update safety cap",
+        "verifier_ran": false,
+        "evidence_relative_directory": "runs/wheat-docker-smoke/jobs/wheat-native-training-v2/task__c6YQm8A",
+        "parameter_change_evidence": "Not archived before late control failure; zero reported optimizer gradient is not treated as an independent tensor comparison."
+      },
+      {
+        "task": "native-training-v3",
+        "seconds_approximately": 75,
+        "estimator": "loo",
+        "RL_updates": 4,
+        "changed_native_tensors": 60,
+        "reward_only_output_gradients": [
+          {
+            "actor_output_gradient_absolute_sum": 7209.9841012732995,
+            "actor_output_gradient_finite": true,
+            "reward_std": 0.04266826832762889,
+            "useful_factor_fraction": 1.0,
+            "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+          },
+          {
+            "actor_output_gradient_absolute_sum": 3872.343684843623,
+            "actor_output_gradient_finite": true,
+            "reward_std": 0.025175646618710617,
+            "useful_factor_fraction": 1.0,
+            "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+          },
+          {
+            "actor_output_gradient_absolute_sum": 5844.783169890117,
+            "actor_output_gradient_finite": true,
+            "reward_std": 0.035012239219631494,
+            "useful_factor_fraction": 1.0,
+            "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+          },
+          {
+            "actor_output_gradient_absolute_sum": 6355.527539462992,
+            "actor_output_gradient_finite": true,
+            "reward_std": 0.03774451012030666,
+            "useful_factor_fraction": 1.0,
+            "scope": "Reward-only gradient at native actor outputs; excludes reference KL"
+          }
+        ],
+        "resume_exact": {
+          "model": true,
+          "buffers": true,
+          "optimizer": true,
+          "scheduler": true,
+          "rng": true,
+          "history": true,
+          "selections": true,
+          "order": true,
+          "cursor": true,
+          "draw_chain_history": true,
+          "draw_chain_sha256": true,
+          "matched_prefix_draw_sha256": true,
+          "kl_coefficient": true,
+          "epoch": true,
+          "epoch_metrics": true
+        },
+        "failure": "Matched SFT walltime budget not reached before16-update safety cap",
+        "verifier_ran": false,
+        "evidence_relative_directory": "runs/wheat-docker-smoke/jobs/wheat-native-training-v3/task__n8qoGWR/artifacts/logs/artifacts/training"
+      }
+    ]
+  },
+  "linux_scorer_tests": {
+    "passed": 24,
+    "skipped": 0,
+    "seconds": 3.19,
+    "command": "python -I -m pytest -q /checks/test_wheat_eval.py",
+    "test_runner": "pytest9.1.1 installed in separate test-only image",
+    "network_during_execution": "none",
+    "data": "synthetic annotations and boxes only"
+  }
+}

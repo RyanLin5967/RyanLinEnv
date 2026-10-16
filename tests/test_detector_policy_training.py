@@ -503,7 +503,10 @@ def test_wheat_gate_cannot_silently_fall_back_to_pills_ap_threshold():
     from pathlib import Path
 
     protocol = json.loads(Path("docs/wheat-direct-rl-protocol-v1.json").read_text())
-    config = dpt.PolicyTrainingConfig(reward_backend="wheat_ada", domain_balanced_sampling=True)
+    config = dpt.PolicyTrainingConfig(
+        **json.loads(Path("recipes/wheat-direct-policy-64.json").read_text())
+    )
+    config = replace(config, pilot_min_reward_gain=None)
     with pytest.raises(ValueError, match="threshold differs"):
         dpt._validate_protocol(config, protocol)
     dpt._validate_protocol(
@@ -762,3 +765,111 @@ def test_pilot_scale_selects_best_passing_then_smallest_scale_on_tie():
     for row in rows.values():
         row["go"] = False
     assert dpt.select_pilot_scale(rows) == "4.0"
+
+
+@pytest.mark.parametrize(
+    "changes,match",
+    [
+        ({"epochs": 100}, "epoch budget"),
+        ({"max_steps": 10**9}, "update budget"),
+        ({"max_steps": None}, "update budget"),
+        ({"batch_images": 8}, "prospective study: batch_images"),
+        ({"learning_rate": 1e-4}, "prospective study: learning_rate"),
+        ({"score_std": 0.5}, "prospective study: score_std"),
+        ({"train_encoder_last_blocks": 1}, "prospective study: train_encoder_last_blocks"),
+        ({"drift_max_mean_kl": 2.0}, "prospective study: drift_max_mean_kl"),
+    ],
+)
+def test_study_budget_binds_actual_fixed_scientific_settings(changes, match):
+    import json
+    from dataclasses import replace
+    from pathlib import Path
+
+    protocol = json.loads(Path("docs/wheat-direct-rl-protocol-v1.json").read_text())
+    config = dpt.PolicyTrainingConfig(
+        **json.loads(Path("recipes/wheat-direct-policy-64.json").read_text())
+    )
+    assert dpt.validate_study_budget(config, protocol, 3655) == 8 * math.ceil(3655 / 4)
+    with pytest.raises(ValueError, match=match):
+        dpt.validate_study_budget(replace(config, **changes), protocol)
+
+
+def test_study_budget_resource_scale_choices_and_explicit_integration_exemption():
+    import json
+    from dataclasses import replace
+    from pathlib import Path
+
+    protocol = json.loads(Path("docs/wheat-direct-rl-protocol-v1.json").read_text())
+    config = dpt.PolicyTrainingConfig(
+        **json.loads(Path("recipes/wheat-direct-policy-64.json").read_text())
+    )
+    resource_choice = replace(config, device="cpu", cpu_threads=1, pixel_std=1)
+    dpt.validate_study_budget(resource_choice, protocol, 3655)
+    with pytest.raises(ValueError, match="epoch-equivalent cap"):
+        dpt.validate_study_budget(config, protocol, 2)
+    integration = replace(config, epochs=1, max_steps=4, batch_images=1, learning_rate=1e-4)
+    assert dpt.validate_study_budget(integration, protocol, 2, integration_only=True) == 16
+    with pytest.raises(ValueError, match="epoch budget"):
+        dpt.validate_study_budget(replace(integration, epochs=100), protocol, integration_only=True)
+    with pytest.raises(ValueError, match="<=4 input updates"):
+        dpt.validate_study_budget(
+            replace(integration, max_steps=5), protocol, integration_only=True
+        )
+    # Walltime controls retain the same input budget; only their runtime target
+    # can exceed64 to match active time, and remains bounded by the returned cap.
+    assert dpt.validate_study_budget(config, protocol, 3655, mode="sft_walltime") == 7312
+
+
+def test_standalone_training_budget_rejects_before_model_or_optimizer(
+    tmp_path, tiny_runtime, monkeypatch
+):
+    import json
+    from dataclasses import replace
+    from pathlib import Path
+
+    source, checkpoint, _ = tiny_runtime
+    config = dpt.PolicyTrainingConfig(
+        **json.loads(Path("recipes/wheat-direct-policy-64.json").read_text())
+    )
+
+    def forbidden(*args):
+        raise AssertionError("invalid budget reached model initialization")
+
+    monkeypatch.setattr(dpt, "_model", forbidden)
+    with pytest.raises(ValueError, match="epoch budget"):
+        dpt.train(
+            source,
+            checkpoint,
+            tmp_path / "invalid-study",
+            replace(config, epochs=100),
+            protocol=Path("docs/wheat-direct-rl-protocol-v1.json"),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["plan_source", "archived_source", "missing_source"])
+def test_exploration_gate_rejects_changed_or_missing_implementation(tmp_path, mutation):
+    from dataclasses import asdict
+    from pathlib import Path
+
+    config = dpt.PolicyTrainingConfig()
+    implementation = tmp_path / "implementation.py"
+    implementation.write_bytes(Path(dpt.__file__).read_bytes())
+    plan = {
+        "source_sha256": dpt.sha(implementation),
+        "protocol_sha256": None,
+        "train_identity": {"immutable": True},
+        "configuration": asdict(config),
+    }
+    summary = {"reference_sha256": "reference", "scales": {"2.0": {"go": True}}}
+    dpt.write(tmp_path / "plan.json", plan)
+    dpt.write(tmp_path / "summary.json", summary)
+    assert dpt._gate(tmp_path, "reference", plan["train_identity"], config)["go"]
+    if mutation == "plan_source":
+        plan["source_sha256"] = "different-reward-implementation"
+        dpt.write(tmp_path / "plan.json", plan)
+    elif mutation == "archived_source":
+        implementation.write_text("changed reward implementation")
+    else:
+        implementation.unlink()
+    with pytest.raises(ValueError, match="pilot implementation differs"):
+        dpt._gate(tmp_path, "reference", plan["train_identity"], config)

@@ -469,7 +469,56 @@ def select_pilot_scale(summaries):
     return min(pool, key=lambda key: (-summaries[key]["mean_best_of_samples_gain"], float(key)))
 
 
-def _validate_protocol(config, protocol, *, pixel_scales=None):
+def validate_study_budget(
+    config, protocol, train_images=None, *, integration_only=False, mode="rl", pilot=False
+):
+    """Bind standalone and workflow calls to the same prospective wheat budget.
+
+    Returns the absolute update safety cap when image count is available. A
+    walltime control may exceed the RL update count, never this epoch cap; if
+    it cannot consume the measured time, training fails without a matched claim.
+    Integration fixtures bypass first-study settings, never the global cap.
+    """
+    config.validate()
+    if config.reward_backend != "wheat_ada":
+        return None
+    if mode not in ("rl", "sft_updates", "sft_walltime"):
+        raise ValueError("unknown controlled-training mode")
+    if protocol.get("benchmark_id") != "gwhd2021-hf-domain-ada-v1":
+        raise ValueError("wheat policy requires its frozen prospective experiment protocol")
+    maximum = protocol.get("budget", {}).get("maximum_epochs_equivalent")
+    if type(maximum) is not int or maximum < 1 or config.epochs > maximum:
+        raise ValueError("wheat configuration exceeds the prospective epoch budget")
+    cap = None
+    if train_images is not None:
+        if type(train_images) is not int or train_images < 1:
+            raise ValueError("study budget requires a positive training image count")
+        cap = maximum * math.ceil(train_images / config.batch_images)
+        if not pilot and config.max_steps is not None and config.max_steps > cap:
+            raise ValueError("wheat update budget exceeds native epoch-equivalent cap")
+    if integration_only:
+        if config.max_steps is None or config.max_steps > 4:
+            raise ValueError("integration study budget requires <=4 input updates")
+        return cap
+    study = protocol.get("first_learning_test", {})
+    fixed = study.get("configuration")
+    if not isinstance(fixed, dict) or not fixed:
+        raise ValueError("prospective study must bind its scientific configuration")
+    for name, expected in fixed.items():
+        if not hasattr(config, name) or getattr(config, name) != expected:
+            raise ValueError(f"wheat configuration differs from the prospective study: {name}")
+    for name in ("batch_images", "learning_rate"):
+        if getattr(config, name) != study.get(name):
+            raise ValueError(f"wheat configuration differs from the first learning test: {name}")
+    maximum_updates = study.get("maximum_optimizer_updates")
+    if type(maximum_updates) is not int or maximum_updates < 1:
+        raise ValueError("prospective study requires an explicit positive update budget")
+    if not pilot and (config.max_steps is None or config.max_steps > maximum_updates):
+        raise ValueError("wheat configuration exceeds the first learning test update budget")
+    return cap
+
+
+def _validate_protocol(config, protocol, *, pixel_scales=None, integration_only=False):
     if config.reward_backend != "wheat_ada":
         return
     if protocol.get("benchmark_id") != "gwhd2021-hf-domain-ada-v1":
@@ -489,6 +538,9 @@ def _validate_protocol(config, protocol, *, pixel_scales=None):
         raise ValueError("wheat pilot threshold differs from its prospective protocol")
     if pixel_scales is not None and list(pixel_scales) != gate["native_pixel_stds"]:
         raise ValueError("wheat exploration action scales differ from its prospective protocol")
+    validate_study_budget(
+        config, protocol, integration_only=integration_only, pilot=pixel_scales is not None
+    )
 
 
 def _sampling_probabilities(data, config):
@@ -1339,6 +1391,13 @@ def _gate(pilot_path, checkpoint_sha, train_identity, config, protocol=None):
         raise ValueError("a completed train-only exploration pilot is required before RL fitting")
     summary = json.loads((pilot_path / "summary.json").read_text())
     plan = json.loads((pilot_path / "plan.json").read_text())
+    implementation = pilot_path / "implementation.py"
+    if (
+        plan.get("source_sha256") != sha(Path(__file__))
+        or not implementation.is_file()
+        or sha(implementation) != plan["source_sha256"]
+    ):
+        raise ValueError("pilot implementation differs from the current native trainer")
     if plan.get("protocol_sha256") != (sha(protocol) if protocol else None):
         raise ValueError("pilot experiment protocol differs")
     if summary["reference_sha256"] != checkpoint_sha or plan["train_identity"] != train_identity:
@@ -1454,7 +1513,10 @@ def _train(
     reference_sha = sha(checkpoint)
     primary = _metric_name(config)
     protocol_document = json.loads(protocol.read_text()) if protocol else {}
-    _validate_protocol(config, protocol_document)
+    _validate_protocol(config, protocol_document, integration_only=integration_only)
+    study_step_cap = validate_study_budget(
+        config, protocol_document, len(train_data), integration_only=integration_only, mode=mode
+    )
     acceptance = protocol_document.get("RL_acceptance", ACCEPTANCE)
     if integration_only and (
         len(train_data) > 4 or len(val_data) > 4 or config.max_steps is None or config.max_steps > 4
@@ -1510,7 +1572,13 @@ def _train(
         target_steps = rl_summary["optimizer_steps"]
         if mode == "sft_walltime":
             wall_budget = rl_summary["optimization_seconds"]
-            target_steps = max(target_steps, 100 * batches_per_epoch)
+            target_steps = (
+                study_step_cap
+                if study_step_cap is not None
+                else max(target_steps, 100 * batches_per_epoch)
+            )
+        if study_step_cap is not None and target_steps > study_step_cap:
+            raise ValueError("matched control updates exceed the prospective epoch budget")
         control_identity = {
             "run_plan_sha256": sha(control_run / "plan.json"),
             "run_summary_sha256": sha(control_run / "summary.json"),

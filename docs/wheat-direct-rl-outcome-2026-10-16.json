@@ -1,0 +1,221 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-16",
+  "decision": "NO_GO_STOP_NATIVE_GAUSSIAN_BRANCH",
+  "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+  "benchmark_scope": "Author Hugging Face native split with unchanged WILDS2.0.0 equal-domain detection accuracy; not WILDS-native or competition leaderboard.",
+  "objective": "Actual native RF-DETR decoder/query/class/box policy-gradient learning, compared with both continued-SFT controls; at least0.05 absolute calibrated ADA gain and positive paired domain-cluster95% lower bound.",
+  "initialization": {
+    "architecture": "RF-DETR Nano512",
+    "native_parameters": 30319108,
+    "trainable_parameters": 4288438,
+    "origin": "Fresh public COCO checkpoint followed by fixed epoch3 wheat EMA within a prospective30epoch supervised schedule; no pill-trained initialization.",
+    "sha256": "a982a66121449891f497fc7b3a89bd201cc13f66769a9eab15ebc18d38fe3ec2",
+    "strongest_final_supervised_comparison_completed": false
+  },
+  "data": {
+    "train_images": 3655,
+    "validation_images": 1476,
+    "validation_domains": 11,
+    "native_queries_per_image": 300,
+    "sealed_test_images": 1381,
+    "native_test_accessed": false
+  },
+  "pilot": {
+    "draws": 128,
+    "unique_train_images": 121,
+    "samples_per_draw": 64,
+    "selected_nominal_native_pixel_std": 2.0,
+    "mean_best64_training_ADA_gain": 0.0531344274058938,
+    "useful_draw_fraction": 0.890625,
+    "passed_unchanged_gate": true,
+    "all_scale_gains": {
+      "1.0": 0.048909971956163645,
+      "2.0": 0.0531344274058938,
+      "4.0": 0.04594677360728383
+    },
+    "interpretation": "Training-only best-of-samples diagnostic, not a deployable model result or evidence of learned improvement.",
+    "counterfactual_output_gradient_SNR": 0.446955561901714,
+    "actual_foreground_center_SD_median_pixels": 2.0,
+    "foreground_center_relative_cap_fraction": 0.037341153470185726
+  },
+  "planned_fit": {
+    "accepted_updates": 64,
+    "batch_images": 4,
+    "learning_rate": 1e-05,
+    "scientific_configuration": {
+      "resolution": 512,
+      "device": "cpu",
+      "cpu_threads": 2,
+      "seed": 791,
+      "epochs": 8,
+      "batch_images": 4,
+      "groups": 16,
+      "query_samples": 16,
+      "estimator": "counterfactual",
+      "pixel_std": 2.0,
+      "max_relative_center_std": 0.05,
+      "max_log_size_std": 0.1,
+      "score_std": 0.25,
+      "active_query_probability": 1.0,
+      "query_uniform_mixture": 0.1,
+      "ap95_weight": 0.2,
+      "learning_rate": 1e-05,
+      "weight_decay": 0.0001,
+      "gradient_clip": 1.0,
+      "kl_coefficient": 0.05,
+      "kl_target_per_query": 0.05,
+      "train_encoder_last_blocks": 0,
+      "horizontal_flip_probability": 0.5,
+      "pilot_images": 128,
+      "pilot_groups": 64,
+      "pilot_min_AP_gain": 0.02,
+      "pilot_min_useful_fraction": 0.25,
+      "pilot_snr_images": 8,
+      "pilot_snr_repeats": 8,
+      "max_steps": 64,
+      "wall_seconds": null,
+      "reward_backend": "wheat_ada",
+      "domain_balanced_sampling": true,
+      "pilot_min_reward_gain": 0.05,
+      "trust_region_max_kl": 0.1,
+      "trust_region_backtracks": 12,
+      "drift_sentinel_images": 32,
+      "drift_max_mean_kl": 0.5,
+      "drift_max_image_kl": 1.0,
+      "audit_groups": 16
+    },
+    "full_study_completed": false
+  },
+  "attempts": {
+    "MPS": {
+      "output": "runs/wheat-direct-policy/epoch3-controlled64-v1",
+      "durable_updates": 0,
+      "uncommitted_updates": "Unknown; no20update checkpoint was reached. Do not infer zero executed updates.",
+      "failure": "Frozen-reference latent conversion rejected invalid geometry/logits. Separate and coupled first20 forward-only probes were valid; exact failure cause remains unresolved.",
+      "status": "failed_preserved"
+    },
+    "CPU": {
+      "output": "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1",
+      "durable_updates": 20,
+      "committed_active_optimization_seconds": 24.81270145896997,
+      "timing_scope": "Committed preprocessing/forward/reward/backward/optimizer time only; excludes setup, validation, artifactIO, diagnostics and discarded uncommitted work. Not total physical compute.",
+      "failure": "Finite Adam proposal could not satisfy every per-image reference-KL limit after12halvings on a new batch.",
+      "reproduction": "Exact durable20 resume accepted diagnostic updates21 and22, then rejected proposal23. Only durable20 is evaluated and published.",
+      "status": "partial_failed_study"
+    },
+    "backend_amendment": "Prospective CPU2 fallback applied to every planned arm; source, initialization, policy, reward, gate and optimizerbudget unchanged. MPS failure is not counted as a completed RL candidate."
+  },
+  "full_validation": {
+    "initial": {
+      "calibrated_ADA": 0.6521398750218478,
+      "raw_zero_offset_ADA": 0.6282714984633706,
+      "selected_logit_offset": 0.5,
+      "supplemental_AP": 0.4886193493046804
+    },
+    "partial20": {
+      "calibrated_ADA": 0.6482932350852273,
+      "raw_zero_offset_ADA": 0.6369451176036488,
+      "selected_logit_offset": 0.5,
+      "supplemental_AP": 0.48761009919939213,
+      "safe_sha256": "c4245f4fdcc83d03e873248f993aeedac237095253e2979431f603d00f273c42",
+      "independently_reloaded_numeric_weights": true
+    },
+    "calibrated_ADA_difference": -0.0038466399366204884,
+    "raw_ADA_difference": 0.0086736191402782,
+    "calibration": "Same predeclared7logitoffset grid in both reports; native scorer remains score>0.5.",
+    "paired_domain_comparison": {
+      "metric": "detection_acc_avg_dom",
+      "delta": -0.0038466399366205387,
+      "ci95": [
+        -0.01531392356211489,
+        0.0033154257319190274
+      ],
+      "n_domains": 11,
+      "per_domain_delta": {
+        "NAU_1": -0.0006072521209716797,
+        "UQ_1": 0.0068826377391815186,
+        "UQ_2": 0.0,
+        "UQ_3": -0.05653467774391174,
+        "UQ_4": 0.004619240760803223,
+        "UQ_5": 0.006064116954803467,
+        "UQ_6": 0.004465758800506592,
+        "Usask_1": -0.007073760032653809,
+        "Utokyo_1": -0.001591801643371582,
+        "Utokyo_2": -0.0026363134384155273,
+        "Utokyo_3": 0.004099011421203613
+      },
+      "method": "paired acquisition-domain cluster bootstrap percentile interval",
+      "resamples": 20000,
+      "seed": 2718,
+      "minimum_gain": 0.05,
+      "substantial_gain_and_positive_ci": false,
+      "selection_bias_corrected": false,
+      "scope": "Partial20failedrun versusinitial, full1476validation; no matchedcontrols or completed64updatestudy"
+    }
+  },
+  "fixed_TRAIN_audit": {
+    "images": 32,
+    "domains_covered": 18,
+    "samples_per_image": 16,
+    "reference_expected_reward": 0.7629558540811693,
+    "partial_expected_reward": 0.7707777072779006,
+    "paired_expected_reward_difference": 0.00782185319673132,
+    "conditional_Monte_Carlo_noise_standard_error": 0.0012953885376056384,
+    "uncertainty_scope": "Standard error of action-sampling noise using common random numbers on these fixed TRAIN images only; not training-sample uncertainty, not generalization uncertainty, and not a held-out confidence interval.",
+    "deterministic_domain_means": {
+      "reference": 0.7830505472642404,
+      "current": 0.7863033015418935,
+      "geometry_only": 0.7830505472642404,
+      "confidence_only": 0.7863033015418935
+    },
+    "component_interpretation": "The deterministic training gain equals the confidence-only substitution; the geometry-only substitution equals the original detector on these fixed32images. This is an output diagnostic, not independent trained ablations.",
+    "drift_mean_KL_per_query": 0.14402934946962037,
+    "drift_max_image_KL_per_query": 1.7812934338683488,
+    "drift_mean_limit": 0.5,
+    "drift_max_image_limit": 1.0,
+    "drift_passed": false
+  },
+  "controls": {
+    "equal_update_SFT": "not run;64updateRL nevercompleted",
+    "equal_walltime_SFT": "not run;64updateRL nevercompleted",
+    "matched_control_claim": false
+  },
+  "interpretation": "Real TRAIN reward ascent and improved raw validation accuracy chiefly shifted confidence. Equal calibration removed that apparent advantage: calibrated validation point estimate declined, the95%domain interval includes zero, and the fixedTRAIN drift alarm failed. This fails the substantialRL requirement; no frontier comparison or RL superiority is claimed.",
+  "decision_scope": "Stop this native Gaussian branch. Rejected-attempt handling remains a recorded proposal only, with no implementation or second fit. The overall project continues with the aircraft approach.",
+  "correction": "An intermediate message incorrectly called the CPU durable checkpoint step0 and inferred an initialization mismatch. Direct inspection showed20updates; fresh identical models have zero KL and all466 initial tensors equal the reference. The corrected evidence is preserved.",
+  "source_and_config_sha256": {
+    "src/vision_rl/detector_policy_training.py": "fa455dec1eeb9789dff4266d6ffe533291b1291e03567ba98f95a56a3a1706c3",
+    "src/vision_rl/detection_training.py": "713190bfe38ea7c94597525b7637815a31564750568261db972a5e085821c6b6",
+    "src/vision_rl/detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106",
+    "src/vision_rl/detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+    "src/vision_rl/wheat_eval.py": "185a84457283103189c9e56bbda382408eb72a47bb5a2234de98365b92136872",
+    "recipes/wheat-direct-policy-pilot.json": "9c65fa56a42f06e0d1a45e705cffb8d56eeb509f1bc661c29b1723862994075c",
+    "recipes/wheat-direct-policy-64.json": "c3cdf510ed001d7af92a95df3688193027e71f5106a18ff9a970622d2522c203",
+    "docs/wheat-direct-rl-protocol-v1.json": "783c397ccd71eb90ef8e12a159e4e61fa6e1842a631affc0fd63496a22915535"
+  },
+  "evidence_sha256": {
+    "src/vision_rl/detector_policy_training.py": "fa455dec1eeb9789dff4266d6ffe533291b1291e03567ba98f95a56a3a1706c3",
+    "tests/test_detector_policy_training.py": "855a72b2ff88a799c0be367c2df36cc5b3be45c6222314cf9c4b824505fc9496",
+    "docs/wheat-direct-rl-protocol-v1.json": "783c397ccd71eb90ef8e12a159e4e61fa6e1842a631affc0fd63496a22915535",
+    "recipes/wheat-direct-policy-64.json": "c3cdf510ed001d7af92a95df3688193027e71f5106a18ff9a970622d2522c203",
+    "recipes/wheat-direct-policy-pilot.json": "9c65fa56a42f06e0d1a45e705cffb8d56eeb509f1bc661c29b1723862994075c",
+    "runs/wheat-direct-policy/epoch3-pilot128-v1/plan.json": "e422e28b266f21e248cf5c6b9c454d98fd5441e82bf494f3151ef04efc5a9577",
+    "runs/wheat-direct-policy/epoch3-pilot128-v1/summary.json": "739e06c0229bff1a638c0ae2e7af750da36c323a95e188daf4eae2935df76114",
+    "runs/wheat-direct-policy/epoch3-pilot128-v1/items.json": "ec6510b8544c20bbe8470cd8308b8ffb100587fdc5bd8d7ff7ce5baad4959064",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/prelaunch.json": "656a6e476adaf61815d13aed1f724aeb3a95509c373ae674b45fa4600d0857f8",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/config.json": "9c65fa56a42f06e0d1a45e705cffb8d56eeb509f1bc661c29b1723862994075c",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/rl/plan.json": "684ee8b83ca53682677068f41d5524ddc1bc2682c9a0ac06846badad0a719fac",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/rl/last.pt": "cf738a9d86e4f8fdcfe881e316acea161cff9f6d6ba53f810171e9fefe4dfc8f",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/rl/initial-evaluation.json": "9c74fe26d2913c98ea9467ac03bb6fc15058e655a211a3a58b39a8eb5140fa3f",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/rl/implementation.py": "fa455dec1eeb9789dff4266d6ffe533291b1291e03567ba98f95a56a3a1706c3",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/partial-step20/model.safetensors": "c4245f4fdcc83d03e873248f993aeedac237095253e2979431f603d00f273c42",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/partial-step20/evaluation.json": "673f405a882aa73f2791d91bf03fb7269780611075efb7e83a0074b2e1ff5a75",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/partial-step20/train-audit.json": "201cc1bbb39a0a9f9503018129f8293caea0a725205fdf64b23fb2240e4e6a6f",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/partial-step20/paired-initial-comparison.json": "b2d61420f1f9c264184f9fd117f8836a3024b1fcc27a9aa0af9aa578cebe7fa2",
+    "runs/wheat-direct-policy/epoch3-controlled64-cpu-v1/diagnostic-correction.json": "70f6f0d3355d1e8f43e894e4106a454bd4db1c84117376cf393279b7aa01b002",
+    "runs/wheat-direct-policy/epoch3-controlled64-v1/rl/last.pt": "db58d846a4c0b8dcf7e0901af7b9ebb6d988d798a67544d8f56191d7c884daee",
+    "runs/wheat-direct-policy/epoch3-controlled64-v1/backend-failure.json": "96c3af55311253bc1eed6952412b95877ca19408e1fd78fafbe430bc29e942fd"
+  },
+  "primary_requirement_satisfied": false
+}

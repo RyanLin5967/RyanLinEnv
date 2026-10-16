@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "name": "RF-DETR Nano512 pill detector",
+  "status": "supervised_development_checkpoint",
+  "release_tag": "pills-nano512-development-20261016",
+  "repository": "RyanLin5967/RyanLinEnv",
+  "weights": {
+    "file": "nano512-final-model.safetensors",
+    "bytes": 121333608,
+    "sha256": "66b9b34df0bcc4751022c40e31dbd17c0ee7658447ca679b61b8cf49a51629c9",
+    "format": "safetensors",
+    "tensors": 466,
+    "parameters": 30319108
+  },
+  "architecture": {
+    "name": "RFDETRNano",
+    "rfdetr_version": "1.10.0",
+    "num_classes": 1,
+    "checkpoint_resolution": 512,
+    "dtype": "float32",
+    "foreground_category_ids": [
+      1
+    ],
+    "foreground_names": [
+      "pill"
+    ],
+    "unused_background_channel": 1
+  },
+  "inference": {
+    "resolutions": [
+      512
+    ],
+    "horizontal_flip": false,
+    "confidence_cutoff": null,
+    "proposals_per_image": 300,
+    "max_detections": 500,
+    "box_format": "COCO original-pixel xywh",
+    "input_manifest": "images only: id,file_name,width,height"
+  },
+  "dataset": {
+    "name": "RF100-VL/countingpills-exf0r-gfkt",
+    "version": 2,
+    "train_images": 1449,
+    "validation_images": 423,
+    "native_test_images": 200,
+    "test_evaluated": false,
+    "dataset_license": "MIT",
+    "images_included": false
+  },
+  "training": {
+    "method": "supervised RF-DETR fine-tuning",
+    "seed": 42,
+    "base_resolution": 384,
+    "progressive_resolution": 512,
+    "progressive_epochs": 12,
+    "progressive_updates": 1092,
+    "selected_progressive_epoch": 4,
+    "selection": "EMA COCO AP on all423 validation images",
+    "batch_size": 4,
+    "gradient_accumulation": 4,
+    "learning_rate": 1e-05,
+    "progressive_fit_seconds": 2196.2285587500082,
+    "combined_recorded_fit_seconds": 8424.323697374013,
+    "hardware": "Apple M5 Pro,48GiB unified memory",
+    "initialization_before_512_interpolation_sha256": "11303de70b3ae39eb9dbf618277a91a10a5662ff2c37aa23614fd62a14f76017"
+  },
+  "development_metrics": {
+    "metric": "COCO AP50:95",
+    "maxDets": 500,
+    "full_validation": {
+      "images": 423,
+      "AP": 0.9274556705940836
+    },
+    "matched_discovery": {
+      "images": 48,
+      "AP": 0.9063693396987239,
+      "baseline": "Gemini4 Argon high,structured output,two examples",
+      "baseline_AP": 0.7319102606913038,
+      "AP_margin": 0.17445907900742008,
+      "paired_capture_group_CI95": [
+        0.13559927644233874,
+        0.21603233201017133
+      ]
+    },
+    "source_report": "reports/2026-10-16-progressive512-development",
+    "report_checksums_sha256": "ceee564a7491f41cc14ed0d2eccd326e84e5cb791f3fe81c4226e515f3a10ff2"
+  },
+  "claims": {
+    "substantial_RL_improvement": false,
+    "heldout_frontier_win": false,
+    "twenty_point_development_margin_met": false,
+    "all_RF100_VL_benchmark_result": false,
+    "capture_session_generalization_established": false
+  },
+  "license": "Apache-2.0",
+  "upstream_license_sha256": "8cabf52c61130fc97a7e5da5e3685ccf44841c0c53d6f881189369b136603cca",
+  "upstream": "https://github.com/roboflow/rf-detr",
+  "source_commit_with_verified_inference": "85539dd3c45761f3dc9f43576e054a052802b205",
+  "implementation_sha256": {
+    "src/vision_rl/detection_training.py": "713190bfe38ea7c94597525b7637815a31564750568261db972a5e085821c6b6",
+    "src/vision_rl/detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106",
+    "src/vision_rl/detection_eval.py": "040c21be74b4bb35024b154b8acc85d4722a9ca8202bfdea8ce497ab8f509306",
+    "requirements-detection.txt": "699ad953fceacb4478de104e6c2145583c37f79a9ecec301a983184ea1e35bf6",
+    "requirements-detection.lock": "24082a4bb9e1cdd4d5b34699b5b36a0920d4894bdef18f82034fe42514d18500"
+  }
+}

@@ -1,0 +1,21 @@
+# Optional official wheat ADA scorer, built against the selected detector runtime.
+# Build Dockerfile.detection first; choose its CPU/CUDA backend independently.
+ARG DETECTION_BASE=vision-rl:detection
+FROM ${DETECTION_BASE}
+ENV FORCE_ONLY_CPU=1 MAX_JOBS=1
+COPY requirements-detection.lock requirements-wheat-eval.lock /opt/
+# One compiler job bounds memory on the portable 4 GiB CPU VM. Scatter remains
+# CPU-only even when the inherited detector runtime uses CUDA. The source hashes
+# are pinned; compiled extension bytes depend on compiler/platform/torch.
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --no-deps --require-hashes \
+        -r /opt/requirements-detection.lock \
+    && pip install --no-cache-dir --no-deps --require-hashes --no-build-isolation \
+        -r /opt/requirements-wheat-eval.lock \
+    && pip check
+COPY pyproject.toml /opt/vision-rl/pyproject.toml
+COPY src /opt/vision-rl/src
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /opt/vision-rl \
+    && python -c "from vision_rl.wheat_eval import official_sessions; assert len(official_sessions()) > 0"
+CMD ["python", "-c", "from vision_rl.wheat_eval import official_sessions; print(len(official_sessions()))"]

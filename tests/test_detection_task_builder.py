@@ -9,12 +9,18 @@ import pytest
 from PIL import Image
 
 from vision_rl.detection_task_builder import (
+    _bundle_coco,
     _inference_configuration,
+    _inspect_wheat_split,
+    _pipeline_document,
     _stage_artifact,
     make_detection_replay_task,
     make_detection_task,
     make_pipeline_replay_task,
+    make_wheat_training_task,
     verify_detection_submission,
+    verify_wheat_training_submission,
+    write_wheat_calibration,
 )
 
 
@@ -649,7 +655,7 @@ def test_pipeline_verifier_rejects_invalid_submission_before_inference(
         trusted_profile=profile,
         **settings,
     )
-    assert result["AP"] == 0 and "error" in result
+    assert result["reward"] == 0 and "error" in result
     assert calls == []
     assert (root / "logs/reward.txt").read_text() == "0\n"
     assert not (root / "logs/predictions.json").exists()
@@ -690,6 +696,317 @@ def test_pipeline_crop_replay_rejects_unsafe_artifact_or_runtime_before_inferenc
         root / "logs",
         trusted_profile=profile,
     )
-    assert result["AP"] == 0 and "error" in result
+    assert result["reward"] == 0 and "error" in result
     assert calls == []
     assert (root / "logs/reward.txt").read_text() == "0\n"
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_wheat_bundle_preserves_native_domains_and_ground_truth(tmp_path, empty):
+    from vision_rl.wheat_eval import BENCHMARK_ID
+
+    source = tmp_path / "wheat"
+    source.mkdir()
+    Image.new("RGB", (16, 16), "green").save(source / "original.png")
+    rows = (
+        []
+        if empty
+        else [{"id": i, "image_id": 7, "category_id": 1, "bbox": [-2, 1, 20, 5]} for i in (0, 1)]
+    )
+    document = {
+        "images": [
+            {
+                "id": 7,
+                "file_name": "original.png",
+                "width": 16,
+                "height": 16,
+                "domain": "Arvalis_1",
+                "session_id": 0,
+                "original_image_id": "native-id",
+                "native_split": "validation",
+                "source_shard": "/private/source.parquet",
+            }
+        ],
+        "annotations": rows,
+        "categories": [{"id": 1, "name": "wheat_head"}],
+        "info": {"benchmark_id": BENCHMARK_ID, "native_split": "validation"},
+    }
+    (source / "_annotations.coco.json").write_text(json.dumps(document))
+    loaded = _pipeline_document(source, {"wheat": {"benchmark_id": BENCHMARK_ID}})
+    inspection = _inspect_wheat_split(source.resolve(), loaded)
+    assert inspection["images"] == 1
+    output = tmp_path / "bundled"
+    _bundle_coco(source, output, loaded, wheat=True)
+    bundled = json.loads((output / "_annotations.coco.json").read_text())
+    assert bundled["annotations"] == rows
+    assert bundled["info"] == document["info"]
+    image = bundled["images"][0]
+    assert image["domain"] == "Arvalis_1" and image["session_id"] == 0
+    assert image["original_image_id"] == "native-id"
+    assert image["native_split"] == "validation"
+    assert "source_shard" not in image
+    assert (output / image["file_name"]).read_bytes() == (source / "original.png").read_bytes()
+    document["info"]["benchmark_id"] = "pills"
+    (source / "_annotations.coco.json").write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="benchmark identity"):
+        _pipeline_document(source, {"wheat": {"benchmark_id": BENCHMARK_ID}})
+
+
+def _wheat_pipeline(directory, monkeypatch):
+    import vision_rl.detection_recipe as recipe
+    from vision_rl.wheat_eval import BENCHMARK_ID
+
+    path = _numeric_pipeline(directory)
+    profile = json.loads(path.read_text())
+    profile.update(
+        schema_version=3,
+        crop_configuration=None,
+        runtime_packages={name: "1.0" for name in recipe.RUNTIME_PACKAGES},
+        implementation_hashes=recipe.source_hashes(wheat=True),
+        wheat={
+            "benchmark_id": BENCHMARK_ID,
+            "protocol_sha256": "1" * 64,
+            "contract_sha256": "2" * 64,
+            "foreground_logit_offset": 0.5,
+        },
+    )
+    path.write_text(json.dumps(profile))
+    monkeypatch.setattr(recipe, "runtime_versions", lambda **kwargs: profile["runtime_packages"])
+    return path
+
+
+def _as_wheat(source):
+    from vision_rl.wheat_eval import BENCHMARK_ID
+
+    for path in source.glob("*/_annotations.coco.json"):
+        document = json.loads(path.read_text())
+        document["categories"] = [{"id": 1, "name": "wheat_head"}]
+        document["info"] = {"benchmark_id": BENCHMARK_ID, "native_split": "validation"}
+        for row in document["images"]:
+            row.update(domain="Arvalis_1", session_id=0)
+        path.write_text(json.dumps(document))
+
+
+def test_wheat_replay_uses_own_image_and_metric(tmp_path, coco_dataset, monkeypatch):
+    from vision_rl.wheat_eval import BENCHMARK_ID
+    from vision_rl.wheat_eval import PROTOCOL as WHEAT_PROTOCOL
+
+    _as_wheat(coco_dataset)
+    profile = _wheat_pipeline(tmp_path / "frozen", monkeypatch)
+    output = tmp_path / "task"
+    bundle = make_pipeline_replay_task(profile, coco_dataset / "test", output)
+    assert bundle["benchmark_id"] == BENCHMARK_ID
+    assert bundle["protocol"] == WHEAT_PROTOCOL
+    assert bundle["reward_metric"] == "detection_acc_avg_dom"
+    assert (output / "environment/Dockerfile").read_text().startswith("FROM vision-rl:wheat\n")
+    assert not (output / "environment/data").exists()
+    assert (
+        json.loads((output / "tests/data/test/_annotations.coco.json").read_text())["images"][0][
+            "domain"
+        ]
+        == "Arvalis_1"
+    )
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_wheat_verifier_scores_once_without_exposing_domain_or_labels(
+    tmp_path, coco_dataset, monkeypatch, valid
+):
+    import vision_rl.detection_recipe as recipe
+    import vision_rl.wheat_eval as evaluation
+
+    _as_wheat(coco_dataset)
+    root = tmp_path.resolve()
+    profile = _wheat_pipeline(root / "frozen", monkeypatch)
+    calls = []
+    predictions = [{"image_id": 7, "category_id": 1, "bbox": [2, 3, 5, 4], "score": 0.6}]
+
+    def predict(staged, manifest, image_root, output):
+        calls.append("predict")
+        assert json.loads(staged.read_text())["wheat"]["foreground_logit_offset"] == 0.5
+        assert set(json.loads(manifest.read_text())["images"][0]) == {
+            "id",
+            "file_name",
+            "width",
+            "height",
+        }
+        output.mkdir()
+        (output / "predictions.coco.json").write_text(json.dumps(predictions))
+        (output / "inference.json").write_text("{}")
+        (output / "provenance.json").write_text('{"label_access": false}')
+
+    def score(annotation, values, **kwargs):
+        calls.append("official_ada")
+        assert values == predictions  # Already calibrated exactly once by predict_profile.
+        assert json.loads(annotation.read_text())["images"][0]["domain"] == "Arvalis_1"
+        return {"evaluation_valid": valid, "metrics": {"detection_acc_avg_dom": 0.375}}
+
+    monkeypatch.setattr(recipe, "predict_profile", predict)
+    monkeypatch.setattr(evaluation, "evaluate_wheat", score)
+    logs = root / "logs"
+    result = verify_detection_submission(
+        profile.parent, coco_dataset / "test", logs, trusted_profile=profile
+    )
+    assert calls == ["predict", "official_ada"]
+    assert (logs / "reward.txt").read_text() == ("0.375\n" if valid else "0\n")
+    assert "AP" not in result
+    if not valid:
+        assert result["reward"] == 0 and "error" in result
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [None, "extra", "dtype", "shape", "nan", "grid", "oversized", "symlink", "model-link"],
+)
+def test_wheat_new_weights_use_computed_hash_and_only_numeric_calibration(
+    tmp_path, coco_dataset, monkeypatch, failure
+):
+    np = pytest.importorskip("numpy")
+    safe = pytest.importorskip("safetensors.numpy")
+    import vision_rl.detection_recipe as recipe
+
+    root = tmp_path.resolve()
+    profile = _wheat_pipeline(root / "frozen", monkeypatch)
+    _as_wheat(coco_dataset)
+    artifacts = root / "submission"
+    artifacts.mkdir()
+    model = artifacts / "detector.safetensors"
+    model.write_bytes(b"newly trained numeric weights")
+    calibration = artifacts / "calibration.safetensors"
+    write_wheat_calibration(calibration, -0.5)
+    # Untrusted configs and code are present but can never alter the trusted template.
+    (artifacts / "pipeline.json").write_text('{"architecture": "evil"}')
+    (artifacts / "evil.py").write_text("raise RuntimeError('untrusted')")
+    if failure in {"extra", "dtype", "shape", "nan", "grid"}:
+        values = {"foreground_logit_offset": np.asarray([-0.5], dtype=np.float32)}
+        if failure == "extra":
+            values["architecture"] = np.asarray([1], dtype=np.float32)
+        elif failure == "dtype":
+            values["foreground_logit_offset"] = np.asarray([-0.5], dtype=np.float64)
+        elif failure == "shape":
+            values["foreground_logit_offset"] = np.asarray([-0.5, 0.5], dtype=np.float32)
+        else:
+            values["foreground_logit_offset"][0] = np.nan if failure == "nan" else 0.25
+        safe.save_file(values, str(calibration))
+    elif failure == "oversized":
+        calibration.write_bytes(b"x" * 1025)
+    elif failure in {"symlink", "model-link"}:
+        target = calibration if failure == "symlink" else model
+        original = root / target.name
+        target.rename(original)
+        target.symlink_to(original)
+    calls = []
+
+    def predict(staged, manifest, image_root, output):
+        calls.append("predict")
+        definition, _, weights = recipe.load_profile(staged)
+        assert definition["detector"]["sha256"] == hashlib.sha256(model.read_bytes()).hexdigest()
+        assert (
+            definition["detector"]["sha256"]
+            != json.loads(profile.read_text())["detector"]["sha256"]
+        )
+        assert definition["wheat"]["foreground_logit_offset"] == -0.5
+        assert weights.keys() == {"detector"}
+        output.mkdir()
+        (output / "predictions.coco.json").write_text("[]")
+        (output / "inference.json").write_text("{}")
+        (output / "provenance.json").write_text("{}")
+
+    monkeypatch.setattr(recipe, "predict_profile", predict)
+    monkeypatch.setattr(
+        "vision_rl.wheat_eval.evaluate_wheat",
+        lambda *a, **kw: {"evaluation_valid": True, "metrics": {"detection_acc_avg_dom": 0.25}},
+    )
+    logs = root / "logs"
+    result = verify_wheat_training_submission(profile, artifacts, coco_dataset / "test", logs)
+    if failure:
+        assert result["reward"] == 0 and "error" in result and calls == []
+    else:
+        assert result["metrics"]["detection_acc_avg_dom"] == 0.25 and calls == ["predict"]
+        assert json.loads((logs / "submission.json").read_text())["foreground_logit_offset"] == -0.5
+
+
+def test_wheat_training_task_separates_test_and_reuses_native_agent(
+    tmp_path, coco_dataset, monkeypatch
+):
+    pytest.importorskip("torch")
+    _as_wheat(coco_dataset)
+    profile = _wheat_pipeline(tmp_path / "frozen", monkeypatch)
+    protocol = tmp_path / "protocol.json"
+    protocol.write_text(
+        json.dumps(
+            {
+                "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+                "exploration_gate": {
+                    "images": 128,
+                    "groups": 64,
+                    "active_query_probability": 1.0,
+                    "minimum_fraction_images_with_useful_variation_and_positive_gain": 0.25,
+                    "minimum_mean_best_of_64_official_image_accuracy_gain": 0.05,
+                },
+                "budget": {"maximum_epochs_equivalent": 8},
+                "first_learning_test": {
+                    "configuration": {"epochs": 2, "batch_images": 1},
+                    "batch_images": 1,
+                    "learning_rate": 0.00001,
+                    "maximum_optimizer_updates": 4,
+                },
+                "data": {"train_images": 3655, "validation_images": 1476, "test_images": 1381},
+            }
+        )
+    )
+    definition = json.loads(profile.read_text())
+    definition["wheat"]["protocol_sha256"] = hashlib.sha256(protocol.read_bytes()).hexdigest()
+    profile.write_text(json.dumps(definition))
+    output = tmp_path / "task"
+    config = {
+        "reward_backend": "wheat_ada",
+        "domain_balanced_sampling": True,
+        "epochs": 2,
+        "max_steps": 4,
+        "batch_images": 1,
+        "pilot_min_reward_gain": 0.05,
+    }
+    result = make_wheat_training_task(
+        coco_dataset,
+        profile.parent / "detector.safetensors",
+        profile,
+        protocol,
+        output,
+        configuration=config,
+        integration_only=True,
+    )
+    assert result["agent"] == "vision_rl.harbor_agent:DetectionTrainingAgent"
+    assert result["reward_metric"] == "detection_acc_avg_dom"
+    assert result["integration_only"] is True
+    assert sorted(p.name for p in (output / "environment/data").iterdir()) == ["train", "valid"]
+    assert not (output / "environment/template.json").exists()
+    assert (output / "tests/template.json").is_file()
+    script = (output / "environment/train.py").read_text()
+    compile(script, "wheat-training.py", "exec")
+    assert "mode=mode" in script and '"sft_updates", "sft_walltime"' in script
+    assert '"/tests' not in script and '"test"' not in script
+    assert "integration_only = True" in script
+    task = tomllib.loads((output / "task.toml").read_text())
+    assert task["environment"]["network_mode"] == "no-network"
+    assert task["verifier"]["environment_mode"] == "separate"
+    with pytest.raises(ValueError, match="Exact resume smoke"):
+        make_wheat_training_task(
+            coco_dataset,
+            profile.parent / "detector.safetensors",
+            profile,
+            protocol,
+            tmp_path / "invalid",
+            configuration=config,
+            integration_only=True,
+            resume_check=True,
+        )
+    with pytest.raises(ValueError, match="complete native protocol splits"):
+        make_wheat_training_task(
+            coco_dataset,
+            profile.parent / "detector.safetensors",
+            profile,
+            protocol,
+            tmp_path / "not-a-benchmark",
+            configuration=config,
+        )

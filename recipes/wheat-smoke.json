@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "integration_only": true,
+  "initial_sft": {
+    "architecture": "nano",
+    "device": "cpu",
+    "epochs": 1,
+    "batch_size": 1,
+    "grad_accum_steps": 1,
+    "eval_batch_size": 1,
+    "workers": 0,
+    "cpu_threads": 2,
+    "preflight_batches": 2
+  },
+  "snapshot_epoch": 1,
+  "policy": {
+    "resolution": 512,
+    "device": "cpu",
+    "cpu_threads": 2,
+    "epochs": 1,
+    "batch_images": 1,
+    "groups": 2,
+    "query_samples": 2,
+    "max_steps": 1,
+    "drift_sentinel_images": 2,
+    "reward_backend": "wheat_ada",
+    "domain_balanced_sampling": true,
+    "pilot_min_reward_gain": 0.05
+  },
+  "inference": {
+    "batch_size": 1,
+    "cpu_threads": 2
+  },
+  "budget": {
+    "max_attempts": 2,
+    "max_wall_seconds": 1800,
+    "command_timeout_seconds": 900
+  }
+}
