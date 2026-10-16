@@ -52,3 +52,13 @@ diagnostics, never held-out results.
 - Order: (1) finish the controlled400 continuation; (2) run the published eight-endpoint native
   VAL contract (`docs/aircraft-native-validation-plan-v1.json`); (3) pre-register the next RL study
   from the measured held-out gaps.
+
+## D6 — Harbor local dogfood attempt v1 failed on a wrapper defect (preserved)
+- Plan `runs/aircraft-harbor-dogfood-local-v1-plan` sha 277bb9b2…, image sha256:402dd239…,
+  evidence `runs/aircraft-harbor-dogfood-local-v1/` (execute.log, output/dogfood-local-result.json).
+- Measured: the Harbor SFT resource probe loaded pretrained Qwen2-VL-2B in the container (pread
+  loader, both shards), committed 1 SFT update in 87.3 s active (112 tensors changed, ΔL2 0.0104),
+  peak tree RSS 11,990,003,712 B under the 12 GiB cap, cgroup swap 0, guard exit 0.
+- Failure: runtime.py runs the trainer via runpy as `__main__`; its `raise SystemExit(0)` escapes the
+  scoped-loader context, so the loader receipt reads failed/SystemExit and assert_probe refuses. The
+  main RL trial and verifier never ran: C1–C4 all false. Fix goes into a new v2 plan, never a rerun of v1.
