@@ -53,3 +53,16 @@ def test_metal_guard_reads_last_complete_native_sample_despite_inflight_write(tm
     assert module["sample"](path) is None
     path.write_text('{"active_bytes":100,"cache_bytes":20}\n{"active_bytes":')
     assert module["sample"](path) == {"active_bytes": 100, "cache_bytes": 20}
+
+
+def test_integrated_metal_guard_stops_child_even_when_rss_undercounts(supervisor, tmp_path):
+    telemetry = tmp_path / "metal.jsonl"
+    telemetry.write_text(json.dumps({"active_bytes": 1024**3, "cache_bytes": 1}) + "\n")
+    result = supervisor(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        tmp_path / "status.json", tmp_path / "output.log", 2 * 1024**3,
+        metal_telemetry=telemetry, metal_limit_bytes=1024**3, interval=0.01,
+    )
+    assert result["stop_reason"] == "metal_allocation_safety_limit_exceeded"
+    assert result["peak_observed_metal_active_plus_cache_bytes"] == 1024**3 + 1
+    assert result["exit_code"] != 0

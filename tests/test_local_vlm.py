@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -138,6 +139,29 @@ def test_local_development_runner_rejects_test_before_loading(local_run):
     assert not output.exists()
 
 
+def test_generic_image_root_requires_explicit_split_and_binds_task_contract(local_run):
+    rows, output, kwargs = local_run
+    for row in rows:
+        row["split"] = "train"
+    root = Path(rows[0]["image"]).parent
+    task = {"task": "classification", "labels": ["A", "B"], "output_format": "exact_label"}
+    local_vlm.run_local(rows, output, image_root=root, task_contract=task,
+                        backend_factory=Backend, **kwargs)
+    config = json.loads((output / "run.json").read_text())["identity"]["config"]
+    assert config["coordinate_format"] is None and config["task_contract"] == task
+    result = json.loads((output / "predictions.jsonl").read_text().splitlines()[0])
+    assert result["classification_response"].startswith("<think>Reasoning with")
+    assert result["classification_response"].endswith("</think>\n[]")
+    task["labels"].append("C")
+    with pytest.raises(ValueError, match="identity differs"):
+        local_vlm.run_local(rows, output, image_root=root, task_contract=task,
+                            backend_factory=Backend, resume=True, **kwargs)
+    rows[0]["split"] = "test"
+    with pytest.raises(ValueError, match="declared split root"):
+        local_vlm.run_local(rows, output, image_root=root, task_contract=task,
+                            backend_factory=Backend, resume=True, **kwargs)
+
+
 def test_model_load_failure_has_durable_evidence_before_any_image_attempt(local_run):
     rows, output, kwargs = local_run
 
@@ -193,8 +217,9 @@ def test_prepare_probe_reads_training_only_and_deterministically_stresses_larges
         wrapper["prepare_probe"](train.parent, output)
 
 
+@pytest.mark.parametrize("streaming", [False, True])
 def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, streaming,
 ):
     import dataclasses
     import sys
@@ -234,8 +259,19 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
     monkeypatch.setitem(sys.modules, "mlx_vlm.prompt_utils",
                         SimpleNamespace(apply_chat_template=template))
     monkeypatch.setitem(sys.modules, "mlx_vlm.utils", SimpleNamespace(prepare_inputs=prepare))
+    if streaming:
+        from vision_rl import local_vlm_execution
+
+        def streamed(model, processor, prompt, *, progress, **kwargs):
+            progress({"generation_tokens": 1, "finish_reason": None})
+            progress({"generation_tokens": 2, "finish_reason": "stop"})
+            return generate(model, processor, prompt, **kwargs)
+
+        monkeypatch.setattr(local_vlm_execution, "generate_with_progress", streamed)
     backend = local_vlm.MLXBackend.__new__(local_vlm.MLXBackend)
-    backend.config = {"generation": local_vlm.GENERATION}
+    backend.config = {"generation": local_vlm.GENERATION, "stream_progress": streaming,
+                      "generation_progress_path": str(tmp_path / "progress.jsonl"),
+                      "identity_sha256": "frozen_identity"}
     backend.model = SimpleNamespace(config=SimpleNamespace(image_token_index=99))
     backend.processor = object()
     backend.mx = SimpleNamespace(
@@ -244,7 +280,7 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
         get_peak_memory=lambda: 100, get_active_memory=lambda: 90,
         get_cache_memory=lambda: 10,
     )
-    result = backend.infer({"image_path": str(path), "prompt": "Find wheat."}, 123)
+    result = backend.infer({"id": "one", "image_path": str(path), "prompt": "Find wheat."}, 123)
     assert calls["seed"] == 123
     assert calls["template"]["enable_thinking"] is True
     assert calls["template"]["reasoning_effort"] == "xhigh"
@@ -252,3 +288,59 @@ def test_native_backend_preserves_coco_pixels_and_explicit_thinking_without_gpu(
     assert calls["generation"]["max_tokens"] == 16384
     assert result["native_response"]["text"] == "reasoning</think>[]"
     assert result["preprocessing"]["exif_orientation_transform"] is False
+    if streaming:
+        observations = [json.loads(line) for line in (
+            tmp_path / "progress.jsonl").read_text().splitlines()]
+        assert [row["generation_tokens"] for row in observations] == [1, 2]
+        assert all(row["identity_sha256"] == "frozen_identity" and row["id"] == "one"
+                   and row["seed"] == 123 for row in observations)
+
+
+def test_cancelled_run_refuses_even_explicit_resume_before_verification(local_run, monkeypatch):
+    rows, output, kwargs = local_run
+    output.mkdir()
+    (output / "cancelled.json").write_text('{"reason":"explicit user priority"}')
+
+    def forbidden(*args):
+        raise AssertionError("Cancelled run reached model verification")
+
+    monkeypatch.setattr(local_vlm, "verify_snapshot", forbidden)
+    with pytest.raises(ValueError, match="Cancelled"):
+        local_vlm.run_local(rows, output, resume=True, **kwargs)
+
+
+def test_fixed16_journal_chunks_resume_without_changing_identity_or_repeating(local_run):
+    rows, output, kwargs = local_run
+    train = Path(rows[0]["image"]).parent
+    rows = []
+    for i in range(16):
+        path = train / f"chunk-{i}.png"
+        Image.new("RGB", (20, 10), (i * 10, 0, 0)).save(path)
+        rows.append({"id": str(i), "split": "train", "image": str(path), "prompt": "Classify."})
+    kwargs.update(image_root=train, task_contract={"task": "classification", "probe_images": 16},
+                  backend_factory=Backend, stream_progress=True)
+    Backend.calls = []
+    first = local_vlm.run_local(rows, output, stop_after_completions=4, **kwargs)
+    identity = (output / "run.json").read_bytes()
+    first_journal = (output / "attempts.jsonl").read_bytes()
+    assert [identifier for identifier, _ in Backend.calls] == [str(i) for i in range(4)]
+    assert sum(row.get("error") == "not_requested_cooperative_stop"
+               for row in first.values()) == 12
+    second = local_vlm.run_local(rows, output, stop_after_completions=3, resume=True, **kwargs)
+    assert (output / "run.json").read_bytes() == identity
+    assert (output / "attempts.jsonl").read_bytes().startswith(first_journal)
+    assert sum(row.get("error") == "not_requested_cooperative_stop"
+               for row in second.values()) == 9
+    final = local_vlm.run_local(rows, output, resume=True, **kwargs)
+    assert list(final) == [str(i) for i in range(16)]
+    assert [identifier for identifier, _ in Backend.calls] == list(final)
+    assert all(not row.get("error") for row in final.values())
+    execution = [json.loads(line) for line in (
+        output / "executions.jsonl").read_text().splitlines()]
+    finishes = [row for row in execution if row["event"] == "invocation_finished"]
+    assert [row["completed_this_invocation"] for row in finishes] == [4, 3, 9]
+    assert [row["unattempted"] for row in finishes] == [12, 9, 0]
+    assert finishes[-1]["all_requests_completed"]
+    kwargs["stream_progress"] = False
+    with pytest.raises(ValueError, match="identity differs"):
+        local_vlm.run_local(rows, output, resume=True, **kwargs)

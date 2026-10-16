@@ -15,6 +15,7 @@ from pathlib import Path
 from PIL import Image
 
 from .frontier import _append, _digest, _now, _prepare, _public
+from .local_vlm_execution import missing_error, plan_chunk
 
 REPOSITORY = "mlx-community/Qwen3.8-27B-8bit"
 REVISION = "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9"
@@ -27,6 +28,35 @@ GENERATION = {
     "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0,
     "enable_thinking": True,
 }
+
+
+def model_image(path, preprocessing_id=None):
+    """Return owned RGB pixels, using the exact shared dataset transform when declared."""
+    if preprocessing_id is not None:
+        from .aircraft_data import PREPROCESSING_ID, load_aircraft_rgb
+
+        if preprocessing_id != PREPROCESSING_ID:
+            raise ValueError("Unknown local image preprocessing contract")
+        return load_aircraft_rgb(path)
+    with Image.open(path) as source:
+        return source.convert("RGB")
+
+
+def prepare_local(row, preprocessing_id=None):
+    prepared = _prepare(row)
+    if preprocessing_id is not None:
+        from .aircraft_data import rgb_pixel_sha256
+
+        with model_image(row["image"], preprocessing_id) as rgb:
+            prepared.update(
+                source_pixel_sha256=prepared["pixel_sha256"],
+                source_file_sha256=sha_file(row["image"]),
+                source_width=prepared["width"], source_height=prepared["height"],
+                pixel_sha256=rgb_pixel_sha256(rgb), width=rgb.width, height=rgb.height,
+                preprocessing_id=preprocessing_id,
+                pixel_hash_contract="aircraft_data.rgb_pixel_sha256",
+            )
+    return prepared
 
 
 def sha_file(path):
@@ -149,7 +179,7 @@ class MLXBackend:
             raise ValueError("Pinned template did not enable xhigh thinking")
         # MLX's path loader applies EXIF transposition. Native COCO boxes and the
         # shared pixel hash use encoded pixel order, so pass that exact RGB image.
-        with Image.open(row["image_path"]) as source, source.convert("RGB") as rgb:
+        with model_image(row["image_path"], self.config.get("preprocessing_id")) as rgb:
             inputs = prepare_inputs(
                 self.processor, images=[rgb], prompts=prompt,
                 image_token_index=getattr(self.model.config, "image_token_index", None),
@@ -162,15 +192,31 @@ class MLXBackend:
             "image_grid_thw": inputs["image_grid_thw"].tolist(),
             "implicit_external_resize": False,
             "exif_orientation_transform": False,
+            "preprocessing_id": self.config.get("preprocessing_id"),
         }
         extra = {key: value for key, value in inputs.items()
                  if key not in {"input_ids", "pixel_values", "attention_mask"}}
-        result = generate(
-            self.model, self.processor, prompt, verbose=False,
-            input_ids=inputs["input_ids"], pixel_values=inputs["pixel_values"],
-            mask=inputs.get("attention_mask"), seed=seed, **extra,
-            **self.config["generation"],
-        )
+        generation_kwargs = {
+            "verbose": False, "input_ids": inputs["input_ids"],
+            "pixel_values": inputs["pixel_values"], "mask": inputs.get("attention_mask"),
+            "seed": seed, **extra, **self.config["generation"],
+        }
+        if self.config.get("stream_progress"):
+            from .local_vlm_execution import generate_with_progress
+
+            with Path(self.config["generation_progress_path"]).open("a") as handle:
+                def progress(observation):
+                    _append(handle, {
+                        "event": "generation_progress", "created_at": _now(),
+                        "id": row["id"], "seed": seed,
+                        "identity_sha256": self.config["identity_sha256"], **observation,
+                    })
+
+                result = generate_with_progress(
+                    self.model, self.processor, prompt, progress=progress, **generation_kwargs,
+                )
+        else:
+            result = generate(self.model, self.processor, prompt, **generation_kwargs)
         # The complete generated text and native usage are retained. A vocabulary-sized
         # last-token logprob array is not part of this detection protocol.
         native = {
@@ -188,23 +234,51 @@ class MLXBackend:
 def run_local(
     rows, output, *, model_directory, integrity, phase, seed=1729,
     memory_limit_bytes=32 * 1024**3, resume=False, backend_factory=None,
+    image_root=None, task_contract=None, preprocessing_id=None,
+    stop_after_completions=None, stream_progress=False,
 ):
     """One image at a time; completed and ambiguous attempts are never repeated."""
     if phase not in {"train_probe", "validation"}:
         raise ValueError("Local development runner cannot access final-test images")
+    if (Path(output) / "cancelled.json").exists():
+        raise ValueError("Cancelled local runs cannot be resumed or retried")
+    if type(stream_progress) is not bool:
+        raise ValueError("stream_progress must be explicit boolean")
+    # Validate before model verification, loading, or output mutation. The limit
+    # controls an invocation boundary; it never changes the fixed study scope.
+    plan_chunk([str(row["id"]) for row in rows], {}, {}, stop_after_completions)
     expected_parent = "train" if phase == "train_probe" else "valid"
-    if not rows or any(Path(row["image"]).parent.name != expected_parent for row in rows):
-        raise ValueError("Every local image must belong to its declared native split")
-    if phase == "train_probe" and len(rows) != 2:
-        raise ValueError("Initial local resource probe requires exactly two training images")
+    if image_root is None:
+        if not rows or any(Path(row["image"]).parent.name != expected_parent for row in rows):
+            raise ValueError("Every local image must belong to its declared native split")
+    else:
+        root = Path(image_root).resolve(strict=True)
+        expected_split = "train" if phase == "train_probe" else "validation"
+        if not rows or any(
+            row.get("split") != expected_split or not Path(row["image"]).resolve(
+                strict=True).is_relative_to(root) for row in rows
+        ):
+            raise ValueError("Generic local images must remain within their declared split root")
+    if task_contract is not None:
+        if not isinstance(task_contract, dict) or not task_contract.get("task"):
+            raise ValueError("An explicit task contract must declare its task")
+        # Reject non-JSON identities before any model load or output mutation.
+        task_contract = json.loads(json.dumps(task_contract, allow_nan=False))
+    expected_probe = 2
+    if task_contract and task_contract.get("task") == "classification":
+        expected_probe = task_contract.get("probe_images", 2)
+    if expected_probe not in {2, 16} or (phase == "train_probe" and len(rows) != expected_probe):
+        raise ValueError("Local training probe requires its explicitly declared2or16 images")
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError("seed must be an unsigned32-bit integer")
     if type(memory_limit_bytes) is not int or not 1024**3 <= memory_limit_bytes <= 64 * 1024**3:
         raise ValueError("Memory limit must be explicit and between1GiB and64GiB")
-    prepared = [_prepare(row) for row in rows]
+    prepared = [prepare_local(row, preprocessing_id) for row in rows]
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
     model = verify_snapshot(model_directory, integrity)
+    from . import local_vlm_execution
+
     config = {
         "phase": phase, "seed": seed, "generation": GENERATION,
         "reasoning_effort": "xhigh", "enable_thinking": True, "preserve_thinking": True,
@@ -212,7 +286,21 @@ def run_local(
         "runtime_versions": runtime_versions(), "coordinate_format": "xyxy_1000",
         "concurrency": 1, "fewshot_training_images": 0, "resize_shape": None,
         "source_orientation": "encoded_pixel_order_without_exif_transposition",
+        "execution_protocol": "sequential-completion-boundary-v1",
+        "execution_source_sha256": sha_file(local_vlm_execution.__file__),
+        "stream_progress": stream_progress,
     }
+    if image_root is not None:
+        config["image_root"] = str(root)
+        config["declared_split"] = expected_split
+    if task_contract is not None:
+        config["task_contract"] = task_contract
+        config["coordinate_format"] = task_contract.get("coordinate_format")
+    if preprocessing_id is not None:
+        from . import aircraft_data
+
+        config["preprocessing_id"] = preprocessing_id
+        config["preprocessing_source_sha256"] = sha_file(aircraft_data.__file__)
     identity = {
         "schema_version": 1, "kind": "local_mlx_vision", "model": model,
         "config": config, "rows": [_public(row) for row in prepared],
@@ -239,10 +327,12 @@ def run_local(
                 handle.flush()
                 os.fsync(handle.fileno())
         return _run_locked(prepared, output, config, identity_hash,
-                           model_directory, backend_factory or MLXBackend)
+                           model_directory, backend_factory or MLXBackend,
+                           stop_after_completions=stop_after_completions)
 
 
-def _run_locked(prepared, output, config, identity_hash, model_directory, backend_factory):
+def _run_locked(prepared, output, config, identity_hash, model_directory, backend_factory,
+                *, stop_after_completions=None):
     journal = output / "attempts.jsonl"
     reserved, completed = {}, {}
     expected = {row["id"]: _public(row) for row in prepared}
@@ -262,8 +352,13 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
                 completed[identifier] = event
             else:
                 raise ValueError("Unknown local journal event")
-    pending = [row for row in prepared if row["id"] not in reserved]
+    plan = plan_chunk(expected, reserved, completed, stop_after_completions)
+    selected = set(plan["selected_ids"])
+    pending = [row for row in prepared if row["id"] in selected]
     stopped = any(event.get("hard_stop") for event in completed.values())
+    with (output / "executions.jsonl").open("a") as execution:
+        _append(execution, {"event": "invocation_started", "created_at": _now(),
+                            "identity_sha256": identity_hash, "plan": plan})
     backend = None
     if pending and not stopped:
         with (output / "runtime.jsonl").open("a") as runtime_journal:
@@ -272,6 +367,8 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
             try:
                 backend = backend_factory(model_directory, {
                     **config, "memory_telemetry_path": str(output / "mlx-memory.jsonl"),
+                    "generation_progress_path": str(output / "generation-progress.jsonl"),
+                    "identity_sha256": identity_hash,
                 })
             except (RuntimeError, ValueError, TypeError, OSError, MemoryError) as exc:
                 failure = {"event": "load_failed", "created_at": _now(),
@@ -295,12 +392,18 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
             reserved[row["id"]] = reservation
             start = time.monotonic()
             try:
-                if _public(_prepare({"id": row["id"], "image": row["image_path"],
-                                     "prompt": row["prompt"]})) != expected[row["id"]]:
+                if _public(prepare_local(
+                    {"id": row["id"], "image": row["image_path"], "prompt": row["prompt"]},
+                    config.get("preprocessing_id"),
+                )) != expected[row["id"]]:
                     raise ValueError("Image changed after the local run was recorded")
                 native = backend.infer(row, item_seed)
                 result = native["native_response"]
                 prediction = final_answer(result["text"], result.get("finish_reason"))
+                if config.get("task_contract", {}).get("task") == "classification":
+                    # The native template prefills this opener. Retain the complete
+                    # completion for the same bounded shared grammar as other arms.
+                    prediction["classification_response"] = "<think>" + result["text"]
                 prediction["usage"] = {key: result.get(key) for key in (
                     "prompt_tokens", "generation_tokens", "total_tokens",
                     "prompt_tps", "generation_tps", "peak_memory",
@@ -321,10 +424,8 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
         if identifier in completed:
             prediction = completed[identifier]["prediction"]
         else:
-            error = (
-                "unknown_after_interruption"
-                if identifier in reserved else "not_requested_hard_stop"
-            )
+            error = missing_error(identifier, reserved, hard_stop=stopped,
+                                  cooperative_stop=bool(plan["deferred_ids"]))
             prediction = {"response": "", "error": error}
         predictions[identifier] = prediction
     (output / "predictions.jsonl").write_text("".join(
@@ -333,4 +434,15 @@ def _run_locked(prepared, output, config, identity_hash, model_directory, backen
     ))
     if backend is not None and hasattr(backend, "close"):
         backend.close()
+    with (output / "executions.jsonl").open("a") as execution:
+        _append(execution, {
+            "event": "invocation_finished", "created_at": _now(),
+            "identity_sha256": identity_hash,
+            "expected": len(prepared), "reserved": len(reserved), "completed": len(completed),
+            "unknown": len(set(reserved) - set(completed)),
+            "unattempted": len(set(expected) - set(reserved)), "hard_stop": stopped,
+            "cooperative_stop": bool(plan["deferred_ids"]) and not stopped,
+            "completed_this_invocation": len(completed) - plan["completed_before"],
+            "all_requests_completed": len(completed) == len(prepared),
+        })
     return predictions
