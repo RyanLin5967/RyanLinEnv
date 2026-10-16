@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1",
+  "registered_utc": "2026-10-16T21:37:19.467519+00:00",
+  "registered_by": "Claude session adopting the Codex handoff of 2026-10-16",
+  "kind": "prospective OPERATIONAL continuation under a new wall envelope; no scientific change",
+  "original_study": {
+    "plan_sha256": "9e46ad286617e81477c78fa042daa2aea767b2af2528912cbdde26ac35705a1e",
+    "compiled_plan_sha256": "9021e4295ec7919537175203e2e1d9ea55f945c8fb515258117ff1238eef6f5d",
+    "launch_plan_sha256": "63cf08acdd1ee80fccfca29bb81a84c39569fbc78396b42ac3750d23068ed7ba",
+    "source_sha256": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49"
+  },
+  "original_failure_preserved": {
+    "supervisor_stop_reason": "disk_reserve",
+    "free_bytes_at_stop": 10659921920,
+    "reserve_bytes": 10737418240,
+    "supervisor_elapsed_seconds": 10448.338067707999,
+    "original_controller_created_utc": "2026-10-16T08:41:40.674272Z",
+    "original_absolute_deadline_utc": "2026-10-16T20:41:40.674272Z",
+    "original_deadline_expired": true,
+    "interrupted_stage": "sft-1e5-exposure",
+    "completed_updates_observed": 216,
+    "last_durable_step": 200,
+    "last_durable_active_seconds": 1128.794966412941,
+    "last_durable_adapter_sha256": "5822e8a57684840b2b43600fb5ae809a73fc13751817c9be6343420c1a14a197",
+    "lost_uncheckpointed_updates": 16,
+    "observed_discarded_active_seconds": 47.59337467302976,
+    "snapshot": "pre-continuation-snapshot/ (SHA256SUMS) copies of state.json, supervisor.json, sft-1e5 local_training.json and append-only journals before any continuation write"
+  },
+  "what_changes": [
+    "A new single-use driver (continue.py) runs the remaining compiled stage commands directly through the original phase_worker.py, instead of the expired experiment_loop controller.",
+    "New wall envelope: continuation_wall_seconds below, counted from this driver's start. The original 12h controller budget stays EXPIRED and is reported as such; state.json and its created_at are not modified.",
+    "phase_worker telemetry goes to ./guards instead of the original guard directory, which is left as the frozen record of the original launch."
+  ],
+  "what_does_not_change": [
+    "Context, source closure, arms (SFT 1e-5/5e-5/1e-4), 400-step equal-exposure endpoints, same-trajectory equal-time endpoints to observed RL active 8115.879854548795 s, per-arm 6000 steps/10800 active seconds budgets, seed 42, FP32 MPS, profile, assays.",
+    "sft-1e5 resumes from its durable checkpoint-200 through the frozen trainer resume path (full optimizer/scheduler/RNG/exposure verification); updates 201-216 are re-executed and their first execution remains charged as lost work.",
+    "Per-stage attempt budget stays 2: sft-1e5-exposure uses its second and final attempt; every other remaining stage its first. No automatic retries.",
+    "RSS 24 GiB process tree, MPS driver 24 GiB (phase_worker), 6 GiB outputs, 10 GiB disk reserve, 14400 s per phase."
+  ],
+  "remaining_stages": [
+    "sft-1e5-exposure",
+    "sft-1e5-exposure-assay",
+    "sft-5e5-exposure",
+    "sft-5e5-exposure-assay",
+    "sft-1e4-exposure",
+    "sft-1e4-exposure-assay",
+    "sft-1e5-time",
+    "sft-1e5-time-assay",
+    "sft-5e5-time",
+    "sft-5e5-time-assay",
+    "sft-1e4-time",
+    "sft-1e4-time-assay",
+    "comparison"
+  ],
+  "continuation_wall_seconds": 43200,
+  "continuation_limits": {},
+  "reporting_rule": "Any comparison must disclose: original deadline expired; continuation envelope; 16 lost updates and 47.59 s discarded active time; controller_wall_seconds_at_comparison is measured from the ORIGINAL created_at and therefore includes the gap.",
+  "claim_scope": "TRAIN32 mechanism diagnostic only. No held-out, TEST or frontier claim.",
+  "continuation_driver_sha256_at_registration": "62d861b5b3549a416ba6ca848c52c7f9bb0d8c1625c1fb25f3eddba7f98ad26d"
+}
