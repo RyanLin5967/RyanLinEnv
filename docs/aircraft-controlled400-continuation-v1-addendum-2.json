@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1/addendum-2",
+  "registered_utc": "2026-10-16T22:42:49.741485+00:00",
+  "amends_sha256": "c5e7251b67913e4bca71f248a1d894127188d9bff6c94ab2e554d7d50dcc0abe",
+  "supersedes_addendum_1_sha256": "9c1aed4bcba6c951a6d02aa8f8b9d24bf86d9d2d1b2599ea9f37dc13fbc0c36a",
+  "failed_attempt_1": {
+    "evidence": "failed-attempt1-guards/ (journal.jsonl, stage logs, phase telemetry, driver.log)",
+    "completed_and_published": [
+      "sft-1e5-exposure (resumed from checkpoint-200)",
+      "sft-1e5-exposure-assay",
+      "sft-5e5-exposure",
+      "sft-5e5-exposure-assay",
+      "sft-1e4-exposure"
+    ],
+    "failure": "sft-1e4-exposure exited 0 and published its endpoint, then the driver's immediate post-exit check saw an owned descendant still live (stop_reason stage_exited_with_owned_descendants) and ended the envelope. The survivor's identity was not recorded. No process remained when inspected minutes later.",
+    "endpoint_disposition": "The published sft-1e4-exposure endpoint is retained: its trainer receipt was written by a stage that exited 0 before the check ran. Disclosed as produced inside a failed envelope."
+  },
+  "change": "Survivor check waits up to 30 s for owned descendants to exit, journals any survivors with pid and cmdline, and only then fails. Driver verifies this addendum and addendum-1. No science, limit or stage-order change. Already-published stages are skipped. The new 43200 s envelope starts at driver start.",
+  "host_load_disclosure": "During attempt 1 the Harbor SFT resource probe ran in the Colima VM (2 container CPUs) concurrently with sft-5e5/sft-1e4 exposure stages; other sessions kept host load average around 30+. Active-time comparisons carry this uncontrolled contention.",
+  "continuation_driver_sha256": "20663d069f90c33bec23f651ffd822bab49b82b59873e6eb72553e0d945f2c2c"
+}
