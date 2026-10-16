@@ -10,6 +10,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync --extra harbor --extra dev --extra detection-eval --locked
+      # Numeric task/schema validation needs safetensors, not the TRL runtime.
+      - run: uv pip install --no-deps safetensors==0.8.0
+      - run: uv pip check
       - run: uv run ruff check .
       - run: uv run pytest -q
       - run: uv run vision-rl demo --output runs/ci-demo
@@ -42,7 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - run: uv sync --extra dev --extra harbor --locked
+      # Harbor's LiteLLM dependencies conflict with the pinned TRL stack.
+      # The cpu job checks the actual Harbor schema in its separate environment.
+      - run: uv sync --extra dev --locked
       - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
       - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
       - run: uv pip check
