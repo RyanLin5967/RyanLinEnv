@@ -29,13 +29,24 @@ apply to that runner. This separately recorded Linux operational profile uses:
 - One GiB free-disk reserve, two GiB maximum outputs, 30-minute first-four wall
   limit, and a 100-minute whole-job timeout including dependencies and transfer.
 - Networking disabled, read-only source/base/input mounts, no credentials in
-  the container, and a dedicated writable checkpoint/evidence mount.
+  the container, and a dedicated writable checkpoint/evidence mount. The
+  container runs with the host output owner's UID/GID and checks a real
+  directory/file create, write, fsync, read and deletion before starting a worker.
 
 These limits are prospective. Linux pretrained loading and four-update training
 have not yet been measured. The earlier Linux image build and no-model offline
 preflight do not prove that FP32 training fits this runner. The first-four job
 must stop on resource failure; it must not switch precision, model, examples,
 group size, or objective to obtain a passing result.
+
+The first actual run, `38881659770`, built both images and verified the inputs,
+then both containers failed creating `output/phases` before worker creation.
+With all capabilities dropped, UID 0 could not write the runner-owned directory.
+The prospective infrastructure amendment sets `--user` to the host UID/GID and
+records a same-container filesystem receipt before any model work. No permission
+broadening, capability addition, frozen-source change, or scientific adjustment
+is part of this correction. The failed run is retained; a new manual dispatch is
+an explicitly recorded infrastructure attempt, not continuation of a trajectory.
 
 The committed JSON descriptor pins a 1,658,880-byte source/metadata archive and
 a separately reviewed small warm-adapter archive. The source archive contains

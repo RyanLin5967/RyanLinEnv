@@ -393,10 +393,45 @@ def container_stage(arm):
         raise RuntimeError("Requires the explicit offline Linux CPU container")
     if arm not in {"grpo", "dr_grpo"}:
         raise ValueError("Expected one fixed first4 arm")
+    filesystem_preflight(ORIGINAL / OUTPUT_REL)
     check_inputs()
     if completed_phases(ORIGINAL / OUTPUT_REL):
         raise ValueError("First4 requires a fresh output; no retries or continuation")
     supervise_phase(f"{arm}-first4", LIMITS)
+
+
+def filesystem_preflight(output):
+    """Exercise the actual mounted output with the training UID before model work."""
+    expected_uid = int(os.environ["EXPERIMENT_UID"])
+    expected_gid = int(os.environ["EXPERIMENT_GID"])
+    if (os.geteuid(), os.getegid()) != (expected_uid, expected_gid):
+        raise RuntimeError("Container identity differs from the output owner")
+    probe_directory = output / ".write-preflight"
+    probe_directory.mkdir()
+    probe = probe_directory / "probe"
+    content = b"bounded CPU output permission check\n"
+    with probe.open("xb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if probe.read_bytes() != content:
+        raise RuntimeError("Mounted output write/read check failed")
+    probe.unlink()
+    probe_directory.rmdir()
+    receipt = {
+        "schema_version": 1,
+        "status": "passed",
+        "effective_uid": os.geteuid(),
+        "effective_gid": os.getegid(),
+        "output_uid": output.stat().st_uid,
+        "output_gid": output.stat().st_gid,
+        "output_mode": stat.S_IMODE(output.stat().st_mode),
+        "create_write_fsync_read_unlink_passed": True,
+        "model_calls": 0,
+        "worker_started": False,
+    }
+    write(output / "filesystem-preflight.json", receipt)
+    return receipt
 
 
 def host_run(root, descriptor, arm):
@@ -485,6 +520,8 @@ def host_run(root, descriptor, arm):
         "image_id": image_id,
         "build_seconds": build_seconds,
         "prelaunch_memory": memory,
+        "container_uid": os.getuid(),
+        "container_gid": os.getgid(),
         "cpu_hardware": json.loads(subprocess.check_output(["lscpu", "--json"], text=True)),
         "platform": "Linux x86_64 CPU, independent of Mac experiments",
     }
@@ -515,6 +552,8 @@ def docker_command(inputs, output, image_id, arm):
         "docker",
         "run",
         "--init",
+        "--user",
+        f"{os.getuid()}:{os.getgid()}",
         "--name",
         "aircraft-cpu-study",
         "--network",
@@ -538,6 +577,10 @@ def docker_command(inputs, output, image_id, arm):
         "64m",
         "-e",
         "ACCELERATE_USE_CPU=true",
+        "-e",
+        f"EXPERIMENT_UID={os.getuid()}",
+        "-e",
+        f"EXPERIMENT_GID={os.getgid()}",
         "-e",
         "CUDA_VISIBLE_DEVICES=",
         "-e",

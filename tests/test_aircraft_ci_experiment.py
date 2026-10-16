@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -91,6 +92,9 @@ def test_run_cannot_execute_locally_or_without_manual_event(tmp_path, monkeypatc
 def test_docker_preserves_worker_parent_and_resource_contract(tmp_path):
     command = ci.docker_command(tmp_path / "inputs", tmp_path / "output", "sha256:fixed", "grpo")
     assert command[:3] == ["docker", "run", "--init"]
+    assert command[command.index("--user") + 1] == f"{os.getuid()}:{os.getgid()}"
+    assert f"EXPERIMENT_UID={os.getuid()}" in command
+    assert f"EXPERIMENT_GID={os.getgid()}" in command
     assert command[command.index("--network") + 1] == "none"
     assert command[command.index("--memory") + 1] == str(13 * ci.GIB)
     assert command[command.index("--memory-swap") + 1] == str(13 * ci.GIB)
@@ -98,6 +102,38 @@ def test_docker_preserves_worker_parent_and_resource_contract(tmp_path):
     assert "--read-only" in command
     assert not any("TOKEN" in item or "docker.sock" in item for item in command)
     assert command[-4:] == ["/ci/experiment.py", "container-stage", "--arm", "grpo"]
+
+
+def test_filesystem_preflight_exercises_actual_output_before_model(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXPERIMENT_UID", str(os.geteuid()))
+    monkeypatch.setenv("EXPERIMENT_GID", str(os.getegid()))
+    receipt = ci.filesystem_preflight(tmp_path)
+    assert receipt["effective_uid"] == tmp_path.stat().st_uid
+    assert receipt["create_write_fsync_read_unlink_passed"] is True
+    assert receipt["model_calls"] == 0 and receipt["worker_started"] is False
+    assert not (tmp_path / ".write-preflight").exists()
+    assert ci.read(tmp_path / "filesystem-preflight.json") == receipt
+
+
+def test_filesystem_preflight_rejects_wrong_identity_without_writes(tmp_path, monkeypatch):
+    monkeypatch.setenv("EXPERIMENT_UID", str(os.geteuid() + 1))
+    monkeypatch.setenv("EXPERIMENT_GID", str(os.getegid()))
+    with pytest.raises(RuntimeError, match="identity"):
+        ci.filesystem_preflight(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_container_never_reaches_inputs_or_worker_when_output_not_writable(monkeypatch):
+    monkeypatch.setattr(ci.sys, "platform", "linux")
+    monkeypatch.setenv("ACCELERATE_USE_CPU", "true")
+
+    def reject(_):
+        raise PermissionError("actual output mount")
+
+    monkeypatch.setattr(ci, "filesystem_preflight", reject)
+    monkeypatch.setattr(ci, "check_inputs", lambda: pytest.fail("must not reach model inputs"))
+    with pytest.raises(PermissionError, match="actual output"):
+        ci.container_stage("grpo")
 
 
 def test_contract_retains_exact_science_and_public_payload_bounds():
