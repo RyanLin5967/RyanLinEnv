@@ -1,0 +1,192 @@
+{
+  "active_detector_environment_modified": false,
+  "architecture": "arm64",
+  "benchmark_images_accessed": 0,
+  "inputs_sha256": {
+    "requirements-wheat-eval.in": "f053055f6559fd4ccba63e276f626a2777064de033826851531154b36e87b032",
+    "requirements-wheat-eval.lock": "b9dfae25ce036d11df630f4bf5328f9db22285d3bc37a4454f701318c718002b"
+  },
+  "isolated_target": {
+    "declared_dependency_failures": [],
+    "packages": {
+      "Jinja2": "3.1.6",
+      "MarkupSafe": "3.0.3",
+      "certifi": "2026.7.22",
+      "charset-normalizer": "3.5.2",
+      "cloudpickle": "3.1.2",
+      "filelock": "3.32.3",
+      "fsspec": "2026.7.0",
+      "idna": "3.20",
+      "joblib": "1.6.0",
+      "littleutils": "0.2.4",
+      "mpmath": "1.3.0",
+      "narwhals": "2.27.1",
+      "networkx": "3.6.1",
+      "numpy": "2.5.4",
+      "ogb": "1.3.6",
+      "outdated": "0.2.2",
+      "pandas": "3.0.6",
+      "pillow": "12.3.0",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.5",
+      "requests": "2.34.2",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.18.1",
+      "setuptools": "78.1.0",
+      "six": "1.17.0",
+      "sympy": "1.14.0",
+      "threadpoolctl": "3.7.0",
+      "torch_scatter": "2.1.2",
+      "tqdm": "4.70.1",
+      "typing_extensions": "4.16.0",
+      "urllib3": "2.8.0",
+      "wilds": "2.0.0"
+    },
+    "tests": "........................                                                 [100%]\n24 passed in 25.84s"
+  },
+  "limitations": [
+    "Compiled extension bytes depend on platform, compiler and torch runtime.",
+    "The lock excludes torch and torchvision wheels; install the selected matched runtime pair first.",
+    "CUDA-specific runtime dependency locking and Linux container parity are separate work."
+  ],
+  "linux_or_cuda_installation_tested": false,
+  "model_inference_calls": 0,
+  "platform": "Darwin",
+  "python": "3.12.13",
+  "schema_version": 1,
+  "standalone_environment": {
+    "fresh_venv": true,
+    "official_metric_verification": {
+      "competition_2021_equivalence_claimed": false,
+      "image_loads": 0,
+      "library": "wilds",
+      "model_inference_calls": 0,
+      "native_dataset_eval_synthetic": {
+        "domain_image_counts": [
+          3,
+          1
+        ],
+        "equal_domain_average": 0.5,
+        "image_average": 0.75,
+        "native_constructor_used": true
+      },
+      "source_file_sha256": {
+        "DetectionAccuracy": "4fe677510f6e7e11005e0e73f16189c5a5c8a5664fe126055426dcbe5c873d72",
+        "GlobalWheatDataset": "25948859e68e6cb4759709bc0158db060c5ab0d15aa1a467ac1f41383e7fcc1e"
+      },
+      "synthetic_cases": {
+        "ambiguous_overlap": {
+          "actual": 0.3333333432674408,
+          "expected": 0.3333333333333333
+        },
+        "duplicate_predictions": {
+          "actual": 0.5,
+          "expected": 0.5
+        },
+        "empty_both": {
+          "actual": 1.0,
+          "expected": 1.0
+        },
+        "empty_gt": {
+          "actual": 0.0,
+          "expected": 0.0
+        },
+        "empty_pred": {
+          "actual": 0.0,
+          "expected": 0.0
+        },
+        "exact_iou_half": {
+          "actual": 1.0,
+          "expected": 1.0
+        },
+        "out_of_frame_native_gt": {
+          "actual": 1.0,
+          "expected": 1.0
+        },
+        "repeated_native_gt": {
+          "actual": 0.3333333432674408,
+          "expected": 0.3333333333333333
+        },
+        "score_above_half": {
+          "actual": 1.0,
+          "expected": 1.0
+        },
+        "score_exact_half": {
+          "actual": 0.0,
+          "expected": 0.0
+        }
+      },
+      "torch": "2.14.1",
+      "torch_scatter": "2.1.2",
+      "torchvision": "0.29.1",
+      "version": "2.0.0"
+    },
+    "packages": {
+      "Jinja2": "3.1.6",
+      "MarkupSafe": "3.0.3",
+      "Pygments": "2.21.0",
+      "certifi": "2026.7.22",
+      "charset-normalizer": "3.5.2",
+      "cloudpickle": "3.1.2",
+      "filelock": "3.32.3",
+      "fsspec": "2026.7.0",
+      "idna": "3.20",
+      "iniconfig": "2.3.1",
+      "joblib": "1.6.0",
+      "littleutils": "0.2.4",
+      "mpmath": "1.3.0",
+      "narwhals": "2.27.1",
+      "networkx": "3.6.1",
+      "numpy": "2.5.4",
+      "ogb": "1.3.6",
+      "outdated": "0.2.2",
+      "packaging": "26.3",
+      "pandas": "3.0.6",
+      "pillow": "12.3.0",
+      "pluggy": "1.7.0",
+      "pytest": "9.1.1",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.5",
+      "requests": "2.34.2",
+      "scikit-learn": "1.9.1",
+      "scipy": "1.18.1",
+      "setuptools": "78.1.0",
+      "six": "1.17.0",
+      "sympy": "1.14.0",
+      "threadpoolctl": "3.7.0",
+      "torch": "2.14.1",
+      "torch_scatter": "2.1.2",
+      "torchvision": "0.29.1",
+      "tqdm": "4.70.1",
+      "typing_extensions": "4.16.0",
+      "urllib3": "2.8.0",
+      "wilds": "2.0.0"
+    },
+    "pip_check": "All installed packages are compatible",
+    "tests": "........................                                                 [100%]\n24 passed in 32.33s"
+  },
+  "uncached_source_build": {
+    "cache_disabled": true,
+    "extension_sha256": {
+      "_scatter_cpu.so": "0a408246836bcc1cad8a5443e349c886e81b309af6e19c1ef4f010c4c0314bf7",
+      "_segment_coo_cpu.so": "6ddee68997d53006f2a51c1511721ef6e282b558b7f50cb6d1b800326989c6fc",
+      "_segment_csr_cpu.so": "8800344063b13825ace547afe41df7fb29cdb84d9a5b7973d2d5a3e77189b8db",
+      "_version_cpu.so": "47137b6f58963052fb855a9bec3cefbaa0d1a9cfb3aafbdbd8d733770a859425"
+    },
+    "force_only_cpu": true,
+    "max_jobs": 2,
+    "native_synthetic_grouping": {
+      "domain_image_counts": [
+        3,
+        1
+      ],
+      "equal_domain_average": 0.5,
+      "image_average": 0.75,
+      "native_constructor_used": true
+    },
+    "package": "torch-scatter==2.1.2",
+    "prepare_seconds": 47.31,
+    "source_distribution_sha256": "69b3aa435f2424ac6a1bfb6ff702da6eb73b33ca0db38fb26989c74159258e47"
+  },
+  "uv": "0.12.3"
+}

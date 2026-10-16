@@ -1,0 +1,19 @@
+# Optional official ADA scorer, tested with Python 3.12.
+# Requires the independently installed torch==2.14.1 / torchvision==0.29.1 pair.
+# torch-scatter is compiled against that exact torch runtime; do not swap it later.
+# The generated lock omits torch/torchvision and preserves the detector lock pins.
+wilds==2.0.0
+torch-scatter==2.1.2
+torch==2.14.1
+torchvision==0.29.1
+pandas==3.0.6
+scikit-learn==1.9.1
+narwhals==2.27.1
+outdated==0.2.2
+littleutils==0.2.4
+joblib==1.6.0
+threadpoolctl==3.7.0
+python-dateutil==2.9.0.post0
+pytz==2026.5
+six==1.17.0
+cloudpickle==3.1.2

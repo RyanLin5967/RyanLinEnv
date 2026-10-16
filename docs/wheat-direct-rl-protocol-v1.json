@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "status": "prospective_before_any_wheat_fit",
+  "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+  "benchmark_contract": "docs/gwhd2021-hf-domain-ada-v1.json",
+  "initialization": "Public COCO-pretrained RF-DETR Nano; wheat SFT initialization must be recorded by immutable checkpoint SHA. No pill-trained initialization.",
+  "data": {
+    "train_images": 3655,
+    "validation_images": 1476,
+    "test_images": 1381,
+    "test_access_during_development": false
+  },
+  "primary_metric": "detection_acc_avg_dom",
+  "official_semantics": "Unchanged WILDS 2.0.0 DetectionAccuracy; prediction score strictly >0.5, IoU >=0.5, each prediction independently matches its best ground truth, unique matched ground truths count TP, duplicate predictions count FP; average images within domain then average domains equally.",
+  "geometry": "Preserve native boxes, duplicates, empty images, and out-of-frame ground truths. Any training-only transform must be declared; evaluator ground truths remain unchanged.",
+  "policy": "Native image-forward decoder/query/class/box heads; Gaussian action samples detached from live means, exact factor score-function gradient, reference-derived fixed SDs, IID groups, unbiased with-replacement importance-weighted counterfactual query baseline, analytic reference KL. Native deterministic 300-query deployment, no learned postprocessor.",
+  "training_objective": "Official per-image detection accuracy. Draw training images with replacement with probability inverse domain size so each domain contributes equally in expectation. Use exactly the same image/augmentation draws in RL and both matched SFT controls.",
+  "exploration_gate": {
+    "split": "train only",
+    "images": 128,
+    "image_selection": "Seed791 domain-balanced draw; preserve repeated draws and report unique image count",
+    "groups": 64,
+    "native_pixel_stds": [
+      1.0,
+      2.0,
+      4.0
+    ],
+    "active_query_probability": 1.0,
+    "minimum_mean_best_of_64_official_image_accuracy_gain": 0.05,
+    "minimum_fraction_images_with_useful_variation_and_positive_gain": 0.25,
+    "conditions": "AND",
+    "best_of_samples_is_not_a_model_score": true,
+    "revisions_allowed": 1,
+    "revision_requires_prospective_protocol_amendment": true,
+    "no_full_RL_fit_after_failed_final_gate": true
+  },
+  "controls": {
+    "initial": "Frozen wheat SFT detector",
+    "equal_updates": "Continued official RF-DETR SFT, same immutable initialization, trainable parameter mask, native eval-mode 300-query forward, optimizer configuration, batch size, image/flip sequence, actual optimizer update count and inference pipeline as RL.",
+    "equal_walltime": "ContinuedSFT fromsameimmutableinitialization forRL committedactive preprocessing/forward/reward/backward/optimizer/drift-monitor time. Excludes setup/validation/artifactIO and discardeduncommittedwork aftercrash; labelthisscope explicitly, nevercallit totalphysical end-to-endcompute.",
+    "selection": "All arms use the same full native validation set, primary ADA metric, checkpoint evaluation cadence and declared score calibration grid; choose the strongest matched SFT result for comparisons.",
+    "score_calibration": {
+      "transform": "Add fixed offset to every foreground logit before sigmoid; evaluator remains strictly score>0.5",
+      "offset_grid": [
+        -1.5,
+        -1.0,
+        -0.5,
+        0.0,
+        0.5,
+        1.0,
+        1.5
+      ],
+      "applied_equally_to": [
+        "initial SFT",
+        "equal-update SFT",
+        "equal-walltime SFT",
+        "RL"
+      ],
+      "selection": "Maximize full validation equal-domain ADA; ties prefer smallest absolute offset, then numeric offset. Freeze offset as part of model pipeline before sealed testing."
+    }
+  },
+  "budget": {
+    "maximum_epochs_equivalent": 8,
+    "maximum_RL_candidates": 2,
+    "no_hidden_supervised_warmup_in_RL": true
+  },
+  "RL_acceptance": {
+    "minimum_absolute_ADA_gain_over_initial_and_each_matched_SFT": 0.05,
+    "paired_domain_cluster_bootstrap_95pct_ADA_difference_lower_bound_strictly_greater_than": 0.0,
+    "bootstrap": "Resample entire native validation domains with replacement, paired across models, compute equal-domain metric in every replicate; report all domain differences and selection bias caveat.",
+    "all_conditions_required": true,
+    "native_COCO_AP_and_AP95": "Supplemental; no substitution for wheat ADA criterion.",
+    "old_pills_AP_and_AP95_thresholds": "Remain pills-only; not reinterpreted as wheat metrics."
+  },
+  "frontier_acceptance_proposed_by_root": {
+    "minimum_absolute_ADA_margin": 0.2,
+    "paired_domain_cluster_95pct_lower_margin": 0.1,
+    "status": "Prospective requirement; no improvement promised or measured."
+  },
+  "reporting": "Publish failed pilots and negative controlled comparisons; validation is used for selection and is not an unbiased final estimate. Sealed final evaluation requires a frozen complete pipeline and parent authorization.",
+  "trust_region": {
+    "method": "Backtrack the proposed Adam parameter displacement against exact analytic reference KL on the same native-image batch, halving at most12times. Every image mean-query KL must not exceed max(.1, its pre-step value). Restore parameter/buffer/optimizer state and fail before committing if no step qualifies.",
+    "scope": "Batch-local constraint; does not promise global trust-region coverage. Log preexisting bound violations and deployed deterministic reward.",
+    "optimizer_moments": "Keep gradient moments for an accepted scaled displacement; count one accepted update. Failed proposals are restored and abort. All forward/backtrack time counts toward matched activewall SFT budget.",
+    "train_sentinel": {
+      "images": 32,
+      "selection": "Independentseed seed+1000003, one image pertrainingdomain thenuniformwithoutreplacement fill; imageIDs pinned inrunplan",
+      "maximum_mean_KL_per_query": 0.5,
+      "maximum_per_image_KL_per_query": 1.0,
+      "scope": "Prospective heuristic alarm onfixedtrainimages; no globalguarantee. Failure abortsbeforecandidate selection. Monitoringcompute counted inactiveoptimizationtime."
+    }
+  },
+  "first_learning_test": {
+    "initialization": "Fixed epoch3 EMA snapshot from fresh official COCO-pretrained wheat SFT within a strong30-epoch schedule; SHA and full validation provenance frozen before pilot.",
+    "purpose": "Early controlled learning test, not proof against final strongest SFT. Finalclaims mustalso beat strongestavailablelaterSFT.",
+    "maximum_optimizer_updates": 64,
+    "batch_images": 4,
+    "learning_rate": 1e-05,
+    "schedule": "Cosine8-epoch schedule, first64updates only, same for both SFTcontrols.",
+    "reference_training_config": "recipes/wheat-direct-policy-64.json",
+    "pilot_config": "recipes/wheat-direct-policy-pilot.json",
+    "pixel_std_selection": "Choose the passing train-only pilot scale with largestmeanbest-sampleADA gain; ties choose smallestpixelstd. Overrideonlypixel_std in frozen64-step config afterpilot; no validation tuning ofscale.",
+    "arms": [
+      "RL64updates",
+      "SFT64updates",
+      "SFTmatchedcommittedactiveoptimizationtime"
+    ],
+    "primary_evaluation": "All1476validationimages, exactsame7pointconfidencecalibration.",
+    "second_candidate": "At mostone additional prospective boundedcandidate after measuredactuallearningtest; noautomaticpromotion or lowergainthreshold."
+  },
+  "diagnostics": {
+    "pilot_actual_scales": "Record native-pixel center SD and log-size SD quantiles for allqueries and score>.5queries; actual relative-cap/upper-cap fractions. Compare matched IoU50 center/logsize error quantiles and error-in-SD units; countunmatchedGT separately. Nochange to nominalgrid or gates.",
+    "paired_train_reward_ascent": "Fixed32 domain-stratified TRAIN sentinel,16 IID samples perimage, own fixedseed; commonnoise andquerygates between frozenreference/current and across checkpoints. Report expectedreward gain+noiseSE, deterministicalllive, geometryonly andconfidenceonly outputablations. Samezerooffsetscores; independentlyselectedvalidationcalibrationreportedseparately.",
+    "interpretation": "Trainingexpectedreward/ascent andcomponentablations arediagnostics, not modelwins. Onlyactual64updatecontrolledfull1476validation comparison can demonstratelearning."
+  }
+}

@@ -217,6 +217,8 @@ def train_detector(
     warmstart: Path | None = None,
     resolution: int | None = None,
     warmstart_resolution: int | None = None,
+    selection_metric: str = "coco_ap",
+    pause_after_epoch: int | None = None,
 ) -> dict:
     """Fine-tune the complete transformer with optimizer/scheduler/EMA resume.
 
@@ -242,6 +244,8 @@ def train_detector(
                 warmstart=warmstart,
                 resolution=resolution,
                 warmstart_resolution=warmstart_resolution,
+                selection_metric=selection_metric,
+                pause_after_epoch=pause_after_epoch,
             )
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
@@ -256,8 +260,18 @@ def _train_detector_locked(
     warmstart: Path | None,
     resolution: int | None,
     warmstart_resolution: int | None,
+    selection_metric: str,
+    pause_after_epoch: int | None,
 ) -> dict:
     config.validate()
+    if selection_metric not in {"coco_ap", "wheat_ada"}:
+        raise ValueError("Selection metric must be coco_ap or wheat_ada")
+    if pause_after_epoch is not None and (
+        selection_metric != "wheat_ada"
+        or type(pause_after_epoch) is not int
+        or not 1 <= pause_after_epoch <= config.epochs
+    ):
+        raise ValueError("Planned epoch pause requires wheat_ada and an epoch within this fit")
     _validate_resolution(resolution)
     _validate_resolution(warmstart_resolution)
     if warmstart_resolution is not None and warmstart is None:
@@ -288,6 +302,10 @@ def _train_detector_locked(
     }
     if resolution is not None:
         plan["model_resolution"] = resolution
+    if selection_metric == "wheat_ada":
+        plan["selection_metric"] = "validation calibrated WILDS equal-domain detection accuracy"
+        plan["selection_protocol"] = _wheat_selection_plan(source / "valid")
+        plan["selection_protocol"]["pause_after_epoch"] = pause_after_epoch
     if warmstart is not None:
         if warmstart.suffix != ".safetensors":
             raise ValueError("Warm start requires a numeric .safetensors checkpoint")
@@ -414,6 +432,10 @@ def _train_detector_locked(
         accelerator="gpu" if config.device == "cuda" else config.device,
         **trainer_options,
     )
+    if selection_metric == "wheat_ada":
+        _configure_wheat_selection(
+            trainer, module, source / "valid", output, config, pause_after_epoch=pause_after_epoch
+        )
     started = time.monotonic()
     process = psutil.Process()
 
@@ -585,6 +607,14 @@ def summarize_training_run(output: Path) -> dict:
         if row["event"] == "validation_end" and "val/mAP_50_95" in row["metrics"]
     ]
     best = max(validation, key=lambda row: row["metrics"]["val/mAP_50_95"])
+    plan_path = output / "training-plan.json"
+    plan = json.loads(plan_path.read_text()) if plan_path.exists() else {}
+    wheat = "selection_protocol" in plan
+    if wheat:
+        selected = json.loads((output / "validation-best.json").read_text())
+        best = next(
+            row for row in reversed(validation) if row["epoch"] + 1 == selected["epoch_1based"]
+        )
     audit = {
         "status": result["status"],
         "attempts": durations,
@@ -601,6 +631,13 @@ def summarize_training_run(output: Path) -> dict:
         "resume_semantics": "stateful optimizer/scheduler/EMA resume; not exact stochastic replay",
         "test_access": False,
     }
+    if wheat:
+        audit["selection"].update(
+            metric=plan["selection_metric"],
+            ADA=selected["metrics"]["detection_acc_avg_dom"],
+            foreground_logit_offset=selected["calibration"]["foreground_logit_offset"],
+            raw_zero_offset_ADA=selected["calibration"]["raw_zero_offset_ADA"],
+        )
     _write_json(output / "training-evidence.json", audit)
     return audit
 
@@ -644,8 +681,6 @@ def export_queries(
         make_coco_transforms_square_div_64,
     )
     from torchvision.ops import box_convert
-
-    from vision_rl.data import image_hash
 
     torch.set_num_threads(cpu_threads)
     split_directory = split_directory.resolve()
@@ -694,7 +729,21 @@ def export_queries(
         scale_jitter=True,
         include_masks=False,
     )
-    dataset = CocoDetection(
+    decoded_hashes: dict[int, str] = {}
+
+    class HashedCocoDetection(CocoDetection):
+        def _decode_image(self, image_id):
+            image, scales = super()._decode_image(image_id)
+            if scales != (1.0, 1.0):
+                raise RuntimeError("Validation pixel fingerprints require a full RGB decode")
+            # Reuse the native decoder's exact RGB pixels before transforms.
+            # This matches image_hash() without decoding every JPEG twice.
+            decoded_hashes[image_id] = hashlib.sha256(
+                str(image.size).encode() + image.tobytes()
+            ).hexdigest()
+            return image, scales
+
+    dataset = HashedCocoDetection(
         split_directory,
         annotation_path,
         transforms=transforms,
@@ -740,7 +789,7 @@ def export_queries(
                     image = dataset.coco.imgs[image_id]
                     width, height = image["width"], image["height"]
                     image_sizes.append([width, height])
-                    pixel_hashes.append(image_hash(split_directory / image["file_name"]))
+                    pixel_hashes.append(decoded_hashes.pop(image_id))
                     rows = [
                         row
                         for row in dataset.coco.imgToAnns[image_id]
@@ -942,6 +991,307 @@ def _validate_resolution(resolution: int | None) -> None:
         raise ValueError("Resolution must be a multiple of 32 in 128..1024")
 
 
+def _wheat_selection_plan(validation_directory: Path) -> dict:
+    """Pin the shared calibration and original-label scorer before any optimizer step."""
+    import inspect
+
+    from vision_rl.detection_inference import decode_queries
+    from vision_rl.wheat_eval import BENCHMARK_ID, WHEAT_LOGIT_OFFSETS, evaluate_wheat
+
+    annotation = validation_directory / "_annotations.coco.json"
+    document = json.loads(annotation.read_text())
+    if document.get("info", {}).get("benchmark_id") != BENCHMARK_ID:
+        raise ValueError("Wheat selection requires the audited author-HF benchmark contract")
+    # Empty predictions still invoke the unchanged official implementation. This
+    # preflight checks dependencies/provenance before starting a potentially long fit.
+    reference = evaluate_wheat(annotation, [], image_ids=[document["images"][0]["id"]])
+    return {
+        "benchmark_id": BENCHMARK_ID,
+        "primary_key": "detection_acc_avg_dom",
+        "scorer": reference["scorer"],
+        "trainer_source_sha256": _sha256(Path(__file__)),
+        "portable_decoder_source_sha256": _sha256(Path(inspect.getfile(decode_queries))),
+        "annotation_sha256": _sha256(annotation),
+        "foreground_logit_offsets": list(WHEAT_LOGIT_OFFSETS),
+        "calibration_ties": "smallest absolute offset, then numeric offset",
+        "prediction_queries": 300,
+        "prediction_order": "stable foreground-score descending; native query index breaks ties",
+        "ground_truth": "original annotation boxes, including duplicate/out-of-frame extents",
+        "checkpoint_ties": "earliest epoch",
+        "validation_images": len(document["images"]),
+        "test_access": False,
+    }
+
+
+def _foreground_results(raw, original_sizes):
+    """Return all native foreground queries, without background top-k competition.
+
+    RF-DETR's default postprocessor ranks foreground and background together.
+    The wheat policy contract instead deploys all 300 foreground queries. This
+    conversion reuses the existing validation forward. The shared portable
+    decoder preserves float64 score/geometry arithmetic before official float32
+    scoring, including close confidence-threshold decisions. MPS has no float64,
+    so this small postprocessing step runs on CPU.
+    """
+    import torch
+
+    from vision_rl.detection_inference import decode_queries
+
+    boxes, logits = raw["pred_boxes"], raw["pred_logits"]
+    if boxes.ndim != 3 or boxes.shape[1:] != (300, 4) or logits.shape != (*boxes.shape[:2], 2):
+        raise ValueError("Wheat validation requires 300 queries and one foreground class")
+    if original_sizes.shape != (boxes.shape[0], 2):
+        raise ValueError("Original sizes must have shape [batch, height/width]")
+    result = []
+    for box, logit, size in zip(
+        boxes.detach().cpu().numpy(),
+        logits.detach().cpu().numpy(),
+        original_sizes.detach().cpu().tolist(),
+        strict=True,
+    ):
+        decoded = decode_queries(box, logit, (1,))
+        height, width = size
+        xyxy = torch.tensor([row["box"] for row in decoded], dtype=torch.float64)
+        result.append(
+            {
+                "boxes": xyxy * torch.tensor([width, height, width, height]),
+                "scores": torch.tensor([row["score"] for row in decoded], dtype=torch.float64),
+                "labels": torch.zeros(300, dtype=torch.long),
+            }
+        )
+    return result
+
+
+def _configure_wheat_selection(
+    trainer, module, validation_directory, output, config, *, pause_after_epoch=None
+):
+    """Use original-label calibrated ADA for EMA selection and early stopping.
+
+    Callback state is included in the native full Lightning checkpoint. The
+    annotation file supplies targets by image ID; RF-DETR's clipped augmentation
+    targets are never substituted into the official wheat evaluator.
+    """
+    import pytorch_lightning as pl
+    import torch
+    from pytorch_lightning.callbacks import EarlyStopping
+    from rfdetr.training.callbacks.best_model import BestModelCallback, RFDETREarlyStopping
+
+    from vision_rl.wheat_eval import calibrated_wheat_evaluation
+
+    annotation = (validation_directory / "_annotations.coco.json").resolve()
+    annotation_sha = _sha256(annotation)
+    expected_ids = {row["id"] for row in json.loads(annotation.read_text())["images"]}
+
+    class ForegroundPostprocess(torch.nn.Module):
+        def forward(self, raw, original_sizes):
+            return _foreground_results(raw, original_sizes)
+
+    module.postprocess = ForegroundPostprocess()
+    selection_callback = None
+
+    class WheatBestModel(BestModelCallback):
+        def on_validation_end(self, trainer, pl_module):
+            # Lightning logs Python scalars in float32 and may overwrite direct
+            # callback_metrics assignments. Reuse the selector's exact official
+            # decision so close scores cannot pair one epoch's calibration/report
+            # with another epoch's weights. Native full checkpoint state and EMA
+            # serialization are retained; this is pinned to RF-DETR 1.10.0.
+            if trainer.sanity_checking or not trainer.is_global_zero:
+                return
+            report = selection_callback.current_report
+            if report is None or report["epoch_1based"] != trainer.current_epoch + 1:
+                raise RuntimeError("Missing current-epoch wheat selection decision")
+            if report["selected"]:
+                self._best_ema = report["metrics"]["detection_acc_avg_dom"]
+                state = self._get_ema_model_state_dict(trainer, pl_module)
+                self._write_ema_checkpoint(
+                    trainer, pl_module, state, output / "checkpoint_best_ema.pth"
+                )
+
+    callbacks = []
+    for callback in trainer.callbacks:
+        if isinstance(callback, BestModelCallback):
+            callback = WheatBestModel(
+                output_dir=str(output),
+                monitor_regular="val/detection_acc_avg_dom",
+                monitor_ema="val/ema_detection_acc_avg_dom",
+                evaluates_base_model=False,
+                run_test=False,
+            )
+            # Upstream initializes this to zero, which would select the final
+            # weights when every epoch scores zero. Start at -1 for earliest-tie
+            # selection; this finite value survives upstream state restoration.
+            callback._best_ema = -1.0
+        elif isinstance(callback, RFDETREarlyStopping):
+            callback = EarlyStopping(
+                monitor="val/ema_detection_acc_avg_dom",
+                mode="max",
+                patience=config.early_stopping_patience,
+                min_delta=0.001,
+                check_on_train_epoch_end=False,
+                check_finite=True,
+                strict=True,
+            )
+        callbacks.append(callback)
+
+    class WheatSelection(pl.Callback):
+        def __init__(self):
+            self.best_score = -1.0
+            self.best_epoch = None
+            self.best_offset = None
+            self.predictions = []
+            self.image_ids = []
+            self.current_report = None
+
+        def state_dict(self):
+            return {
+                "best_score": self.best_score,
+                "best_epoch": self.best_epoch,
+                "best_offset": self.best_offset,
+            }
+
+        def load_state_dict(self, state_dict):
+            self.best_score = state_dict["best_score"]
+            self.best_epoch = state_dict["best_epoch"]
+            self.best_offset = state_dict["best_offset"]
+
+        def on_validation_epoch_start(self, trainer, pl_module):
+            if trainer.world_size != 1:
+                raise ValueError("Wheat callback currently requires a single trainer process")
+            self.predictions, self.image_ids = [], []
+            self.current_report = None
+
+        def on_validation_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx=0):
+            # Portable decoding uses CPU float64 because MPS has no float64.
+            # RF-DETR's supplemental F1 matcher requires predictions and targets
+            # on the same device. Validation loss is explicitly disabled in this
+            # trainer; only image samples need to remain on the accelerator.
+            if pl_module._should_compute_val_loss:
+                raise ValueError("Wheat portable scoring requires validation loss disabled")
+            for target in batch[1]:
+                for key, value in target.items():
+                    if isinstance(value, torch.Tensor):
+                        target[key] = value.detach().cpu()
+
+        def on_validation_batch_end(
+            self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
+        ):
+            for prediction, target in zip(outputs["results"], outputs["targets"], strict=True):
+                image_id = int(target["image_id"].item())
+                self.image_ids.append(image_id)
+                boxes = prediction["boxes"].detach().cpu()
+                scores = prediction["scores"].detach().cpu()
+                for box, score in zip(boxes.tolist(), scores.tolist(), strict=True):
+                    x1, y1, x2, y2 = box
+                    self.predictions.append(
+                        {
+                            "image_id": image_id,
+                            "category_id": 1,
+                            "bbox": [x1, y1, x2 - x1, y2 - y1],
+                            "score": score,
+                        }
+                    )
+
+        def on_validation_epoch_end(self, trainer, pl_module):
+            if trainer.sanity_checking:
+                return
+            if len(self.image_ids) != len(set(self.image_ids)):
+                raise ValueError("Validation repeated image IDs; refusing a biased ADA score")
+            if not config.preflight_batches and set(self.image_ids) != expected_ids:
+                raise ValueError("Wheat selection requires the complete native validation split")
+            if _sha256(annotation) != annotation_sha:
+                raise ValueError("Original wheat annotations changed during training")
+            started = time.monotonic()
+            report, calibrated = calibrated_wheat_evaluation(
+                annotation, self.predictions, image_ids=self.image_ids
+            )
+            calibration = report["calibration"]
+            score = report["metrics"]["detection_acc_avg_dom"]
+            offset = calibration["foreground_logit_offset"]
+            raw_score = calibration["raw_zero_offset_ADA"]
+            values = {
+                "val/detection_acc_avg_dom": score,
+                "val/ema_detection_acc_avg_dom": score,
+                "val/raw_zero_offset_ADA": raw_score,
+                "val/foreground_logit_offset": offset,
+            }
+            for key, value in values.items():
+                pl_module.log(key, value, on_step=False, on_epoch=True, logger=True)
+                trainer.callback_metrics[key] = torch.tensor(value, dtype=torch.float64)
+            selected = score > self.best_score
+            report.update(
+                epoch_1based=trainer.current_epoch + 1,
+                optimizer_steps=trainer.global_step,
+                selected=selected,
+                calibration_seconds=time.monotonic() - started,
+                test_access=False,
+            )
+            self.current_report = report
+            validation_output = output / "validation"
+            validation_output.mkdir(exist_ok=True)
+            _write_json(validation_output / f"epoch-{trainer.current_epoch + 1:04d}.json", report)
+            if selected:
+                self.best_score = score
+                self.best_epoch = trainer.current_epoch + 1
+                self.best_offset = offset
+                _write_json(output / "validation-best.json", report)
+                _write_json(output / "validation-best.coco.json", calibrated)
+                _write_json(output / "validation-best-raw.coco.json", self.predictions)
+            if report["epoch_1based"] == pause_after_epoch:
+                from safetensors.torch import save_file
+
+                state = BestModelCallback._get_ema_model_state_dict(trainer, pl_module)
+                tensors = {
+                    key: value.detach().cpu().contiguous().clone() for key, value in state.items()
+                }
+                snapshots = output / "snapshots"
+                snapshots.mkdir(exist_ok=True)
+                snapshot = snapshots / f"epoch-{pause_after_epoch:04d}.safetensors"
+                if snapshot.exists():
+                    raise ValueError(
+                        "Fixed-epoch snapshot exists; refusing to overwrite provenance"
+                    )
+                temporary = snapshot.with_suffix(".safetensors.tmp")
+                save_file(tensors, temporary)
+                temporary.replace(snapshot)
+                snapshot_report = {
+                    **report,
+                    "checkpoint_selection": f"prospectively fixed epoch {pause_after_epoch}",
+                    "model": {
+                        "safetensors_sha256": _sha256(snapshot),
+                        "resolution": pl_module.model_config.resolution,
+                    },
+                    "training_plan_sha256": _sha256(output / "training-plan.json"),
+                }
+                _write_json(snapshot.with_suffix(".json"), snapshot_report)
+                _write_json(snapshot.with_suffix(".coco.json"), calibrated)
+                _write_json(snapshot.with_suffix(".raw.coco.json"), self.predictions)
+                # Telemetry's later on_validation_end hook requests a clean stop;
+                # Lightning still writes the full optimizer/EMA checkpoint at
+                # the epoch boundary. Resume uses the same frozen 30-epoch plan
+                # after the caller removes this marker, never a shortened schedule.
+                (output / "STOP_AFTER_EPOCH").write_text(
+                    f"Planned pause after epoch {pause_after_epoch}; immutable snapshot ready.\n"
+                )
+            print(
+                json.dumps(
+                    {
+                        "event": "wheat_validation",
+                        **values,
+                        "selected": selected,
+                        "epoch": trainer.current_epoch + 1,
+                        "calibration_seconds": report["calibration_seconds"],
+                    }
+                ),
+                flush=True,
+            )
+            self.predictions, self.image_ids = [], []
+
+    selection_callback = WheatSelection()
+    callbacks.append(selection_callback)
+    trainer.callbacks = callbacks
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "safetensors":
         parser = argparse.ArgumentParser(description="Export a numeric-only detector submission")
@@ -987,13 +1337,24 @@ def main() -> None:
     parser.add_argument("--warmstart", type=Path)
     parser.add_argument("--resolution", type=int)
     parser.add_argument("--warmstart-resolution", type=int)
+    parser.add_argument("--selection-metric", choices=("coco_ap", "wheat_ada"), default="coco_ap")
+    parser.add_argument("--pause-after-epoch", type=int)
     args = parser.parse_args()
     config = DetectorTrainingConfig(
         **{
             k: v
             for k, v in vars(args).items()
             if k
-            not in {"source", "output", "resume", "warmstart", "resolution", "warmstart_resolution"}
+            not in {
+                "source",
+                "output",
+                "resume",
+                "warmstart",
+                "resolution",
+                "warmstart_resolution",
+                "selection_metric",
+                "pause_after_epoch",
+            }
         }
     )
     print(
@@ -1006,6 +1367,8 @@ def main() -> None:
                 warmstart=args.warmstart,
                 resolution=args.resolution,
                 warmstart_resolution=args.warmstart_resolution,
+                selection_metric=args.selection_metric,
+                pause_after_epoch=args.pause_after_epoch,
             ),
             indent=2,
         )

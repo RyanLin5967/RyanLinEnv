@@ -7,6 +7,8 @@ from PIL import Image
 
 from vision_rl.detection_training import (
     DetectorTrainingConfig,
+    _configure_wheat_selection,
+    _foreground_results,
     _validate_resolution,
     export_detector_safetensors,
     inspect_split,
@@ -230,3 +232,221 @@ def test_untrusted_or_incompatible_resolution_rejected(resolution):
 @pytest.mark.parametrize("resolution", [None, 128, 384, 512, 1024])
 def test_supported_resolution_accepted(resolution):
     _validate_resolution(resolution)
+
+
+def test_wheat_foreground_postprocess_keeps_all_queries_and_native_extents():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("torchvision")
+    boxes = torch.full((2, 300, 4), 0.5)
+    boxes[:, 0] = torch.tensor([0.0, 0.0, 0.5, 0.5])
+    logits = torch.zeros(2, 300, 2)
+    logits[..., 1] = 100  # Background must never evict a foreground query.
+    logits[0, :, 0] = torch.linspace(-2, 2, 300)
+    result = _foreground_results(
+        {"pred_boxes": boxes, "pred_logits": logits}, torch.tensor([[100, 200], [50, 100]])
+    )
+    assert result[0]["boxes"].shape == (300, 4)
+    assert result[0]["boxes"][-1].tolist() == [-50, -25, 50, 25]
+    assert result[0]["scores"].dtype == torch.float64
+    torch.testing.assert_close(result[0]["scores"], logits[0, :, 0].double().sigmoid().flip(0))
+    assert result[1]["boxes"][0].tolist() == [-25, -12.5, 25, 12.5]
+    assert result[0]["labels"].tolist() == [0] * 300
+
+
+def test_wheat_summary_selects_ada_not_supplemental_ap(tmp_path):
+    (tmp_path / "training-plan.json").write_text(
+        json.dumps(
+            {
+                "selection_protocol": {"primary_key": "detection_acc_avg_dom"},
+                "selection_metric": "validation calibrated WILDS equal-domain detection accuracy",
+            }
+        )
+    )
+    rows = []
+    for epoch, ap, ada, offset in [(0, 0.9, 0.6, 0.0), (1, 0.8, 0.7, -0.5)]:
+        rows.append(
+            {
+                "event": "validation_end",
+                "epoch": epoch,
+                "metrics": {
+                    "val/mAP_50_95": ap,
+                    "val/detection_acc_avg_dom": ada,
+                    "val/foreground_logit_offset": offset,
+                    "val/raw_zero_offset_ADA": 0.5,
+                },
+            }
+        )
+    (tmp_path / "telemetry.jsonl").write_text("\n".join(json.dumps(row) for row in rows))
+    (tmp_path / "result.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "elapsed_seconds": 12,
+                "metrics": rows[-1]["metrics"],
+            }
+        )
+    )
+    (tmp_path / "validation-best.json").write_text(
+        json.dumps(
+            {
+                "epoch_1based": 2,
+                "metrics": {"detection_acc_avg_dom": 0.7},
+                "calibration": {"foreground_logit_offset": -0.5, "raw_zero_offset_ADA": 0.5},
+            }
+        )
+    )
+    evidence = summarize_training_run(tmp_path)
+    assert evidence["selection"]["epoch_1based"] == 2
+    assert evidence["selection"]["ADA"] == 0.7
+    assert evidence["selection"]["AP"] == 0.8
+    assert evidence["selection"]["foreground_logit_offset"] == -0.5
+
+
+def test_wheat_callback_uses_original_annotations_and_rejects_missing_images(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("rfdetr")
+    from types import SimpleNamespace
+
+    from pytorch_lightning.callbacks import EarlyStopping
+    from rfdetr.training.callbacks.best_model import BestModelCallback, RFDETREarlyStopping
+
+    from vision_rl import wheat_eval
+
+    annotations = tmp_path / "_annotations.coco.json"
+    annotations.write_text(json.dumps({"images": [{"id": 1}, {"id": 2}]}))
+    original = annotations.read_bytes()
+    calls = []
+
+    def score(path, predictions, image_ids):
+        calls.append((path, predictions, image_ids))
+        return {
+            "metrics": {"detection_acc_avg_dom": 0.0},
+            "calibration": {
+                "foreground_logit_offset": 0.0,
+                "raw_zero_offset_ADA": 0.0,
+            },
+        }, predictions
+
+    monkeypatch.setattr(wheat_eval, "calibrated_wheat_evaluation", score)
+    trainer = SimpleNamespace(
+        callbacks=[BestModelCallback(str(tmp_path)), RFDETREarlyStopping()],
+        world_size=1,
+        sanity_checking=False,
+        callback_metrics={},
+        current_epoch=0,
+        global_step=1,
+    )
+    module = SimpleNamespace(log=lambda *args, **kwargs: None)
+    _configure_wheat_selection(trainer, module, tmp_path, tmp_path, DetectorTrainingConfig())
+    best, early, callback = trainer.callbacks
+    assert best._monitor_ema == "val/ema_detection_acc_avg_dom"
+    assert best._best_ema == -1.0  # A genuine zero must select the first epoch.
+    assert isinstance(early, EarlyStopping)
+    assert early.monitor == "val/ema_detection_acc_avg_dom"
+    callback.on_validation_epoch_start(trainer, module)
+    outputs = {
+        "results": [{"boxes": torch.tensor([[-1.0, 1, 3, 4]]), "scores": torch.tensor([0.9])}],
+        "targets": [{"image_id": torch.tensor(1), "boxes": torch.zeros(0, 4)}],
+    }
+    callback.on_validation_batch_end(trainer, module, outputs, None, 0)
+    with pytest.raises(ValueError, match="complete native validation"):
+        callback.on_validation_epoch_end(trainer, module)
+    outputs["targets"][0]["image_id"] = torch.tensor(2)
+    callback.on_validation_batch_end(trainer, module, outputs, None, 1)
+    callback.on_validation_epoch_end(trainer, module)
+    assert annotations.read_bytes() == original
+    assert calls[0][0] == annotations.resolve()
+    assert calls[0][2] == [1, 2]
+    assert calls[0][1][0]["bbox"] == [-1, 1, 4, 3]
+    assert callback.state_dict() == {"best_score": 0, "best_epoch": 1, "best_offset": 0}
+    callback.load_state_dict({"best_score": 0.75, "best_epoch": 4, "best_offset": -0.5})
+    assert callback.best_epoch == 4
+    assert callback.best_score == 0.75
+
+
+def test_lightning_near_tied_ada_keeps_checkpoint_and_calibration_together(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    pl = pytest.importorskip("pytorch_lightning")
+    pytest.importorskip("rfdetr")
+    from rfdetr.config import RFDETRNanoConfig, TrainConfig
+    from rfdetr.training.callbacks.best_model import BestModelCallback
+
+    from vision_rl import wheat_eval
+
+    values = [0.123456789, 0.123456790]
+    assert torch.tensor(values[0]).item() == torch.tensor(values[1]).item()
+    calls = []
+
+    def score(path, predictions, image_ids):
+        value = values[len(calls)]
+        calls.append(value)
+        return {
+            "metrics": {"detection_acc_avg_dom": value},
+            "calibration": {
+                "foreground_logit_offset": 0.0,
+                "raw_zero_offset_ADA": value,
+            },
+        }, predictions
+
+    monkeypatch.setattr(wheat_eval, "calibrated_wheat_evaluation", score)
+    (tmp_path / "_annotations.coco.json").write_text(json.dumps({"images": [{"id": 1}]}))
+
+    class TinyModule(pl.LightningModule):
+        def __init__(self):
+            super().__init__()
+            self.model = torch.nn.Linear(1, 1)
+            self._should_compute_val_loss = False
+            self.model_config = RFDETRNanoConfig(pretrain_weights=None)
+            self.train_config = TrainConfig(dataset_dir=str(tmp_path), output_dir=str(tmp_path))
+
+        def training_step(self, batch, batch_idx):
+            return self.model(batch).square().mean()
+
+        def validation_step(self, batch, batch_idx):
+            return {
+                "results": [
+                    {"boxes": torch.tensor([[0.0, 0, 1, 1]]), "scores": torch.tensor([0.9])}
+                ],
+                "targets": [{"image_id": torch.tensor(1)}],
+            }
+
+        def configure_optimizers(self):
+            return torch.optim.SGD(self.parameters(), lr=0.1)
+
+    module = TinyModule()
+
+    class KnownEMA(pl.Callback):
+        def get_ema_model_state_dict(self):
+            return module.model.state_dict()
+
+    trainer = pl.Trainer(
+        max_epochs=2,
+        accelerator="cpu",
+        devices=1,
+        callbacks=[BestModelCallback(str(tmp_path)), KnownEMA()],
+        logger=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        num_sanity_val_steps=0,
+    )
+    _configure_wheat_selection(trainer, module, tmp_path, tmp_path, DetectorTrainingConfig())
+    loader = torch.utils.data.DataLoader(torch.ones(1, 1), batch_size=1)
+    # Native RF-DETR uses a list of target dictionaries for each image batch.
+    class NativeBatch(torch.utils.data.Dataset):
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            return torch.ones(1, 1), [{"image_id": torch.tensor(1)}]
+
+    validation_loader = torch.utils.data.DataLoader(NativeBatch(), batch_size=None)
+    trainer.fit(module, train_dataloaders=loader, val_dataloaders=validation_loader)
+    # Real Lightning rounds the logged scalar, but the native checkpoint writer
+    # and calibration artifact must share the exact higher-precision decision.
+    assert trainer.callback_metrics["val/detection_acc_avg_dom"].dtype == torch.float32
+    selected = json.loads((tmp_path / "validation-best.json").read_text())
+    checkpoint = torch.load(tmp_path / "checkpoint_best_ema.pth", weights_only=True)
+    assert selected["epoch_1based"] == 2
+    assert selected["metrics"]["detection_acc_avg_dom"] == values[1]
+    assert checkpoint["epoch"] == 1
+    assert all(torch.equal(v, checkpoint["model"][k]) for k, v in module.model.state_dict().items())

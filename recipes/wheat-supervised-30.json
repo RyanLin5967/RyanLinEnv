@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "phase": "wheat_supervised_initialization",
+  "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+  "source": "data/gwhd2021-hf-domain-ada-v1/development/coco",
+  "output": "runs/wheat-detector/nano512-s42",
+  "configuration": {
+    "architecture": "nano",
+    "device": "mps",
+    "epochs": 30,
+    "batch_size": 4,
+    "grad_accum_steps": 4,
+    "eval_batch_size": 8,
+    "lr": 0.0001,
+    "lr_encoder": 0.00015,
+    "weight_decay": 0.0001,
+    "seed": 42,
+    "workers": 2,
+    "cpu_threads": 4,
+    "mps_memory_gib": 16.0,
+    "early_stopping_patience": 10,
+    "multi_scale": false,
+    "preflight_batches": 0
+  },
+  "resolution": 512,
+  "selection_metric": "wheat_ada",
+  "pause_after_epoch": 3,
+  "initialization": {
+    "kind": "official_COCO_pretrained_RFDETRNano",
+    "weights_sha256": "d8d6b9ee57d4d0ed2b1f305163624712a0532cb7bce0c747317984fc5457440d",
+    "pill_weights_used": false
+  },
+  "annotation_sha256": {
+    "train": "f05d261212549f3491c277efe7b47cd99701ad5e5e5a39acc6daeb82a6a87f6a",
+    "valid": "3f9bec78787cda1473c8fff7ed6a970d2e310d1b755a727682f674744ca2ee1a"
+  },
+  "source_sha256": {
+    "src/vision_rl/detection_training.py": "713190bfe38ea7c94597525b7637815a31564750568261db972a5e085821c6b6",
+    "src/vision_rl/wheat_eval.py": "185a84457283103189c9e56bbda382408eb72a47bb5a2234de98365b92136872",
+    "src/vision_rl/detection_inference.py": "8709a0c0a4ce48c01a33ad9822646f27e67cd293c6c74636a8efc3a478a78106"
+  },
+  "schedule": {
+    "full_epochs": 30,
+    "lr_scheduler": "cosine",
+    "warmup_epochs": 1,
+    "initial_early_snapshot_epoch": 3,
+    "pause": "Clean epoch boundary after writing immutable current EMA snapshot, native full optimizer checkpoint and full native validation ADA/calibration reports. Release MPS for actual RL learning pilot.",
+    "resume": "Same frozen30epoch schedule, original source/config/data; remove STOP_AFTER_EPOCH then resume=True,pause_after_epoch=3. LoaderRNG restarts; optimizer/scheduler/EMA/callbackstate resume."
+  },
+  "score_calibration": {
+    "foreground_logit_offsets": [
+      -1.5,
+      -1,
+      -0.5,
+      0,
+      0.5,
+      1,
+      1.5
+    ],
+    "equal_for_all_arms": true,
+    "primary": "official WILDS equal-domain accuracy, original native GT"
+  },
+  "inference": "Shared portable float64 all300 foreground queries, single native512 view, no postprocessor. Official scorer float32, score>.5,IoU>=.5.",
+  "preflight_evidence": "runs/wheat-detector/dense-preflight.json",
+  "test_access": false,
+  "claim_gate": "Fixedepoch3 supports falsification pilot; finallearnedRLgain must exceed initialandmatchedcontinuedSFT controls plusstrongestavailableSFT. Noimprovementpromised.",
+  "recovery_edge": "Crashafterimmutableepochsnapshotbutbeforelast.ckpt saves refusesoverwrite. Preserveartifactandcoordinateexplicitreconciliation; never silentlyreplaceearlyreference."
+}

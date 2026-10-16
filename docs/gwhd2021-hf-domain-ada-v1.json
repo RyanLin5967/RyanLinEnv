@@ -1,0 +1,199 @@
+{
+  "benchmark_id": "gwhd2021-hf-domain-ada-v1",
+  "competition_2021_leaderboard_equivalence_claimed": false,
+  "data_contract": {
+    "coco_category_id": 1,
+    "do_not_substitute_wilds_native_rows": true,
+    "domain_mapping": "Map author domain strings through pinned WILDS SESSIONS list",
+    "hf_boxes": "XYWH absolute pixels",
+    "hf_category_id": 0,
+    "maximum_predictions_per_image": 500,
+    "metric_boxes": "XYXY absolute pixels",
+    "model_without_confidence_scores": "Assign 1.0 to every retained prediction",
+    "preserve_empty_images": true,
+    "preserve_out_of_frame_gt_boxes": true,
+    "preserve_repeated_gt_boxes": true,
+    "refinement_selection_cap": "Unselected base predictions must remain intact"
+  },
+  "dataset": {
+    "csv_sha256": {
+      "competition_test.csv": "8c801e485a34ccf2b9ae2e05bc3bcb2e2043a4df572921d4bf35e1de2b273baa",
+      "competition_train.csv": "1af1d8e386643afe8cd1b41d89ca2634d3212908bdbe58a9d7cd5b32e4048176",
+      "competition_val.csv": "1e7ed76fdf67c4f01de1b3ac30ddeddb62577c580c3b0f882101b99e4b24ff2d",
+      "metadata_dataset.csv": "1fb0a498a4a2d3fff2424b65ecbc41f0ca10d5fc26137b09ffc42c8f3f92d49a"
+    },
+    "hf_parquet_files": [
+      {
+        "declared_lfs_sha256_not_fully_verified": "74a937e2c8fb4b7a22287e4b49ee73be4f8a0f507fa99cd170879c9aa6d48412",
+        "path": "data/test-00000-of-00001.parquet",
+        "size": 298290385
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "3ada1fb45d9a0c4c9eca032f47acee6da4c5e7caa97df178b39209e2043b1bd4",
+        "path": "data/train-00000-of-00002.parquet",
+        "size": 350373033
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "21a834eab7ca5a2b4bd2e2163dbde893d49b1fd9ec28d9964ae8f5b498258051",
+        "path": "data/train-00001-of-00002.parquet",
+        "size": 349049990
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "703d391e06743ca4341644acef4867e11ac804b4400a42deedd7c666d4723cd3",
+        "path": "data/validation-00000-of-00001.parquet",
+        "size": 263224769
+      }
+    ],
+    "hf_repository": "Etienne-David/GlobalWheatHeadDataset2021",
+    "hf_revision": "d223a227ee21fca3dbab9605d3fbcdcc2e33abc5",
+    "hf_url": "https://huggingface.co/datasets/Etienne-David/GlobalWheatHeadDataset2021/tree/d223a227ee21fca3dbab9605d3fbcdcc2e33abc5",
+    "license": "CC-BY-4.0",
+    "zenodo_declared_archive_md5_not_fully_verified": "22b4b542c9ae7e056d7fcdeae9ecaed5",
+    "zenodo_doi": "10.5281/zenodo.5092309",
+    "zenodo_version": "1.0"
+  },
+  "definition": "Author HF release with unchanged native splits and annotations, scored by the unchanged WILDS 2.0.0 equal-domain detection accuracy implementation.",
+  "metric": {
+    "assignment": "torchvision Matcher best GT per prediction; unique matched GT counts TP",
+    "coco_ap_role": "supplemental_only",
+    "empty_both": 1,
+    "empty_only_one_side": 0,
+    "entry_point": "wilds.datasets.globalwheat_dataset.GlobalWheatDataset.eval",
+    "formula": "mean_domain(mean_image(TP/(TP+FP+FN)))",
+    "library": "wilds==2.0.0",
+    "library_commit": "472677590de351857197a9bf24958838c39c272b",
+    "matching_iou_test": ">=0.5",
+    "prediction_score_test": ">0.5",
+    "primary_key": "detection_acc_avg_dom",
+    "source_file_sha256": {
+      "DetectionAccuracy": "4fe677510f6e7e11005e0e73f16189c5a5c8a5664fe126055426dcbe5c873d72",
+      "GlobalWheatDataset": "25948859e68e6cb4759709bc0158db060c5ab0d15aa1a467ac1f41383e7fcc1e"
+    }
+  },
+  "original_image_decoded_pixel_equivalence_verified": false,
+  "protocol_sha256_excluding_this_field": "e4c2d59cac30306e71f97e1c4bb767e1f374f761c5127a1d09e5d706456ba9a8",
+  "remaining_before_experiment": [
+    "Full image download deferred by root while local Qwen download has priority",
+    "Verify shard checksums and all decoded image dimensions",
+    "Audit cross-split complete-file and decoded-pixel duplicates before model inference",
+    "Freeze any response to a newly discovered duplicate as a separately named protocol",
+    "Record baseline model identities, prompts, confidence policy, and output truncation"
+  ],
+  "schema_version": 1,
+  "selection_and_sealing": {
+    "comparisons": "Same complete native test split and exact evaluator for all models",
+    "reporting": "Report per-domain scores and equal-domain primary score",
+    "test": "Images and model outputs remain sealed until model, baseline prompts, postprocessing, calibration, and experiment selection are frozen",
+    "test_metadata_access_so_far": "Dataset provenance, annotation geometry, domain membership and density audit only",
+    "train": "Only native training images and labels may update model parameters",
+    "training_gt_transform_policy": "Any training-only clipping or augmentation must be explicit; native evaluation GT is never clipped, deduplicated or dropped",
+    "validation": "Model, prompt, postprocessing, and score calibration selection allowed"
+  },
+  "splits": {
+    "test": {
+      "boxes": 67373,
+      "domains": {
+        "ARC_1": 30,
+        "CIMMYT_1": 68,
+        "CIMMYT_2": 77,
+        "CIMMYT_3": 60,
+        "KSU_1": 100,
+        "KSU_2": 100,
+        "KSU_3": 95,
+        "KSU_4": 60,
+        "NAU_2": 100,
+        "NAU_3": 100,
+        "Terraref_1": 144,
+        "Terraref_2": 106,
+        "UQ_10": 106,
+        "UQ_11": 84,
+        "UQ_7": 17,
+        "UQ_8": 41,
+        "UQ_9": 33,
+        "Ukyoto_1": 60
+      },
+      "empty_images": 47,
+      "images": 1381,
+      "metadata_sha256": "45a12c17db0b1830a44d7941d7277253bee49444f8b6caf5eb81bbd0f6f641e1",
+      "role": "sealed_final_evaluation"
+    },
+    "train": {
+      "boxes": 163651,
+      "domains": {
+        "Arvalis_1": 66,
+        "Arvalis_10": 58,
+        "Arvalis_11": 60,
+        "Arvalis_12": 29,
+        "Arvalis_2": 401,
+        "Arvalis_3": 588,
+        "Arvalis_4": 204,
+        "Arvalis_5": 448,
+        "Arvalis_6": 160,
+        "Arvalis_7": 24,
+        "Arvalis_8": 20,
+        "Arvalis_9": 32,
+        "ETHZ_1": 747,
+        "Inrae_1": 176,
+        "NMBU_1": 82,
+        "NMBU_2": 98,
+        "Rres_1": 432,
+        "ULi\u00e8ge-GxABT_1": 30
+      },
+      "empty_images": 50,
+      "images": 3655,
+      "metadata_sha256": "aedb37940ab7fed8b7661e7ec3ff476cdf80d9e95e047d375dafcfe7ef95b82c",
+      "role": "train"
+    },
+    "validation": {
+      "boxes": 44347,
+      "domains": {
+        "NAU_1": 20,
+        "UQ_1": 22,
+        "UQ_2": 16,
+        "UQ_3": 14,
+        "UQ_4": 30,
+        "UQ_5": 30,
+        "UQ_6": 30,
+        "Usask_1": 200,
+        "Utokyo_1": 538,
+        "Utokyo_2": 456,
+        "Utokyo_3": 120
+      },
+      "empty_images": 28,
+      "images": 1476,
+      "metadata_sha256": "0f0224f4dd88ebbe835327d9bec38ef6ddd192dde1d6329171550bd6c66c7e5d",
+      "role": "validation"
+    }
+  },
+  "status": "reviewable_metadata_verified_images_not_downloaded",
+  "storage": {
+    "extracted_encoded_images_upper_bound": 1258572519,
+    "files": [
+      {
+        "download_bytes": 298290385,
+        "image_bytes_column_uncompressed_upper_bound": 297745861,
+        "path": "data/test-00000-of-00001.parquet"
+      },
+      {
+        "download_bytes": 350373033,
+        "image_bytes_column_uncompressed_upper_bound": 349685314,
+        "path": "data/train-00000-of-00002.parquet"
+      },
+      {
+        "download_bytes": 349049990,
+        "image_bytes_column_uncompressed_upper_bound": 348358934,
+        "path": "data/train-00001-of-00002.parquet"
+      },
+      {
+        "download_bytes": 263224769,
+        "image_bytes_column_uncompressed_upper_bound": 262782410,
+        "path": "data/validation-00000-of-00001.parquet"
+      }
+    ],
+    "footer_network_bytes": 262144,
+    "full_image_columns_read": 0,
+    "parquet_plus_extracted_upper_bound": 2519510696,
+    "total_download_bytes": 1260938177
+  },
+  "wilds_native_dataset_equivalence_claimed": false
+}

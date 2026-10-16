@@ -22,6 +22,13 @@ jobs:
       - run: uv sync --extra dev --extra detection-eval --locked
       - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
       - run: uv pip install -r requirements-detection.txt
+      - run: uv pip install setuptools==78.1.0
+      - name: Install the official wheat evaluator
+        env:
+          FORCE_ONLY_CPU: "1"
+          MAX_JOBS: "2"
+        run: uv pip install --no-deps --require-hashes --no-build-isolation -r requirements-wheat-eval.lock
+      - run: uv pip check
       - run: .venv/bin/pytest -q
   harbor:
     runs-on: ubuntu-24.04

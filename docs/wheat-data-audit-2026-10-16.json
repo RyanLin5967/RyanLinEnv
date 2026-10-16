@@ -1,0 +1,834 @@
+{
+  "annotation_modifications": 0,
+  "archive_same_size_crc32_duplicate_candidates": [
+    [
+      "gwhd_2021/images/12906c1e75f9d4742f697961678cc4db0d172389dbfec48fc8fd0d2e49dddbc0.png",
+      "gwhd_2021/images/d747d8ff8dda97f935792d36fd8d6cb94f7b72a0e402b6a2419c3974db5f0e58.png"
+    ]
+  ],
+  "archive_unreferenced_images": [
+    "gwhd_2021/images/094dcc9098204e6f751504515f3b0a7b5f5ad500a8bd2ec10124ed3d4fdbb6ed.png",
+    "gwhd_2021/images/8cc5870f73527da07937acc806002e1272e6200095c656ca326a680a90fab507.png",
+    "gwhd_2021/images/b588e1b55fbf8c4c6af08886013c0c36b70dd617fb1a5070829295a5c3ab31a8.png"
+  ],
+  "conversion": {
+    "hf_boxes": "XYWH",
+    "hf_category_id": 0,
+    "original_csv_boxes": "XYXY",
+    "preserve_empty_images": true,
+    "preserve_native_split_and_domain": true,
+    "preserve_repeated_and_out_of_bounds_boxes": true,
+    "proposed_coco_category_id": 1
+  },
+  "cross_split_overlaps": {
+    "train:test": {
+      "country": [],
+      "domain": [],
+      "image_id": []
+    },
+    "train:validation": {
+      "country": [],
+      "domain": [],
+      "image_id": []
+    },
+    "validation:test": {
+      "country": [
+        "Australia",
+        "China",
+        "Japan"
+      ],
+      "domain": [],
+      "image_id": []
+    }
+  },
+  "hf_storage_metadata": {
+    "extracted_encoded_images_upper_bound": 1258572519,
+    "files": [
+      {
+        "download_bytes": 298290385,
+        "image_bytes_column_uncompressed_upper_bound": 297745861,
+        "path": "data/test-00000-of-00001.parquet"
+      },
+      {
+        "download_bytes": 350373033,
+        "image_bytes_column_uncompressed_upper_bound": 349685314,
+        "path": "data/train-00000-of-00002.parquet"
+      },
+      {
+        "download_bytes": 349049990,
+        "image_bytes_column_uncompressed_upper_bound": 348358934,
+        "path": "data/train-00001-of-00002.parquet"
+      },
+      {
+        "download_bytes": 263224769,
+        "image_bytes_column_uncompressed_upper_bound": 262782410,
+        "path": "data/validation-00000-of-00001.parquet"
+      }
+    ],
+    "footer_network_bytes": 262144,
+    "full_image_columns_read": 0,
+    "parquet_plus_extracted_upper_bound": 2519510696,
+    "total_download_bytes": 1260938177
+  },
+  "images_visually_inspected": 0,
+  "limitations": [
+    "No complete image bytes or decoded pixels audited; filenames are not pixel hashes.",
+    "CRC32/size equality identifies candidates, not confirmed image duplicates.",
+    "Out-of-frame boxes are preserved and are not automatically label errors.",
+    "All-image dimensions still require header checks before conversion.",
+    "Official 2021 evaluator matching semantics are not verified."
+  ],
+  "metric": {
+    "do_not_claim_hungarian_or_wilds_matcher_is_exact_official_evaluator": true,
+    "empty_gt_empty_pred": 1,
+    "empty_gt_nonempty_pred": 0,
+    "formula": "mean_domain(mean_image(TP/(TP+FP+FN)))",
+    "iou_threshold_documented": ">0.5",
+    "name": "Average Domain Accuracy",
+    "nonempty_gt_empty_pred": 0,
+    "official_2021_assignment_algorithm_verified": false
+  },
+  "pixel_hash_audit_performed": false,
+  "provenance": {
+    "csv_sha256": {
+      "competition_test.csv": "8c801e485a34ccf2b9ae2e05bc3bcb2e2043a4df572921d4bf35e1de2b273baa",
+      "competition_train.csv": "1af1d8e386643afe8cd1b41d89ca2634d3212908bdbe58a9d7cd5b32e4048176",
+      "competition_val.csv": "1e7ed76fdf67c4f01de1b3ac30ddeddb62577c580c3b0f882101b99e4b24ff2d",
+      "metadata_dataset.csv": "1fb0a498a4a2d3fff2424b65ecbc41f0ca10d5fc26137b09ffc42c8f3f92d49a"
+    },
+    "hf_parquet_files": [
+      {
+        "declared_lfs_sha256_not_fully_verified": "74a937e2c8fb4b7a22287e4b49ee73be4f8a0f507fa99cd170879c9aa6d48412",
+        "path": "data/test-00000-of-00001.parquet",
+        "size": 298290385
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "3ada1fb45d9a0c4c9eca032f47acee6da4c5e7caa97df178b39209e2043b1bd4",
+        "path": "data/train-00000-of-00002.parquet",
+        "size": 350373033
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "21a834eab7ca5a2b4bd2e2163dbde893d49b1fd9ec28d9964ae8f5b498258051",
+        "path": "data/train-00001-of-00002.parquet",
+        "size": 349049990
+      },
+      {
+        "declared_lfs_sha256_not_fully_verified": "703d391e06743ca4341644acef4867e11ac804b4400a42deedd7c666d4723cd3",
+        "path": "data/validation-00000-of-00001.parquet",
+        "size": 263224769
+      }
+    ],
+    "hf_repository": "Etienne-David/GlobalWheatHeadDataset2021",
+    "hf_revision": "d223a227ee21fca3dbab9605d3fbcdcc2e33abc5",
+    "hf_url": "https://huggingface.co/datasets/Etienne-David/GlobalWheatHeadDataset2021/tree/d223a227ee21fca3dbab9605d3fbcdcc2e33abc5",
+    "license": "CC-BY-4.0",
+    "zenodo_declared_archive_md5_not_fully_verified": "22b4b542c9ae7e056d7fcdeae9ecaed5",
+    "zenodo_doi": "10.5281/zenodo.5092309",
+    "zenodo_version": "1.0"
+  },
+  "schema_version": 1,
+  "splits": {
+    "test": {
+      "annotation_mismatch_ids": [],
+      "boxes": 67373,
+      "boxes_outside_declared_1024_dimensions": [
+        {
+          "bbox_xywh": [
+            1032,
+            74,
+            24,
+            40
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1004,
+            1006,
+            52,
+            17
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            967,
+            821,
+            66,
+            81
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1014,
+            900,
+            38,
+            90
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1028,
+            834,
+            28,
+            95
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1038,
+            642,
+            19,
+            46
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1024,
+            486,
+            33,
+            45
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            1005,
+            398,
+            50,
+            38
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            990,
+            439,
+            40,
+            28
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            951,
+            213,
+            103,
+            102
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc"
+        },
+        {
+          "bbox_xywh": [
+            960,
+            0,
+            67,
+            35
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "0ca12ceda4a040775254a668b3276cf51108be03fffbde62bc21d44b53f252da"
+        },
+        {
+          "bbox_xywh": [
+            1051,
+            656,
+            19,
+            65
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "4c9c82eeefaaa8b3b7300561820274c0ff576b47ada9239862f4a295cbdb18b7"
+        },
+        {
+          "bbox_xywh": [
+            996,
+            95,
+            73,
+            59
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "4c9c82eeefaaa8b3b7300561820274c0ff576b47ada9239862f4a295cbdb18b7"
+        },
+        {
+          "bbox_xywh": [
+            975,
+            382,
+            95,
+            34
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "4c9c82eeefaaa8b3b7300561820274c0ff576b47ada9239862f4a295cbdb18b7"
+        },
+        {
+          "bbox_xywh": [
+            890,
+            604,
+            180,
+            64
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "4c9c82eeefaaa8b3b7300561820274c0ff576b47ada9239862f4a295cbdb18b7"
+        },
+        {
+          "bbox_xywh": [
+            980,
+            604,
+            90,
+            80
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "6be51c1a5132034427ecabaafa679fcac7c8f95e05a595df69401766b90d7890"
+        },
+        {
+          "bbox_xywh": [
+            1024,
+            551,
+            46,
+            94
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "6be51c1a5132034427ecabaafa679fcac7c8f95e05a595df69401766b90d7890"
+        },
+        {
+          "bbox_xywh": [
+            1028,
+            483,
+            42,
+            74
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "6be51c1a5132034427ecabaafa679fcac7c8f95e05a595df69401766b90d7890"
+        },
+        {
+          "bbox_xywh": [
+            946,
+            166,
+            79,
+            64
+          ],
+          "domain": "CIMMYT_3",
+          "image_id": "7228cb212d5496d80c4d3b4b5ffb61206d2ff1e8a4da739aeb8b137454797c51"
+        }
+      ],
+      "count_max": 190,
+      "count_min": 0,
+      "count_quantiles": {
+        "0.5": 46.0,
+        "0.9": 85.0,
+        "0.95": 102.0,
+        "0.99": 127.0
+      },
+      "countries": {
+        "Australia": 281,
+        "China": 200,
+        "Japan": 60,
+        "Mexico": 205,
+        "Sudan": 30,
+        "US": 605
+      },
+      "domain_mismatch_ids": [],
+      "domains": {
+        "ARC_1": 30,
+        "CIMMYT_1": 68,
+        "CIMMYT_2": 77,
+        "CIMMYT_3": 60,
+        "KSU_1": 100,
+        "KSU_2": 100,
+        "KSU_3": 95,
+        "KSU_4": 60,
+        "NAU_2": 100,
+        "NAU_3": 100,
+        "Terraref_1": 144,
+        "Terraref_2": 106,
+        "UQ_10": 106,
+        "UQ_11": 84,
+        "UQ_7": 17,
+        "UQ_8": 41,
+        "UQ_9": 33,
+        "Ukyoto_1": 60
+      },
+      "duplicate_original_rows": [
+        {
+          "hf_matches_original_indices": [
+            1
+          ],
+          "image_id": "da9846512ff19b8cd7278c8c973f75d36de8c4eb4e593b8285f6821aae1f4203",
+          "source_counts": [
+            58,
+            24
+          ],
+          "source_row_count": 2
+        }
+      ],
+      "empty_images": 47,
+      "exact_original_annotation_matches": 1381,
+      "extra_hf_ids": [],
+      "images": 1381,
+      "images_exceeding_query_cap": {
+        "100": 75,
+        "128": 13,
+        "200": 0,
+        "300": 0,
+        "500": 0
+      },
+      "metadata_sha256": "45a12c17db0b1830a44d7941d7277253bee49444f8b6caf5eb81bbd0f6f641e1",
+      "missing_original_ids": [],
+      "repeated_exact_boxes": [
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                1,
+                190,
+                33,
+                27
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "CIMMYT_1",
+          "image_id": "b5693f35d46830f4f1b35e09f7933f76f234cc641cc8b58dfec7da533231b4ad"
+        }
+      ],
+      "source_csv_rows": 1382,
+      "source_unique_ids": 1381
+    },
+    "train": {
+      "annotation_mismatch_ids": [],
+      "boxes": 163651,
+      "boxes_outside_declared_1024_dimensions": [],
+      "count_max": 129,
+      "count_min": 0,
+      "count_quantiles": {
+        "0.5": 45.0,
+        "0.9": 72.0,
+        "0.95": 79.0,
+        "0.99": 95.0
+      },
+      "countries": {
+        "Belgium": 30,
+        "France": 2266,
+        "Norway": 180,
+        "Switzerland": 747,
+        "UK": 432
+      },
+      "domain_mismatch_ids": [],
+      "domains": {
+        "Arvalis_1": 66,
+        "Arvalis_10": 58,
+        "Arvalis_11": 60,
+        "Arvalis_12": 29,
+        "Arvalis_2": 401,
+        "Arvalis_3": 588,
+        "Arvalis_4": 204,
+        "Arvalis_5": 448,
+        "Arvalis_6": 160,
+        "Arvalis_7": 24,
+        "Arvalis_8": 20,
+        "Arvalis_9": 32,
+        "ETHZ_1": 747,
+        "Inrae_1": 176,
+        "NMBU_1": 82,
+        "NMBU_2": 98,
+        "Rres_1": 432,
+        "ULi\u00e8ge-GxABT_1": 30
+      },
+      "duplicate_original_rows": [
+        {
+          "hf_matches_original_indices": [
+            1
+          ],
+          "image_id": "1961bcf453d5b2206c428c1c14fe55d1f26f3c655db0a2b6a83094476e8edb5b",
+          "source_counts": [
+            14,
+            45
+          ],
+          "source_row_count": 2
+        },
+        {
+          "hf_matches_original_indices": [
+            1
+          ],
+          "image_id": "d88963636d49127bda0597ef73f1703e92d6f111caefc44902d5932b8cd3fa94",
+          "source_counts": [
+            25,
+            42
+          ],
+          "source_row_count": 2
+        }
+      ],
+      "empty_images": 50,
+      "exact_original_annotation_matches": 3655,
+      "extra_hf_ids": [],
+      "images": 3655,
+      "images_exceeding_query_cap": {
+        "100": 23,
+        "128": 1,
+        "200": 0,
+        "300": 0,
+        "500": 0
+      },
+      "metadata_sha256": "aedb37940ab7fed8b7661e7ec3ff476cdf80d9e95e047d375dafcfe7ef95b82c",
+      "missing_original_ids": [],
+      "repeated_exact_boxes": [
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                74,
+                370,
+                72,
+                114
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "Arvalis_10",
+          "image_id": "502d5e4a8b89aeffaa6adf13e1215d27c2951230ab06a4fcb93732117196f124"
+        },
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                693,
+                0,
+                56,
+                43
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "NMBU_1",
+          "image_id": "8b461a21b9b01c657d41dfdf35b3607a0ab920c2cb78184c6e523391f5f3d554"
+        },
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                770,
+                629,
+                43,
+                61
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "Arvalis_8",
+          "image_id": "9f697765bd41325baaf635d5389020270c4536200f97884928c014ac1d39ce12"
+        },
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                531,
+                353,
+                22,
+                21
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "NMBU_1",
+          "image_id": "c1db9589b954aa1ef2b5bf065d09aba926e674679a553c6dd6bfd5d6ae81f86a"
+        },
+        {
+          "boxes": [
+            {
+              "bbox_xywh": [
+                977,
+                529,
+                46,
+                42
+              ],
+              "multiplicity": 2
+            }
+          ],
+          "domain": "Arvalis_11",
+          "image_id": "ed17cba877ba4983b072ead24480913fb4cff9f1fc0f920e07021ca4f4f2ace2"
+        }
+      ],
+      "source_csv_rows": 3657,
+      "source_unique_ids": 3655
+    },
+    "validation": {
+      "annotation_mismatch_ids": [],
+      "boxes": 44347,
+      "boxes_outside_declared_1024_dimensions": [],
+      "count_max": 179,
+      "count_min": 0,
+      "count_quantiles": {
+        "0.5": 28.0,
+        "0.9": 40.0,
+        "0.95": 49.0,
+        "0.99": 132.25
+      },
+      "countries": {
+        "Australia": 142,
+        "Canada": 200,
+        "China": 20,
+        "Japan": 1114
+      },
+      "domain_mismatch_ids": [],
+      "domains": {
+        "NAU_1": 20,
+        "UQ_1": 22,
+        "UQ_2": 16,
+        "UQ_3": 14,
+        "UQ_4": 30,
+        "UQ_5": 30,
+        "UQ_6": 30,
+        "Usask_1": 200,
+        "Utokyo_1": 538,
+        "Utokyo_2": 456,
+        "Utokyo_3": 120
+      },
+      "duplicate_original_rows": [],
+      "empty_images": 28,
+      "exact_original_annotation_matches": 1476,
+      "extra_hf_ids": [],
+      "images": 1476,
+      "images_exceeding_query_cap": {
+        "100": 29,
+        "128": 16,
+        "200": 0,
+        "300": 0,
+        "500": 0
+      },
+      "metadata_sha256": "0f0224f4dd88ebbe835327d9bec38ef6ddd192dde1d6329171550bd6c66c7e5d",
+      "missing_original_ids": [],
+      "repeated_exact_boxes": [],
+      "source_csv_rows": 1476,
+      "source_unique_ids": 1476
+    }
+  },
+  "verified_original_header_dimensions": {
+    "0af5c1bc753619e4f5d504e5424d056af22954f04d50cd0d4a21682cfdd9a4dc": {
+      "format": "JPEG",
+      "header_bytes_decoded": 623,
+      "height": 1024,
+      "width": 1024
+    },
+    "0ca12ceda4a040775254a668b3276cf51108be03fffbde62bc21d44b53f252da": {
+      "format": "JPEG",
+      "header_bytes_decoded": 623,
+      "height": 1024,
+      "width": 1024
+    },
+    "4c9c82eeefaaa8b3b7300561820274c0ff576b47ada9239862f4a295cbdb18b7": {
+      "format": "JPEG",
+      "header_bytes_decoded": 623,
+      "height": 1024,
+      "width": 1024
+    },
+    "6be51c1a5132034427ecabaafa679fcac7c8f95e05a595df69401766b90d7890": {
+      "format": "JPEG",
+      "header_bytes_decoded": 623,
+      "height": 1024,
+      "width": 1024
+    },
+    "7228cb212d5496d80c4d3b4b5ffb61206d2ff1e8a4da739aeb8b137454797c51": {
+      "format": "JPEG",
+      "header_bytes_decoded": 623,
+      "height": 1024,
+      "width": 1024
+    }
+  },
+  "wilds_comparison": {
+    "available_split_image_id_overlaps": {
+      "train:id_test": [
+        "d88963636d49127bda0597ef73f1703e92d6f111caefc44902d5932b8cd3fa94"
+      ]
+    },
+    "bundle_uuid": "0x36e16907b7254571b708b725f8beae52",
+    "dataset_version": "1.1",
+    "is_same_split_as_hf_competition_release": false,
+    "library_commit": "472677590de351857197a9bf24958838c39c272b",
+    "metadata_transport_caveat": "CodaLab certificate verification failed (expired certificate). These public, unauthenticated CSV probes disabled certificate verification. No credentials or images were transmitted; hashes pin the received bytes but do not authenticate them. Revalidate via a trusted transport before freezing a native WILDS experiment.",
+    "missing_native_csvs": [
+      "official_val.csv",
+      "official_test.csv",
+      "fixed_train_val.csv"
+    ],
+    "native_split_audit_complete": false,
+    "split_scheme": "official",
+    "splits": {
+      "id_test": {
+        "annotation_or_domain_differences_from_hf": [],
+        "boxes": 16093,
+        "csv_rows": 357,
+        "csv_sha256": "382a6ad0975170c4c71cab45eb6a54b799fdb6d5b67699382bd488046c2ccb3d",
+        "domains": {
+          "Arvalis_1": 6,
+          "Arvalis_10": 6,
+          "Arvalis_11": 6,
+          "Arvalis_12": 3,
+          "Arvalis_2": 39,
+          "Arvalis_3": 57,
+          "Arvalis_4": 20,
+          "Arvalis_5": 44,
+          "Arvalis_6": 16,
+          "Arvalis_7": 2,
+          "Arvalis_8": 2,
+          "Arvalis_9": 3,
+          "ETHZ_1": 73,
+          "Inrae_1": 17,
+          "NMBU_1": 8,
+          "NMBU_2": 10,
+          "Rres_1": 42,
+          "ULi\u00e8ge-GxABT_1": 3
+        },
+        "duplicate_ids": {},
+        "empty_rows": 4,
+        "hf_split_membership_by_row": {
+          "train": 357
+        },
+        "maximum_boxes_per_row": 108,
+        "rows_exceeding_query_cap": {
+          "100": 1,
+          "128": 0,
+          "200": 0,
+          "300": 0,
+          "500": 0
+        },
+        "unique_image_ids": 357
+      },
+      "train": {
+        "annotation_or_domain_differences_from_hf": [
+          {
+            "coordinates_equal": false,
+            "hf_boxes": 42,
+            "hf_domain": "Arvalis_12",
+            "image_id": "d88963636d49127bda0597ef73f1703e92d6f111caefc44902d5932b8cd3fa94",
+            "wilds_boxes": 25,
+            "wilds_domain": "Arvalis_10"
+          },
+          {
+            "coordinates_equal": false,
+            "hf_boxes": 45,
+            "hf_domain": "Arvalis_12",
+            "image_id": "1961bcf453d5b2206c428c1c14fe55d1f26f3c655db0a2b6a83094476e8edb5b",
+            "wilds_boxes": 14,
+            "wilds_domain": "Arvalis_10"
+          }
+        ],
+        "boxes": 131864,
+        "csv_rows": 2943,
+        "csv_sha256": "efe5eebc03e4db135d2771b0f301e75f3669825c1eb4393ac7a9887cfd79ed74",
+        "domains": {
+          "Arvalis_1": 54,
+          "Arvalis_10": 48,
+          "Arvalis_11": 48,
+          "Arvalis_12": 23,
+          "Arvalis_2": 323,
+          "Arvalis_3": 474,
+          "Arvalis_4": 164,
+          "Arvalis_5": 360,
+          "Arvalis_6": 128,
+          "Arvalis_7": 20,
+          "Arvalis_8": 16,
+          "Arvalis_9": 26,
+          "ETHZ_1": 601,
+          "Inrae_1": 142,
+          "NMBU_1": 66,
+          "NMBU_2": 78,
+          "Rres_1": 348,
+          "ULi\u00e8ge-GxABT_1": 24
+        },
+        "duplicate_ids": {
+          "1961bcf453d5b2206c428c1c14fe55d1f26f3c655db0a2b6a83094476e8edb5b": 2
+        },
+        "empty_rows": 43,
+        "hf_split_membership_by_row": {
+          "train": 2943
+        },
+        "maximum_boxes_per_row": 125,
+        "rows_exceeding_query_cap": {
+          "100": 19,
+          "128": 0,
+          "200": 0,
+          "300": 0,
+          "500": 0
+        },
+        "unique_image_ids": 2942
+      }
+    }
+  },
+  "wilds_official_metric_verification": {
+    "competition_2021_equivalence_claimed": false,
+    "image_loads": 0,
+    "library": "wilds",
+    "model_inference_calls": 0,
+    "native_dataset_eval_synthetic": {
+      "domain_image_counts": [
+        3,
+        1
+      ],
+      "equal_domain_average": 0.5,
+      "image_average": 0.75,
+      "native_constructor_used": true
+    },
+    "source_file_sha256": {
+      "DetectionAccuracy": "4fe677510f6e7e11005e0e73f16189c5a5c8a5664fe126055426dcbe5c873d72",
+      "GlobalWheatDataset": "25948859e68e6cb4759709bc0158db060c5ab0d15aa1a467ac1f41383e7fcc1e"
+    },
+    "synthetic_cases": {
+      "ambiguous_overlap": {
+        "actual": 0.3333333432674408,
+        "expected": 0.3333333333333333
+      },
+      "duplicate_predictions": {
+        "actual": 0.5,
+        "expected": 0.5
+      },
+      "empty_both": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "empty_gt": {
+        "actual": 0.0,
+        "expected": 0.0
+      },
+      "empty_pred": {
+        "actual": 0.0,
+        "expected": 0.0
+      },
+      "exact_iou_half": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "out_of_frame_native_gt": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "repeated_native_gt": {
+        "actual": 0.3333333432674408,
+        "expected": 0.3333333333333333
+      },
+      "score_above_half": {
+        "actual": 1.0,
+        "expected": 1.0
+      },
+      "score_exact_half": {
+        "actual": 0.0,
+        "expected": 0.0
+      }
+    },
+    "torch": "2.14.1",
+    "torch_scatter": "2.1.2",
+    "torchvision": "0.29.1",
+    "version": "2.0.0"
+  }
+}
