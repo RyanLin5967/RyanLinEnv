@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1/addendum-3",
+  "registered_utc": "2026-10-16T22:43:33.621974+00:00",
+  "amends_sha256": "c5e7251b67913e4bca71f248a1d894127188d9bff6c94ab2e554d7d50dcc0abe",
+  "supersedes_addendum_2_sha256": "be2401a7651ffc41fde2c6c2059e059d7af91b46152f1183336702cbbafd8fb8",
+  "refused_attempt_2": {
+    "evidence": "refused-attempt2/driver.log",
+    "result": "Refused before creating guards or starting any stage: live RyanLinEnv processes 47885 (.venv/bin/harbor run), 48866/48881 (docker compose) belonging to the local Harbor dogfood v2. Zero model calls, zero writes."
+  },
+  "change": "The live-process guard exempts only processes whose command line names runs/aircraft-harbor-dogfood-local-v2-plan/ or runs/aircraft-harbor-dogfood-local-v2/. Those host drivers run model work inside the Colima Linux VM, not on MPS. Everything else from addendum-2 is unchanged, including the 30 s survivor grace and the new 43200 s envelope from driver start.",
+  "host_load_disclosure": "The Harbor v2 trial (2 container CPUs in the VM) overlaps the remaining SFT stages, including the equal-active-time stages. Active-time controls carry this added contention, on top of other sessions' host load.",
+  "continuation_driver_sha256": "a8161c4af65aa921897efe01f2c0af8764bc80b036741a0a281e15fdb5071512"
+}
