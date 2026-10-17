@@ -112,9 +112,13 @@ def lr_tag(lr):
 
 
 def processes():
-    """Rows of (pid, ppid, pgid, stat, rss_bytes, command) from ps; no psutil needed."""
+    """Rows of (pid, ppid, pgid, stat, rss_bytes, command) from ps; no psutil needed.
+
+    -ww: piped procps output is otherwise cut at 80 columns, which hid an owner pattern
+    past that width (measured in CI on test_second_owner_refuses).
+    """
     result = subprocess.run(
-        ["ps", "-A", "-o", "pid=,ppid=,pgid=,stat=,rss=,command="],
+        ["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,stat=,rss=,command="],
         capture_output=True, text=True, timeout=30, check=True,
     )
     rows = []
