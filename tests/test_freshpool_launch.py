@@ -87,6 +87,11 @@ def main(argv):
         with groups.open("a") as handle:
             for n, mixed in enumerate(behaviour["live_mixed"]):
                 handle.write(json.dumps({"id": f"g{n}", "mixed": mixed}) + "\\n")
+    if "second_groups_after" in behaviour:
+        time.sleep(behaviour["second_groups_after"])
+        extra = arm / "second" / "reward_groups.jsonl"
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_text("")
     if "spawn" in behaviour:
         child = subprocess.Popen(["sleep", str(behaviour["spawn"])])
         Path(behaviour["pid_file"]).write_text(str(child.pid))
@@ -302,6 +307,9 @@ RETIRED_RECORD = (
 
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
+RL_WRAPPER = ["--output", "{arm_dir}/trainer"]
+SFT_E_TAIL = TRAIN_TAIL + ["--train", "{accepted_manifest}", "--stop-after-steps", "600",
+                           "--max-steps", "1200"]
 
 
 def git(directory, *args):
@@ -425,10 +433,11 @@ class Fixture:
                                         "--manifest", "{split_manifest}"]),
             "p0": template("assay", ["--scan", "{manifest_s_scan_seed42}",
                                      "--adapter", "{w_adapter}"]),
-            "rl150": template("train", TRAIN_TAIL + ["--stop-after-steps", "150"]),
-            "rl600": template("train", TRAIN_TAIL + ["--continue-output-from",
-                                                     "{resume_checkpoint}"]),
-            "sft_e": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"]),
+            "rl150": template("train", RL_WRAPPER + ["--"] + TRAIN_TAIL
+                              + ["--stop-after-steps", "150"]),
+            "rl600": template("train", RL_WRAPPER + ["--continue-output-from",
+                                                     "{resume_checkpoint}", "--"] + TRAIN_TAIL),
+            "sft_e": template("train", ["--output", "{arm_dir}/trainer", "--"] + SFT_E_TAIL),
             "sft_t": template("train", TRAIN_TAIL + [
                 "--train", "{scanned_manifest}", "--continue-from", "{parent_checkpoint}",
                 "--stop-after-active-seconds", "{t_rl}"]),
@@ -586,6 +595,60 @@ def test_plan_declaring_a_resume_command_is_refused(tmp_path, monkeypatch, capsy
     assert launch.main(fixture.argv) == 2
     assert "template_declares_resume_argv" in capsys.readouterr().out
     assert not (tmp_path / "state").exists()
+
+
+@pytest.mark.parametrize("patch, reason", [
+    # rl150/rl600: the wrapper's --output must sit under {arm_dir} so the live tail sees it.
+    ({"rl150": COMMON + ["--"] + TRAIN_TAIL}, "template_output_not_under_arm_dir"),
+    ({"rl150": COMMON + ["--output", "{stage_dir}/trainer", "--"] + TRAIN_TAIL},
+     "template_output_not_under_arm_dir"),
+    ({"rl600": COMMON + ["--output", "{arm_dir}/../elsewhere", "--"] + TRAIN_TAIL},
+     "template_output_not_under_arm_dir"),
+    ({"rl600": COMMON + ["--output", "{arm_dir}x", "--"] + TRAIN_TAIL},
+     "template_output_not_under_arm_dir"),
+    # An --output after the -- reaches the trainer, not the wrapper (which refuses it).
+    ({"rl150": COMMON + ["--", "--output", "{arm_dir}/trainer"] + TRAIN_TAIL},
+     "template_output_not_under_arm_dir"),
+    ({"rl150": COMMON + RL_WRAPPER + TRAIN_TAIL}, "template_missing_wrapper_separator"),
+    # sft_e: --stop-after-steps 600 and --max-steps above 600, both after the --.
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL + ["--max-steps", "1200"]},
+     "sft_e_template_stop_after_steps_not_600"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "150", "--max-steps", "1200"]},
+     "sft_e_template_stop_after_steps_not_600"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600"]}, "sft_e_template_max_steps_not_above_600"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "600"]},
+     "sft_e_template_max_steps_not_above_600"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "{t_rl}"]},
+     "sft_e_template_max_steps_not_above_600"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--stop-after-steps", "600",
+                         "--max-steps", "1200", "--"] + TRAIN_TAIL},
+     "sft_e_template_stop_after_steps_not_600"),
+])
+def test_bad_stage_template_is_refused_at_plan_load(tmp_path, monkeypatch, capsys, patch,
+                                                    reason):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, template_patch={
+        name: {"argv": argv} for name, argv in patch.items()})
+    assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
+    assert not (tmp_path / "state").exists()
+    assert fixture.stages_called() == []
+
+
+def test_stage_template_equals_form_is_accepted(tmp_path, monkeypatch, capsys):
+    """Control for the refusals above: the flag=value spelling passes plan load."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, template_patch={
+        "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + TRAIN_TAIL},
+        "sft_e": {"argv": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+                  + ["--stop-after-steps=600", "--max-steps=601"]}})
+    assert launch.main([*fixture.argv, "--verify-only"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "verified"
 
 
 def run_until_stop(launch, fixture):
@@ -889,6 +952,14 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
      "g0_16_shot_plan_not_retired"),
     ({"decision": "- Proposal: Retired: 16-shot plan (seed 2718, 1,600 images)\n"},
      "g0_16_shot_plan_not_retired"),
+    # The hedge or a missing fact on a wrapped continuation line of the same bullet.
+    ({"decision": "- Retired: the 16-shot plan (seed 2718, 1,600 images,\n"
+                  "  docs/audit.json) - retirement pending review\n"},
+     "g0_16_shot_plan_not_retired"),
+    ({"decision": "- **Retired: the 16-shot plan** (seed 2718,\n  1,600 images); proposed only\n"},
+     "g0_16_shot_plan_not_retired"),
+    ({"decision": "- Retired: the 16-shot plan (seed 2718,\n- 1,600 images)\n"},
+     "g0_16_shot_plan_not_retired"),
     # Pool: 2,919 minus the drops, no drop inside it, H and the scan inside it.
     ({"pool_drops": ["drop0", "drop1"]}, "g0_pool_count_differs"),
     ({"pool": [i for i, _ in H_SELECT + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1605)]
@@ -988,6 +1059,56 @@ def test_unparseable_live_reward_row_stops_the_arm(tmp_path, monkeypatch):
     fixture.write()
     state = run_until_stop(launch, fixture)
     assert state["stop_reason"] == "reward_groups_unparseable"
+    assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
+
+
+def test_retirement_entry_reads_the_whole_wrapped_bullet():
+    launch = load_launch()
+    entries = launch.decision_bullets
+    lines = ["# D11", "- Retired: the 16-shot plan (seed 2718,", "  1,600 images). Done.",
+             "- Other: unrelated", "  continued, pending"]
+    joined = entries(lines)
+    assert joined == ["# D11", "- Retired: the 16-shot plan (seed 2718, 1,600 images). Done.",
+                      "- Other: unrelated continued, pending"]
+    assert launch.retirement_entry(joined[1])
+    # The first physical line alone lacks '1,600 images'; only the joined bullet passes.
+    assert not launch.retirement_entry(lines[1])
+    hedged = entries(lines[:3] + ["  Retirement is pending."])
+    assert not launch.retirement_entry(hedged[1])
+    nested = entries(lines[:3] + ["  - status: pending"])
+    assert nested[1].endswith("- status: pending")
+    assert not launch.retirement_entry(nested[1])
+    assert any(launch.retirement_entry(e) for e in entries(RETIRED_RECORD.splitlines()))
+
+
+def test_second_reward_groups_after_the_first_stops(tmp_path):
+    launch = load_launch()
+    arm = tmp_path / "arm"
+    first = arm / "trainer" / "reward_groups.jsonl"
+    first.parent.mkdir(parents=True)
+    monitor = launch.MixedMonitor(arm)
+    assert monitor.poll() is None and monitor.path is None
+    first.write_text("".join(json.dumps({"mixed": True}) + "\n" for _ in range(5)))
+    assert monitor.poll() is None and monitor.path == first
+    assert monitor.poll() is None  # the same single file, polled again, is not a stop
+    first.open("a").write(json.dumps({"mixed": True}) + "\n")
+    assert monitor.poll() is None and len(monitor.flags) == 6
+    second = arm / "other" / "reward_groups.jsonl"
+    second.parent.mkdir()
+    second.write_text("")
+    assert monitor.poll() == "reward_groups_ambiguous"
+
+
+def test_second_reward_groups_mid_stage_stops_a_live_rl_arm(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {
+        "live_mixed": HOLDS, "second_groups_after": 1.0, "sleep": 30}
+    fixture.write()
+    started = time.monotonic()
+    state = run_until_stop(launch, fixture)
+    assert time.monotonic() - started < 25
+    assert state["stop_reason"] == "reward_groups_ambiguous"
     assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
 
 

@@ -26,7 +26,8 @@ parent's committed seconds for a continuation plus the wall seconds of every voi
 the arm, cumulatively, so neither a continuation nor an interrupt resets them; the rolling
 useful-mixed standing stop (< 40 of any 100 accepted updates), enforced live on RL stages by
 tailing reward_groups.jsonl under the arm directory and again on the fragment; SFT-E must end
-boundary_reached at stop_after_steps 600 so SFT-T can continue it; a survivor-grace check on
+boundary_reached at stop_after_steps 600 so SFT-T can continue it (the sft_e and RL templates
+are checked at plan load, before any stage runs); a survivor-grace check on
 every stage's process group. State is single-use: a stopped or completed study never runs
 again. An interrupted stage is NEVER resumed or quoted (study.json budget_matching.caps):
 ``--resume`` journals its instance as void and re-runs the stage from scratch in a fresh
@@ -306,6 +307,7 @@ def verify_plan(plan_path, expected):
             # study.json budget_matching.caps: an interrupted arm is re-run from scratch,
             # never resumed and quoted, so a plan cannot even declare a resume command.
             raise Stop("template_declares_resume_argv", template=name)
+    verify_stage_templates(templates)
     if type(plan.get("b4_edge_extension")) is not bool:
         raise Stop("b4_edge_extension_not_stated")
     grid = sorted([*GRID, *([B4_LR] if plan["b4_edge_extension"] else [])])
@@ -325,6 +327,55 @@ def verify_plan(plan_path, expected):
     if not isinstance(plan.get("owner_patterns"), list) or not plan["owner_patterns"]:
         raise Stop("owner_patterns_missing")
     return plan, grid, evaluator
+
+
+def flag_values(argv, flag):
+    """Every value given for ``flag`` in ``argv``, as ``flag value`` or ``flag=value``."""
+    values = []
+    for n, part in enumerate(argv):
+        if part == flag:
+            values.append(argv[n + 1] if n + 1 < len(argv) else None)
+        elif isinstance(part, str) and part.startswith(flag + "="):
+            values.append(part[len(flag) + 1:])
+    return values
+
+
+def wrapper_and_trainer(argv):
+    """Split a training template at the wrapper's literal ``--`` (trainer_fragment.py
+    refuses a command without one). None when there is no separator."""
+    if "--" not in argv:
+        return None
+    split = argv.index("--")
+    return argv[:split], argv[split + 1:]
+
+
+def verify_stage_templates(templates):
+    """Checked at plan load, before any stage runs:
+    - rl150/rl600 give the wrapper exactly one ``--output`` under ``{arm_dir}``, so the live
+      useful-mixed tail can see the trainer's reward_groups.jsonl (otherwise the stage would
+      run to completion and only then stop as live_useful_mixed_unmonitored);
+    - sft_e gives the trainer exactly ``--stop-after-steps 600`` and one integer
+      ``--max-steps`` above 600, so SFT-E ends boundary_reached and SFT-T can continue it
+      (otherwise every SFT-E arm would run and stop only at its fragment check)."""
+    for name in ("rl150", "rl600", "sft_e"):
+        parts = wrapper_and_trainer(templates[name]["argv"])
+        if parts is None or not all(isinstance(a, str) for a in templates[name]["argv"]):
+            raise Stop("template_missing_wrapper_separator", template=name)
+    for name in ("rl150", "rl600"):
+        wrapper, _ = wrapper_and_trainer(templates[name]["argv"])
+        outputs = flag_values(wrapper, "--output")
+        target = outputs[0] if len(outputs) == 1 else None
+        if (target is None
+                or not (target == "{arm_dir}" or target.startswith("{arm_dir}/"))
+                or ".." in target.split("/")):
+            raise Stop("template_output_not_under_arm_dir", template=name, output=outputs)
+    _, trainer = wrapper_and_trainer(templates["sft_e"]["argv"])
+    stops, maxes = flag_values(trainer, "--stop-after-steps"), flag_values(trainer, "--max-steps")
+    if stops != [str(FINAL_UPDATES)]:
+        raise Stop("sft_e_template_stop_after_steps_not_600", stop_after_steps=stops)
+    if (len(maxes) != 1 or not isinstance(maxes[0], str) or not maxes[0].isdigit()
+            or int(maxes[0]) <= FINAL_UPDATES):
+        raise Stop("sft_e_template_max_steps_not_above_600", max_steps=maxes)
 
 
 def verify_pins(plan):
@@ -431,11 +482,34 @@ def verify_protocol(path):
         raise Stop("g0_protocol_not_committed")
 
 
-def retirement_entry(line):
-    """True only for an explicit 'Retired:' line naming the seed-2718, 1,600-image 16-shot
-    plan, with no hedge ('not', 'pending', 'proposed', ...)."""
-    return bool(RETIRED_LINE.match(line)) and all(f.search(line) for f in RETIRED_FACTS) and (
-        not RETIRED_HEDGE.search(line))
+HEADING = re.compile(r"^\s*#")
+
+
+def indent(line):
+    return len(line) - len(line.lstrip())
+
+
+def decision_bullets(lines):
+    """Each entry with everything indented deeper than its first line joined onto it:
+    wrapped continuation lines and nested sub-bullets alike, so a hedge anywhere under a
+    bullet is read as part of it. A blank line or a heading ends the entry."""
+    entries, base = [], None
+    for line in lines:
+        if (entries and base is not None and line.strip() and not HEADING.match(line)
+                and indent(line) > base):
+            entries[-1] += " " + line.strip()
+            continue
+        entries.append(line)
+        base = indent(line) if line.strip() and not HEADING.match(line) else None
+    return entries
+
+
+def retirement_entry(entry):
+    """True only for an explicit 'Retired:' entry naming the seed-2718, 1,600-image 16-shot
+    plan, with no hedge ('not', 'pending', 'proposed', ...) anywhere in the whole entry,
+    wrapped continuation lines included."""
+    return bool(RETIRED_LINE.match(entry)) and all(f.search(entry) for f in RETIRED_FACTS) and (
+        not RETIRED_HEDGE.search(entry))
 
 
 def verify_decision_record(path):
@@ -445,7 +519,7 @@ def verify_decision_record(path):
         lines = Path(path).read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         lines = []
-    if not any(retirement_entry(line) for line in lines):
+    if not any(retirement_entry(entry) for entry in decision_bullets(lines)):
         raise Stop("g0_16_shot_plan_not_retired")
     if not git_committed(path):
         raise Stop("g0_decision_record_not_committed")
@@ -521,13 +595,17 @@ class MixedMonitor:
         self.flags = []
 
     def poll(self):
+        # Re-scanned every poll: a second file appearing after the first was found is as
+        # ambiguous as two at once, and is a stop.
+        found = sorted(self.arm_dir.rglob("reward_groups.jsonl"))
+        if len(found) > 1:
+            return "reward_groups_ambiguous"
         if self.path is None:
-            found = sorted(self.arm_dir.rglob("reward_groups.jsonl"))
-            if len(found) > 1:
-                return "reward_groups_ambiguous"
             if not found:
                 return None
             self.path = found[0]
+        elif found != [self.path]:
+            return "reward_groups_ambiguous"
         with self.path.open("rb") as handle:
             handle.seek(self.offset)
             data = handle.read()
