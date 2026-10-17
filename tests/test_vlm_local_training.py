@@ -2160,7 +2160,7 @@ def _optimizer_state(checkpoint):
 
 
 def test_sft_t_continuation_carries_optimizer_state_onto_new_manifest(tmp_path):
-    import torch
+    torch = pytest.importorskip("torch")
 
     parent = tmp_path / "sft-e"
     _seq_sft_run(parent, _E, max_steps=3, save_steps=3)
