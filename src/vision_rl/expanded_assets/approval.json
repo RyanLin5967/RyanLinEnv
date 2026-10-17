@@ -1,0 +1,20 @@
+{
+  "activation": false,
+  "converter_sha256": "32fb29279951733133ade53079020006176cf7be07c970cb780c9fdd1ad775e4",
+  "expansion_seed": 42,
+  "initial_files": {
+    "adapter_config.json": "702fe303ef20f3ddaed9c401fe53799bb0c8c9ca07d6405b5532b7cab868df0c",
+    "adapter_model.safetensors": "15d3f219b860baac840201f05e48e58c346fbc88fb84828cdc1ff16c2e6852e3",
+    "complete.json": "140bd3af3603afe5249f001d89bf7b299cf84471027d4ef9933b591b254c8b87",
+    "expansion_receipt.json": "6cb7a9ba833fe3d14859d4a2329ea95842873eb09e321563812a262c9e976d49"
+  },
+  "kind": "verifier-owned-expanded-initialization-v1",
+  "profile_id": "qwen2vl2b-language-seven-r8-v1",
+  "schema_version": 1,
+  "trusted_files": {
+    "conversion-plan.json": "0aae79eed94991abb24abad4e05474f3c3422836f097827d614496a973413e39",
+    "warm-local-training.json": "d7f2f59664abb2f819d491402e422d6e65cc7ba4c639411758207f1e1077e2be",
+    "warm/adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+    "warm/adapter_model.safetensors": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"
+  }
+}
