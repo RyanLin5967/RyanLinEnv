@@ -99,3 +99,61 @@ diagnostics, never held-out results.
   newest checkpoint.
 - Host cleanup: 4.1 GB of dead-process .tmp files deleted and 8.4 GB of logs gzipped (lossless) in
   another session's /private/tmp scratchpad.
+
+## D11 — Fresh-pool screened GRPO design adopted as an unactivated protocol revision; 16-shot plan retired
+- Superseded by D12 (field list widened; study now committed at `docs/aircraft-freshpool-study-v1.{json,md}`).
+- Design: `aircraft-freshpool-screened-grpo-v1` (study draft `runs/rl-next-study-design-v1/study.{md,json}`,
+  local and gitignored; study.json wins on conflicts). GRPO with just-in-time gold-probability
+  screening on never-trained native-TRAIN images, against the strongest budget-matched, LR-tuned SFT,
+  with EG-SFT reported as a separate mechanism verdict. Label access is train400 ∪ the scanned S
+  candidates (≤29/class): **not a 4-shot claim**; gains from the extra labels are credited to data.
+- Protocol: `docs/aircraft-rl-protocol-freshpool-v1.json` (protocol id
+  `fgvc-aircraft-freshpool-screened-grpo-v1`) revises `docs/aircraft-rl-protocol-candidate-v1.json`
+  only in `data.train_membership`, `data.shots_per_class`, the SFT `selection` rule (N = 600 accepted
+  updates, LR chosen on H-select, every SFT endpoint still in the full-VAL strongest pool) and the
+  added `data.train_holdout` (H-select / H-gate, 200 each). `substantial_gain_gates` and
+  `strong_baseline` are byte-identical to the candidate, asserted by
+  `tests/test_aircraft_protocol_freshpool.py`. UNACTIVATED: root review, the controlled400 native-VAL
+  branch and D_req publication are still G0 prerequisites.
+- **Retired: the unactivated 16-shot prospective TRAIN plan** (seed 2718, 1,600 images,
+  `docs/fgvc-aircraft-audit-2026-10-16.json` `prospective_train_fewshot`). It shares 1,390 of the 2,919
+  fresh-pool IDs (`runs/aircraft-train-screen-review-v1/verification/verification.json`,
+  `additional_risk`), so the H-select/H-gate holdout is clean only while no study trains on it. No
+  study may activate that plan while this protocol's holdout is in use; it was never activated.
+- Honest prior: the three design judges put p(substantial) at 0.08 / 0.06 / 0.05, i.e. **~5–8%**
+  (study lineage; judged, not measured). The study's own pass-all estimate is ≤0.08 (unverified).
+  Most likely outcome is a stop at G2/G3 or a VAL non-pass; that is a valid, reportable result.
+
+## D12 — Root decisions on the freshpool protocol revision (2026-10-17; widens D11's field list)
+- Source: root review of PR #4 (reviewer defects: budget mismatch, VAL-vs-H-select selection,
+  stale scope fields, holdout salt fragility, uncommitted study authority, empty-dict test blind spot).
+- (a) LR, checkpoint and arm selection for RL and SFT uses **H-select only**. Full native VAL is used
+  only for the strongest-SFT pool and the final gates (G4/G5). `evaluation_and_seal.validation` and
+  `test_freeze_before_access` are revised to match. This overrides the study's
+  `protocol_revision.unchanged` listing of `evaluation_and_seal`; study.json is otherwise unchanged.
+- (b) `exposure_and_staging` and `supervised_controls` drop the 400/1,200-presentation budgets for the
+  study's N = 600 accepted updates, the SFT-E / SFT-T / EG-SFT definitions and the 1.25x per-arm caps
+  (capped or interrupted arm re-run from scratch, never quoted). `actor_and_objective`: LR grid
+  1e-5/5e-5/1e-4 selected on H-select, answer-only prompt, one prompt per update.
+- (c) `data.claim_scope`, `data.train_images` and `supervised_controls.scope` now state the study's
+  label access (train400 ∪ S_scanned, ≤29/class; not a 4-shot claim).
+- (d) `data.train_holdout.hash_protocol_id` = `fgvc-aircraft-freshpool-screened-grpo-v1` is a pinned
+  literal salt. `scripts/prepare_aircraft_freshpool.py` reads it (refusing when absent; no fallback to
+  `protocol_id`), so an activated copy under a new id cannot reshuffle H.
+- (e) The study design is committed as `docs/aircraft-freshpool-study-v1.{json,md}` (byte copies of
+  `runs/rl-next-study-design-v1/study.{json,md}`); the protocol pins both by sha256.
+- `substantial_gain_gates` and `strong_baseline` stay byte-identical, asserted by
+  `tests/test_aircraft_protocol_freshpool.py`, whose leaf walk now also sees empty-dict keys.
+
+## D13 — Low review fixes on the freshpool protocol revision (2026-10-17)
+- Source: PR #4 re-review (four LOW defects). `substantial_gain_gates` and `strong_baseline` untouched.
+- Baseline-discovery salt: `strong_baseline.validation_discovery.selection` hashes
+  `[fgvc-aircraft-2013b, protocol_id, baseline-discovery, 791, label, id]`. Its `protocol_id` element is
+  pinned to the literal `fgvc-aircraft-freshpool-screened-grpo-v1` (`revises.baseline_discovery_salt`),
+  not the then-current top-level id, so an activated copy cannot reshuffle the 100-image VAL discovery
+  sample. No discovery run under either id was found (grep over `runs/`, not exhaustive).
+- `supervised_controls.protocol_strongest_pool` narrows `strongest_definition` (kept verbatim): EG-SFT is
+  excluded from the protocol strongest-SFT pool; the pool governs (`revises.strongest_definition_scope`).
+- `resources.storage_proposal.minimum_free_bytes` 10 GiB → 5 GiB (5368709120), the study's standing-stop
+  reserve (addendum-5/6). The stale "V2 reasoning tokens/second" item is dropped from
+  `resources.not_measured`.

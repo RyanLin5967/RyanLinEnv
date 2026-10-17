@@ -1,0 +1,525 @@
+{
+ "study_id": "aircraft-freshpool-screened-grpo-v1",
+ "status": "PRE-REGISTRATION DRAFT, unactivated; needs root review, protocol revision docs/aircraft-rl-protocol-freshpool-v1.json, and an activated frozen copy after controlled400 native-VAL branch resolution; amendments append-only",
+ "authority": "study.json wins over study.md on conflict",
+ "lineage": {
+  "base": "signal: fresh-pool-screened-grpo-v1 (highest judged p_substantial 0.08/0.06/0.05)",
+  "grafted_from_rigor": [
+   "replication Monte Carlo",
+   "D_req branch",
+   "SFT-T within-2pp rule",
+   "1.25x per-arm caps no reset",
+   "VAL-look ledger",
+   "retire 16-shot plan"
+  ],
+  "grafted_from_pivot": [
+   "EG-SFT as separate robust verdict, not comparator redefinition"
+  ]
+ },
+ "measured_facts": {
+  "grpo_s_per_update": {
+   "value": 20.29,
+   "source": "runs/rl-strategy-v2-2026-10-16/options.json"
+  },
+  "sft_s_per_update": {
+   "value": 5.64,
+   "source": "runs/rl-strategy-v2-2026-10-16/options.json"
+  },
+  "greedy_s_per_image": {
+   "value": 0.966,
+   "source": "runs/rl-strategy-v2-2026-10-16/options.json"
+  },
+  "g4_seed_s_per_image": {
+   "value": 3.8125,
+   "source": "122 s / 32 images, runs/aircraft-mechanism32-warm-v1/gate-result.json via runs/aircraft-train-screen-review-v1/review.md"
+  },
+  "rl400_groups": {
+   "all_correct": 193,
+   "all_wrong": 70,
+   "mixed": 137,
+   "source": "runs/rl-strategy-v2-2026-10-16/measurements.json"
+  },
+  "rl400_optimizer": {
+   "every_useful_step_clipped": true,
+   "median_preclip_norm": 3.75,
+   "kl_window_mean_max": 0.0035,
+   "adapter_l2": 0.207,
+   "train32_greedy": "26->27 in-sample",
+   "source": "runs/aircraft-controlled400-diagnosis-v1/report.md"
+  },
+  "fresh_pool": {
+   "images": 2919,
+   "per_class": "28-30",
+   "source": "runs/aircraft-train-screen-review-v1/analysis.json"
+  },
+  "sixteen_shot_overlap": {
+   "value": 1390,
+   "source": "runs/aircraft-train-screen-review-v1/verification/verification.json"
+  },
+  "ppo_ratio_clip_inert": {
+   "value": "epsilon=0.2 with num_iterations=1 -> ratio 1; max_grad_norm=1.0 binds",
+   "source": "src/vision_rl/vlm_local_training.py trainer_kwargs"
+  },
+  "val_endpoint_hours": {
+   "value": 0.9375,
+   "source": "task facts: ~7.5 h for 8 endpoints"
+  }
+ },
+ "hypotheses": {
+  "H1": "Screened fresh-pool GRPO beats strongest budget-matched LR-tuned SFT on native VAL by the unchanged substantial_rl margins",
+  "H2": "Gain survives EG-SFT (expected-gradient reweighting); reported as robust verdict"
+ },
+ "claim_scope": "label access train400 ∪ S_scanned(seed) (<=29/class); not 4-shot; absolute-accuracy gains from extra labels credited to data; W and SFT get equal label access",
+ "protocol_revision": {
+  "new_file": "docs/aircraft-rl-protocol-freshpool-v1.json",
+  "revises": "docs/aircraft-rl-protocol-candidate-v1.json",
+  "changed_fields": {
+   "data.train_membership": "train400 ∪ S candidates scanned by that seed's RL arm (scorer reads every scanned gold label)",
+   "data.shots_per_class": "4 warm + screened stream, <=29",
+   "supervised_controls.strong_answer_only_controls.selection": "N=600 accepted updates; LR selection on H-select; every SFT endpoint enters full-VAL strongest pool",
+   "data.train_holdout": "H-select + H-gate"
+  },
+  "unchanged": [
+   "substantial_gain_gates (byte-identical)",
+   "strong_baseline",
+   "evaluation_and_seal",
+   "strongest_definition"
+  ],
+  "same_commit": "decision-record entry retiring the unactivated 16-shot plan (seed 2718, 1,600 images)"
+ },
+ "data_manifests_to_create": [
+  {
+   "name": "pool",
+   "rule": "native TRAIN − train400 − 15 non-train400 probe16 − pHash drops",
+   "expected_images": 2919
+  },
+  {
+   "name": "phash_audit",
+   "rule": "64-bit DCT pHash, Hamming<=6 (pre-registered, unverified optimal); pool image near-dup of VAL/TEST/train400 -> drop from pool; within-pool pairs straddling H and S -> drop from S",
+   "forced_fire": "planted resized+recompressed copy flagged; 50 random distinct-class pairs not flagged"
+  },
+  {
+   "name": "H_select",
+   "images": 200,
+   "per_class": 2,
+   "rule": "within class, lowest SHA256 of compact JSON [protocol_id,'train-holdout-screen',791,label,id], ranks 1 and 3",
+   "use": "LR selection only (RL and SFT)"
+  },
+  {
+   "name": "H_gate",
+   "images": 200,
+   "per_class": 2,
+   "rule": "same hash, ranks 2 and 4",
+   "use": "G3a/G3b only"
+  },
+  {
+   "name": "S_scan_seed{42,314,2718}",
+   "images": "pool − H (~2,519 before drops)",
+   "rule": "random.Random(seed).shuffle(sorted(ids))"
+  },
+  {
+   "name": "VAL",
+   "images": 3333,
+   "use": "final gates and strongest-SFT selection only"
+  },
+  {
+   "name": "TEST",
+   "images": 3333,
+   "use": "sealed; once at G6"
+  }
+ ],
+ "fixed_profile": {
+  "model": "Qwen2-VL-2B pinned revision, FP32 MPS",
+  "init": "warm adapter f05840be…",
+  "lora": "Q/V r8 alpha 16",
+  "prompt": "answer-only, full 100-label list",
+  "max_tokens": 256,
+  "optimizer": "constant AdamW wd 0, max_grad_norm 1.0, one prompt per update",
+  "grpo": {
+   "G": 4,
+   "temperature": 1.0,
+   "top_p": 1.0,
+   "top_k": 0,
+   "beta": 0.04,
+   "reference": "W",
+   "reward": "exact-EOS canonical",
+   "scale_rewards": "group",
+   "ppo_clip": "inert, not a control"
+  },
+  "screening": {
+   "p": "P(exact gold+EOS) from one teacher-forced forward under current adapter with sampler's exact transforms incl. image-token suppression normalization",
+   "accept": "u(p)=1-p^4-(1-p)^4 >= 0.5, i.e. p in [0.1594, 0.8406]",
+   "journal": [
+    "id",
+    "p",
+    "u",
+    "accepted",
+    "scorer_seconds",
+    "adapter_sha256"
+   ],
+   "alt_tokenization_switch": "if >2% of correct P0 samples are non-canonical tokenizations, sum p over P0-observed tokenizations; frozen before G2"
+  },
+  "N_accepted_updates": 600
+ },
+ "arms": [
+  {
+   "id": "W",
+   "updates": 0,
+   "note": "initial policy and KL reference; controlled400 VAL reused only on exact identity match"
+  },
+  {
+   "id": "RL(lr)",
+   "lrs": [
+    1e-05,
+    5e-05,
+    0.0001
+   ],
+   "updates": 600,
+   "data": "accepted IDs of S_scan",
+   "selection": "seed 42: all 3 to 150; top-2 by H-select sampled macro continue (no reset) to 600; RL* = H-select best at 600; replicates freeze RL* LR"
+  },
+  {
+   "id": "SFT-E(lr)",
+   "lrs": [
+    1e-05,
+    5e-05,
+    0.0001
+   ],
+   "updates": 600,
+   "data": "RL* accepted sequence, same order",
+   "match": "exposure"
+  },
+  {
+   "id": "SFT-T(lr)",
+   "lrs": "every lr within 2.0 pp (H-select sampled) of best SFT-E",
+   "updates": "continue SFT-E without reset to T_RL",
+   "data": "RL* full scanned sequence (accepted+rejected), scan order, cycling",
+   "match": "active time and label access"
+  },
+  {
+   "id": "EG-SFT",
+   "lr": "H-select-best SFT-E lr",
+   "updates": 600,
+   "data": "RL* accepted sequence",
+   "loss": "SFT loss × stopgrad[w4(p)/w4(0.5)], w4 enumerated exactly over k=0..4 under TRL group-std advantage incl eps",
+   "role": "mechanism control; robust verdict only, not in protocol pool"
+  }
+ ],
+ "strongest_sft": {
+  "protocol_verdict_pool": [
+   "W",
+   "SFT-E x3",
+   "SFT-T (all qualifying)",
+   "all VAL-evaluated controlled400 SFT endpoints",
+   "B4 edge-extension LR if added"
+  ],
+  "robust_verdict_pool": "protocol pool + EG-SFT",
+  "selection": "max full-VAL mean-class accuracy; protocol tie rules"
+ },
+ "budget_matching": {
+  "exposure": "SFT-E and EG-SFT: exactly RL*'s 600 accepted presentations/updates in order",
+  "active_time": "SFT-T to T_RL = checkpoint-bound cumulative committed active seconds incl. scorer forwards for all candidates, generation, reward, reference, backward; setup/eval/IO logged separately",
+  "label_access": "SFT-T sees every scanned label",
+  "tuning": "RL and SFT share one LR grid, both selected on H-select; tuning cost reported per family (RL ~8.3 h vs SFT-E ~2.8 h, unverified)",
+  "caps": "1.25x forecast active seconds per arm, no reset on resume; capped/interrupted arm re-run from scratch, never quoted"
+ },
+ "gates": [
+  {
+   "id": "G0",
+   "when": "before any model run",
+   "pass": [
+    "manifests hashed",
+    "pHash audit with forced fire passing",
+    "protocol revision committed",
+    "16-shot plan retired",
+    "controlled400 branch resolved and published",
+    "D_req published"
+   ],
+   "fail": "do not launch"
+  },
+  {
+   "id": "E0",
+   "when": "before any fit",
+   "pass": [
+    "protocol real_learning_and_resume_gate on MPS with screened sampler: 4 uninterrupted vs 2+2 and 1+3 identical scan position, journal, tokens, rewards, adapter bytes",
+    "reference unchanged",
+    "finite nonzero task gradient",
+    "sampler-teacher logprob agreement <=0.001 and scorer uses same transform"
+   ],
+   "fail": "engineering fix and rerun, charged to engineering"
+  },
+  {
+   "id": "G1",
+   "when": "seed 42 at W",
+   "work": "score first 400 S candidates; G4 at seeds 42,314 on 64 of them",
+   "pass": [
+    "acceptance a>=0.30",
+    "predicted mean u among accepted >=0.60",
+    "observed useful-mixed fraction on 64 within ±0.10 of p-prediction",
+    "valid>=0.90",
+    "EOS>=0.95",
+    "scorer<=2.0 s/candidate"
+   ],
+   "report": "non-canonical tokenization share",
+   "fail": "stop: no-go"
+  },
+  {
+   "id": "G2",
+   "label": "futility, not evidence",
+   "when": "RL 3 LRs at 150",
+   "pass": [
+    "best RL H-select sampled macro Δ vs W > 0",
+    "invalid <= W+2",
+    "adapter changed",
+    "reference unchanged",
+    "rolling useful-mixed >=0.6"
+   ],
+   "fail": "stop"
+  },
+  {
+   "id": "G3a",
+   "when": "RL* and SFT-E done",
+   "split": "H-gate, greedy + G4 seeds 42,314",
+   "pass": [
+    "RL* − SFT-E* (H-select best) >= +0.02 sampled macro (+0.05 in mechanism mode)",
+    "RL* − W one-sided 90% paired LB > 0",
+    "validity/EOS held"
+   ],
+   "fail": "stop before SFT-T and VAL"
+  },
+  {
+   "id": "G3b",
+   "when": "SFT-T done",
+   "split": "H-gate",
+   "pass": [
+    "RL* − SFT-T* (H-select best) >= +0.02 (+0.05 in mechanism mode)"
+   ],
+   "fail": "stop before VAL"
+  },
+  {
+   "id": "G4",
+   "when": "seed 42 VAL",
+   "pass": "protocol substantial_rl unchanged: acc>=0.80; >=+0.05 vs W; >=+0.05 vs strongest SFT; rel. error reduction>=0.20; paired 95% class-stratified LB>0",
+   "verdicts": [
+    "protocol (protocol pool)",
+    "robust (pool + EG-SFT)"
+   ],
+   "fail": "substantial claim FAILED; publish all endpoints"
+  },
+  {
+   "id": "G5",
+   "when": "seeds 314,2718 only if G4 passes",
+   "pass": "protocol replication rule unchanged; per-seed strongest SFT = SFT-E and SFT-T for every LR within 2 pp of seed-42 best on H-select, plus W",
+   "fail": "FAILED; publish all seeds"
+  },
+  {
+   "id": "G6",
+   "when": "once, only if G4 and G5 pass",
+   "work": "TEST for seed-42 RL*, strongest SFT, W; 27B named baseline per protocol strong_baseline unchanged"
+  }
+ ],
+ "standing_stops": [
+  "rolling accepted useful-mixed fraction <0.40 over any 100 accepted updates",
+  "scan exhausts S before N=600",
+  "NaN or reference hash change",
+  "arm hits 1.25x cap",
+  "disk guard (addendum-5 5 GiB reserve, addendum-6 semantics), RSS guard, MPS-driver guard",
+  "second MPS owner"
+ ],
+ "no_retrospective_changes": "No threshold, margin, seed, N or grid change after any output is seen; every failure kept",
+ "power": {
+  "val_paired_se_pp": "0.55-0.95 (rigor design, psi 0.10-0.30, unverified)",
+  "required_delta": "D_req = max(0.05, 0.2(1-a_SFT), 0.80-a_SFT): 0.05 at a>=0.75, 0.10 at 0.70, 0.15 at 0.65",
+  "replication_mc": "pass 0.35 at true 5 pp; 0.82/0.69 at true 7 pp for sigma 2/3 pp (rigor design; sigma unverified; shared warm init omits warm-start variance)",
+  "h_gate": "SE RL−SFT ~2.0-2.7 pp (rigor 1.4-1.9 pp at n=400 × sqrt2, unverified); null pass ~0.20, true 6.5 pp pass ~0.97; no winner's curse because selection on H-select",
+  "expected_effect_unverified": {
+   "rl_minus_w_pp": [
+    2,
+    8
+   ],
+   "rl_minus_strongest_sft_pp": [
+    -4,
+    4
+   ],
+   "p_pass_all": "<=0.08"
+  }
+ },
+ "branches_on_controlled400_val": {
+  "definition": "a* = max VAL accuracy over controlled400 W and SFT endpoints",
+  "B0": "W interface failure (valid EOS<0.95 or evaluator refusal) -> do not launch",
+  "B1": "W VAL outside [0.15,0.85] -> do not launch",
+  "B2": "publish D_req(a*) (lower bound). If D_req>0.10 (a*<0.70): mechanism mode (G3a/G3b require >=+0.05; replicates only if seed 42 passes every G4 point gate). Else full mode",
+  "B3": "all controlled400 SFT endpoints enter strongest-SFT pool (no new VAL looks)",
+  "B4": "best controlled400 answer-SFT LR = 1e-4 -> add 2e-4 to BOTH RL and SFT grids (+3.33 h, unverified)",
+  "B5": "W identity match -> reuse W VAL; else +0.94 h",
+  "B6": "RL400 VAL reported as stale-pool reference; RL*−RL400 never reported as pool effect",
+  "invariant": "no branch alters margins, seeds, TEST rules or strongest-SFT definition"
+ },
+ "compute_plan_mps_hours": {
+  "assumptions": "extrapolated, unverified: a=0.5, scorer 0.97 s -> 22.23 s per accepted RL update; T_RL=13,338 s; VAL 0.9375 h/endpoint; H-select eval 0.265 h (200 img greedy+1 G4 seed); H-gate eval 0.477 h (greedy+2 seeds)",
+  "seed42_steps": [
+   {
+    "step": "E0 resume/real-update gate (engineering ledger)",
+    "h": 2.0,
+    "cum": 2.0
+   },
+   {
+    "step": "P0 -> G1",
+    "h": 0.99,
+    "cum": 2.99
+   },
+   {
+    "step": "RL screen 3x150 + H-select x3 -> G2",
+    "h": 3.58,
+    "cum": 6.56
+   },
+   {
+    "step": "RL top-2 to 600 + H-select x2",
+    "h": 6.09,
+    "cum": 12.65
+   },
+   {
+    "step": "SFT-E x3 + H-select x3",
+    "h": 3.62,
+    "cum": 16.27
+   },
+   {
+    "step": "H-gate RL*, SFT-E* -> G3a",
+    "h": 0.96,
+    "cum": 17.22
+   },
+   {
+    "step": "SFT-T x2 + H-select x2 + H-gate -> G3b",
+    "h": 6.54,
+    "cum": 23.76
+   },
+   {
+    "step": "EG-SFT + H-gate",
+    "h": 1.42,
+    "cum": 25.18
+   },
+   {
+    "step": "VAL x7 (W reused) -> G4",
+    "h": 6.56,
+    "cum": 31.74
+   }
+  ],
+  "seed42_total": 31.74,
+  "early_stop_costs": {
+   "G1": 2.99,
+   "G2": 6.56,
+   "G3a": 17.22,
+   "G3b": 23.76
+  },
+  "replicate_per_seed": {
+   "two_sft_lrs": 17.68,
+   "one_sft_lr": 12.1
+  },
+  "test": 2.81,
+  "full_conditional_total": {
+   "two_sft_lrs": 69.9,
+   "one_sft_lr": 54.8,
+   "B4_extra": 3.33
+  },
+  "resources": "single MPS owner, serial; save_total_limit 3; 5 GiB disk reserve; resume state runs/aircraft-freshpool-v1/state.json before every stage; GitHub runners only for CPU contract tests"
+ },
+ "reporting": [
+  "commit raw outputs before interpretation",
+  "RL−W and RL−strongest SFT separately; shared gains are SFT/data gains",
+  "both G4 verdicts; if EG-SFT >= RL* on VAL, state no evidence beyond reweighting",
+  "full candidate journal and acceptance drift",
+  "per-arm KL, adapter L2, pre-clip norm distribution, clip fraction",
+  "per-class Δ for Gulfstream IV/V, E-190/E-195, 737-500/600",
+  "p≈0 classes reported unreachable by RL",
+  "VAL-look ledger per contender",
+  "H pass = native-TRAIN development evidence only"
+ ],
+ "implementation_work_list": [
+  {
+   "file": "scripts/prepare_aircraft_freshpool.py",
+   "new": true,
+   "work": "pool, H-select, H-gate, per-seed S scan manifests with SHA256; numpy/PIL DCT pHash audit and drop list"
+  },
+  {
+   "file": "tests/test_aircraft_freshpool_manifests.py",
+   "new": true,
+   "work": "hand-built fixtures with expected IDs; planted near-duplicate forced fire and no-spurious-fire"
+  },
+  {
+   "file": "src/vision_rl/vlm_local_training.py",
+   "work": [
+    "gold_probability(): summed gold+EOS logprob under sampler transforms (from _gold_nll collator path)",
+    "_ScreenedRepeatSampler via _get_train_sampler override in _trainer_with_grpo_resume: lazy live-policy scoring, yields accepted index G times, journal, resume of scan position",
+    "scorer seconds charged in _ActiveStepTimer/_ExposureLedger",
+    "SFT order='sequential' and cycle options",
+    "mode='egsft' with exact w4 enumeration",
+    "train_local params screen_journal, screen_threshold=0.5, target_accepted=600; refuse on scan exhaustion"
+   ]
+  },
+  {
+   "file": "tests/test_vlm_local_training.py",
+   "work": [
+    "scorer p vs empirical exact-match frequency over 2,000 samples within 3 SE (tiny CPU model)",
+    "planted all-correct and all-wrong rejected, mixed accepted",
+    "screened resume byte-identical",
+    "w4 enumeration vs Monte Carlo",
+    "EG-SFT weight carries no gradient",
+    "alt-tokenization sum"
+   ],
+   "rule": "expected values from fixtures, never from the subject"
+  },
+  {
+   "file": "runs/aircraft-freshpool-launch-v1/{launch.py,phase_worker.py}",
+   "new": true,
+   "work": "modelled on runs/aircraft-controlled400-launch-v1; stage sequencing, gate checks G1-G3b, 1.25x caps, resume state; reuse its guards/"
+  },
+  {
+   "file": "scripts/evaluate_freshpool_gates.py",
+   "new": true,
+   "work": "H-select selection, G2-G6, both G4 verdicts, D_req"
+  },
+  {
+   "file": "tests/test_evaluate_freshpool_gates.py",
+   "new": true,
+   "work": "hand-computed fixtures"
+  },
+  {
+   "file": "runs/aircraft-freshpool-native-val-v1/",
+   "new": true,
+   "work": "clone of runs/aircraft-native-val-activation-v1 refrozen at new trainer commit; endpoint identities; compare step including controlled400 SFT endpoints"
+  },
+  {
+   "file": "docs/aircraft-rl-protocol-freshpool-v1.json",
+   "new": true,
+   "work": "protocol revision per protocol_revision"
+  },
+  {
+   "file": "docs decision record",
+   "work": "retire 16-shot plan; record this study's activation decision"
+  }
+ ],
+ "not_used": [
+  "expanded LoRA (open P1 D1/D3/D4, runs/aircraft-expanded-lora-v2-integration/claude-review-v1/review.md)",
+  "G8",
+  "generate-then-reject dynamic sampling",
+  "BF16",
+  "reasoning prompts",
+  "hierarchical credit",
+  "confusable-pair curriculum"
+ ],
+ "judge_flaw_fixes": {
+  "H reused for selection and gating": "H split 200/200: H-select for all LR choices, H-gate for G3 only",
+  "RL LR chosen at 150, not re-checked": "top-2 continue to 600; RL* chosen at 600",
+  "replicate SFT weaker": "every LR within 2 pp at E and T per seed",
+  "N/T_RL data-dependent": "N fixed 600 accepted; exhaustion = stop; G1 a>=0.30",
+  "SFT-acc excludes p≈0 images": "SFT-T on full scanned set; G3b vs SFT-T before VAL",
+  "train_membership scope change": "new protocol id; gates byte-identical; data gains credited to data",
+  "p lower bound under alt tokenizations": "P0 measurement + pre-registered sum switch + test",
+  "inert ratio clip": "stated inert; shared max_grad_norm; pre-clip norms reported",
+  "RL under-tuned (pivot)": "same 3-LR grid both families; symmetric B4 edge",
+  "EG-SFT redefines comparator": "separate robust verdict",
+  "early gate without causal content": "G2 labelled futility; G3a/G3b vs SFT",
+  "0.80 gate may be infeasible": "D_req published at G0; B2 mechanism mode",
+  "no resume gate for new sampler": "E0, 2 h engineering"
+ }
+}
