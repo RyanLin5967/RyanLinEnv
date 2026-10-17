@@ -167,3 +167,8 @@ diagnostics, never held-out results.
 - envelope-1 halted with 0 invocations: ~/.claude/QUIET exists (turned on 23:49 when Ryan asked for quieter fans; later "a BIT loud is fine").
 - envelope-2 runs with --quiet-mode-rationale (journalled): one moderate GPU job is within the fan request; chunk python processes measured ~24% CPU in the continuation, below the fan-guard 40% demotion line, and the evaluator 120 s/image cap is ~100x the measured ~1 s/image.
 - envelope-2 disk reserve 5 GiB via --minimum-free-bytes (shared host disk sits at 11-12 GiB; evaluation outputs capped at 2 GiB), matching continuation addendum-5. Evaluator, plan, arms, budgets and the 24 h/512-invocation caps are unchanged. Supervisor copy used for envelope-1 is kept at supervision/supervise_chunks.envelope-1.py.
+
+## D16 — native VAL envelope-2 halted by my own G0 run (between chunks; nothing lost)
+- envelope-2 completed chunk 1 (arm common, 128 images, exit 0), then halted before chunk 2 with accelerator_owner_live: the guard saw my concurrent CPU-only G0 manifest run (scripts/prepare_aircraft_freshpool.py) as a possible second accelerator owner. Halt was between chunks: no reservation left unknown. Root error, not a guard defect.
+- envelope-3 resumes with identical flags; evaluator invocation count and 24 h wall budget carry over (never reset). Rule while VAL runs: no other RyanLinEnv python process.
+- G0 (runs/aircraft-freshpool-g0-v1, TEST pHashes 3333/3333 digest-verified, 0 model calls): pool 2919 -> 2429 after audit (490 near-duplicate drops), S=2027. The drop count is far above the design assumption and is under review before any launch.
