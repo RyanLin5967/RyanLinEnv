@@ -162,3 +162,8 @@ diagnostics, never held-out results.
 - Continuation envelope (addendum-6) completed: all 8 endpoints published, equal active time 8116-8118 s per arm.
 - TRAIN32 (in-sample) greedy/sampled: warm 26/0.707, RL400 27/0.730, SFT-time 1e-5 29/0.879, 5e-5 30/0.938, 1e-4 30/0.934. SFT memorizes TRAIN far better than RL at equal time; this is not a held-out result.
 - Native VAL eight-endpoint evaluation activated (activation sha c9557c70..., bundle plan cf871cfb...; copies in docs/aircraft-native-val-activation-v1/). Next: supervise_chunks envelope-1, no TEST.
+
+## D15 — Native VAL envelope-2 operating choices (before any VAL call)
+- envelope-1 halted with 0 invocations: ~/.claude/QUIET exists (turned on 23:49 when Ryan asked for quieter fans; later "a BIT loud is fine").
+- envelope-2 runs with --quiet-mode-rationale (journalled): one moderate GPU job is within the fan request; chunk python processes measured ~24% CPU in the continuation, below the fan-guard 40% demotion line, and the evaluator 120 s/image cap is ~100x the measured ~1 s/image.
+- envelope-2 disk reserve 5 GiB via --minimum-free-bytes (shared host disk sits at 11-12 GiB; evaluation outputs capped at 2 GiB), matching continuation addendum-5. Evaluator, plan, arms, budgets and the 24 h/512-invocation caps are unchanged. Supervisor copy used for envelope-1 is kept at supervision/supervise_chunks.envelope-1.py.
