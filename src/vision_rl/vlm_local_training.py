@@ -1177,6 +1177,14 @@ class _ScreenedScan:
     the candidates scored by completed updates; their accepted IDs must equal the
     committed prompt exposure. Scoring uses no RNG, so a resumed scan rescoring
     discarded candidates under the restored adapter reproduces the same decisions.
+
+    Canonical lineage: the physical `screen_journal` jsonl is append-only and also holds
+    candidates scored in spans a resume later discarded and rescored. Acceptance rate,
+    scorer seconds per candidate and every other G1 quantity must be computed from the
+    checkpoint's `screen.json` entries (read them with `committed_screen_entries`), never
+    from the raw jsonl. `scorer_seconds` times only the gold-probability forward; the
+    adapter hash that labels the update is timed separately as `adapter_hash_seconds` and
+    excluded from active time like other audit IO.
     """
 
     def __init__(
@@ -1247,12 +1255,17 @@ class _ScreenedScan:
             raise LocalVLMError("screen scoring must run inside a committed active optimizer step")
         if len(self.accepted_ids) >= self.target_accepted:
             raise LocalVLMError("screen already reached its fixed accepted-update target")
+        # Every candidate of one update is scored under the same adapter: hash it once,
+        # outside the scorer span, as audit overhead rather than scorer or active time.
+        with self.timer.exclude_journal_io() if self.timer is not None else nullcontext():
+            hash_started = time.monotonic()
+            adapter = self.adapter_identity(model)
+            hash_seconds = time.monotonic() - hash_started
         while self.position < len(self.ids):
             index = self.position
             self._sync()
             started = time.monotonic()
             probability = float(self.score(model, index))
-            adapter = self.adapter_identity(model)
             self._sync()
             seconds = time.monotonic() - started
             if not math.isfinite(probability) or not 0 <= probability <= 1:
@@ -1267,8 +1280,10 @@ class _ScreenedScan:
                 "global_step": global_step,
                 "adapter_sha256": adapter,
                 "scorer_seconds": seconds,
+                "adapter_hash_seconds": hash_seconds,
                 "invocation_id": self.invocation_id,
             }
+            hash_seconds = 0.0  # charged once, to the update's first candidate
             self.entries.append(entry)
             if self.timer is not None:
                 self.timer.charge_scorer(seconds)
@@ -1299,6 +1314,21 @@ class _ScreenedScan:
         if self.accepted_ids != [entry["id"] for entry in exposure_entries]:
             raise LocalVLMError("screen accepted sequence differs from committed prompt exposure")
         _write(Path(checkpoint) / "screen.json", self.state())
+
+
+def committed_screen_entries(checkpoint: Path) -> list[dict]:
+    """The canonical screen journal: entries committed by a verified checkpoint.
+
+    Use this, not the physical jsonl, for acceptance a and scorer cost: the jsonl also
+    holds candidates from discarded spans that a resume rescored.
+    """
+    checkpoint = Path(checkpoint)
+    saved = json.loads((checkpoint / "active_time.json").read_text())
+    if "screen_sha256" not in saved or _file_sha256(checkpoint / "screen.json") != saved[
+        "screen_sha256"
+    ]:
+        raise LocalVLMError("checkpoint screen state is not bound to its active-time marker")
+    return json.loads((checkpoint / "screen.json").read_text())["entries"]
 
 
 def _sampler_parity(trainer, processor, row, spec, profile, device) -> dict:
@@ -1492,21 +1522,33 @@ def _load_active_time(
         and _file_sha256(checkpoint / "screen.json") != saved["screen_sha256"]
     ):
         raise LocalVLMError("checkpoint screen identity differs")
+    if ("egsft_sha256" in saved) != (checkpoint / "egsft.json").is_file() or (
+        "egsft_sha256" in saved
+        and _file_sha256(checkpoint / "egsft.json") != saved["egsft_sha256"]
+    ):
+        raise LocalVLMError("checkpoint EG-SFT weight identity differs")
     return saved
 
 
 class _ExposureLedger:
     """Actual execution events; checkpoint ancestry selects committed presentations."""
 
-    def __init__(self, output, allowed_ids, resume_state=None):
+    def __init__(self, output, allowed_ids, resume_state=None, *, inherited=None):
+        """`inherited`: a continuation parent's committed entries, which must prefix the
+        lineage verbatim; they were checked against the parent's TRAIN, not this one."""
         self.output = Path(output)
         self.allowed = set(allowed_ids)
         self.invocation_id = str(time.time_ns())
         self.entries = list((resume_state or {}).get("entries", []))
         self.pending = None
         self.target_step = None
+        inherited = list(inherited or [])
+        if self.entries[: len(inherited)] != inherited:
+            raise LocalVLMError("exposure lineage does not start with the continuation parent's")
         for step, entry in enumerate(self.entries, 1):
-            if entry["global_step"] != step or entry["id"] not in self.allowed:
+            if entry["global_step"] != step or (
+                step > len(inherited) and entry["id"] not in self.allowed
+            ):
                 raise LocalVLMError("checkpoint exposure sequence differs from TRAIN identity")
 
     def begin(self, step):
@@ -1570,8 +1612,14 @@ def _trainer_with_egsft(
     tokenizations=None,
     labels_by_id=None,
     journal_io_context=None,
+    resume_state=None,
 ):
     """EG-SFT: completion-only SFT loss times stopgrad[w_G(p) / w_G(0.5)].
+
+    Rows carry an invocation_id. The physical `journal` is append-only and keeps rows
+    of steps a resume later discarded and re-ran; the canonical weights are the
+    checkpoint's `egsft.json` (one row per committed global step, hash-bound by the
+    active-time marker), restored from `resume_state` on resume.
 
     p is the screen's gold probability, computed without gradient on the identical
     collated batch. Released TRL's SFT forward is fused and returns only label
@@ -1579,8 +1627,28 @@ def _trainer_with_egsft(
     takes one extra no-grad teacher-forced forward rather than reusing that one.
     """
     torch = import_module("torch")
+    invocation_id = str(time.time_ns())
+    committed = list((resume_state or {}).get("entries", []))
+    if (resume_state is not None and resume_state.get("schema_version") != 1) or [
+        row["global_step"] for row in committed
+    ] != list(range(1, len(committed) + 1)):
+        raise LocalVLMError("checkpoint EG-SFT weights are not one row per committed step")
 
     class ExpectedGradientTrainer(base):
+        _vision_rl_egsft_entries = committed
+
+        def _save_checkpoint(self, model, trial):
+            super()._save_checkpoint(model, trial)
+            step = self.state.global_step
+            rows = [row for row in self._vision_rl_egsft_entries if row["global_step"] <= step]
+            if [row["global_step"] for row in rows] != list(range(1, step + 1)):
+                raise LocalVLMError("EG-SFT weights do not cover every committed step once")
+            # Written before the callbacks' on_save, so the active-time marker binds it.
+            _write(
+                Path(self.args.output_dir) / f"checkpoint-{step}" / "egsft.json",
+                {"schema_version": 1, "entries": rows},
+            )
+
         def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
             identifier = getattr(self, "_vision_rl_prompt_id", None)
             label = None
@@ -1603,19 +1671,19 @@ def _trainer_with_egsft(
             loss = loss * torch.tensor(weight, dtype=loss.dtype, device=loss.device)
             if loss.requires_grad is False and torch.is_grad_enabled():
                 raise LocalVLMError("EG-SFT loss lost its gradient path")
+            row = {
+                "global_step": self.state.global_step + 1,
+                "id": identifier,
+                "p": probability,
+                "weight": weight,
+                "invocation_id": invocation_id,
+            }
+            if torch.is_grad_enabled():
+                # Checkpoint save refuses anything but one row per committed step.
+                self._vision_rl_egsft_entries.append(row)
             with journal_io_context() if journal_io_context else nullcontext():
                 with Path(journal).open("a", encoding="utf-8") as handle:
-                    handle.write(
-                        json.dumps(
-                            {
-                                "global_step": self.state.global_step + 1,
-                                "id": identifier,
-                                "p": probability,
-                                "weight": weight,
-                            }
-                        )
-                        + "\n"
-                    )
+                    handle.write(json.dumps(row) + "\n")
             return (loss, outputs) if return_outputs else loss
 
     return ExpectedGradientTrainer
@@ -1741,6 +1809,11 @@ class _ActiveStepTimer:
                 **(
                     {"screen_sha256": _file_sha256(checkpoint / "screen.json")}
                     if (checkpoint / "screen.json").is_file()
+                    else {}
+                ),
+                **(
+                    {"egsft_sha256": _file_sha256(checkpoint / "egsft.json")}
+                    if (checkpoint / "egsft.json").is_file()
                     else {}
                 ),
             },
@@ -2341,6 +2414,112 @@ def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None)
     return receipt
 
 
+CONTINUATION_SCOPE = (
+    "SFT-T: continue a verified SFT checkpoint's adapter, optimizer, scheduler, RNG, global "
+    "step and committed active time without reset, on a declared different TRAIN manifest "
+    "replayed sequentially from its first row at the parent's next global step"
+)
+_CONTINUATION_SETTINGS = (
+    "mode",
+    "learning_rate",
+    "beta",
+    "seed",
+    "device",
+    "probe",
+    "train_only",
+    "init_adapter",
+    "initial_adapter_precision_transfer",
+)
+_CONTINUATION_FILES = ACTIVE_CHECKPOINT_FILES + (
+    "rng_state.pth",
+    "exposure.json",
+    "active_time.json",
+)
+
+
+def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: dict) -> dict:
+    """Verify an SFT parent checkpoint and record the declared TRAIN identity change.
+
+    Everything except TRAIN must match the parent's control identity and optimizer
+    settings; TRAIN must differ (an unchanged TRAIN is a resume, not a continuation).
+    The record binds the parent's old identity, the new manifest identity and the
+    hashes of every restored state file, so the change is never silent.
+    """
+    checkpoint = Path(parent_checkpoint).resolve()
+    if any(not (checkpoint / name).is_file() for name in _CONTINUATION_FILES):
+        raise ValueError("continuation requires a complete SFT checkpoint with time/exposure")
+    if settings["device"] == "mps" and not (checkpoint / "mps_rng_state.pth").is_file():
+        raise ValueError("MPS continuation requires the parent's mps_rng_state.pth")
+    parent = json.loads((checkpoint.parent / "local_training.json").read_text())
+    old, previous = parent["control_identity"], parent["settings"]
+    if previous.get("continuation") is not None:
+        raise ValueError("continuation parent must be an uncontinued SFT run")
+    if any(previous.get(key) != settings[key] for key in _CONTINUATION_SETTINGS) or (
+        settings["mode"] != "sft"
+    ):
+        raise ValueError("continuation must keep the parent's SFT optimizer settings")
+    if {k: v for k, v in old.items() if k != "train"} != {
+        k: v for k, v in identity.items() if k != "train"
+    }:
+        raise ValueError("continuation may change only the TRAIN manifest identity")
+    if old["train"] == identity["train"]:
+        raise ValueError("continuation TRAIN equals the parent's; use resume_from_checkpoint")
+    active = _load_active_time(checkpoint, previous["max_active_seconds"], allow_exhausted=True)
+    exposure = json.loads((checkpoint / "exposure.json").read_text())
+    if [entry["global_step"] for entry in exposure["entries"]] != list(
+        range(1, active["global_step"] + 1)
+    ):
+        raise LocalVLMError("continuation parent exposure differs from its global step")
+    return {
+        "scope": CONTINUATION_SCOPE,
+        "parent_output": str(checkpoint.parent),
+        "parent_checkpoint": checkpoint.name,
+        "parent_global_step": active["global_step"],
+        "parent_committed_active_seconds": active["committed_active_seconds"],
+        "parent_control_identity_sha256": _object_sha256(old),
+        "parent_settings_sha256": _object_sha256(previous),
+        "parent_train": old["train"],
+        "train": identity["train"],
+        "parent_checkpoint_file_sha256": {
+            name: _file_sha256(checkpoint / name) for name in _CONTINUATION_FILES
+        },
+        "reset": {"adapter": False, "optimizer": False, "scheduler": False, "rng": False},
+        "data_start": "TRAIN row 0 at global step parent_global_step + 1, sequential, cycling",
+    }
+
+
+def _trainer_with_continuation(base, parent_global_step: int):
+    """Replay the new TRAIN from row 0 at the parent's next step, across resumes.
+
+    Trainer fast-forwards a resumed dataloader to position global_step mod L. Rotating
+    the sequential order by the parent's step maps that position to row
+    (global_step - parent_global_step) mod L: row 0 first, then cycling.
+    """
+    torch = import_module("torch")
+
+    class _RotatedSequentialSampler(torch.utils.data.Sampler):
+        def __init__(self, length):
+            self.length = length
+
+        def __iter__(self):
+            return iter((i - parent_global_step) % self.length for i in range(self.length))
+
+        def __len__(self):
+            return self.length
+
+    class ContinuationTrainer(base):
+        def _get_train_sampler(self, dataset=None):
+            native = super()._get_train_sampler(dataset)
+            if not isinstance(native, torch.utils.data.SequentialSampler) or (
+                self.args.per_device_train_batch_size * self.args.gradient_accumulation_steps
+                != 1
+            ):
+                raise LocalVLMError("continuation requires sequential one-row updates")
+            return _RotatedSequentialSampler(len(native))
+
+    return ContinuationTrainer
+
+
 def train_local(
     train: Path,
     validation: Path | None,
@@ -2373,6 +2552,7 @@ def train_local(
     screen_threshold: float = 0.5,
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
+    continue_from_checkpoint: Path | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -2382,6 +2562,13 @@ def train_local(
     manifest in file order: each update takes the next candidate whose live-policy
     u(p) >= `screen_threshold`, for exactly `target_accepted` updates, and refuses
     when the scan is exhausted first.
+
+    `continue_from_checkpoint` (SFT-T) continues a different, completed-or-checkpointed
+    SFT run's checkpoint without resetting optimizer/scheduler/RNG/step/active time, on
+    this declared TRAIN manifest from its first row (sequential, cycling as declared).
+    `max_steps` and `max_active_seconds` stay cumulative over the parent's lineage. The
+    old and new identities and the restored file hashes enter settings["continuation"];
+    resuming the continuation itself passes the same continue_from_checkpoint.
     """
     profile.validate()
     if type(seed) is not int or seed < 0:
@@ -2413,6 +2600,8 @@ def train_local(
         raise ValueError("screen_threshold/target_accepted require screen_journal")
     if screen_tokenizations is not None and not (screened or mode == "egsft"):
         raise ValueError("screen_tokenizations apply only to screening or EG-SFT")
+    if continue_from_checkpoint is not None and (mode != "sft" or order != "sequential"):
+        raise ValueError("continue_from_checkpoint applies only to sequential SFT")
     if model_directory is None:
         raise ValueError("model_directory must point to a verified local snapshot")
     model_directory = Path(model_directory).resolve()
@@ -2468,7 +2657,15 @@ def train_local(
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
     if screened and len(train_rows) < target_accepted:
         raise ValueError("screen scan is shorter than target_accepted; it would exhaust S")
-    if order == "sequential" and not cycle and max_steps > len(train_rows):
+    parent_step = 0
+    if continue_from_checkpoint is not None:
+        parent_state = Path(continue_from_checkpoint) / "trainer_state.json"
+        if not parent_state.is_file():
+            raise ValueError("continuation requires a complete SFT checkpoint with time/exposure")
+        parent_step = json.loads(parent_state.read_text())["global_step"]
+        if max_steps <= parent_step:
+            raise ValueError("continuation max_steps is cumulative and must exceed the parent's")
+    if order == "sequential" and not cycle and max_steps - parent_step > len(train_rows):
         raise ValueError("sequential replay without cycle cannot exceed the given sequence")
     tokenizations = _load_tokenizations(screen_tokenizations)
     validation_rows = (
@@ -2557,8 +2754,38 @@ def train_local(
         }
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
+    continuation = None
+    if continue_from_checkpoint is not None:
+        continuation = _continuation_identity(Path(continue_from_checkpoint), identity, settings)
+        if continuation["parent_global_step"] != parent_step:
+            raise LocalVLMError("continuation parent changed while it was being verified")
+        if Path(continuation["parent_output"]).is_relative_to(output) or output.is_relative_to(
+            Path(continuation["parent_output"])
+        ):
+            raise ValueError("continuation output must be separate from the parent's output")
+        settings["continuation"] = continuation
     checkpoint, previous, active_state, exposure_state = None, None, None, None
-    screen_state = None
+    screen_state, egsft_state, inherited_exposure = None, None, None
+    if continuation is not None:
+        parent_checkpoint = Path(continue_from_checkpoint).resolve()
+        inherited_exposure = json.loads((parent_checkpoint / "exposure.json").read_text())[
+            "entries"
+        ]
+        if stop_after_steps is not None and stop_after_steps <= parent_step:
+            raise ValueError("continuation stop_after_steps is cumulative past the parent's")
+        if not resume_from_checkpoint:
+            active_state = _load_active_time(
+                parent_checkpoint,
+                json.loads((parent_checkpoint.parent / "local_training.json").read_text())[
+                    "settings"
+                ]["max_active_seconds"],
+                allow_exhausted=True,
+            )
+            if max_active_seconds is not None and (
+                active_state["committed_active_seconds"] >= max_active_seconds
+            ):
+                raise LocalVLMError("continuation parent already used the cumulative time budget")
+            exposure_state = {"entries": inherited_exposure}
     if resume_from_checkpoint:
         checkpoint = Path(resume_from_checkpoint).resolve()
         if not checkpoint.is_relative_to(output) or any(
@@ -2597,6 +2824,14 @@ def train_local(
             raise LocalVLMError("screened resume requires exactly a checkpoint screen state")
         if screened:
             screen_state = json.loads((checkpoint / "screen.json").read_text())
+        if (mode == "egsft") != (checkpoint / "egsft.json").is_file():
+            raise LocalVLMError("EG-SFT resume requires exactly a checkpoint weight journal")
+        if mode == "egsft":
+            egsft_state = json.loads((checkpoint / "egsft.json").read_text())
+            if [row["id"] for row in egsft_state["entries"]] != [
+                entry["id"] for entry in exposure_state["entries"]
+            ]:
+                raise LocalVLMError("checkpoint EG-SFT weights differ from committed exposure")
         boundary_reached = (
             (stop_after_steps is not None and active_state["global_step"] >= stop_after_steps)
             or (
@@ -2615,7 +2850,9 @@ def train_local(
             raise LocalVLMError("finalize_only requires an already-reached stage boundary or cap")
     elif output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory or complete checkpoint")
-    exposure = _ExposureLedger(output, [row["id"] for row in train_rows], exposure_state)
+    exposure = _ExposureLedger(
+        output, [row["id"] for row in train_rows], exposure_state, inherited=inherited_exposure
+    )
     screen = (
         _ScreenedScan(
             screen_journal,
@@ -2789,8 +3026,13 @@ def train_local(
                     tokenizations=tokenizations,
                     labels_by_id={row["id"]: row["label"] for row in train_rows},
                     journal_io_context=audit.timer.exclude_journal_io,
+                    resume_state=egsft_state,
                 )
             constructor = _trainer_with_sft_exposure(constructor, audit)
+            if continuation is not None:
+                constructor = _trainer_with_continuation(
+                    constructor, continuation["parent_global_step"]
+                )
         constructor = _trainer_with_mps_rng(constructor, device)
         constructor = _trainer_with_active_time(constructor)
         trainer = constructor(
@@ -2845,7 +3087,10 @@ def train_local(
             ],
         }
         # Trainer owns restoration. Avoid labeling fresh initialization as a resumed pre-score.
-        if not checkpoint:
+        if continuation is not None and not checkpoint:
+            # The policy is still the fresh LoRA here; the parent endpoint is scored there.
+            record["before_note"] = "continuation: pre-score is the parent run's endpoint"
+        elif not checkpoint:
             before, predictions = _evaluate(
                 policy, processor, evaluation_rows, spec, profile, device
             )
@@ -2877,7 +3122,10 @@ def train_local(
                 "global_step": trainer.state.global_step,
             }
         else:
-            trained = trainer.train(resume_from_checkpoint=str(checkpoint) if checkpoint else None)
+            start = checkpoint or (
+                Path(continue_from_checkpoint).resolve() if continuation is not None else None
+            )
+            trained = trainer.train(resume_from_checkpoint=str(start) if start else None)
             train_metrics = trained.metrics
         after, predictions = _evaluate(policy, processor, evaluation_rows, spec, profile, device)
         _write(output / f"after_{evaluation_name}_predictions.json", predictions)
@@ -2891,7 +3139,11 @@ def train_local(
             optimizer_audit=audit.summary,
             reward_audit=reward.stats if mode == "grpo" else None,
             **(
-                {"screen": {k: v for k, v in screen.state().items() if k != "entries"}}
+                {
+                    "screen": {k: v for k, v in screen.state().items() if k != "entries"},
+                    "screen_journal_lineage": "canonical = final checkpoint screen.json "
+                    "(committed_screen_entries); the physical jsonl includes discarded spans",
+                }
                 if screen is not None
                 else {}
             ),
@@ -3010,6 +3262,7 @@ def main(argv: list[str] | None = None) -> int:
         "resume-from-checkpoint",
         "screen-journal",
         "screen-tokenizations",
+        "continue-from-checkpoint",
     ):
         parser.add_argument(f"--{name}", type=Path)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
@@ -3075,6 +3328,7 @@ def main(argv: list[str] | None = None) -> int:
                         "cycle",
                         "screen_journal",
                         "screen_tokenizations",
+                        "continue_from_checkpoint",
                     )
                 ) or (args["order"], args["screen_threshold"], args["target_accepted"]) != (
                     "random",
