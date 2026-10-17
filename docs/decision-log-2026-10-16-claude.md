@@ -101,6 +101,7 @@ diagnostics, never held-out results.
   another session's /private/tmp scratchpad.
 
 ## D11 — Fresh-pool screened GRPO design adopted as an unactivated protocol revision; 16-shot plan retired
+- Superseded by D12 (field list widened; study now committed at `docs/aircraft-freshpool-study-v1.{json,md}`).
 - Design: `aircraft-freshpool-screened-grpo-v1` (study draft `runs/rl-next-study-design-v1/study.{md,json}`,
   local and gitignored; study.json wins on conflicts). GRPO with just-in-time gold-probability
   screening on never-trained native-TRAIN images, against the strongest budget-matched, LR-tuned SFT,
@@ -143,3 +144,16 @@ diagnostics, never held-out results.
   `runs/rl-next-study-design-v1/study.{json,md}`); the protocol pins both by sha256.
 - `substantial_gain_gates` and `strong_baseline` stay byte-identical, asserted by
   `tests/test_aircraft_protocol_freshpool.py`, whose leaf walk now also sees empty-dict keys.
+
+## D13 — Low review fixes on the freshpool protocol revision (2026-10-17)
+- Source: PR #4 re-review (four LOW defects). `substantial_gain_gates` and `strong_baseline` untouched.
+- Baseline-discovery salt: `strong_baseline.validation_discovery.selection` hashes
+  `[fgvc-aircraft-2013b, protocol_id, baseline-discovery, 791, label, id]`. Its `protocol_id` element is
+  pinned to the literal `fgvc-aircraft-freshpool-screened-grpo-v1` (`revises.baseline_discovery_salt`),
+  not the then-current top-level id, so an activated copy cannot reshuffle the 100-image VAL discovery
+  sample. No discovery run under either id was found (grep over `runs/`, not exhaustive).
+- `supervised_controls.protocol_strongest_pool` narrows `strongest_definition` (kept verbatim): EG-SFT is
+  excluded from the protocol strongest-SFT pool; the pool governs (`revises.strongest_definition_scope`).
+- `resources.storage_proposal.minimum_free_bytes` 10 GiB → 5 GiB (5368709120), the study's standing-stop
+  reserve (addendum-5/6). The stale "V2 reasoning tokens/second" item is dropped from
+  `resources.not_measured`.

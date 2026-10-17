@@ -37,6 +37,7 @@ CHANGED = {
     ("evaluation_and_seal", "test_freeze_before_access"),
     ("resources", "not_measured"),
     ("resources", "proposed_first_seed_limits"),
+    ("resources", "storage_proposal", "minimum_free_bytes"),
     ("activation_prerequisites",),
 }
 # Inside a wholly revised block, these sub-fields still must equal the candidate.
@@ -190,3 +191,24 @@ def test_selection_uses_h_select_and_val_only_for_pool_and_final_gates():
     assert "H-select only" in freeze
     assert "exposure checkpoint and strongest SFT comparator using validation only" not in freeze
     assert "selected on full validation" not in json.dumps(fresh["supervised_controls"])
+
+
+def test_low_review_fixes_are_recorded():
+    _, fresh = load(FRESHPOOL)
+    _, cand = load(CANDIDATE)
+    revises = fresh["revises"]
+    # Baseline-discovery salt: strong_baseline still says protocol_id; the literal is pinned.
+    assert "protocol_id" in fresh["strong_baseline"]["validation_discovery"]["selection"]
+    assert revises["baseline_discovery_salt"]["literal"] == HOLDOUT_SALT_LITERAL
+    # protocol_strongest_pool narrows strongest_definition and excludes EG-SFT.
+    assert "EG-SFT" not in " ".join(fresh["supervised_controls"]["protocol_strongest_pool"])
+    assert "narrows" in revises["strongest_definition_scope"]
+    assert "EG-SFT" in revises["strongest_definition_scope"]
+    # Storage reserve matches the study's 5 GiB standing stop; the V2 reasoning note is gone.
+    assert cand["resources"]["storage_proposal"]["minimum_free_bytes"] == 10 * 2**30
+    assert fresh["resources"]["storage_proposal"]["minimum_free_bytes"] == 5 * 2**30
+    assert "5 GiB" in json.dumps(json.loads(STUDY.read_text(encoding="utf-8")))
+    not_measured = fresh["resources"]["not_measured"]
+    assert not any("V2" in item or "reasoning" in item for item in not_measured)
+    log = (DOCS / "decision-log-2026-10-16-claude.md").read_text(encoding="utf-8")
+    assert "Superseded by D12" in log and "## D13" in log and HOLDOUT_SALT_LITERAL in log

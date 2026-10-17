@@ -31,7 +31,8 @@
       "evaluation_and_seal.validation",
       "evaluation_and_seal.test_freeze_before_access",
       "resources.not_measured",
-      "resources.proposed_first_seed_limits"
+      "resources.proposed_first_seed_limits",
+      "resources.storage_proposal.minimum_free_bytes"
     ],
     "metadata_changed": [
       "protocol_id",
@@ -57,7 +58,13 @@
       "(c) Stale fourshot scope fields (data.claim_scope, data.train_images, supervised_controls.scope) are rewritten to the study claim_scope.",
       "(d) data.train_holdout.hash_protocol_id pins the holdout salt as a literal, read by scripts/prepare_aircraft_freshpool.py, so an activated copy with a new protocol_id cannot reshuffle H.",
       "(e) The study design is committed at revises.study so the protocol's authority is tracked."
-    ]
+    ],
+    "baseline_discovery_salt": {
+      "literal": "fgvc-aircraft-freshpool-screened-grpo-v1",
+      "rule": "strong_baseline.validation_discovery.selection hashes [fgvc-aircraft-2013b, protocol_id, baseline-discovery, 791, label, id]. strong_baseline stays byte-identical, so its text keeps the word protocol_id; for this revision and any activated copy, that element is this literal, never the then-current top-level protocol_id, so a renamed activated copy cannot reshuffle the 100-image VAL discovery sample. Recorded in docs/decision-log-2026-10-16-claude.md D13."
+    },
+    "strongest_definition_scope": "supervised_controls.protocol_strongest_pool narrows supervised_controls.strongest_definition (kept verbatim from the candidate): the protocol's strongest-SFT comparator is the maximum over protocol_strongest_pool only. EG-SFT, although an equal-update SFT arm, is excluded and reported as a separate mechanism verdict (supervised_controls.arms.EG-SFT). Where the two fields differ, protocol_strongest_pool governs.",
+    "storage_reserve": "resources.storage_proposal.minimum_free_bytes is 5 GiB (5368709120), the study's standing-stop disk reserve (addendum-5 reserve, addendum-6 semantics; docs/aircraft-freshpool-study-v1.json standing_stops). The candidate's 10 GiB proposal is superseded."
   },
   "scope": "Finite local research proposal, not an executable recipe, launch authorization, completed result, or exact paper replication.",
   "purpose": "Test whether verifiable token-policy RL contributes a substantial fine-grained classification gain beyond strong scarce-data SFT, and whether the resulting specialist beats a named strong current local baseline.",
@@ -685,7 +692,6 @@
       }
     ],
     "not_measured": [
-      "V2reasoning tokens/second and task accuracy.",
       "Actual pretrained256-token G4 backward with beta 0.04 and screening scorer forwards on MPS.",
       "Full3333validation and strong27B native inference cost.",
       "Peak training memory and durable rank8 checkpoint sizes."
@@ -703,7 +709,7 @@
       "interpretation": "Separate overlapping telemetry, never summed as independent memory. Freeze actual guards with the owner after short backward feasibility; only one model on accelerator."
     },
     "storage_proposal": {
-      "minimum_free_bytes": 10737418240,
+      "minimum_free_bytes": 5368709120,
       "study_output_budget_bytes": 8589934592,
       "retention": "Keep failed-result metadata, raw outputs and selected complete checkpoints. Preserve at most three rotating training checkpoints plus separately frozen candidates; no duplicate base weights or unapproved deletion of other work."
     },
