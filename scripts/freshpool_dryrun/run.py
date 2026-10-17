@@ -16,8 +16,10 @@ Deviations, pre-registered in dryrun_scale.py and here:
     1.25 -> 100 (the cap is launcher wall time, which process start-up dominates for a tiny
     arm); pool 2,919 -> 442 before the audit. P0 (400 candidates, 64 x 2 groups), H (2 per
     class) and the useful-mixed window (100) are NOT scaled;
-  * device cpu: ACCELERATE_TORCH_DEVICE=cpu and --device cpu (phase_worker.py accepts cpu and
-    then arms no MPS guard);
+  * device cpu: each plan carries the explicit marker "dry_run": true, which is the only way
+    launch.py accepts ACCELERATE_TORCH_DEVICE=cpu (it requires mps otherwise); the launcher
+    then passes --dry-run to phase_worker.py, which requires cpu, requires every forwarded
+    --device to be cpu, and arms no MPS guard;
   * model: a 1-layer random Qwen2-VL with a 14-token word-level tokenizer, saved with a
     model-source manifest naming the pinned repository and revision so the trainer's snapshot
     check accepts it; its token embeddings are one-hot and its LM head a bigram table, so after
@@ -466,6 +468,7 @@ def write_plan(fixture, directory, sentinel):
         "state_directory": str(directory / "state"),
         "evaluator": str(EVALUATOR),
         "environment": ENVIRONMENT,
+        "dry_run": True,
         "file_sha256": {str(path): sha(path) for path in pinned},
         "limits": {"minimum_free_bytes": 5 * GiB, "rss_limit_bytes": 12 * GiB,
                    "survivor_grace_seconds": 10, "poll_seconds": 0.25},
@@ -691,9 +694,16 @@ def judge_strict(run, fixture):
         return problems + fragment_problems(state, fixture), counts, "completed"
     if state.get("stop_reason") != "gate_failed":
         return [f"stopped for {state.get('stop_reason')}, not a gate verdict"], {}, None
-    finished = last(journal, "gate_finished")
-    gate = finished["gate"]
-    report = json.loads(Path(finished["report"]).read_text())
+    finished = last(journal, "gate_finished") or {}
+    gate = finished.get("gate")
+    if gate not in ORDER:
+        return [f"stopped gate_failed, but the journal's last gate_finished names gate "
+                f"{gate!r}, not one of {ORDER}"], {}, None
+    try:
+        report = json.loads(Path(finished["report"]).read_text())
+    except (KeyError, TypeError, OSError, ValueError) as exc:
+        return [f"stopped gate_failed at {gate}, but its evaluator report is unreadable: "
+                f"{type(exc).__name__}: {exc}"], {}, gate
     result = (report.get("gates") or {}).get(gate) or {}
     problems = []
     if (report.get("failed_at"), result.get("status"), result.get("pass")) != (

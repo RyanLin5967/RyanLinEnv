@@ -128,3 +128,20 @@ def test_drive_fires_on_an_inconsistent_force_or_wrong_final_stop(tmp_path):
     assert problems == ["final report failed_at G2, first forced gate G1"]
     problems = run.judge_drive(drive_run(tmp_path, []), FIXTURE)[0]
     assert problems == ["no gate forced, yet status stopped/final_development_check_failed"]
+
+
+def test_strict_reports_a_gate_stop_with_no_gate_finished_or_no_report(tmp_path):
+    # Before this fix a gate_failed state with no gate_finished event raised TypeError.
+    run = load_run()
+    problems, counts, stopped_at = run.judge_strict(
+        strict_run(tmp_path, BEFORE_G2, "gate_failed"), FIXTURE)
+    assert (problems, counts, stopped_at) == (
+        ["stopped gate_failed, but the journal's last gate_finished names gate None, not one "
+         "of ('G1', 'G2', 'G3a', 'G3b', 'final')"], {}, None)
+    missing = strict_run(tmp_path, BEFORE_G2, "gate_failed", gate="G2", failed_at="G2")
+    (tmp_path / "report.json").unlink()
+    problems, _, stopped_at = run.judge_strict(missing, FIXTURE)
+    assert stopped_at == "G2"
+    assert len(problems) == 1
+    assert problems[0].startswith("stopped gate_failed at G2, but its evaluator report is "
+                                  "unreadable: FileNotFoundError")

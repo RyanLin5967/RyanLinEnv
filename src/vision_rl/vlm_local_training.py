@@ -2528,11 +2528,14 @@ def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: di
 def gold_nll_improved(record: dict, after_nll: float) -> bool | None:
     """Whether the TRAIN-diagnostic gold NLL fell, or None when there is no pre-score.
 
-    A continuation (SFT-T) records no ``before_train_gold_nll``: its pre-score is the
-    parent's endpoint, which is not loaded at that point (``before_note``). Indexing the
-    key raised KeyError in every train-only continuation after it had trained and saved its
-    adapter, before the endpoint receipt, so SFT-T could never finish; found by the
-    freshpool CPU dry run (scripts/freshpool_dryrun).
+    A continuation (SFT-T) records no ``before_train_gold_nll``, so for it this is None:
+    nothing scores a pre-training gold NLL, and nothing compares it with the parent. The
+    parent's own ``probe.after_train_gold_nll`` is not a substitute, because the 8
+    diagnostic rows are drawn from each run's own TRAIN (the parent's accepted manifest,
+    SFT-T's scanned one), so the two NLLs are over different rows. Indexing the key raised
+    KeyError in every train-only continuation after it had trained and saved its adapter,
+    before the endpoint receipt, so SFT-T could never finish; found by the freshpool CPU
+    dry run (scripts/freshpool_dryrun).
     """
     before = record.get("before_train_gold_nll")
     return None if before is None else after_nll < before
@@ -3138,7 +3141,8 @@ def train_local(
         }
         # Trainer owns restoration. Avoid labeling fresh initialization as a resumed pre-score.
         if continuation is not None and not checkpoint:
-            # The policy is still the fresh LoRA here; the parent endpoint is scored there.
+            # The policy is still the fresh LoRA here, so no pre-score is taken; the probe's
+            # gold_nll_improved is None for a continuation (see gold_nll_improved).
             record["before_note"] = "continuation: pre-score is the parent run's endpoint"
         elif not checkpoint:
             before, predictions = _evaluate(

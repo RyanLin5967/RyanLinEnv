@@ -935,16 +935,36 @@ def test_mps_driver_guard_fails_the_stage(tmp_path, monkeypatch):
 
 PHASE_ENTRY = '''
 def main(argv):
-    return 0 if argv == ["forwarded"] else 9
+    return 0 if argv[:1] == ["forwarded"] else 9
 '''
+REFUSED_DEVICE = "ACCELERATE_TORCH_DEVICE must be"
+REFUSED_FORWARDED = "differs from ACCELERATE_TORCH_DEVICE"
 
 
-@pytest.mark.parametrize("device, code, guard", [
-    ("mps", 0, "armed"), ("cpu", 0, "not armed: device cpu"), ("cuda", 1, None), (None, 1, None)])
-def test_phase_worker_device_is_the_frozen_accelerate_device(tmp_path, device, code, guard):
-    """The MPS driver guard follows ACCELERATE_TORCH_DEVICE, the device Accelerate uses: armed
-    on mps, not armed on cpu (the dry run), and any other value refuses before any import.
-    The fake torch reports MPS available in every case, so cpu is chosen, not inferred."""
+@pytest.mark.parametrize("device, dry_run, kind, extra, code, guard", [
+    # A real launch: mps, with the entries' default --device (mps) or an explicit mps.
+    ("mps", False, "train", [], 0, "armed"),
+    ("mps", False, "assay", ["--device", "mps"], 0, "armed"),
+    # The dry run: cpu only under --dry-run, and only with every forwarded --device cpu.
+    ("cpu", True, "assay", ["--device", "cpu"], 0, "not armed: device cpu"),
+    ("cpu", True, "train", ["--", "--device=cpu"], 0, "not armed: device cpu"),
+    # cpu without the dry-run marker is a production cpu run: refused.
+    ("cpu", False, "assay", ["--device", "cpu"], 1, REFUSED_DEVICE),
+    ("mps", True, "assay", ["--device", "mps"], 1, REFUSED_DEVICE),
+    ("cuda", False, "train", [], 1, REFUSED_DEVICE),
+    (None, False, "train", [], 1, REFUSED_DEVICE),
+    # The reviewer's case: env cpu, an assay leaving out --device (h_assay defaults to mps).
+    ("cpu", True, "assay", [], 1, REFUSED_FORWARDED),
+    ("cpu", True, "assay", ["--device=mps"], 1, REFUSED_FORWARDED),
+    ("cpu", True, "train", ["--device", "cpu", "--", "--device", "mps"], 1, REFUSED_FORWARDED),
+    ("mps", False, "assay", ["--device", "cpu"], 1, REFUSED_FORWARDED),
+])
+def test_phase_worker_device_is_mps_unless_dry_run(tmp_path, device, dry_run, kind, extra,
+                                                    code, guard):
+    """ACCELERATE_TORCH_DEVICE must be mps; cpu only under --dry-run (which then requires it),
+    and every forwarded --device, or the entries' mps default, must equal it, so an inference
+    entry that does not go through Accelerate cannot load on an unguarded MPS. Refusals happen
+    before any import. The fake torch reports MPS available in every case."""
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "phase_entry.py").write_text(PHASE_ENTRY)
@@ -958,23 +978,67 @@ def test_phase_worker_device_is_the_frozen_accelerate_device(tmp_path, device, c
     guards = tmp_path / "guards"
     result = subprocess.run(
         [sys.executable, "-B", str(PACKAGE / "phase_worker.py"), "--guard-dir", str(guards),
-         "--stage", "s", "--kind", "train", "--entry", "phase_entry:main",
-         "--entry-sha256", sha_file(pkg / "phase_entry.py"), "--", "forwarded"],
+         "--stage", "s", "--kind", kind, "--entry", "phase_entry:main",
+         "--entry-sha256", sha_file(pkg / "phase_entry.py"),
+         *(["--dry-run"] if dry_run else []), "--", "forwarded", *extra],
         env=env, capture_output=True, text=True, timeout=120)
     assert result.returncode == code, result.stderr
-    if guard is None:
-        assert "ACCELERATE_TORCH_DEVICE must be one of" in result.stderr
+    if code:
+        assert guard in result.stderr
         assert not guards.exists()
         return
     (summary,) = guards.glob("s-*.json")
     stats = json.loads(summary.read_text())
-    assert (stats["status"], stats["device"]) == ("completed", device)
+    assert (stats["status"], stats["device"], stats["dry_run"]) == (
+        "completed", device, dry_run)
     if guard == "armed":
         assert stats["recommended_max_memory_bytes"] == 48 * GiB
         assert "mps_driver_guard" not in stats
     else:
         assert stats["mps_driver_guard"] == guard
         assert "recommended_max_memory_bytes" not in stats
+
+
+@pytest.mark.parametrize("device, marker, reason", [
+    ("cpu", None, "plan_device_not_allowed"),
+    ("cpu", False, "plan_device_not_allowed"),
+    ("mps", True, "plan_device_not_allowed"),
+    ("cpu", "true", "dry_run_marker_not_bool"),
+    ("mps", 1, "dry_run_marker_not_bool"),
+])
+def test_plan_device_is_mps_unless_explicit_dry_run(tmp_path, monkeypatch, capsys, device,
+                                                    marker, reason):
+    """cpu in a plan without the literal ``"dry_run": true`` marker is refused at plan load,
+    before any stage; the environment matches the plan, so only the device rule can fire."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.environment["ACCELERATE_TORCH_DEVICE"] = device
+    monkeypatch.setenv("ACCELERATE_TORCH_DEVICE", device)
+    fixture.write()
+    plan = json.loads(fixture.plan_path.read_text())
+    if marker is not None:
+        plan["dry_run"] = marker
+    fixture.plan_path.write_text(json.dumps(plan, indent=1))
+    fixture.plan_sha = sha_file(fixture.plan_path)
+    assert launch.main([*fixture.argv, "--verify-only"]) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
+    assert fixture.stages_called() == []
+
+
+def test_explicit_dry_run_plan_on_cpu_passes_plan_load(tmp_path, monkeypatch, capsys):
+    """Control for the refusals above: the marked cpu plan verifies."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.environment["ACCELERATE_TORCH_DEVICE"] = "cpu"
+    monkeypatch.setenv("ACCELERATE_TORCH_DEVICE", "cpu")
+    fixture.write()
+    plan = json.loads(fixture.plan_path.read_text())
+    plan["dry_run"] = True
+    fixture.plan_path.write_text(json.dumps(plan, indent=1))
+    fixture.plan_sha = sha_file(fixture.plan_path)
+    assert launch.main([*fixture.argv, "--verify-only"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "verified"
 
 
 def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
