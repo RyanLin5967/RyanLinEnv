@@ -6,18 +6,26 @@ Launcher for the seed-42 development stages of `aircraft-freshpool-screened-grpo
 `runs/aircraft-controlled400-continuation-v1/continue.py`. Those stay frozen records and are
 not imported.
 
-Nothing here has run a model. `tests/test_freshpool_launch.py` drives the launcher with a
+Nothing here has run the pinned model. `tests/test_freshpool_launch.py` drives the launcher with a
 fake trainer and a fake `torch` module, and uses the real `scripts/evaluate_freshpool_gates.py`
 for every gate and selection. `tests/test_freshpool_launch_wrappers.py` drives the three stage
 wrappers with fake trainer and generation functions that write the real file layouts, read
 back through the trainer's real verifiers.
+
+`scripts/freshpool_dryrun/run.py` (workflow `.github/workflows/freshpool-dryrun.yml`, CPU) runs
+this package end to end for real on a tiny random Qwen2-VL with synthetic 4-class images: the
+preparer's G0 manifests, G0, E0 (a dry-run entry), every stage through `phase_worker.py` and
+the real wrappers and trainer, and every gate through the real evaluator, with the update
+counts scaled (150 -> 3, 600 -> 6) and the cap factor widened (`run.py` lists every deviation).
+It checks integration only, not learning. Its first CI run found the SFT-T `KeyError` fixed in
+`vlm_local_training.gold_nll_improved`.
 
 ## Files
 
 | File | Role |
 |---|---|
 | `launch.py` | Sequences the stages, runs the gate evaluator at each gate, and owns the guards, state and journal |
-| `phase_worker.py` | Runs one stage's `module:function` entry in its own process group, only if that module's source SHA256 matches the plan. Applies the 24 GiB MPS driver guard to `train` and `assay` kinds |
+| `phase_worker.py` | Runs one stage's `module:function` entry in its own process group, only if that module's source SHA256 matches the plan. The device is the frozen `ACCELERATE_TORCH_DEVICE`: `mps` (a real launch) applies the 24 GiB MPS driver guard to `train` and `assay` kinds; `cpu` (the dry run only) arms no guard; any other value refuses |
 | `trainer_fragment.py` | Entry `trainer_fragment:main` for the `rl150`, `rl600`, `sft_e`, `sft_t` and `egsft` templates. Calls `vision_rl.vlm_local_training.main`, then writes the training fragment from the verified endpoint receipt and committed screen entries only |
 | `h_assay.py` | Entry `h_assay:main` for the `assay` template. Greedy plus G4 groups (H-select: seed 42; H-gate: seeds 42 and 314) on all 200 images, through the trainer's own `predict_train_subset` and `sample_train_groups` in chunks of at most 32 |
 | `p0_screen.py` | Entry `p0_screen:main` for the `p0` template. Scores the first 400 `S_scan_seed42` candidates under W with the trainer's `_batch_gold_probability` and samples G4 groups at seeds 42 and 314 on the first 64, writing the evaluator's `g1` document |
@@ -38,7 +46,7 @@ back through the trainer's real verifiers.
 4. **RL** at every grid LR to 150 accepted updates, each followed by an H-select assay. Then **G2**.
 5. **The two G2 `continue_to_600` arms** continue from their own validated 150 endpoint to 600, then an H-select assay each. The continuation's per-step seconds must pass through the 150 endpoint's own committed seconds at step 150 and its accepted sequence must extend the 150 endpoint's, so T_RL is cumulative. **RL\*** is the evaluator's `select_rl_star()`.
 6. **SFT-E** at every grid LR on RL\*'s accepted manifest, each with an H-select assay. SFT-E\* is the evaluator's `select_sft_e()`.
-   - The `sft_e` template must pass the trainer (after the wrapper's `--`) exactly one `--stop-after-steps 600` **and** one literal integer `--max-steps` above 600, checked at plan load (`sft_e_template_stop_after_steps_not_600`, `sft_e_template_max_steps_not_above_600`) (the SFT-T step bound, since SFT-T's `max_steps` is cumulative and must exceed the parent's anyway). The trainer continues SFT-T only from a parent whose receipt is `boundary_reached` at its declared `stop_after_steps`; a run to `max_steps = 600` is `total_budget_exhausted` and would be refused only at SFT-T, after G3a.
+   - The `sft_e` template must pass the trainer (after the wrapper's `--`) exactly one `--stop-after-steps 600` **and** one literal integer `--max-steps` above 600, checked at plan load (`sft_e_template_stop_after_steps_not_600`, `sft_e_template_max_steps_not_above_600`) (the SFT-T step bound, since SFT-T's `max_steps` is cumulative and must exceed the parent's anyway). The trainer continues SFT-T only from a parent whose receipt is `boundary_reached` at its declared `stop_after_steps`; a run to `max_steps = 600` is `total_budget_exhausted` and would be refused only at SFT-T, after G3a. It must also pass `--order sequential --cycle` (`sft_e_template_not_sequential_cycle`): the trainer refuses a sequential run whose `max_steps` exceeds its 600-row manifest unless it cycles.
    - The launcher therefore requires each SFT-E fragment to report `receipt_status: boundary_reached` and `requested_boundary.stop_after_steps == 600` (`sft_e_not_a_continuable_boundary` otherwise).
 7. **H-gate assays** for RL\* and SFT-E\*. Then **G3a**, which supplies the SFT-T LRs (`sft_t_lrs`).
 8. **SFT-T** for each of those LRs:
@@ -125,7 +133,7 @@ The launcher assembles the evaluator's evidence document from these fragments pl
 Each of these is needed before a real launch. None is a defect in this package.
 
 - **G0 receipts.** G0 refuses until they exist: the activated protocol revision (PR #4 adds an unactivated one), the decision record (also PR #4), and the controlled400 branch receipt (study work item 6).
-- **E0 entry point.** The `e0` template must name a pinned entry that writes the E0 checks. None is tracked yet.
+- **E0 entry point.** The `e0` template must name a pinned entry that writes the E0 checks. None is tracked for a real launch. `scripts/freshpool_dryrun/dryrun_e0.py` runs 4 vs 2+2 vs 1+3 through the trainer CLI for the dry run only; it is unreviewed against the protocol's `real_learning_and_resume_gate`.
 - **The plan itself.** It must pin `vision_rl/vlm_local_training.py` and the three wrapper files in `file_sha256`, because the phase worker hashes only each stage's entry module.
 
 ## Blind spots
@@ -138,5 +146,7 @@ Each of these is needed before a real launch. None is a defect in this package.
 - **Trust.** Fragment contents are trusted as written, apart from the identity, assay-shape and lineage checks above. The adapter hash on every assay must match its endpoint's.
 - **Assay chunking.** The trainer refuses TRAIN inference on more than 32 images per call, so `h_assay.py` and `p0_screen.py` work in chunks of 32 in manifest order and seed each sampled chunk at its start. The draws are deterministic for a fixed manifest, but they are not one continuous RNG stream over the split.
 - **Physical journals.** The wrapper reads per-step seconds and useful-mixed flags from the trainer's append-only `optimizer_audit.jsonl` and `reward_groups.jsonl`. These are exact only because no stage is ever resumed after an interruption. A mismatch with the receipt refuses.
-- **Not run on a model.** `p0_screen.score_candidates` loads the model the way `predict_train_subset` does and calls the trainer's `_batch_gold_probability`. The tests replace it, so its model path has not been executed.
+- **Not run on the pinned model.** `p0_screen.score_candidates` loads the model the way `predict_train_subset` does and calls the trainer's `_batch_gold_probability`. The unit tests replace it; the CPU dry run executes it on the tiny random model only, never on Qwen2-VL-2B or MPS.
+- **Cap and start-up.** The 1.25x cap is launcher wall time, process start-up included. At study scale (T_RL about 13,338 s, unverified) start-up is small against the 0.25x margin; on the dry run's seconds-long arms it is not, which is why the dry run widens the factor.
+- **SFT-T on an all-accepted scan.** The trainer refuses a continuation whose TRAIN identity equals the parent's. If RL\* accepted every candidate it scanned, the scanned and accepted manifests are byte-identical and SFT-T would refuse. G1 requires acceptance of at least 0.30, not 1.0, so this needs 600 accepted with no rejection; it is not handled.
 - **Lock.** It trusts that a dead lock pid was not reused.
