@@ -20,19 +20,25 @@ study; there is no path from a missing result to a pass.
 
 Guards (all refuse, none warn): plan identity and every pinned file hash before every stage;
 frozen environment; a fixed 5 GiB disk reserve the plan may raise but not lower; process-group
-RSS; a second owner of the accelerator; per-arm 1.25x forecast caps that accumulate across
-resumes and are never reset; a survivor-grace check on every stage's process group. State is
-single-use: a stopped or completed study never runs again, and an interrupted one resumes only
-with ``--resume`` against the same plan, with its journal prefix intact. The journal is
-append-only and fsynced.
+RSS; a second owner of the accelerator, checked before every stage and every
+OWNER_POLL_SECONDS while one runs; per-arm 1.25x forecast caps, counted from the validated
+parent's committed seconds for a continuation and never reset; a survivor-grace check on
+every stage's process group. State is single-use: a stopped or completed study never runs
+again. An interrupted stage is NEVER resumed or quoted (study.json budget_matching.caps):
+``--resume`` journals its instance as void and re-runs the stage from scratch in a fresh
+instance directory, from the stage's own declared start (W, or the validated parent
+endpoint). A capped arm is a standing stop. Any unexpected exception is converted to a
+journalled study stop. The journal is append-only and fsynced.
 
 Blind spots, stated: process-group membership is the ownership boundary, so a descendant that
-calls setsid() escapes the RSS sum and the survivor check; RSS and disk are sampled every
-``poll_seconds``; the owner scan matches command-line substrings, so an owner whose command
-line names none of the plan's patterns is invisible; the lock trusts that a dead lock pid was
-not reused; the per-arm cap is measured on launcher wall time (an upper bound on active time)
-and the trainer receives the same cap as its cumulative active-seconds limit; the fragment
-contents (predictions, adapter hashes, active seconds) are trusted as the stage wrote them.
+calls setsid() escapes the RSS sum and the survivor check; RSS, disk and the owner scan are
+sampled; the owner scan matches command-line substrings, so an owner whose command line names
+none of the plan's patterns is invisible; the lock trusts that a dead lock pid was not
+reused; the per-arm cap is measured on launcher wall time (an upper bound on active time) and
+the trainer receives the same cap as its cumulative active-seconds limit; the fragment
+contents (predictions, adapter hashes, active seconds) are trusted as the stage wrote them,
+apart from the lineage checks below (cumulative seconds through the parent, accepted-prefix
+continuation, SFT-T stopping at the first step at or above T_RL).
 """
 
 import argparse
@@ -47,6 +53,7 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -54,18 +61,25 @@ ROOT = HERE.parents[1]
 GiB = 1024**3
 DISK_RESERVE_BYTES = 5 * GiB  # study.json standing_stops: addendum-5 5 GiB reserve
 CAP_FACTOR = 1.25  # study.json budget_matching.caps
+OWNER_POLL_SECONDS = 2.0  # second-owner re-check interval while a stage runs (standing stop)
 SEED = 42
 GRID = (1e-5, 5e-5, 1e-4)
 B4_LR = 2e-4
 RL_SCREEN_UPDATES, FINAL_UPDATES = 150, 600
 SPLITS = ("h_select", "h_gate")
+COMPLETIONS = {"h_select": 5, "h_gate": 9}  # greedy + 1 G4 seed; greedy + 2 G4 seeds
+H_PER_CLASS = 2  # study.json data_manifests_to_create: H_select / H_gate per_class
+G1_CANDIDATES, G1_ROLLOUTS = 400, 128  # 64 images x seeds 42, 314
+HAMMING_MAX, FORCED_FIRE_PAIRS = 6, 50  # study.json phash_audit forced_fire
+PROTOCOL_ID = "fgvc-aircraft-freshpool-screened-grpo-v1"
+FROZEN_PROTOCOL_KEYS = ("substantial_gain_gates", "strong_baseline")
 TRAIN_TEMPLATES = ("e0", "rl150", "rl600", "sft_e", "sft_t", "egsft")
 TEMPLATES = (*TRAIN_TEMPLATES, "assay", "p0")
 FORECASTS = ("e0", "p0", "assay_h_select", "assay_h_gate", "rl", "sft_e", "egsft")
-REQUIRED_MANIFESTS = ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl")
+REQUIRED_MANIFESTS = ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl",
+                      "phash_audit.json")
 RECEIPTS = ("protocol_revision", "decision_record", "branch")
 HEX64 = re.compile(r"[0-9a-f]{64}")
-PLACEHOLDER = re.compile(r"\{[^{}]*\}")
 GATE_ORDER = ("G1", "G2", "G3a", "G3b")
 
 
@@ -103,12 +117,30 @@ def read_json(path):
         return None
 
 
+def read_jsonl(path):
+    return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+
+
+def jsonl_ids(path):
+    try:
+        rows = read_jsonl(path)
+    except (OSError, ValueError):
+        return None
+    if not all(isinstance(row, dict) and isinstance(row.get("id"), str) for row in rows):
+        return None
+    return [row["id"] for row in rows]
+
+
 def free_bytes(path):
     return shutil.disk_usage(path).free
 
 
 def lr_tag(lr):
     return f"{lr:.0e}"
+
+
+def is_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
 
 
 def processes():
@@ -164,6 +196,49 @@ def stop_group(child, pgid, grace=15):
     child.wait()
 
 
+def second_owners(patterns, own_groups=()):
+    """Processes matching an owner pattern other than this launcher, its ancestors, and its
+    running stage: the members of ``own_groups`` and their descendants. Any other child of
+    the launcher's own process is NOT exempt (a real launcher has none while a stage runs)."""
+    rows = processes()
+    parents = {pid: ppid for pid, ppid, *_ in rows}
+    mine, pid = set(), os.getpid()
+    while pid and pid not in mine:
+        mine.add(pid)
+        pid = parents.get(pid)
+    children = {}
+    for pid, ppid, *_ in rows:
+        children.setdefault(ppid, []).append(pid)
+    stack = [pid for pid, _, pgid, *_ in rows if pgid in own_groups]
+    stage = set(stack)
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in stage:
+                stage.add(child)
+                stack.append(child)
+    mine |= stage
+    return [{"pid": pid, "command": command[:200]}
+            for pid, _, _, stat, _, command in rows
+            if pid not in mine and not stat.startswith("Z")
+            and any(p in command for p in patterns)]
+
+
+def git_committed(path):
+    """True only if ``path`` is tracked by its enclosing git repository with exactly these
+    bytes in the index and in HEAD."""
+    path = Path(path).resolve()
+    try:
+        def git(*args):
+            return subprocess.run(["git", "-C", str(path.parent), *args], capture_output=True,
+                                  text=True, timeout=60, check=True).stdout.strip()
+        blob = git("hash-object", "--", path.name)
+        head = git("rev-parse", f"HEAD:./{path.name}")
+        staged = git("ls-files", "-s", "--", path.name).split()
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return bool(blob) and blob == head and len(staged) >= 2 and staged[1] == blob
+
+
 # ---------------------------------------------------------------- plan and G0
 
 
@@ -191,12 +266,12 @@ def verify_plan(plan_path, expected):
         raise Stop("disk_reserve_below_5_GiB_or_missing", minimum_free_bytes=reserve)
     for name in ("rss_limit_bytes", "survivor_grace_seconds", "poll_seconds"):
         value = limits.get(name)
-        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        if not is_number(value) or value <= 0:
             raise Stop("limit_missing_or_invalid", limit=name)
     forecasts = plan.get("forecast_seconds") or {}
     for name in FORECASTS:
         value = forecasts.get(name)
-        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+        if not is_number(value) or value <= 0:
             raise Stop("forecast_missing_or_invalid", forecast=name)
     templates = plan.get("templates") or {}
     for name in TEMPLATES:
@@ -209,6 +284,10 @@ def verify_plan(plan_path, expected):
             or ":" not in str(template.get("entry"))
         ):
             raise Stop("template_missing_or_invalid", template=name)
+        if "resume_argv" in template:
+            # study.json budget_matching.caps: an interrupted arm is re-run from scratch,
+            # never resumed and quoted, so a plan cannot even declare a resume command.
+            raise Stop("template_declares_resume_argv", template=name)
     if type(plan.get("b4_edge_extension")) is not bool:
         raise Stop("b4_edge_extension_not_stated")
     grid = sorted([*GRID, *([B4_LR] if plan["b4_edge_extension"] else [])])
@@ -220,6 +299,8 @@ def verify_plan(plan_path, expected):
         [evaluator["B4_LR"]] if plan["b4_edge_extension"] else [])])
     if grid != expected_grid:
         raise Stop("grid_differs_from_evaluator", grid=grid, evaluator=expected_grid)
+    if evaluator["COMPLETIONS"] != COMPLETIONS:
+        raise Stop("completions_differ_from_evaluator", evaluator=evaluator["COMPLETIONS"])
     w = plan.get("w_endpoint") or {}
     if not HEX64.fullmatch(str(w.get("adapter_sha256"))) or not w.get("adapter_path"):
         raise Stop("w_endpoint_identity_missing")
@@ -235,8 +316,92 @@ def verify_pins(plan):
             raise Stop("pinned_file_changed", file=name)
 
 
+def verify_manifest_content(directory, manifest, base, evaluator):
+    """G0 'manifests hashed' and 'pHash audit with forced fire passing', by content."""
+    labels = base.get("labels")
+    if not isinstance(labels, list) or not labels or len(set(labels)) != len(labels):
+        raise Stop("g0_evidence_labels_invalid")
+    splits = {}
+    for split in SPLITS:
+        rows = read_jsonl(directory / f"{split}.jsonl")
+        pairs = [(row.get("id"), row.get("label")) for row in rows]
+        ids = [i for i, _ in pairs]
+        per_class = {label: 0 for label in labels}
+        for _, label in pairs:
+            if label not in per_class:
+                raise Stop("g0_manifest_unknown_label", split=split, label=label)
+            per_class[label] += 1
+        if (not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids)
+                or any(n != H_PER_CLASS for n in per_class.values())):
+            raise Stop("g0_holdout_not_2_per_class", split=split)
+        if (manifest.get("counts") or {}).get(split) != len(rows):
+            raise Stop("g0_manifest_count_differs", split=split)
+        evidence_rows = (base.get("rows") or {}).get(split)
+        if not isinstance(evidence_rows, list) or sorted(
+                (r.get("id"), r.get("label")) for r in evidence_rows) != sorted(pairs):
+            raise Stop("g0_evidence_rows_differ_from_manifest", split=split)
+        splits[split] = ids
+    if set(splits["h_select"]) & set(splits["h_gate"]):
+        raise Stop("g0_h_select_and_h_gate_overlap")
+    scan = jsonl_ids(directory / "s_scan_seed42.jsonl")
+    holdout = set(splits["h_select"]) | set(splits["h_gate"])
+    if not scan or len(set(scan)) != len(scan) or set(scan) & holdout:
+        raise Stop("g0_scan_invalid_or_overlaps_holdout")
+    if scan != evaluator["scan_order"](scan, SEED):
+        raise Stop("g0_scan_not_seed42_order")
+    audit = read_json(directory / "phash_audit.json")
+    fire = (audit or {}).get("forced_fire") if isinstance(audit, dict) else None
+    pairs = (fire or {}).get("distinct_class_pairs") if isinstance(fire, dict) else None
+    if not (
+        isinstance(pairs, list) and len(pairs) == FORCED_FIRE_PAIRS
+        and fire.get("passed") is True and fire.get("planted_flagged") is True
+        and is_number(fire.get("planted_hamming")) and fire["planted_hamming"] <= HAMMING_MAX
+        and all(isinstance(p, dict) and is_number(p.get("hamming"))
+                and p["hamming"] > HAMMING_MAX for p in pairs)
+        and fire.get("distinct_class_pairs_flagged") == 0
+        and audit.get("hamming_max") == HAMMING_MAX
+    ):
+        raise Stop("g0_forced_fire_not_demonstrated")
+    return {"split_ids": splits, "scan_ids": scan}
+
+
+def verify_protocol(path):
+    """G0 'protocol revision committed': the activated freshpool revision, committed, whose
+    frozen gates equal those of the committed candidate it names."""
+    protocol = read_json(path)
+    if not isinstance(protocol, dict) or protocol.get("protocol_id") != PROTOCOL_ID:
+        raise Stop("g0_protocol_revision_wrong_id")
+    if protocol.get("activated") is not True:
+        raise Stop("g0_protocol_revision_not_activated")
+    revises = protocol.get("revises") or {}
+    candidate_path = resolve(revises.get("path", "/nonexistent"))
+    if not candidate_path.is_file() or sha(candidate_path) != revises.get("sha256"):
+        raise Stop("g0_protocol_candidate_missing_or_changed")
+    candidate = read_json(candidate_path)
+    if not isinstance(candidate, dict) or any(
+            key not in protocol or protocol[key] != candidate.get(key)
+            for key in FROZEN_PROTOCOL_KEYS):
+        raise Stop("g0_protocol_frozen_gates_changed")
+    if not git_committed(path) or not git_committed(candidate_path):
+        raise Stop("g0_protocol_not_committed")
+
+
+def verify_decision_record(path):
+    """G0 '16-shot plan retired': a committed decision record with a retirement entry."""
+    try:
+        lines = Path(path).read_text().splitlines()
+    except (OSError, UnicodeDecodeError):
+        lines = []
+    if not any(re.search(r"16-shot", line, re.I) and re.search(r"retire", line, re.I)
+               for line in lines):
+        raise Stop("g0_16_shot_plan_not_retired")
+    if not git_committed(path):
+        raise Stop("g0_decision_record_not_committed")
+
+
 def verify_g0(plan, evaluator):
-    """G0: manifests hashed, audit forced fire passed, receipts committed, branch resolved."""
+    """G0: manifests hashed and well formed, forced fire passed, receipts committed with the
+    stated content, branch resolved."""
     g0 = plan.get("g0") or {}
     directory = resolve(g0.get("manifest_dir", "/nonexistent"))
     manifest_path = directory / "manifest.json"
@@ -259,12 +424,20 @@ def verify_g0(plan, evaluator):
         path = resolve(receipt.get("path", "/nonexistent"))
         if not path.is_file() or sha(path) != receipt.get("sha256"):
             raise Stop("g0_receipt_missing_or_changed", receipt=name)
-    base = read_json(resolve(plan["evidence_base"]["path"]))
-    branch = read_json(resolve(receipts["branch"]["path"]))
+    evidence_base = plan.get("evidence_base") or {}
+    base_path = resolve(evidence_base.get("path", "/nonexistent"))
+    if not base_path.is_file() or sha(base_path) != evidence_base.get("sha256"):
+        raise Stop("evidence_base_changed")
+    base = read_json(base_path)
+    branch_path = resolve(receipts["branch"]["path"])
+    branch = read_json(branch_path)
     if not isinstance(base, dict) or not isinstance(branch, dict):
         raise Stop("g0_branch_or_evidence_unreadable")
-    if sha(resolve(plan["evidence_base"]["path"])) != plan["evidence_base"].get("sha256"):
-        raise Stop("evidence_base_changed")
+    content = verify_manifest_content(directory, manifest, base, evaluator)
+    verify_protocol(resolve(receipts["protocol_revision"]["path"]))
+    verify_decision_record(resolve(receipts["decision_record"]["path"]))
+    if not git_committed(branch_path):
+        raise Stop("g0_branch_receipt_not_committed")
     try:
         d = evaluator["d_req"](branch["a_star"])
         checks = {
@@ -272,15 +445,17 @@ def verify_g0(plan, evaluator):
             "b4_matches_plan": branch["b4_edge_extension"] == plan["b4_edge_extension"]
             == base.get("b4_edge_extension"),
             "B0_w_valid_eos": branch["w_valid_eos"] >= 0.95,
+            "B0_w_evaluator_not_refused": branch["w_evaluator_refused"] is False,
             "B1_w_val_in_range": 0.15 <= branch["w_val_accuracy"] <= 0.85,
             "d_req_published": abs(branch["d_req"] - d["d_req"]) <= 1e-9,
+            "b2_mode_published": branch["mode"] == d["mode"],
         }
     except (KeyError, TypeError, ValueError) as exc:
         raise Stop("g0_branch_receipt_invalid", error=str(exc)) from None
     if not all(checks.values()):
         raise Stop("g0_failed", checks=checks)
     paths = {f"manifest_{Path(name).stem}": str(directory / name) for name in files}
-    return {"checks": checks, "d_req": d, "manifests": paths}
+    return {"checks": checks, "d_req": d, "manifests": paths, **content}
 
 
 # ---------------------------------------------------------------- state and journal
@@ -296,7 +471,8 @@ class Ledger:
         self.state = None
 
     def append(self, event, **fields):
-        line = json.dumps({"event": event, "time": time.time(), **fields}, allow_nan=False)
+        line = json.dumps({"event": event, "time": time.time(), **fields}, allow_nan=False,
+                          default=str)
         with self.journal_path.open("a") as handle:
             handle.write(line + "\n")
             handle.flush()
@@ -348,6 +524,7 @@ class Launcher:
         self.evaluator, self.ledger, self.g0 = evaluator, ledger, g0
         self.limits = plan["limits"]
         self.state = ledger.state
+        self.state.setdefault("void_instances", [])
 
     # -- guards
     def check_disk(self):
@@ -358,61 +535,51 @@ class Launcher:
         return free
 
     def check_owners(self):
-        mine, rows = set(), processes()
-        parents = {pid: ppid for pid, ppid, *_ in rows}
-        pid = os.getpid()
-        while pid and pid not in mine:
-            mine.add(pid)
-            pid = parents.get(pid)
-        found = [{"pid": pid, "command": command[:200]} for pid, _, _, stat, _, command in rows
-                 if pid not in mine and not stat.startswith("Z")
-                 and any(p in command for p in self.plan["owner_patterns"])]
+        found = second_owners(self.plan["owner_patterns"])
         if found:
             raise Stop("second_accelerator_owner", processes=found)
 
-    def cap(self, arm, forecast):
-        return CAP_FACTOR * forecast
-
     # -- running one stage
-    def run(self, stage_id, template_name, arm, forecast, values, validate):
+    def run(self, stage_id, template_name, arm, forecast, values, validate, *,
+            inherited_seconds=0.0):
+        """Run one stage in a fresh instance. ``inherited_seconds`` is the validated parent
+        endpoint's committed active seconds for a continuation, so the arm cap counts the
+        whole arm and is never reset."""
         if stage_id in self.state["completed"]:
             return self.state["completed"][stage_id]["fragment"]
         template = self.plan["templates"][template_name]
         verify_pins(self.plan)
         free = self.check_disk()
         self.check_owners()
-        cap = self.cap(arm, forecast)
-        used = self.state["arm_wall_seconds"].get(arm, 0.0)
-        if used >= cap:
-            raise Stop("arm_cap", arm=arm, used_seconds=used, cap_seconds=cap)
-        stage_dir = self.ledger.directory / "stages" / stage_id
-        arm_dir = self.ledger.directory / "arms" / arm
-        attempts = self.state["attempts"].get(stage_id, 0)
-        argv = template["argv"]
-        if attempts:
-            if template["kind"] == "train":
-                checkpoints = sorted(
-                    arm_dir.glob("**/checkpoint-*"),
-                    key=lambda p: int(p.name.rsplit("-", 1)[1])
-                    if p.name.rsplit("-", 1)[1].isdigit() else -1)
-                if "resume_argv" not in template or not checkpoints:
-                    raise Stop("interrupted_arm_has_no_resume_checkpoint", stage=stage_id)
-                argv = template["resume_argv"]
-                values = {**values, "latest_checkpoint": str(checkpoints[-1])}
-            self.ledger.append("stage_resumed", stage=stage_id, attempt=attempts + 1,
-                               arm_wall_seconds=used)
-        attempt_dir = stage_dir / f"attempt-{attempts + 1}"
-        attempt_dir.mkdir(parents=True, exist_ok=False)
-        arm_dir.mkdir(parents=True, exist_ok=True)
-        fragment = attempt_dir / "fragment.json"
+        cap = CAP_FACTOR * forecast
+        if inherited_seconds >= cap:
+            raise Stop("arm_cap", arm=arm, used_seconds=inherited_seconds, cap_seconds=cap)
+        previous = self.state["attempts"].get(stage_id, 0)
+        if previous:
+            # Interrupted earlier: never resumed and never quoted. Its instance is void and
+            # the stage re-runs from scratch in a fresh directory.
+            void = {"stage": stage_id, "arm": arm, "instance": previous,
+                    "instance_dir": str(self.ledger.directory / "arms" / stage_id
+                                        / f"instance-{previous}"),
+                    "wall_seconds": self.state["arm_wall_seconds"].get(stage_id)}
+            self.state["void_instances"].append(void)
+            self.ledger.save()
+            self.ledger.append("arm_instance_void", reason="interrupted; never resumed or quoted",
+                               **void)
+        instance = previous + 1
+        stage_dir = self.ledger.directory / "stages" / stage_id / f"instance-{instance}"
+        arm_dir = self.ledger.directory / "arms" / stage_id / f"instance-{instance}"
+        stage_dir.mkdir(parents=True, exist_ok=False)
+        arm_dir.mkdir(parents=True, exist_ok=False)
+        fragment = stage_dir / "fragment.json"
         substitutions = {
             "python": self.plan["python"], "stage_id": stage_id, "arm": arm,
-            "stage_dir": str(attempt_dir), "arm_dir": str(arm_dir), "fragment": str(fragment),
+            "stage_dir": str(stage_dir), "arm_dir": str(arm_dir), "fragment": str(fragment),
             "seed": str(SEED), "active_cap": repr(cap), "w_adapter": self.plan["w_endpoint"][
                 "adapter_path"], **self.g0["manifests"], **values,
         }
         try:
-            forwarded = [part.format_map(substitutions) for part in argv]
+            forwarded = [part.format_map(substitutions) for part in template["argv"]]
         except (KeyError, ValueError, IndexError) as exc:
             raise Stop("template_placeholder_unresolved", stage=stage_id, error=str(exc)) from None
         command = [
@@ -421,13 +588,14 @@ class Launcher:
             "--kind", template["kind"], "--entry", template["entry"],
             "--entry-sha256", template["entry_sha256"], "--", *forwarded,
         ]
-        self.state["attempts"][stage_id] = attempts + 1
+        self.state["attempts"][stage_id] = instance
+        self.state["arm_wall_seconds"][stage_id] = inherited_seconds
         self.state["next_action"] = stage_id
         self.ledger.save()
-        self.ledger.append("stage_started", stage=stage_id, arm=arm, attempt=attempts + 1,
-                           command=command, cap_seconds=cap, arm_wall_seconds=used,
-                           free_disk_bytes=free)
-        outcome = self.supervise(stage_id, arm, command, attempt_dir, used, cap)
+        self.ledger.append("stage_started", stage=stage_id, arm=arm, instance=instance,
+                           command=command, cap_seconds=cap, inherited_seconds=inherited_seconds,
+                           free_disk_bytes=free, owner_poll_seconds=OWNER_POLL_SECONDS)
+        outcome = self.supervise(stage_id, command, stage_dir, inherited_seconds, cap)
         self.ledger.append("stage_finished", stage=stage_id, **outcome)
         if outcome["reason"]:
             raise Stop(outcome["reason"], stage=stage_id)
@@ -436,7 +604,12 @@ class Launcher:
         payload = read_json(fragment)
         if not isinstance(payload, dict):
             raise Stop("stage_fragment_missing", stage=stage_id)
-        problem = validate(payload, cap)
+        try:
+            problem = validate(payload, cap)
+        except Stop:
+            raise
+        except Exception as exc:  # a malformed fragment is a stop, never a pass
+            problem = f"fragment_unvalidatable: {type(exc).__name__}: {exc}"
         if problem:
             raise Stop(problem, stage=stage_id)
         self.state["completed"][stage_id] = {"fragment": payload, "path": str(fragment)}
@@ -445,10 +618,10 @@ class Launcher:
                            fragment_sha256=sha(fragment))
         return payload
 
-    def supervise(self, stage_id, arm, command, attempt_dir, used, cap):
+    def supervise(self, stage_id, command, stage_dir, used, cap):
         started, peak, reason = time.monotonic(), 0, None
-        last_save = started
-        with (attempt_dir / "stage.log").open("x") as log:
+        last_save = last_owner = started
+        with (stage_dir / "stage.log").open("x") as log:
             child = subprocess.Popen(command, cwd=ROOT, env=dict(os.environ),
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                      start_new_session=True)
@@ -458,15 +631,23 @@ class Launcher:
                     rss = sum(row[4] for row in group_members(pgid))
                     peak = max(peak, rss)
                     elapsed = time.monotonic() - started
-                    self.state["arm_wall_seconds"][arm] = used + elapsed
+                    self.state["arm_wall_seconds"][stage_id] = used + elapsed
                     if time.monotonic() - last_save >= 5:
                         self.ledger.save()
                         last_save = time.monotonic()
+                    owners = []
+                    if time.monotonic() - last_owner >= OWNER_POLL_SECONDS:
+                        owners = second_owners(self.plan["owner_patterns"], (pgid,))
+                        last_owner = time.monotonic()
+                        if owners:
+                            self.ledger.append("second_owner_seen", stage=stage_id,
+                                               processes=owners)
                     free = free_bytes(self.ledger.directory)
                     reason = (
                         "process_group_rss_limit" if rss > self.limits["rss_limit_bytes"]
                         else "disk_reserve" if free < self.limits["minimum_free_bytes"]
                         else "arm_cap" if used + elapsed >= cap
+                        else "second_accelerator_owner" if owners
                         else None
                     )
                     if reason:
@@ -489,18 +670,17 @@ class Launcher:
                     reason = reason or "stage_exited_with_owned_descendants"
             except BaseException:
                 stop_group(child, pgid, grace=5)
-                self.state["arm_wall_seconds"][arm] = used + time.monotonic() - started
+                self.state["arm_wall_seconds"][stage_id] = used + time.monotonic() - started
                 self.ledger.save()
                 raise
         elapsed = time.monotonic() - started
-        self.state["arm_wall_seconds"][arm] = used + elapsed
+        self.state["arm_wall_seconds"][stage_id] = used + elapsed
         self.ledger.save()
         return {"exit_code": code, "reason": reason, "elapsed_seconds": elapsed,
                 "arm_wall_seconds": used + elapsed, "peak_group_rss_bytes": peak}
 
     # -- fragment validation
-    def train_validator(self, run_id, arm_name, lr, updates=None, minimum_seconds=None,
-                        rl=False):
+    def train_validator(self, run_id, arm_name, lr, updates=None, rl=False, check=None):
         w = self.plan["w_endpoint"]["adapter_sha256"]
 
         def validate(f, cap):
@@ -510,7 +690,7 @@ class Launcher:
             if (f.get("run_id"), f.get("arm"), f.get("lr"), f.get("seed")) != (
                     run_id, arm_name, lr, SEED):
                 return "fragment_identity_differs"
-            if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds < 0:
+            if not is_number(seconds) or seconds < 0:
                 return "fragment_active_seconds_invalid"
             if seconds > cap:
                 return "arm_cap"
@@ -518,39 +698,64 @@ class Launcher:
                 return "fragment_updates_differ"
             if type(f.get("updates")) is not int or f["updates"] < 1:
                 return "fragment_updates_invalid"
-            if minimum_seconds is not None and seconds < minimum_seconds - 1e-9:
-                return "sft_t_short_of_t_rl"
             if not HEX64.fullmatch(str(f.get("adapter_sha256"))) or f["adapter_sha256"] == w:
                 return "fragment_adapter_unchanged_or_invalid"
-            if not HEX64.fullmatch(str(f.get("reference_sha256"))):
-                return "fragment_reference_invalid"
-            if rl and f["reference_sha256"] != w:
-                return "reference_changed"
-            if not f.get("checkpoint") or not Path(f["checkpoint"]).exists():
-                return "fragment_checkpoint_missing"
+            # Every arm starts from W: RL keeps W as its KL reference; SFT arms start at W.
+            if f.get("reference_sha256") != w:
+                return "reference_changed" if rl else "fragment_initial_adapter_not_w"
+            for key in ("checkpoint", "adapter_path"):
+                if not f.get(key) or not Path(f[key]).exists():
+                    return f"fragment_{key}_missing"
+            steps = f.get("step_committed_active_seconds")
+            if not isinstance(steps, dict) or not steps:
+                return "fragment_step_seconds_missing"
+            try:
+                series = sorted((int(k), v) for k, v in steps.items())
+            except (TypeError, ValueError):
+                return "fragment_step_seconds_invalid"
+            if (any(not is_number(v) for _, v in series)
+                    or any(b[1] < a[1] for a, b in zip(series, series[1:]))
+                    or [k for k, _ in series] != list(range(series[0][0], series[-1][0] + 1))
+                    or series[-1][0] != f["updates"] or series[-1][1] != seconds):
+                return "fragment_step_seconds_inconsistent"
             mixed = f.get("useful_mixed")
-            if not isinstance(mixed, list) or (rl and len(mixed) != f["updates"]):
+            if not isinstance(mixed, list) or any(type(m) is not bool for m in mixed) or (
+                    rl and len(mixed) != f["updates"]):
                 return "fragment_useful_mixed_invalid"
             if rl:
                 for key in ("accepted_manifest", "scanned_manifest"):
                     if not f.get(key) or not Path(f[key]).is_file():
                         return f"fragment_{key}_missing"
+                accepted = jsonl_ids(f["accepted_manifest"])
+                scanned = jsonl_ids(f["scanned_manifest"])
+                if (accepted is None or scanned is None or len(accepted) != f["updates"]
+                        or not set(accepted) <= set(scanned)
+                        or scanned != self.g0["scan_ids"][: len(scanned)]):
+                    return "fragment_screen_manifests_inconsistent"
                 for start in range(0, max(0, len(mixed) - 99)):
                     if sum(mixed[start:start + 100]) / 100 < 0.40:
                         return "rolling_useful_mixed_below_0_40"
-            return None
+            return check(f) if check else None
 
         return validate
 
     def assay_validator(self, run_id, split, adapter):
+        expected_ids = set(self.g0["split_ids"][split])
+        completions = COMPLETIONS[split]
+
         def validate(f, cap):
             if (f.get("run_id"), f.get("split"), f.get("adapter_sha256")) != (
                     run_id, split, adapter):
                 return "assay_identity_differs"
-            if not isinstance(f.get("predictions"), dict) or not f["predictions"]:
-                return "assay_predictions_missing"
+            predictions = f.get("predictions")
+            if not isinstance(predictions, dict) or set(predictions) != expected_ids:
+                return "assay_image_ids_differ_from_manifest"
+            for answers in predictions.values():
+                if (not isinstance(answers, list) or len(answers) != completions
+                        or any(a is not None and not isinstance(a, str) for a in answers)):
+                    return "assay_completion_count_differs"
             eos = f.get("eos_fraction")
-            if type(eos) not in (int, float) or not 0 <= eos <= 1:
+            if not is_number(eos) or not 0 <= eos <= 1:
                 return "assay_eos_fraction_invalid"
             return None
 
@@ -565,16 +770,60 @@ class Launcher:
         if not isinstance(checks, dict) or any(checks.get(k) is not True for k in required):
             return "e0_failed"
         agreement = f.get("sampler_teacher_max_abs_logprob_difference")
-        if type(agreement) not in (int, float) or not 0 <= agreement <= 0.001:
+        if not is_number(agreement) or not 0 <= agreement <= 0.001:
             return "e0_sampler_teacher_agreement_failed"
         return None
 
-    @staticmethod
-    def p0_validator(f, cap):
+    def p0_validator(self, f, cap):
         if not all(k in f for k in ("seed", "adapter_sha256", "scan_order", "journal",
                                     "rollouts")):
             return "p0_g1_document_incomplete"
+        if f["seed"] != SEED or f["adapter_sha256"] != self.plan["w_endpoint"]["adapter_sha256"]:
+            return "p0_not_seed42_under_w"
+        if f["scan_order"] != self.g0["scan_ids"]:
+            return "p0_scan_order_differs_from_manifest"
+        if len(f["journal"]) != G1_CANDIDATES or len(f["rollouts"]) != G1_ROLLOUTS:
+            return "p0_g1_document_wrong_size"
         return None
+
+    # -- lineage checks (study.json budget_matching: cumulative, checkpoint-bound seconds)
+    @staticmethod
+    def continuation_check(parent):
+        """RL 150 -> 600: the continuation's step series passes through the parent's own
+        committed seconds at the parent's step, and its accepted sequence extends the
+        parent's, so T_RL is cumulative and the arm was not reset."""
+        def check(f):
+            steps = f["step_committed_active_seconds"]
+            at_parent = steps.get(str(parent["updates"]))
+            if at_parent != parent["committed_active_seconds"] or min(map(int, steps)) != 1:
+                return "continuation_seconds_not_cumulative"
+            if f["committed_active_seconds"] <= parent["committed_active_seconds"]:
+                return "continuation_seconds_not_cumulative"
+            parent_ids = jsonl_ids(parent["accepted_manifest"]) or []
+            if (jsonl_ids(f["accepted_manifest"]) or [])[: len(parent_ids)] != parent_ids:
+                return "continuation_accepted_sequence_not_extended"
+            return None
+        return check
+
+    @staticmethod
+    def sft_t_check(parent, t_rl):
+        """SFT-T continues SFT-E without reset and stops at the first step at or above
+        T_RL: the step before it is still below T_RL."""
+        def check(f):
+            steps = f["step_committed_active_seconds"]
+            first = min(map(int, steps))
+            if (first != parent["updates"] + 1
+                    or steps[str(first)] < parent["committed_active_seconds"]
+                    or f["updates"] <= parent["updates"]):
+                return "sft_t_not_cumulative_over_sft_e"
+            if f["committed_active_seconds"] < t_rl - 1e-9:
+                return "sft_t_short_of_t_rl"
+            before = (steps[str(f["updates"] - 1)] if f["updates"] - 1 >= first
+                      else parent["committed_active_seconds"])
+            if before >= t_rl:
+                return "sft_t_overshoots_first_boundary_at_t_rl"
+            return None
+        return check
 
     # -- evidence and gates
     def endpoints(self):
@@ -593,6 +842,8 @@ class Launcher:
             elif f.get("arm") in ("RL", "SFT-E", "SFT-T", "EG-SFT"):
                 found[f["run_id"]] = {**{k: f[k] for k in keys}, "splits": {}}
         for f in assays:
+            if f["run_id"] not in found:
+                raise Stop("assay_for_unknown_endpoint", run_id=f["run_id"])
             found[f["run_id"]]["splits"][f["split"]] = {
                 "predictions": f["predictions"], "eos_fraction": f["eos_fraction"]}
         return found
@@ -611,10 +862,7 @@ class Launcher:
         except (KeyError, TypeError, ValueError) as exc:
             raise Stop("selection_failed", error=f"{type(exc).__name__}: {exc}") from None
 
-    def gate(self, name):
-        if name in self.state["gates"]:
-            return self.state["gates"][name]["result"]
-        verify_pins(self.plan)
+    def run_evaluator(self, name):
         directory = self.ledger.directory / "gates"
         directory.mkdir(exist_ok=True)
         attempt = len(list(directory.glob(f"{name}-report-*.json"))) + 1
@@ -632,7 +880,15 @@ class Launcher:
         except subprocess.TimeoutExpired:
             code, stderr = None, "evaluator timed out"
         report = read_json(report_path)
-        result = (report or {}).get("gates", {}).get(name) if isinstance(report, dict) else None
+        return code, stderr, report if isinstance(report, dict) else None, report_path
+
+    def gate(self, name):
+        if name in self.state["gates"]:
+            return self.state["gates"][name]["result"]
+        verify_pins(self.plan)
+        code, stderr, report, report_path = self.run_evaluator(name)
+        gates = (report or {}).get("gates")
+        result = gates.get(name) if isinstance(gates, dict) else None
         verdict = (
             "gate_result_missing" if code != 0 or not isinstance(result, dict)
             else "gate_not_evaluated" if result.get("status") != "evaluated"
@@ -658,7 +914,7 @@ class Launcher:
                         self.assay_validator(endpoint, split, adapter_sha))
 
     def assay_fragment(self, fragment, split):
-        return self.assay(fragment["run_id"], split, fragment["checkpoint"],
+        return self.assay(fragment["run_id"], split, fragment["adapter_path"],
                           fragment["adapter_sha256"])
 
     def sequence(self):
@@ -694,7 +950,9 @@ class Launcher:
             final = self.run(run_id, "rl600", arm, forecast["rl"],
                              {"run_id": run_id, "lr": repr(lr),
                               "resume_checkpoint": parent["checkpoint"]},
-                             self.train_validator(run_id, "RL", lr, FINAL_UPDATES, rl=True))
+                             self.train_validator(run_id, "RL", lr, FINAL_UPDATES, rl=True,
+                                                  check=self.continuation_check(parent)),
+                             inherited_seconds=parent["committed_active_seconds"])
             self.assay_fragment(final, "h_select")
         _, rl_star = self.study().select_rl_star()
         rl_star = self.fragment(rl_star["run_id"])
@@ -722,15 +980,18 @@ class Launcher:
             raise Stop("g3a_sft_t_lrs_missing", sft_t_lrs=qualifying)
         self.record_selection("sft_t_lrs", qualifying)
 
+        # T_RL: RL*'s cumulative committed active seconds (checked through its 150 parent).
         t_rl = rl_star["committed_active_seconds"]
         for lr in qualifying:
             run_id = f"sft-t-{lr_tag(lr)}-s{SEED}"
+            parent = sft_e[lr]
             fragment = self.run(run_id, "sft_t", run_id, t_rl,
                                 {"run_id": run_id, "lr": repr(lr), "t_rl": repr(t_rl),
                                  "scanned_manifest": rl_star["scanned_manifest"],
-                                 "parent_checkpoint": sft_e[lr]["checkpoint"]},
+                                 "parent_checkpoint": parent["checkpoint"]},
                                 self.train_validator(run_id, "SFT-T", lr,
-                                                     minimum_seconds=t_rl))
+                                                     check=self.sft_t_check(parent, t_rl)),
+                                inherited_seconds=parent["committed_active_seconds"])
             self.assay_fragment(fragment, "h_select")
         _, sft_t_star = self.study().select_sft_t()
         self.record_selection("sft_t_star", sft_t_star["run_id"])
@@ -761,25 +1022,23 @@ class Launcher:
 
     def final_check(self):
         """Every development gate stays passed with all evidence in; VAL (G4) is next."""
-        directory = self.ledger.directory / "gates"
-        attempt = len(list(directory.glob("final-report-*.json"))) + 1
-        evidence = directory / f"final-evidence-{attempt}.json"
-        report_path = directory / f"final-report-{attempt}.json"
-        write(evidence, self.evidence())
-        completed = subprocess.run(
-            [self.plan["python"], "-B", str(resolve(self.plan["evaluator"])),
-             "--evidence", str(evidence), "--output", str(report_path)],
-            cwd=ROOT, capture_output=True, text=True, timeout=1800)
-        report = read_json(report_path)
-        ok = (completed.returncode == 0 and isinstance(report, dict)
+        code, _, report, report_path = self.run_evaluator("final")
+        gates = (report or {}).get("gates")
+        ok = (code == 0 and isinstance(gates, dict)
               and report.get("failed_at") is None and report.get("awaiting") == "G4"
-              and all(report["gates"].get(g, {}).get("pass") is True for g in GATE_ORDER))
+              and all(isinstance(gates.get(g), dict) and gates[g].get("pass") is True
+                      for g in GATE_ORDER))
         self.ledger.append("final_check", report=str(report_path), passed=ok)
         if not ok:
             raise Stop("final_development_check_failed", report=str(report_path))
 
 
 # ---------------------------------------------------------------- entry
+
+
+def refused(reason, **detail):
+    print(json.dumps({"status": "refused", "reason": reason, **detail}, default=str))
+    return 2
 
 
 def main(argv=None):
@@ -794,9 +1053,9 @@ def main(argv=None):
         plan, grid, evaluator = verify_plan(args.plan, args.expected_plan_sha256)
         g0 = verify_g0(plan, evaluator)
     except Stop as stop:
-        print(json.dumps({"status": "refused", "reason": stop.reason, **stop.detail},
-                         default=str))
-        return 2
+        return refused(stop.reason, **stop.detail)
+    except Exception as exc:  # no state exists yet: refuse, never fall through
+        return refused("verification_error", error=f"{type(exc).__name__}: {exc}")
     if args.verify_only:
         print(json.dumps({"status": "verified", "g0": g0["checks"], "d_req": g0["d_req"],
                           "grid": grid, "model_calls": 0}, indent=2))
@@ -806,34 +1065,28 @@ def main(argv=None):
     if args.resume:
         ledger.state = read_json(ledger.state_path)
         if not isinstance(ledger.state, dict):
-            print(json.dumps({"status": "refused", "reason": "no_state_to_resume"}))
-            return 2
+            return refused("no_state_to_resume")
         if ledger.state.get("plan_sha256") != args.expected_plan_sha256:
-            print(json.dumps({"status": "refused", "reason": "state_belongs_to_another_plan"}))
-            return 2
+            return refused("state_belongs_to_another_plan")
         if ledger.state.get("status") != "running":
-            print(json.dumps({"status": "refused", "reason": "state_is_terminal",
-                              "state_status": ledger.state.get("status")}))
-            return 2
+            return refused("state_is_terminal", state_status=ledger.state.get("status"))
     else:
         try:
             directory.mkdir(parents=True, exist_ok=False)
         except FileExistsError:
-            print(json.dumps({"status": "refused",
-                              "reason": "state_directory_exists_single_use"}))
-            return 2
+            return refused("state_directory_exists_single_use")
         ledger.state = {"plan_sha256": args.expected_plan_sha256, "status": "running",
                         "completed": {}, "attempts": {}, "arm_wall_seconds": {},
-                        "gates": {}, "selections": {}, "next_action": "e0",
-                        "journal_bytes": 0, "journal_sha256": hashlib.sha256(b"").hexdigest()}
+                        "void_instances": [], "gates": {}, "selections": {},
+                        "next_action": "e0", "journal_bytes": 0,
+                        "journal_sha256": hashlib.sha256(b"").hexdigest()}
         ledger.save()
     try:
         # Refusals here leave the state untouched: a second launcher must not stop the first.
         ledger.check_journal_prefix()
         lock = acquire_lock(ledger)
     except Stop as stop:
-        print(json.dumps({"status": "refused", "reason": stop.reason, **stop.detail}))
-        return 2
+        return refused(stop.reason, **stop.detail)
     previous = signal.signal(signal.SIGTERM,
                              lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
@@ -845,16 +1098,20 @@ def main(argv=None):
         ledger.save()
         ledger.append("study_development_complete", awaiting="G4")
         code = 0
-    except Stop as stop:
+    except KeyboardInterrupt:
+        ledger.append("launch_interrupted", resumable=True,
+                      note="the interrupted stage re-runs from scratch; never resumed")
+        ledger.save()
+        code = 3
+    except Exception as exc:
+        stop = exc if isinstance(exc, Stop) else Stop(
+            "unexpected_exception", error=f"{type(exc).__name__}: {exc}",
+            traceback=traceback.format_exc()[-4000:])
         ledger.append("study_stopped", reason=stop.reason, **stop.detail)
         ledger.state.update(status="stopped", stop_reason=stop.reason,
                             next_action="none: stopped; a re-run needs a new launch")
         ledger.save()
         code = 2
-    except KeyboardInterrupt:
-        ledger.append("launch_interrupted", resumable=True)
-        ledger.save()
-        code = 3
     finally:
         signal.signal(signal.SIGTERM, previous)
         lock.unlink(missing_ok=True)

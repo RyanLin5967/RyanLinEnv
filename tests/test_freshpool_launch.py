@@ -1,4 +1,4 @@
-"""Fixture tests for scripts/freshpool_launch: a fake trainer, a fake torch, no model.
+"""Fixture tests for scripts/freshpool_launch/launch.py: a fake trainer, a fake torch, no model.
 
 Every expected value below is written out from the fixture design (stage order, selected
 LRs, stop reasons), never read back from the launcher. The real gate evaluator decides the
@@ -13,6 +13,7 @@ import random
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -51,6 +52,9 @@ H_SELECT = [("a1", "A"), ("a2", "A"), ("b1", "B"), ("b2", "B")]
 H_GATE = [("c1", "A"), ("c2", "A"), ("d1", "B"), ("d2", "B")]
 COMPLETIONS = {"h_select": 5, "h_gate": 9}
 SPLIT_ROWS = {"h_select": H_SELECT, "h_gate": H_GATE}
+# The S_scan_seed42 manifest: random.Random(42).shuffle(sorted(ids)), written out here.
+SCAN = sorted(f"x{i:04d}" for i in range(1300))
+random.Random(42).shuffle(SCAN)
 
 FAKE_TRAINER = '''
 import argparse, json, os, signal, subprocess, sys, time
@@ -87,11 +91,15 @@ def main(argv):
         checkpoint = arm / f"checkpoint-{payload['updates']}"
         checkpoint.mkdir(parents=True, exist_ok=True)
         payload["checkpoint"] = str(checkpoint)
-    if payload.pop("make_manifests", False):
-        for key in ("accepted_manifest", "scanned_manifest"):
-            path = arm / f"{known.stage_id}-{key}.jsonl"
-            path.write_text("{}\\n")
-            payload[key] = str(path)
+        adapter = arm / "final_adapter"
+        adapter.mkdir(parents=True, exist_ok=True)
+        payload["adapter_path"] = str(adapter)
+    manifests = payload.pop("make_manifests", None)
+    if manifests:
+        for key in ("accepted", "scanned"):
+            path = Path(known.fragment).parent / f"{key}_manifest.jsonl"
+            path.write_text("".join(json.dumps({"id": i}) + "\\n" for i in manifests[key]))
+            payload[f"{key}_manifest"] = str(path)
     payload["argv"] = argv
     Path(known.fragment).write_text(json.dumps(payload))
     return 0
@@ -157,31 +165,41 @@ def assay(run_id, split, adapter, correct):
 
 
 def g1_document(p, mixed_groups):
-    order = [f"x{i:03d}" for i in range(500)]
-    order.sort()
-    random.Random(42).shuffle(order)
     u = 1 - p**4 - (1 - p) ** 4
     journal = [{"id": i, "p": p, "u": u, "accepted": u >= 0.5, "scorer_seconds": 1.0,
-                "adapter_sha256": W_SHA} for i in order[:400]]
+                "adapter_sha256": W_SHA} for i in SCAN[:400]]
     rollouts, index = [], 0
-    for image in order[:64]:
+    for image in SCAN[:64]:
         for seed in (42, 314):
             correct = [True, True, False, False] if index < mixed_groups else [False] * 4
             rollouts.append({"id": image, "seed": seed, "completions": [
                 {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True}
                 for c in correct]})
             index += 1
-    return {"seed": 42, "adapter_sha256": W_SHA, "scan_order": order, "journal": journal,
+    return {"seed": 42, "adapter_sha256": W_SHA, "scan_order": SCAN, "journal": journal,
             "rollouts": rollouts}
 
 
-def train(run_id, arm, lr, updates, seconds, rl=False):
+def series(*pieces):
+    """{step: committed seconds}, linear within each (first, last, s_first, s_last) piece;
+    the endpoints are exact."""
+    steps = {}
+    for first, last, start, stop in pieces:
+        for step in range(first, last + 1):
+            fraction = (step - first) / max(1, last - first)
+            steps[str(step)] = start + (stop - start) * fraction
+        steps[str(first)], steps[str(last)] = start, stop
+    return steps
+
+
+def train(run_id, arm, lr, updates, seconds, steps, manifests=None):
     payload = {"status": "completed", "run_id": run_id, "arm": arm, "lr": lr, "seed": 42,
                "updates": updates, "committed_active_seconds": seconds,
+               "step_committed_active_seconds": steps,
                "adapter_sha256": sha_text(run_id), "reference_sha256": W_SHA,
-               "useful_mixed": [True] * updates if rl else [], "make_checkpoint": True}
-    if rl:
-        payload["make_manifests"] = True
+               "useful_mixed": [True] * updates if manifests else [], "make_checkpoint": True}
+    if manifests:
+        payload["make_manifests"] = manifests
     return {"payload": payload}
 
 
@@ -190,7 +208,8 @@ RL150 = {"1e-05": (1e-5, 1), "5e-05": (5e-5, 3), "1e-04": (1e-4, 2)}  # top two:
 RL600 = {"5e-05": (5e-5, 3), "1e-04": (1e-4, 5)}  # RL* = 1e-4
 SFT_E = {"1e-05": (1e-5, 2, 100.0), "5e-05": (5e-5, 4, 100.0), "1e-04": (1e-4, 4, 101.0)}
 SFT_T = {"5e-05": (5e-5, 4), "1e-04": (1e-4, 3)}  # SFT-T* = 5e-5
-T_RL = 1000.0
+RL150_SECONDS, T_RL = 250.0, 1000.0
+SFT_T_UPDATES = 2400
 
 EXPECTED_ORDER = [
     "e0", "W-h_select", "W-h_gate", "p0",
@@ -225,27 +244,37 @@ def scenario(p0_pass=True):
     }
     for tag, (lr, correct) in RL150.items():
         run_id = f"rl-{tag}-s42-u150"
-        s[run_id] = train(run_id, "RL", lr, 150, 250.0, rl=True)
+        s[run_id] = train(run_id, "RL", lr, 150, RL150_SECONDS,
+                          series((1, 150, 1.0, RL150_SECONDS)),
+                          {"accepted": SCAN[:150], "scanned": SCAN[:300]})
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     for tag, (lr, correct) in RL600.items():
         run_id = f"rl-{tag}-s42-u600"
-        s[run_id] = train(run_id, "RL", lr, 600, T_RL, rl=True)
+        # Cumulative: passes through the 150 parent's own committed seconds at step 150.
+        s[run_id] = train(run_id, "RL", lr, 600, T_RL,
+                          series((1, 150, 1.0, RL150_SECONDS), (151, 600, 252.0, T_RL)),
+                          {"accepted": SCAN[:600], "scanned": SCAN[:1200]})
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["rl-1e-04-s42-u600-h_gate"] = assay("rl-1e-04-s42-u600", "h_gate",
                                           sha_text("rl-1e-04-s42-u600"), 9)
     for tag, (lr, correct, seconds) in SFT_E.items():
         run_id = f"sft-e-{tag}-s42"
-        s[run_id] = train(run_id, "SFT-E", lr, 600, seconds)
+        s[run_id] = train(run_id, "SFT-E", lr, 600, seconds, series((1, 600, 0.2, seconds)))
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["sft-e-5e-05-s42-h_gate"] = assay("sft-e-5e-05-s42", "h_gate",
                                         sha_text("sft-e-5e-05-s42"), 6)
     for tag, (lr, correct) in SFT_T.items():
         run_id = f"sft-t-{tag}-s42"
-        s[run_id] = train(run_id, "SFT-T", lr, 2400, T_RL)
+        parent = SFT_E[tag][2]
+        # Continues SFT-E's clock at step 601 and stops at the first step >= T_RL.
+        s[run_id] = train(run_id, "SFT-T", lr, SFT_T_UPDATES, T_RL,
+                          series((601, SFT_T_UPDATES - 1, parent + 0.5, T_RL - 0.3),
+                                 (SFT_T_UPDATES, SFT_T_UPDATES, T_RL, T_RL)))
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["sft-t-5e-05-s42-h_gate"] = assay("sft-t-5e-05-s42", "h_gate",
                                         sha_text("sft-t-5e-05-s42"), 6)
-    s["egsft-5e-05-s42"] = train("egsft-5e-05-s42", "EG-SFT", 5e-5, 600, 100.0)
+    s["egsft-5e-05-s42"] = train("egsft-5e-05-s42", "EG-SFT", 5e-5, 600, 100.0,
+                                 series((1, 600, 0.2, 100.0)))
     s["egsft-5e-05-s42-h_gate"] = assay("egsft-5e-05-s42", "h_gate",
                                         sha_text("egsft-5e-05-s42"), 5)
     return s
@@ -253,7 +282,16 @@ def scenario(p0_pass=True):
 
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
-RESUME = ["--resume-from", "{latest_checkpoint}"]
+
+
+def git(directory, *args):
+    subprocess.run(["git", "-C", str(directory), "-c", "user.name=fixture",
+                    "-c", "user.email=fixture@example.invalid", *args],
+                   check=True, capture_output=True, timeout=60)
+
+
+def jsonl(path, rows):
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
 
 class Fixture:
@@ -276,32 +314,68 @@ class Fixture:
         monkeypatch.delenv("FAKE_DRIVER_BYTES", raising=False)
         self.evaluator = evaluator
         self.sentinel = f"freshpool-owner-sentinel-{os.getpid()}-{time.time_ns()}"
+        self.extra_e0_argv = []
         self.g0_files()
         self.write()
 
     def g0_files(self):
+        o = self.overrides
         manifests = self.tmp / "manifests"
         manifests.mkdir()
-        files = {}
-        for name in ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl"):
-            (manifests / name).write_text(f"{name}\n")
-            files[name] = sha_file(manifests / name)
-        manifest = {"g0_audit_complete": self.overrides.get("audit_complete", True),
-                    "forced_fire_passed": True, "files_sha256": files}
+        h_select = list(o.get("h_select", H_SELECT))
+        for name, rows in (("h_select", h_select), ("h_gate", H_GATE)):
+            jsonl(manifests / f"{name}.jsonl",
+                  [{"id": i, "split": "train", "image": f"{i}.jpg", "label": label}
+                   for i, label in rows])
+        jsonl(manifests / "s_scan_seed42.jsonl",
+              [{"id": i, "split": "train", "image": f"{i}.jpg", "label": LABELS[n % 2]}
+               for n, i in enumerate(o.get("scan", SCAN))])
+        pairs = [{"ids": [f"p{n}", f"q{n}"], "hamming": 20} for n in range(50)]
+        pairs[0]["hamming"] = o.get("pair_hamming", 20)
+        (manifests / "phash_audit.json").write_text(json.dumps({
+            "hamming_max": 6, "forced_fire": {
+                "passed": True, "planted_flagged": True, "planted_hamming": 2,
+                "distinct_class_pairs": pairs, "distinct_class_pairs_flagged": 0}}))
+        files = {name: sha_file(manifests / name) for name in (
+            "h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl", "phash_audit.json")}
+        manifest = {"g0_audit_complete": o.get("audit_complete", True),
+                    "forced_fire_passed": True, "files_sha256": files,
+                    "counts": {"h_select": len(h_select), "h_gate": len(H_GATE)}}
         (manifests / "manifest.json").write_text(json.dumps(manifest))
-        receipts = {}
+
+        receipts_dir = self.tmp / "receipts"
+        receipts_dir.mkdir()
+        git(receipts_dir, "init", "-q")
+        frozen = {"substantial_gain_gates": {"accuracy": 0.8}, "strong_baseline": {"m": "27B"}}
+        candidate = receipts_dir / "candidate.json"
+        candidate.write_text(json.dumps({"protocol_id": "candidate", **frozen}))
+        protocol = {"protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1",
+                    "activated": o.get("activated", True),
+                    "revises": {"path": str(candidate), "sha256": sha_file(candidate)},
+                    **frozen, **o.get("protocol_patch", {})}
         branch = {"a_star": 0.75, "b4_edge_extension": False, "w_valid_eos": 0.99,
-                  "w_val_accuracy": self.overrides.get("w_val_accuracy", 0.5), "d_req": 0.05}
-        for name, content in (("protocol_revision", "{}"), ("decision_record", "retired"),
-                              ("branch", json.dumps(branch))):
-            path = self.tmp / f"{name}.json"
-            path.write_text(content)
-            receipts[name] = {"path": str(path), "sha256": sha_file(path)}
+                  "w_evaluator_refused": o.get("w_evaluator_refused", False),
+                  "w_val_accuracy": o.get("w_val_accuracy", 0.5), "d_req": 0.05,
+                  "mode": "full"}
+        decision = o.get("decision", "# Decisions\n## D11 — design adopted; 16-shot plan retired\n")
+        contents = {"protocol_revision": json.dumps(protocol), "decision_record": decision,
+                    "branch": json.dumps(branch)}
+        paths = {name: receipts_dir / f"{name}.json" for name in contents}
+        for name, content in contents.items():
+            paths[name].write_text(content)
+        git(receipts_dir, "add", "candidate.json", *[p.name for p in paths.values()])
+        git(receipts_dir, "commit", "-q", "-m", "receipts")
+        if o.get("uncommitted_protocol"):
+            paths["protocol_revision"].write_text(contents["protocol_revision"] + "\n")
+        receipts = {name: {"path": str(path), "sha256": sha_file(path)}
+                    for name, path in paths.items()}
         base = self.tmp / "evidence-base.json"
-        base.write_text(json.dumps({
-            "labels": LABELS, "a_star": 0.75, "b4_edge_extension": False,
-            "rows": {split: [{"id": i, "label": label} for i, label in rows]
-                     for split, rows in SPLIT_ROWS.items()}}))
+        evidence_rows = {split: [{"id": i, "label": label} for i, label in rows]
+                         for split, rows in SPLIT_ROWS.items()}
+        if "evidence_h_gate" in o:
+            evidence_rows["h_gate"] = o["evidence_h_gate"]
+        base.write_text(json.dumps({"labels": LABELS, "a_star": 0.75,
+                                    "b4_edge_extension": False, "rows": evidence_rows}))
         self.g0 = {"manifest_dir": str(manifests),
                    "manifest_sha256": sha_file(manifests / "manifest.json"),
                    "receipts": receipts}
@@ -311,13 +385,27 @@ class Fixture:
         self.scenario_path.write_text(json.dumps(self.scenario))
         entry_sha = sha_file(self.entry)
 
-        def template(kind, extra, resume=False):
-            value = {"kind": kind, "entry": "fake_freshpool:main", "entry_sha256": entry_sha,
-                     "argv": COMMON + extra}
-            if resume:
-                value["resume_argv"] = COMMON + extra + RESUME
-            return value
+        def template(kind, extra):
+            return {"kind": kind, "entry": "fake_freshpool:main", "entry_sha256": entry_sha,
+                    "argv": COMMON + extra}
 
+        templates = {
+            "e0": template("train", self.extra_e0_argv),
+            "assay": template("assay", ["--adapter", "{adapter}", "--split", "{split}",
+                                        "--manifest", "{split_manifest}"]),
+            "p0": template("assay", ["--scan", "{manifest_s_scan_seed42}",
+                                     "--adapter", "{w_adapter}"]),
+            "rl150": template("train", TRAIN_TAIL + ["--stop-after-steps", "150"]),
+            "rl600": template("train", TRAIN_TAIL + ["--continue-output-from",
+                                                     "{resume_checkpoint}"]),
+            "sft_e": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"]),
+            "sft_t": template("train", TRAIN_TAIL + [
+                "--train", "{scanned_manifest}", "--continue-from", "{parent_checkpoint}",
+                "--stop-after-active-seconds", "{t_rl}"]),
+            "egsft": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"]),
+        }
+        for name, patch in self.overrides.get("template_patch", {}).items():
+            templates[name] = {**templates[name], **patch}
         plan = {
             "schema": "freshpool-launch-plan-v1",
             "python": sys.executable,
@@ -335,24 +423,7 @@ class Fixture:
             "forecast_seconds": {"e0": self.overrides.get("e0_forecast", 600), "p0": 600,
                                  "assay_h_select": 600, "assay_h_gate": 600, "rl": 2000,
                                  "sft_e": 600, "egsft": 600},
-            "templates": {
-                "e0": template("train", [], resume=True),
-                "assay": template("assay", ["--adapter", "{adapter}", "--split", "{split}",
-                                            "--manifest", "{split_manifest}"]),
-                "p0": template("assay", ["--scan", "{manifest_s_scan_seed42}",
-                                         "--adapter", "{w_adapter}"]),
-                "rl150": template("train", TRAIN_TAIL + ["--stop-after-steps", "150"],
-                                  resume=True),
-                "rl600": template("train", TRAIN_TAIL + ["--resume-from",
-                                                         "{resume_checkpoint}"], resume=True),
-                "sft_e": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"],
-                                  resume=True),
-                "sft_t": template("train", TRAIN_TAIL + [
-                    "--train", "{scanned_manifest}", "--continue-from", "{parent_checkpoint}",
-                    "--max-active-seconds", "{t_rl}"], resume=True),
-                "egsft": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"],
-                                  resume=True),
-            },
+            "templates": templates,
             "b4_edge_extension": False,
             "w_endpoint": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "w")},
             "owner_patterns": [self.sentinel],
@@ -392,7 +463,7 @@ def argv_value(argv, flag):
     return argv[argv.index(flag) + 1]
 
 
-def test_full_sequence_resumes_after_interrupt_and_reaches_g4(tmp_path, monkeypatch):
+def test_interrupted_arm_is_rerun_from_scratch_never_resumed(tmp_path, monkeypatch):
     fixture = Fixture(tmp_path, monkeypatch)
     marker = tmp_path / "interrupted-once"
     fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {"interrupt_once": str(marker)}
@@ -400,10 +471,7 @@ def test_full_sequence_resumes_after_interrupt_and_reaches_g4(tmp_path, monkeypa
     command = [sys.executable, "-B", str(PACKAGE / "launch.py"), *fixture.argv]
     first = subprocess.run(command, capture_output=True, text=True, timeout=600)
     assert first.returncode == 3, first.stdout + first.stderr
-    interrupted = fixture.state()
-    assert interrupted["status"] == "running"
-    wall_before = interrupted["arm_wall_seconds"]["rl-1e-05-s42"]
-    assert wall_before > 0
+    assert fixture.state()["status"] == "running"
     # A fresh start on the same state is refused: the state directory is single-use.
     again = subprocess.run(command, capture_output=True, text=True, timeout=120)
     assert again.returncode == 2 and "state_directory_exists_single_use" in again.stdout
@@ -416,10 +484,18 @@ def test_full_sequence_resumes_after_interrupt_and_reaches_g4(tmp_path, monkeypa
     calls = fixture.stages_called()
     assert first_order(calls) == EXPECTED_ORDER
     rl_calls = [c["argv"] for c in calls if c["stage"] == "rl-1e-05-s42-u150"]
-    assert len(rl_calls) == 2 and "--resume-from" not in rl_calls[0]
-    assert argv_value(rl_calls[1], "--resume-from").endswith("checkpoint-75")
-    # The arm cap is cumulative over resumes, never reset.
-    assert state["arm_wall_seconds"]["rl-1e-05-s42"] >= wall_before
+    # The re-run starts from scratch in a new instance; the interrupted one is void and
+    # its checkpoint-75 is never handed to the trainer.
+    assert len(rl_calls) == 2
+    assert argv_value(rl_calls[0], "--arm-dir").endswith("arms/rl-1e-05-s42-u150/instance-1")
+    assert argv_value(rl_calls[1], "--arm-dir").endswith("arms/rl-1e-05-s42-u150/instance-2")
+    assert not any("checkpoint-75" in part for part in rl_calls[1])
+    assert [(v["stage"], v["instance"]) for v in state["void_instances"]] == [
+        ("rl-1e-05-s42-u150", 1)]
+    void = [e for e in fixture.journal() if e["event"] == "arm_instance_void"]
+    assert [(e["stage"], e["instance"]) for e in void] == [("rl-1e-05-s42-u150", 1)]
+    completed = state["completed"]["rl-1e-05-s42-u150"]["path"]
+    assert completed.endswith("stages/rl-1e-05-s42-u150/instance-2/fragment.json")
     assert state["selections"] == {
         "rl_continuers": ["rl-5e-05-s42-u150", "rl-1e-04-s42-u150"],
         "rl_star": "rl-1e-04-s42-u600",
@@ -428,31 +504,122 @@ def test_full_sequence_resumes_after_interrupt_and_reaches_g4(tmp_path, monkeypa
         "sft_t_star": "sft-t-5e-05-s42",
     }
     by_stage = {c["stage"]: c["argv"] for c in calls}
-    # Continuation to 600 starts from the 150 checkpoint of the same arm.
-    assert argv_value(by_stage["rl-1e-04-s42-u600"], "--resume-from").endswith(
-        "arms/rl-1e-04-s42/checkpoint-150")
+    # Continuation to 600 starts from the validated 150 endpoint's checkpoint.
+    assert argv_value(by_stage["rl-1e-04-s42-u600"], "--continue-output-from").endswith(
+        "arms/rl-1e-04-s42-u150/instance-1/checkpoint-150")
     # SFT-E and EG-SFT train on RL*'s accepted sequence; SFT-T on its full scan, to T_RL.
-    accepted = "rl-1e-04-s42-u600-accepted_manifest.jsonl"
+    accepted = "stages/rl-1e-04-s42-u600/instance-1/accepted_manifest.jsonl"
     assert argv_value(by_stage["sft-e-1e-05-s42"], "--train").endswith(accepted)
     assert argv_value(by_stage["egsft-5e-05-s42"], "--train").endswith(accepted)
     assert argv_value(by_stage["egsft-5e-05-s42"], "--lr") == "5e-05"
     sft_t = by_stage["sft-t-1e-04-s42"]
-    assert argv_value(sft_t, "--train").endswith("rl-1e-04-s42-u600-scanned_manifest.jsonl")
-    assert argv_value(sft_t, "--continue-from").endswith("arms/sft-e-1e-04-s42/checkpoint-600")
-    assert argv_value(sft_t, "--max-active-seconds") == "1000.0"
+    assert argv_value(sft_t, "--train").endswith(
+        "stages/rl-1e-04-s42-u600/instance-1/scanned_manifest.jsonl")
+    assert argv_value(sft_t, "--continue-from").endswith(
+        "arms/sft-e-1e-04-s42/instance-1/checkpoint-600")
+    assert argv_value(sft_t, "--stop-after-active-seconds") == "1000.0"
+    # The assays read the endpoint's final adapter, not its optimizer checkpoint.
+    assert argv_value(by_stage["sft-t-5e-05-s42-h_gate"], "--adapter").endswith(
+        "arms/sft-t-5e-05-s42/instance-1/final_adapter")
     # 1.25x caps: RL 1.25 * 2000, SFT-T 1.25 * T_RL.
     assert argv_value(by_stage["rl-5e-05-s42-u150"], "--cap") == "2500.0"
     assert argv_value(sft_t, "--cap") == "1250.0"
+    # Continuations count the parent's committed seconds against the arm cap: no reset.
+    started = {e["stage"]: e for e in fixture.journal() if e["event"] == "stage_started"}
+    assert started["rl-1e-04-s42-u600"]["inherited_seconds"] == 250.0
+    assert started["sft-t-1e-04-s42"]["inherited_seconds"] == 101.0
+    assert started["e0"]["owner_poll_seconds"] == 2.0
     events = [e["event"] for e in fixture.journal()]
-    assert events.count("gate_finished") == 4
     assert {e["gate"]: e["verdict"] for e in fixture.journal()
             if e["event"] == "gate_finished"} == {"G1": "pass", "G2": "pass", "G3a": "pass",
                                                   "G3b": "pass"}
-    assert "launch_interrupted" in events and "stage_resumed" in events
+    assert "launch_interrupted" in events
     assert events[-1] == "study_development_complete"
     # Resume is refused once the state is terminal.
     third = subprocess.run([*command, "--resume"], capture_output=True, text=True, timeout=120)
     assert third.returncode == 2 and "state_is_terminal" in third.stdout
+
+
+def test_plan_declaring_a_resume_command_is_refused(tmp_path, monkeypatch, capsys):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, template_patch={
+        "rl150": {"resume_argv": COMMON + ["--resume-from", "{latest_checkpoint}"]}})
+    assert launch.main(fixture.argv) == 2
+    assert "template_declares_resume_argv" in capsys.readouterr().out
+    assert not (tmp_path / "state").exists()
+
+
+def run_until_stop(launch, fixture):
+    assert launch.main(fixture.argv) == 2
+    state = fixture.state()
+    assert state["status"] == "stopped"
+    assert fixture.journal()[-1]["event"] == "study_stopped"
+    return state
+
+
+def test_partial_w_assay_stops_instead_of_lowering_w(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    del fixture.scenario["W-h_select"]["payload"]["predictions"]["b2"]
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "assay_image_ids_differ_from_manifest"
+    assert first_order(fixture.stages_called())[-1] == "W-h_select"
+
+
+def test_partial_sft_e_h_gate_assay_stops_before_g3a(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    answers = fixture.scenario["sft-e-5e-05-s42-h_gate"]["payload"]["predictions"]
+    answers["c1"] = answers["c1"][:8]  # one completion short of greedy + 2 x G4
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "assay_completion_count_differs"
+    assert "G3a" not in state["gates"]
+    assert first_order(fixture.stages_called())[-1] == "sft-e-5e-05-s42-h_gate"
+
+
+def test_continuation_only_t_rl_is_refused(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    # A wrapper that reported only the 450 continuation updates' seconds.
+    payload = fixture.scenario["rl-5e-05-s42-u600"]["payload"]
+    payload["step_committed_active_seconds"] = series((151, 600, 1.0, 750.0))
+    payload["committed_active_seconds"] = 750.0
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "continuation_seconds_not_cumulative"
+    assert first_order(fixture.stages_called())[-1] == "rl-5e-05-s42-u600"
+
+
+def test_continuation_must_extend_the_parent_accepted_sequence(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    manifests = fixture.scenario["rl-5e-05-s42-u600"]["payload"]["make_manifests"]
+    manifests["accepted"] = SCAN[1:601]
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "continuation_accepted_sequence_not_extended"
+
+
+@pytest.mark.parametrize("steps,reason", [
+    # Restarted the clock instead of continuing SFT-E's.
+    (series((1, SFT_T_UPDATES, 0.5, T_RL)), "sft_t_not_cumulative_over_sft_e"),
+    # Ran a step past the first one at or above T_RL.
+    (series((601, SFT_T_UPDATES - 1, 101.5, T_RL), (SFT_T_UPDATES, SFT_T_UPDATES, 1001.0,
+                                                     1001.0)),
+     "sft_t_overshoots_first_boundary_at_t_rl"),
+])
+def test_sft_t_lineage_and_overshoot_are_bounded(tmp_path, monkeypatch, steps, reason):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    payload = fixture.scenario["sft-t-5e-05-s42"]["payload"]
+    payload["step_committed_active_seconds"] = steps
+    payload["committed_active_seconds"] = steps[str(SFT_T_UPDATES)]
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == reason
+    assert first_order(fixture.stages_called())[-1] == "sft-t-5e-05-s42"
 
 
 def test_g1_failure_stops_before_any_rl_and_short_survivor_is_allowed(tmp_path, monkeypatch):
@@ -461,9 +628,8 @@ def test_g1_failure_stops_before_any_rl_and_short_survivor_is_allowed(tmp_path, 
     pid_file = tmp_path / "short.pid"
     fixture.scenario["e0"]["behaviour"] = {"spawn": 0.5, "pid_file": str(pid_file)}
     fixture.write()
-    assert launch.main(fixture.argv) == 2
-    state = fixture.state()
-    assert (state["status"], state["stop_reason"]) == ("stopped", "gate_failed")
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "gate_failed"
     assert first_order(fixture.stages_called()) == ["e0", "W-h_select", "W-h_gate", "p0"]
     gate = [e for e in fixture.journal() if e["event"] == "gate_finished"]
     assert [(e["gate"], e["verdict"]) for e in gate] == [("G1", "gate_failed")]
@@ -506,6 +672,31 @@ def test_missing_gate_result_stops_never_passes(tmp_path, monkeypatch, mode, rea
     assert first_order(fixture.stages_called()) == ["e0", "W-h_select", "W-h_gate", "p0"]
 
 
+def test_unexpected_exception_is_a_journalled_stop(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+
+    def broken(self):
+        raise TypeError("planted defect")
+
+    monkeypatch.setattr(launch.Launcher, "sequence", broken)
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "unexpected_exception"
+    stopped = fixture.journal()[-1]
+    assert "planted defect" in stopped["error"] and "TypeError" in stopped["traceback"]
+    # Terminal: a stopped study is never re-entered.
+    assert launch.main([*fixture.argv, "--resume"]) == 2
+
+
+def test_malformed_fragment_is_a_stop_not_a_crash(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["rl-1e-05-s42-u150"]["payload"]["useful_mixed"] = [None] * 150
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "fragment_useful_mixed_invalid"
+
+
 def test_disk_reserve_stops_before_any_stage(tmp_path, monkeypatch):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch)
@@ -538,8 +729,7 @@ def test_fragment_active_seconds_over_cap_stops(tmp_path, monkeypatch):
     fixture = Fixture(tmp_path, monkeypatch)
     fixture.scenario["rl-1e-05-s42-u150"]["payload"]["committed_active_seconds"] = 2500.5
     fixture.write()
-    assert launch.main(fixture.argv) == 2
-    state = fixture.state()
+    state = run_until_stop(launch, fixture)
     assert state["stop_reason"] == "arm_cap"
     assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
 
@@ -568,6 +758,48 @@ def test_second_owner_refuses(tmp_path, monkeypatch):
     assert fixture.stages_called() == []
 
 
+def test_second_owner_appearing_mid_stage_stops_it(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["e0"]["behaviour"] = {"sleep": 30}
+    fixture.write()
+    owners = []
+
+    def start_owner():
+        deadline = time.monotonic() + 20
+        while not fixture.stages_called() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        owners.append(subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                                        fixture.sentinel]))
+
+    thread = threading.Thread(target=start_owner)
+    thread.start()
+    started = time.monotonic()
+    try:
+        assert launch.main(fixture.argv) == 2
+    finally:
+        thread.join()
+        for owner in owners:
+            owner.kill()
+            owner.wait()
+    assert time.monotonic() - started < 20  # the 30 s stage was stopped, not waited out
+    assert fixture.state()["stop_reason"] == "second_accelerator_owner"
+    seen = [e for e in fixture.journal() if e["event"] == "second_owner_seen"]
+    assert seen and owners[0].pid in [p["pid"] for p in seen[0]["processes"]]
+
+
+def test_own_stage_is_never_a_second_owner(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, p0_pass=False)
+    # The launcher's own stage command line names the owner pattern, and runs past
+    # several owner polls: it must not be mistaken for a second owner.
+    fixture.extra_e0_argv = ["--tag", fixture.sentinel]
+    fixture.scenario["e0"]["behaviour"] = {"sleep": 5}
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "gate_failed"
+
+
 def test_mps_driver_guard_fails_the_stage(tmp_path, monkeypatch):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch)
@@ -589,13 +821,54 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
     assert not (tmp_path / "state").exists()
 
 
-@pytest.mark.parametrize("override", [{"audit_complete": False}, {"w_val_accuracy": 0.9}])
-def test_g0_failure_does_not_launch(tmp_path, monkeypatch, override):
+@pytest.mark.parametrize("override,reason", [
+    ({"audit_complete": False}, "g0_audit_incomplete"),
+    ({"w_val_accuracy": 0.9}, "g0_failed"),
+    ({"w_evaluator_refused": True}, "g0_failed"),
+    ({"h_select": [("a1", "A"), ("a2", "A"), ("a3", "A"), ("b1", "B")]},
+     "g0_holdout_not_2_per_class"),
+    ({"evidence_h_gate": [{"id": "c1", "label": "A"}, {"id": "c2", "label": "A"},
+                          {"id": "d1", "label": "B"}, {"id": "zz", "label": "B"}]},
+     "g0_evidence_rows_differ_from_manifest"),
+    ({"scan": sorted(SCAN)}, "g0_scan_not_seed42_order"),
+    ({"pair_hamming": 5}, "g0_forced_fire_not_demonstrated"),
+    ({"activated": False}, "g0_protocol_revision_not_activated"),
+    ({"protocol_patch": {"substantial_gain_gates": {"accuracy": 0.7}}},
+     "g0_protocol_frozen_gates_changed"),
+    ({"uncommitted_protocol": True}, "g0_protocol_not_committed"),
+    ({"decision": "# Decisions\n## D11 — design adopted\n"}, "g0_16_shot_plan_not_retired"),
+])
+def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, reason):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch, **override)
     assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
     assert not (tmp_path / "state").exists()
     assert fixture.stages_called() == []
+
+
+def test_g0_fixture_passes_verify_only(tmp_path, monkeypatch, capsys):
+    """The control for the G0 refusals above: the unmodified fixture verifies."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    assert launch.main([*fixture.argv, "--verify-only"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "verified"
+
+
+def test_git_committed_detects_untracked_and_modified(tmp_path):
+    launch = load_launch()
+    git(tmp_path, "init", "-q")
+    tracked = tmp_path / "tracked.json"
+    tracked.write_text("{}")
+    git(tmp_path, "add", "tracked.json")
+    git(tmp_path, "commit", "-q", "-m", "one")
+    untracked = tmp_path / "untracked.json"
+    untracked.write_text("{}")
+    assert launch.git_committed(tracked) is True
+    assert launch.git_committed(untracked) is False
+    tracked.write_text("{} ")
+    assert launch.git_committed(tracked) is False
 
 
 def test_journal_rewrite_is_detected(tmp_path):
