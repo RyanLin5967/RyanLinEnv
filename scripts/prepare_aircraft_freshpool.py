@@ -5,7 +5,9 @@ data_manifests_to_create). Reads JPEGs and metadata only: no model, no MPS, no n
 
 Pool = native TRAIN - train400 - probe16 images outside train400 - pHash drops.
 H-select = per class, SHA256 ranks 1 and 3 of compact JSON
-[protocol_id, "train-holdout-screen", 791, label, id]; H-gate = ranks 2 and 4.
+[hash_protocol_id, "train-holdout-screen", 791, label, id]; H-gate = ranks 2 and 4.
+hash_protocol_id is the protocol's pinned literal data.train_holdout.hash_protocol_id, never
+its top-level protocol_id, so an activated copy under a new id cannot reshuffle H.
 S = pool - H - S members of within-pool near-duplicate pairs that straddle H and S.
 Scan order per seed = random.Random(seed).shuffle(sorted(ids)).
 
@@ -178,6 +180,25 @@ def build_pool(train_rows, train400_rows, probe_rows):
         "probe16_outside_train400": len(probe_outside),
         "pool_before_audit": len(pool),
     }
+
+
+def holdout_salt(protocol: dict) -> str:
+    """Return data.train_holdout.hash_protocol_id; refuse when it is absent or not a string.
+
+    The top-level protocol_id is deliberately not a fallback: root may freeze an activated
+    copy under a new id, and that must not change H membership.
+    """
+    salt = None
+    data = protocol.get("data") if isinstance(protocol, dict) else None
+    holdout = data.get("train_holdout") if isinstance(data, dict) else None
+    if isinstance(holdout, dict):
+        salt = holdout.get("hash_protocol_id")
+    if not isinstance(salt, str) or not salt.strip():
+        raise ValueError(
+            "protocol data.train_holdout.hash_protocol_id must be a non-empty string; "
+            "there is no fallback to protocol_id"
+        )
+    return salt
 
 
 def holdout_key(protocol_id: str, label: str, image_id: str) -> str:
@@ -407,7 +428,7 @@ def write_outputs(output: Path, result, forced, provenance):
         "rules": {
             "pool": "native TRAIN - train400 - probe16 outside train400 - pHash drops",
             "h_select": "per class, ascending SHA256 of compact JSON "
-            f"[protocol_id,{HOLDOUT_SALT!r},{HOLDOUT_SEED},label,id]; ranks 1 and 3",
+            f"[hash_protocol_id,{HOLDOUT_SALT!r},{HOLDOUT_SEED},label,id]; ranks 1 and 3",
             "h_gate": "same hash; ranks 2 and 4",
             "s": "pool - H - S members of within-pool pairs straddling H and S",
             "scan": "random.Random(seed).shuffle(sorted(ids))",
@@ -432,7 +453,7 @@ def main():
         "--protocol",
         type=Path,
         required=True,
-        help="protocol JSON whose protocol_id salts the holdout hash",
+        help="protocol JSON whose data.train_holdout.hash_protocol_id salts the holdout hash",
     )
     parser.add_argument(
         "--probe",
@@ -455,7 +476,7 @@ def main():
     if "sealed" in {part for p in (args.development, args.train400) for part in p.parts}:
         raise ValueError("This script never reads sealed/")
     protocol = json.loads(args.protocol.read_text())
-    protocol_id = protocol["protocol_id"]
+    hash_protocol_id = holdout_salt(protocol)
     train_rows = read_jsonl(args.development / "train.jsonl")
     val_rows = read_jsonl(args.development / "validation.jsonl")
     train400_rows = read_jsonl(args.train400)
@@ -497,7 +518,7 @@ def main():
         train_rows,
         train400_rows,
         probe_rows,
-        protocol_id,
+        hash_protocol_id,
         pool_hashes,
         references,
         exact,
@@ -515,7 +536,8 @@ def main():
     if args.test_phashes:
         inputs.append(args.test_phashes)
     provenance = {
-        "protocol_id": protocol_id,
+        "protocol_id": protocol.get("protocol_id"),
+        "hash_protocol_id": hash_protocol_id,
         "inputs_sha256": {str(p): sha(p.read_bytes()) for p in inputs},
         "test_phash_reference": test_status,
         "g0_audit_complete": test_status == "checked" and forced["passed"],
