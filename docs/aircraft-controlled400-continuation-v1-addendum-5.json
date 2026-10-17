@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1/addendum-5",
+  "registered_utc": "2026-10-17T02:23:50.025557+00:00",
+  "amends_sha256": "c5e7251b67913e4bca71f248a1d894127188d9bff6c94ab2e554d7d50dcc0abe",
+  "supersedes_addendum_4_sha256": "996fa0d41cea5f492fb3d3a0facd771b3c2b83e0b32d772e0ebd0ad9e2626e1e",
+  "failed_attempt_5": {
+    "evidence": "failed-attempt5-guards/",
+    "published_in_attempt": [
+      "sft-1e5-time (completed at checkpoint-2464)"
+    ],
+    "failure": "sft-5e5-time stopped by the 10 GiB disk_reserve guard after 930.8 s (free 10,699,046,912 B at stop) as other sessions consumed shared host disk. sft-5e5-time has used attempt 1 of 2."
+  },
+  "change": "Operational only: continuation disk reserve 10 GiB -> 5 GiB, at start (launch.verify's hard-coded 10 GiB start check bypassed by verify_frozen; all identity/environment/preflight checks unchanged) and during every stage. Justification, measured: the entire study state dir is 476 MB after 9 published endpoints; each SFT time arm adds well under 1 GB. The 10 GiB reserve protected the host, but host disk is shared and repeatedly drops below it for reasons outside this study (3 of the last 4 stops). All other limits, science and stage order are unchanged.",
+  "continuation_limits": {
+    "minimum_free_bytes": 5368709120
+  },
+  "continuation_driver_sha256": "e5e95b8fd79c62bf19e5045b825f45e0e5ede2039d965157cbee7b4318fef5a5"
+}
