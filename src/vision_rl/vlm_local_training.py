@@ -2525,6 +2525,19 @@ def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: di
     }
 
 
+def gold_nll_improved(record: dict, after_nll: float) -> bool | None:
+    """Whether the TRAIN-diagnostic gold NLL fell, or None when there is no pre-score.
+
+    A continuation (SFT-T) records no ``before_train_gold_nll``: its pre-score is the
+    parent's endpoint, which is not loaded at that point (``before_note``). Indexing the
+    key raised KeyError in every train-only continuation after it had trained and saved its
+    adapter, before the endpoint receipt, so SFT-T could never finish; found by the
+    freshpool CPU dry run (scripts/freshpool_dryrun).
+    """
+    before = record.get("before_train_gold_nll")
+    return None if before is None else after_nll < before
+
+
 def _trainer_with_continuation(base, parent_global_step: int):
     """Replay the new TRAIN from row 0 at the parent's next step, across resumes.
 
@@ -3201,7 +3214,7 @@ def train_local(
                 "reload_nll_agrees": math.isclose(
                     after_nll, reload_nll, rel_tol=1e-5, abs_tol=1e-5
                 ),
-                "gold_nll_improved": after_nll < record["before_train_gold_nll"],
+                "gold_nll_improved": gold_nll_improved(record, after_nll),
                 "gradient_and_weight_change": audit.summary["nonzero_gradient_steps"] > 0
                 and audit.summary["changed_tensors"] > 0,
                 "mixed_reward_groups": reward.stats["mixed_groups"] if mode == "grpo" else None,

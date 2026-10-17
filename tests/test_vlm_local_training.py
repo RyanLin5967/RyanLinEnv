@@ -2490,3 +2490,11 @@ def test_exposure_ledger_inherits_parent_prefix_verbatim(tmp_path):
             {"entries": parent + [{"global_step": 3, "id": "e0"}]},
             inherited=parent,
         )
+
+
+def test_gold_nll_improved_is_none_without_a_pre_score():
+    # A train-only SFT-T continuation records no before_train_gold_nll (its pre-score is the
+    # parent endpoint); the probe summary must say "not measured", not raise KeyError.
+    assert local.gold_nll_improved({"before_note": "continuation"}, 1.25) is None
+    assert local.gold_nll_improved({"before_train_gold_nll": 2.0}, 1.25) is True
+    assert local.gold_nll_improved({"before_train_gold_nll": 1.25}, 1.25) is False
