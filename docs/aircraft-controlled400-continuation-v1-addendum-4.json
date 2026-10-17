@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "identity": "aircraft-controlled400-continuation-v1/addendum-4",
+  "registered_utc": "2026-10-17T01:37:17.386372+00:00",
+  "amends_sha256": "c5e7251b67913e4bca71f248a1d894127188d9bff6c94ab2e554d7d50dcc0abe",
+  "supersedes_addendum_3_sha256": "9bf1d7d357ae1b0cfb9407da4e7eda3f6b043f4e25bab26aa7f6acf190032328",
+  "failed_attempt_3": {
+    "evidence": "failed-attempt3-guards/",
+    "published_in_attempt": [
+      "sft-1e4-exposure-assay"
+    ],
+    "failure": "sft-1e5-time stopped by the 10 GiB disk_reserve guard at 5263.8 s (free 9,969,836,032 B). Host disk was consumed mostly by other sessions; the Colima VM disk and Harbor outputs added about 1.3 GB. Durable checkpoints are retained up to checkpoint-2100. Work after the last checkpoint is lost and stays charged.",
+    "stage_attempts": "sft-1e5-time used attempt 1 of 2; this envelope uses its second and final attempt, resuming from the newest durable checkpoint through the frozen trainer resume path."
+  },
+  "change": "None to science, limits or stage order. Only the addendum file names in the driver change. The new 43200 s envelope starts at driver start.",
+  "continuation_driver_sha256": "e16296c4de6809723cee77d38a4bb84883da742dee370c1dbc17fdd608ad8db4"
+}
