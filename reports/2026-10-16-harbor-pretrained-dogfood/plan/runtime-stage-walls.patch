@@ -1,0 +1,29 @@
+--- a/runtime.py
++++ b/runtime.py
+@@ -265,6 +265,17 @@
+     return subprocess.CompletedProcess(command, 0)
+ 
+ 
++# Per-stage wall caps, each >= 2x the need measured in local v2 (plan a2cd71df); see
++# timing.json. The draft's flat 1800 s killed rl-exposure at 1801 s during its post-train
++# reload replay. sft-time keeps the draft's 3600 s; the verifier keeps 1800 s.
++STAGE_WALL_SECONDS = {
++    "sft-resource-probe": 2000,
++    "rl-exposure": 4000,
++    "sft-exposure": 2000,
++    "sft-time": 3600,
++}
++
++
+ def controller(probe=False):
+     builder, pins = checked_builder()
+     if sha("/app/contract.json") != pins["contract_sha256"]:
+@@ -279,7 +290,7 @@
+         return guarded(
+             [sys.executable, "-I", __file__, "native", *command[4:]],
+             ARTIFACTS / "runtime" / stage,
+-            3600 if stage == "sft-time" else 1800,
++            STAGE_WALL_SECONDS[stage],
+         )
+ 
+     # Change only this trusted builder module's dispatcher, not stdlib subprocess.

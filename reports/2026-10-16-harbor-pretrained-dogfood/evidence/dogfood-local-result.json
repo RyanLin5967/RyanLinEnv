@@ -1,0 +1,55 @@
+{
+  "accuracy_is_pass_criterion": false,
+  "accuracy_note": "All 7 fixture images are in the warm adapter's train400 SFT set; accuracy is memorization-contaminated TRAIN data, not a learning or held-out signal.",
+  "criteria": {
+    "C1_pretrained_model_loaded": {
+      "detail": {
+        "loader_opens": [
+          {
+            "backend": "pread",
+            "device": "cpu",
+            "file": "model-00001-of-00002.safetensors"
+          },
+          {
+            "backend": "pread",
+            "device": "cpu",
+            "file": "model-00002-of-00002.safetensors"
+          }
+        ],
+        "model_source": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc"
+      },
+      "pass": true
+    },
+    "C2_real_optimizer_update": {
+      "detail": {
+        "changed_tensors": 112,
+        "final_adapter_sha256": "ee0e7d0faa79405006c1c41b4cacbdbbc47e6fd4025000b5e304aead7108a3bc",
+        "nonzero_gradient_steps": 1,
+        "parameter_delta_l2": 0.0104217373739981
+      },
+      "pass": true
+    },
+    "C3_separate_verifier_scored_submission": {
+      "detail": {
+        "adapter_sha256": "ee0e7d0faa79405006c1c41b4cacbdbbc47e6fd4025000b5e304aead7108a3bc",
+        "verifier_environment_mode": "separate"
+      },
+      "pass": true
+    },
+    "C4_resource_guards_held": {
+      "detail": {
+        "guards": 5,
+        "resource_rows": 7930
+      },
+      "pass": true
+    }
+  },
+  "driver_error": null,
+  "native_test_used": false,
+  "native_validation_used": false,
+  "pass": true,
+  "plan_sha256": "62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901",
+  "runtime_image_id": "sha256:402dd2393d6b61bc57b3f97efad14c8e12b3fb26a0cf152ce66d80c0e8e8cee0",
+  "scope": "local integration-only on Colima vision-harbor; native TRAIN diagnostics; not held-out, not benchmark, not frontier, not an RL-vs-SFT result",
+  "verifier_reward_recorded_not_judged": 1.0
+}

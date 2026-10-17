@@ -82,3 +82,20 @@ diagnostics, never held-out results.
 - Harbor v3 (plan 6f1d0d6c…): SFT probe completed (77.78 s active). GRPO update 1 committed
   (633.98 s active), then the host disk guard ended the trial before the verifier. v4 (plan 62fe9ff1…)
   is the identical plan with new single-use output paths.
+
+## D9 — Pretrained Docker + Harbor dogfood PASSES (local v4)
+- Plan sha 62fe9ff1…, report `reports/2026-10-16-harbor-pretrained-dogfood/`. C1–C4 all pass: the
+  pretrained model loaded via pread; GRPO update 1 committed with a mixed group [0,0,1,1] (530.31 s
+  active, adapter ee0e7d0f…); SFT exposure plus time-matched SFT (545.38 s cumulative); a separate
+  verifier scored the same adapter hash; all guards completed.
+- An independent fresh-context check reproduced every number and hash. Its corrections (cumulative
+  SFT-time wording, memory.peak at the cgroup limit, v3 attribution source) went into the README.
+- Integration evidence only: no learning, RL-advantage, or held-out claim.
+
+## D10 — Continuation addenda 5 and 6 (disk)
+- Addendum-5 (f8b20ac, 99b2e86): continuation disk reserve 10 → 5 GiB. The study state dir measured
+  476 MB, and 3 of 4 disk stops were caused by other sessions. Addendum-6 (ee6761a): at most 2 extra
+  attempts, only for stages whose every attempt ended on disk_reserve, each resuming from the
+  newest checkpoint.
+- Host cleanup: 4.1 GB of dead-process .tmp files deleted and 8.4 GB of logs gzipped (lossless) in
+  another session's /private/tmp scratchpad.

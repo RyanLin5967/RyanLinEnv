@@ -1,0 +1,45 @@
+{
+  "argv": [
+    "/usr/local/bin/python",
+    "-I",
+    "/opt/harbor-runtime/runtime.py",
+    "verify-child"
+  ],
+  "cgroup_memory": {
+    "memory.current": 12736237568,
+    "memory.max": 13958643712,
+    "memory.peak": 13958643712,
+    "memory.stat": {
+      "anon": 9466785792,
+      "file": 3095064576,
+      "kernel": 61804544
+    },
+    "memory.swap.current": 0,
+    "memory.swap.max": 0
+  },
+  "child_pid": 45,
+  "disk_free_bytes": 8574328832,
+  "elapsed_seconds": 103.50881956299963,
+  "exit_code": 0,
+  "host_available_bytes": 6381649920,
+  "host_swap_growth_bytes": 0,
+  "initial_cgroup_memory": {
+    "memory.current": 17608704,
+    "memory.max": 13958643712,
+    "memory.peak": 17608704,
+    "memory.stat": {
+      "anon": 13025280,
+      "file": 3055616,
+      "kernel": 1310720
+    },
+    "memory.swap.current": 0,
+    "memory.swap.max": 0
+  },
+  "initial_host_swap_bytes": 0,
+  "output_bytes": 182921445,
+  "peak_tree_rss_bytes": 10776674304,
+  "status": "completed",
+  "swap_guard_scope": "container cgroup; host swap is telemetry only",
+  "tree_rss_bytes": 9634373632,
+  "wall_seconds": 1800
+}

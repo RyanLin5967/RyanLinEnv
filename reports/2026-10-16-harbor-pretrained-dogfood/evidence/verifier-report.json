@@ -1,0 +1,95 @@
+{
+  "adapter_sha256": "ee0e7d0faa79405006c1c41b4cacbdbbc47e6fd4025000b5e304aead7108a3bc",
+  "contract_sha256": "4b86cabe79db88b87501752833f7494c6950bbfa793c7445aed27e1f8dd409ac",
+  "held_out_benchmark_gain_measured": false,
+  "metrics": {
+    "accuracy": 1.0,
+    "invalid_answers": 0,
+    "mean_class_accuracy": 1.0,
+    "n": 3,
+    "per_class_accuracy": {
+      "727-200": 1.0,
+      "737-300": 1.0,
+      "737-400": 1.0
+    },
+    "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+  },
+  "model_source": {
+    "file_sha256": {
+      "LICENSE": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "README.md": "74fbe869df708593087ae2ee66a6605d33fc2025937644721dc1360963d037f4",
+      "chat_template.json": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96",
+      "config.json": "422adefa19e62dd175961cec85bc0400344fe5bf9b22bd1182e05aaae78556e0",
+      "generation_config.json": "d2864bf1edea5863d331edfff48106b586a366f5a2c41aa77731fadc53aa25d2",
+      "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+      "model-00001-of-00002.safetensors": "994ac2b03f97de8bc647d0fe5eba2e4b632b3e28dc03574c29bdfc36cf47e1b9",
+      "model-00002-of-00002.safetensors": "92540d8353c8d226a589a3b179bdb33851c970ee2cc2ac7ba035f79425e7b833",
+      "model.safetensors.index.json": "260ab9fa1418d6d6ab79daa1d9da2c47264f3b72edb4630fc799077ac67d27c6",
+      "preprocessor_config.json": "b5eaad0c2815f07631535dcc58f3c462b0d73693638ad21d19f3c50820eae1cc",
+      "tokenizer.json": "cb63a0a23eef3d5b01063a9880a1925a65aaf4d1591d519910ee3527852950a0",
+      "tokenizer_config.json": "ff5c4fd898fe8c39591eb70e5d39d2782802d4204d6ae9ba1223252f354842a0",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    "manifest_sha256": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc",
+    "total_bytes": 4429621382
+  },
+  "prediction_input_fields": [
+    "id",
+    "image"
+  ],
+  "processor_audit": {
+    "chat_template_sha256": "4df95d05455c2a6f762616492bba63d0f9bef904ef47daabad35f5715d6d2e4e",
+    "image_processor": {
+      "do_convert_rgb": true,
+      "do_normalize": true,
+      "do_rescale": true,
+      "do_resize": true,
+      "image_mean": [
+        0.48145466,
+        0.4578275,
+        0.40821073
+      ],
+      "image_processor_type": "Qwen2VLImageProcessor",
+      "image_std": [
+        0.26862954,
+        0.26130258,
+        0.27577711
+      ],
+      "merge_size": 2,
+      "patch_size": 14,
+      "resample": 3,
+      "rescale_factor": 0.00392156862745098,
+      "size": {
+        "longest_edge": 200704,
+        "shortest_edge": 50176
+      },
+      "temporal_patch_size": 2
+    },
+    "max_gold_tokens_plus_eos": 17,
+    "max_prompt_tokens_observed": 996
+  },
+  "reward": 1.0,
+  "runtime": {
+    "accelerate": "1.15.0",
+    "datasets": "5.1.0",
+    "fsspec": "2026.7.0",
+    "numpy": "2.5.4",
+    "peft": "0.21.2",
+    "pillow": "12.3.0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.1+cpu",
+    "torchvision": "0.29.1+cpu",
+    "transformers": "5.20.0",
+    "trl": "1.16.0"
+  },
+  "scope": "integration_only",
+  "source_sha256": {
+    "aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+    "data.py": "f1289ab8bb8f145d4d74c63214057850dd1e66f2ee170bdf80a3d35aea57e4fb",
+    "vlm.py": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+    "vlm_local_task_builder.py": "d25d83753c1c060e74f1c20792dae50ae2c207406b3e543efe13423fd23600de",
+    "vlm_local_training.py": "f0af7e2bae66f5af88aabb903b79dcc863eb4aacd0c5d9eaa793f86498f94ae3"
+  },
+  "submitted_code_executed": false,
+  "test_consumed": false
+}
