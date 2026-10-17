@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 import math
+import time
+import types
 from pathlib import Path
 
 import pytest
@@ -22,13 +24,39 @@ INSTRUCTION = (
 PER_CLASS = 3
 
 
+class FakeClock:
+    """Monotonic time that only the fake backend advances, so every latency is recorded."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
+def latency_of(identifier):
+    # The backend's recorded per-image latency; tests derive expected values from this.
+    return float(3 + int(identifier) % 11)
+
+
+LOAD_SECONDS = 2.0
+
+
 @pytest.fixture
-def runner(monkeypatch):
+def clock():
+    return FakeClock()
+
+
+@pytest.fixture
+def runner(monkeypatch, clock):
     spec = importlib.util.spec_from_file_location(
         "aircraft_named_baseline", REPOSITORY / "scripts/aircraft_named_baseline.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    fake_time = types.SimpleNamespace(monotonic=clock.monotonic, time=time.time)
+    monkeypatch.setattr(module, "time", fake_time)
+    monkeypatch.setattr(local_vlm, "time", fake_time)
     monkeypatch.setattr(module, "NATIVE_IMAGES", 100 * PER_CLASS)
     monkeypatch.setattr(local_vlm, "runtime_versions", lambda: {"mlx-vlm": "0.6.8"})
     return module
@@ -135,18 +163,22 @@ def write_plan(world, plan=None):
     return path, sha(path)
 
 
-def fake_backend(answers, calls, *, finish="stop", fail=None):
+def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None):
     class Backend:
-        load_info = {"load_seconds": 2.0, "device": {"fake": True}}
+        load_info = {"load_seconds": LOAD_SECONDS, "device": {"fake": True}}
 
         def __init__(self, directory, config):
             assert config["profile"] == "instruct" and config["enable_thinking"] is False
             assert config["generation"]["temperature"] == 0.7
             self.config = config
+            if clock is not None:
+                clock.now += LOAD_SECONDS
 
         def infer(self, row, seed):
             identifier = row["id"]
             calls.append(identifier)
+            if clock is not None:
+                clock.now += latency_of(identifier)
             if fail is not None and identifier == fail[0]:
                 raise fail[1]
             return {"native_response": {
@@ -353,28 +385,140 @@ def test_wrong_prompt_or_discovery_ids_are_refused(runner, world):
         runner.run_stage(path, digest, "discovery", world["repo"], world["out"])
 
 
-def test_full_requires_discovery_then_runs_with_derived_cap(runner, world):
+def test_full_requires_discovery_then_runs_with_derived_cap(runner, world, clock):
     path, digest = write_plan(world)
     answers, calls = answers_for(world), []
     with pytest.raises(ValueError, match="discovery gate"):
         runner.run_stage(path, digest, "full", world["repo"], world["out"],
-                         backend_factory=fake_backend(answers, calls))
+                         backend_factory=fake_backend(answers, calls, clock=clock))
     assert calls == []
     for _ in range(2):
         runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
-                         backend_factory=fake_backend(answers, calls))
+                         backend_factory=fake_backend(answers, calls, clock=clock))
+    # Expected values come from the backend's recorded latencies, not the runner's report.
+    latency = sum(latency_of(i) for i in world["discovery"]) / 100
+    charged = 2 * LOAD_SECONDS + sum(latency_of(i) for i in world["discovery"])
     report = runner.stage_report(world["plan"], "discovery", world["repo"], world["out"])
+    assert report["mean_image_latency_seconds"] == pytest.approx(latency)
+    assert report["mean_load_seconds"] == LOAD_SECONDS
+    assert report["charged_active_seconds"] == pytest.approx(charged)
     decision = runner.discovery_decision(world["plan"], report)
-    latency = report["mean_image_latency_seconds"]
-    projection = 3333 * latency + math.ceil(3333 / 128) * 2.0
+    projection = 3333 * latency + math.ceil(3333 / 128) * LOAD_SECONDS
     assert decision["projected_full_active_seconds"] == pytest.approx(projection)
     assert decision["full_max_active_seconds"] == pytest.approx(min(172800, 2 * projection))
     full_calls = []
     for _ in range(3):
         result = runner.run_stage(path, digest, "full", world["repo"], world["out"],
-                                  backend_factory=fake_backend(answers, full_calls))
+                                  backend_factory=fake_backend(answers, full_calls, clock=clock))
     assert full_calls == [row["image_id"] for row in world["author"]]
     assert result["status"] == "completed" and result["metric"]["mean_class_accuracy"] == 1.0
+    full_charged = 3 * LOAD_SECONDS + sum(latency_of(r["image_id"]) for r in world["author"])
+    assert result["charged_active_seconds"] == pytest.approx(full_charged)
+    assert full_charged <= decision["full_max_active_seconds"]
+
+
+def test_full_refuses_discovery_from_another_plan_or_source(runner, world, clock):
+    path, digest = write_plan(world)
+    answers = answers_for(world)
+    for _ in range(2):
+        runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                         backend_factory=fake_backend(answers, [], clock=clock))
+    relaxed = copy.deepcopy(world["plan"])
+    relaxed["stages"]["full"]["gate"]["minimum_valid_answer_fraction"] = 0.0
+    relaxed_path, relaxed_digest = write_plan(world, relaxed)
+    calls = []
+    with pytest.raises(ValueError, match="different plan or source"):
+        runner.run_stage(relaxed_path, relaxed_digest, "full", world["repo"], world["out"],
+                         backend_factory=fake_backend(answers, calls, clock=clock))
+    ledger = world["out"] / "stage-discovery/ledger.jsonl"
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    for event in events:
+        if event["event"] == "started":
+            event["sources"] = {**event["sources"], "src/vision_rl/frontier.py": "0" * 64}
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+    with pytest.raises(ValueError, match="different plan or source"):
+        runner.run_stage(path, digest, "full", world["repo"], world["out"],
+                         backend_factory=fake_backend(answers, calls, clock=clock))
+    assert calls == [] and not (world["out"] / "stage-full").exists()
+
+
+def discovery_charge(world, count):
+    return LOAD_SECONDS + sum(latency_of(i) for i in world["discovery"][:count])
+
+
+@pytest.mark.parametrize("slack, expect_halt", [(0.0, False), (-1.0, True)])
+def test_active_seconds_cap_is_a_hard_ceiling(runner, world, clock, slack, expect_halt):
+    wall = 600 + 50 * 120 + 2100
+    plan = copy.deepcopy(world["plan"])
+    # Room for exactly one charged chunk plus one more full wall cap (or 1 s less).
+    plan["stages"]["discovery"]["budget"]["max_active_seconds"] = (
+        discovery_charge(world, 50) + wall + slack)
+    path, digest = write_plan(world, plan)
+    calls = []
+    runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                     backend_factory=fake_backend(answers_for(world), calls, clock=clock))
+    assert len(calls) == 50
+    if expect_halt:
+        with pytest.raises(ValueError, match="active-seconds budget exhausted"):
+            runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                             backend_factory=fake_backend(answers_for(world), calls, clock=clock))
+        assert len(calls) == 50
+    else:
+        report = runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                                  backend_factory=fake_backend(answers_for(world), calls,
+                                                               clock=clock))
+        assert report["status"] == "completed"
+        assert report["charged_active_seconds"] <= plan["stages"]["discovery"]["budget"][
+            "max_active_seconds"]
+
+
+def test_active_seconds_cap_refuses_a_first_invocation_that_cannot_fit(runner, world, clock):
+    plan = copy.deepcopy(world["plan"])
+    plan["stages"]["discovery"]["budget"]["max_active_seconds"] = 600 + 50 * 120 + 2100 - 1
+    path, digest = write_plan(world, plan)
+    calls = []
+    with pytest.raises(ValueError, match="active-seconds budget exhausted"):
+        runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                         backend_factory=fake_backend(answers_for(world), calls, clock=clock))
+    assert calls == []
+    assert not (world["out"] / "stage-discovery/ledger.jsonl").exists()
+
+
+def test_output_bytes_budget_halts(runner, world, clock):
+    plan = copy.deepcopy(world["plan"])
+    plan["stages"]["discovery"]["budget"]["max_output_bytes"] = 1
+    path, digest = write_plan(world, plan)
+    calls = []
+    runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                     backend_factory=fake_backend(answers_for(world), calls, clock=clock))
+    with pytest.raises(ValueError, match="output-bytes budget exhausted"):
+        runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
+                         backend_factory=fake_backend(answers_for(world), calls, clock=clock))
+    assert len(calls) == 50
+
+
+def gate_report(**changes):
+    report = {
+        "status": "completed", "unknown_after_interruption": [], "hard_stop_errors": [],
+        "completed": 100, "invalid_or_unterminated_answers": 0,
+        "mean_image_latency_seconds": 10.0, "mean_load_seconds": 0.0, "invocations": 2,
+        "charged_active_seconds": 1000.0, "generation_seconds_total": 1000.0,
+    }
+    return {**report, **changes}
+
+
+def test_projection_uses_measured_load_and_overhead(runner, world):
+    plan = world["plan"]
+    # A measured 0.0 s load is used as measured, never replaced by the 600 s allowance.
+    decision = runner.discovery_decision(plan, gate_report())
+    assert decision["projected_full_active_seconds"] == 33330.0
+    assert decision["full_max_active_seconds"] == 66660.0
+    # Charged seconds not spent generating (load, rehash) count per invocation.
+    decision = runner.discovery_decision(plan, gate_report(charged_active_seconds=1300.0))
+    assert decision["per_invocation_overhead_seconds"] == 150.0
+    assert decision["projected_full_active_seconds"] == 33330.0 + 27 * 150.0
+    decision = runner.discovery_decision(plan, gate_report(mean_load_seconds=None))
+    assert decision["decision"] == "stop" and decision["full_max_active_seconds"] is None
 
 
 def test_unaffordable_profile_stops_before_full(runner, world):

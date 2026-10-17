@@ -25,7 +25,11 @@ Per-invocation wall and memory limits are enforced by the external supervisor
 
 Blind spots, stated here on purpose: the ledger is local state, not a tamper-proof
 witness; an invocation killed with SIGKILL leaves no "finished" record and is charged
-its full declared wall cap; the runner does not detect other accelerator processes.
+its full declared wall cap; the runner does not detect other accelerator processes. The
+active-seconds cap is a hard ceiling only because an invocation starts when charged + its wall
+cap fits and the external supervisor kills it at that wall cap; run without the supervisor, a
+finished invocation is charged its real elapsed seconds, which may exceed the wall cap. The
+output-bytes limit is checked before each invocation, so one invocation can overshoot it.
 """
 
 from __future__ import annotations
@@ -258,6 +262,7 @@ def ledger_state(path):
     return {
         "invocations": len(started),
         "first": started.get(1),
+        "started": [started[n] for n in sorted(started)],
         "charged_active_seconds": charged,
         "unfinished": sorted(set(started) - set(finished)),
     }
@@ -382,22 +387,35 @@ def discovery_decision(plan, report):
         reasons.append("discovery incomplete")
     if report["unknown_after_interruption"] or report["hard_stop_errors"]:
         reasons.append("discovery has unknown or hard-stop outcomes")
-    projection = cap = None
+    projection = cap = per_invocation = None
     if report["completed"]:
         valid = 1 - report["invalid_or_unterminated_answers"] / report["completed"]
         if valid < rule["minimum_valid_answer_fraction"]:
             reasons.append("valid-answer fraction below the pre-registered floor")
         images = full["images"]
         invocations = math.ceil(images / full["budget"]["chunk_images"])
-        load = report["mean_load_seconds"] or full["budget"]["load_allowance_seconds"]
-        projection = images * report["mean_image_latency_seconds"] + invocations * load
-        if projection > rule["max_projected_active_seconds"]:
-            reasons.append("measured profile is unaffordable at the declared ceiling")
-        cap = min(rule["max_projected_active_seconds"],
-                  rule["active_cap_multiplier"] * projection)
+        # Per-invocation cost outside image latency: the larger of the measured model load
+        # and the ledger's charged seconds not spent generating (load, integrity rehash,
+        # input rehash, journal replay). A measured 0.0 is a measurement, not missing.
+        load = report["mean_load_seconds"]
+        if load is None:
+            reasons.append("discovery recorded no completed model load")
+        elif report["invocations"]:
+            overhead = (report["charged_active_seconds"]
+                        - report["generation_seconds_total"]) / report["invocations"]
+            per_invocation = max(load, overhead)
+            projection = (images * report["mean_image_latency_seconds"]
+                          + invocations * per_invocation)
+            if projection > rule["max_projected_active_seconds"]:
+                reasons.append("measured profile is unaffordable at the declared ceiling")
+            cap = min(rule["max_projected_active_seconds"],
+                      rule["active_cap_multiplier"] * projection)
+        else:
+            reasons.append("discovery recorded no invocation in its ledger")
     return {
         "decision": "stop" if reasons else "proceed",
         "reasons": reasons,
+        "per_invocation_overhead_seconds": per_invocation,
         "projected_full_active_seconds": projection,
         "full_max_active_seconds": cap,
         "headroom_gate": "not applied here; recorded for the root decision",
@@ -428,10 +446,20 @@ def run_stage(plan_path, expected_sha256, stage, repository, output, *, backend_
     repository, output = Path(repository).resolve(), Path(output).resolve()
     plan = load_plan(plan_path, expected_sha256)
     plan_sha = local_vlm.sha_file(plan_path)
+    sources = source_hashes()
+    pinned = plan["sources_pinned"]
+    if any(sources[name] != digest for name, digest in pinned.items()):
+        raise ValueError("A pinned runner source changed")
     if stage == "full":
         discovery_ledger = ledger_state(output / "stage-discovery" / "ledger.jsonl")
+        if not discovery_ledger["started"]:
+            raise ValueError("Full VAL refused by the discovery gate: discovery never ran")
         if discovery_ledger["unfinished"]:
             raise ValueError("Discovery has an unfinished invocation; review before full VAL")
+        if any(event["plan_sha256"] != plan_sha or event["sources"] != sources
+               for event in discovery_ledger["started"]):
+            raise ValueError("Discovery ran under a different plan or source; "
+                             "full VAL needs discovery under this exact plan and code")
     inputs = stage_inputs(plan, stage, repository)
     identifiers = [row["id"] for row in inputs["rows"]]
     budget = stage_budget(plan, stage, repository, output)
@@ -439,10 +467,6 @@ def run_stage(plan_path, expected_sha256, stage, repository, output, *, backend_
     directory.mkdir(parents=True, exist_ok=True)
     ledger_path, run_directory = directory / "ledger.jsonl", directory / "run"
     ledger = ledger_state(ledger_path)
-    sources = source_hashes()
-    pinned = plan["sources_pinned"]
-    if any(sources[name] != digest for name, digest in pinned.items()):
-        raise ValueError("A pinned runner source changed")
     if ledger["first"] is not None and (
         ledger["first"]["plan_sha256"] != plan_sha or ledger["first"]["sources"] != sources
     ):
@@ -457,8 +481,12 @@ def run_stage(plan_path, expected_sha256, stage, repository, output, *, backend_
         halts.append("unknown or hard-stop outcome recorded; human review required")
     if ledger["invocations"] >= budget["max_invocations"]:
         halts.append("invocation budget exhausted")
-    if ledger["charged_active_seconds"] >= budget["max_active_seconds"]:
-        halts.append("active-seconds budget exhausted")
+    # Hard ceiling: an invocation may run up to its wall cap (and an unfinished one is
+    # charged exactly that), so it starts only if charged + wall cap still fits.
+    charged, wall = ledger["charged_active_seconds"], budget["invocation_wall_seconds"]
+    if charged + wall > budget["max_active_seconds"]:
+        halts.append(f"active-seconds budget exhausted: charged {charged:.1f} s + invocation "
+                     f"wall cap {wall} s > {budget['max_active_seconds']} s")
     if ledger["first"] and clock() - ledger["first"]["time"] >= budget["max_calendar_seconds"]:
         halts.append("calendar budget exhausted")
     if run_directory.exists() and _output_bytes(run_directory) >= budget["max_output_bytes"]:

@@ -231,9 +231,10 @@
         "requires": "discovery completed with zero unknown and zero hard-stop outcomes",
         "minimum_valid_answer_fraction": 0.9,
         "max_projected_active_seconds": 172800,
-        "projection": "3333 x discovery mean image latency + ceil(3333 / chunk_images) x discovery mean load seconds",
+        "projection": "3333 x discovery mean image latency + ceil(3333 / chunk_images) x max(discovery mean load seconds, discovery charged seconds not spent generating / discovery invocations); a measured 0.0 load is used as measured; no recorded load stops the gate",
         "active_cap_multiplier": 2.0,
-        "full_max_active_seconds": "min(max_projected_active_seconds, active_cap_multiplier x projection)",
+        "full_max_active_seconds": "min(max_projected_active_seconds, active_cap_multiplier x projection); a hard ceiling (see budget_rules.refusals)",
+        "discovery_identity": "full VAL refuses unless every discovery ledger invocation recorded this activated plan's SHA256 and the same runner sources",
         "on_stop": "Report the named comparator as incomplete. Do not change prompt, profile, output budget or sample to rescue it; any change is a new plan version.",
         "headroom": "Not gated here. Whether the frontier comparison is still worth running is a root decision that needs the eight-endpoint results; this plan only reports the discovery interval."
       },
@@ -254,7 +255,7 @@
     "long_generation_allowance": "2100 s covers one 16,384-token generation at the slowest measured 8.2 tokens/s, so a long native answer is not truncated by the wall cap",
     "charging": "A finished invocation is charged its measured elapsed seconds; a started invocation with no finish record is charged its full wall cap.",
     "survives_resume": "The ledger's first start time and invocation count are never reset.",
-    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds >= max_active_seconds, calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation)."
+    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation)."
   },
   "supervision": {
     "command": ".venv-mlx/bin/python -I scripts/supervise_local_vlm.py --status <stage>/supervision-<n>.json --log <stage>/child-<n>.log --rss-limit-gib 36 --metal-telemetry <stage>/run/mlx-memory.jsonl --metal-limit-gib 36 --wall-limit-seconds <invocation_wall_seconds> -- .venv-mlx/bin/python -I scripts/aircraft_named_baseline.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --output runs/aircraft-named-baseline-v1",

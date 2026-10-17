@@ -47,9 +47,15 @@ before the first model call, and the operator must pass that copy's SHA256 on ev
    - discovery completed, with no unknown or hard-stop outcomes;
    - at least 90% of answers are valid and terminated;
    - the projected active time stays within 172,800 s. The projection is
-     3,333 × the discovery mean image latency + 27 loads × the discovery mean load time.
+     3,333 × the discovery mean image latency + 27 invocations × the per-invocation overhead.
+     The overhead is the larger of the discovery mean load time and the discovery charged seconds
+     not spent generating, per invocation (load, model and input rehash). A measured 0.0 s load
+     counts as 0.0 s; a discovery with no recorded load stops the gate.
+   - every discovery invocation ran under this activated plan's SHA256 and the same runner
+     sources. A discovery made under another plan copy (for example a relaxed gate) is refused.
 
-   The full stage's active-seconds cap is min(172,800, 2 × projection). If the gate says *stop*, the
+   The full stage's active-seconds cap is min(172,800, 2 × projection), and it is a hard ceiling:
+   an invocation starts only if the charged seconds plus its 18,060 s wall cap stay within it. If the gate says *stop*, the
    named comparator is reported as incomplete. Prompt, profile, output budget and sample stay as
    they are; any change requires a new plan version. Headroom is not gated here, because that
    decision needs the eight-endpoint results and belongs to the root.
@@ -82,7 +88,9 @@ count survive resume. A finished invocation is charged its measured seconds. A s
 with no finish record is charged its full wall cap. The runner refuses a new invocation in any of
 these cases:
 
-- a budget is exhausted;
+- a budget is exhausted. For active seconds this means the charged seconds plus the invocation
+  wall cap would exceed the cap, so no invocation can carry the total past it while the supervisor
+  enforces the wall cap;
 - an earlier invocation never recorded its finish;
 - the plan or runner sources changed since the stage's first invocation;
 - any unknown or hard-stop outcome exists. These need human review and never continue
