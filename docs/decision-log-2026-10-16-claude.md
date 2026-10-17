@@ -72,3 +72,13 @@ diagnostics, never held-out results.
   replay (peak tree RSS 12,138,778,624 B, under the 12 GiB cap). C1–C4 false; the verifier never ran.
 - The wall came from a GitHub projection (525 s/update). Locally one update took 752.76 s active under
   host contention (MPS continuation plus other sessions). v3 raises only walls, from measured timing.
+
+## D8 — Resource incident; continuation attempt 3 and Harbor v3 stopped by disk guards (preserved)
+- Host disk fell to ~0.3 GiB free and RAM to 28% free. The RAM came from another session's leaking
+  jobs (8–18 GB each), which were killed and their launcher paused. The disk came mostly from other
+  sessions; RyanLinEnv's VM disk and outputs added about 1.3 GB.
+- Continuation attempt 3: sft-1e5-time stopped on disk_reserve at 5263.8 s. Addendum-4 (1027304) resumes
+  it from its newest durable checkpoint as that stage's second and final attempt.
+- Harbor v3 (plan 6f1d0d6c…): SFT probe completed (77.78 s active). GRPO update 1 committed
+  (633.98 s active), then the host disk guard ended the trial before the verifier. v4 (plan 62fe9ff1…)
+  is the identical plan with new single-use output paths.
