@@ -2360,6 +2360,13 @@ def test_continuation_identity_records_old_and_new_train_and_refuses_silent_chan
         "total_budget_exhausted"
     )
     refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # Declared boundary equals the total budget (both 3): the receipt is budget-exhausted
+    # at global_step == declared, so only the status check can refuse it.
+    _finish_endpoint(parent, identity, dict(settings, max_steps=3), 3, stop_after_steps=3)
+    exhausted = json.loads((parent / "endpoint_receipt.json").read_text())
+    assert exhausted["status"] == "total_budget_exhausted"
+    assert exhausted["global_step"] == exhausted["requested_boundary"]["stop_after_steps"] == 3
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
     # Stopped by an active-seconds boundary, not its declared stop_after_steps: refused.
     _finish_endpoint(parent, identity, settings, 3, stop_after_steps=None, stop_seconds=0.0)
     refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
