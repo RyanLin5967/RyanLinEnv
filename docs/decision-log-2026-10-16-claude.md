@@ -99,3 +99,26 @@ diagnostics, never held-out results.
   newest checkpoint.
 - Host cleanup: 4.1 GB of dead-process .tmp files deleted and 8.4 GB of logs gzipped (lossless) in
   another session's /private/tmp scratchpad.
+
+## D11 — Fresh-pool screened GRPO design adopted as an unactivated protocol revision; 16-shot plan retired
+- Design: `aircraft-freshpool-screened-grpo-v1` (study draft `runs/rl-next-study-design-v1/study.{md,json}`,
+  local and gitignored; study.json wins on conflicts). GRPO with just-in-time gold-probability
+  screening on never-trained native-TRAIN images, against the strongest budget-matched, LR-tuned SFT,
+  with EG-SFT reported as a separate mechanism verdict. Label access is train400 ∪ the scanned S
+  candidates (≤29/class): **not a 4-shot claim**; gains from the extra labels are credited to data.
+- Protocol: `docs/aircraft-rl-protocol-freshpool-v1.json` (protocol id
+  `fgvc-aircraft-freshpool-screened-grpo-v1`) revises `docs/aircraft-rl-protocol-candidate-v1.json`
+  only in `data.train_membership`, `data.shots_per_class`, the SFT `selection` rule (N = 600 accepted
+  updates, LR chosen on H-select, every SFT endpoint still in the full-VAL strongest pool) and the
+  added `data.train_holdout` (H-select / H-gate, 200 each). `substantial_gain_gates` and
+  `strong_baseline` are byte-identical to the candidate, asserted by
+  `tests/test_aircraft_protocol_freshpool.py`. UNACTIVATED: root review, the controlled400 native-VAL
+  branch and D_req publication are still G0 prerequisites.
+- **Retired: the unactivated 16-shot prospective TRAIN plan** (seed 2718, 1,600 images,
+  `docs/fgvc-aircraft-audit-2026-10-16.json` `prospective_train_fewshot`). It shares 1,390 of the 2,919
+  fresh-pool IDs (`runs/aircraft-train-screen-review-v1/verification/verification.json`,
+  `additional_risk`), so the H-select/H-gate holdout is clean only while no study trains on it. No
+  study may activate that plan while this protocol's holdout is in use; it was never activated.
+- Honest prior: the three design judges put p(substantial) at 0.08 / 0.06 / 0.05, i.e. **~5–8%**
+  (study lineage; judged, not measured). The study's own pass-all estimate is ≤0.08 (unverified).
+  Most likely outcome is a stop at G2/G3 or a VAL non-pass; that is a valid, reportable result.
