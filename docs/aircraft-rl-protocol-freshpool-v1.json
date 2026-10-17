@@ -9,12 +9,29 @@
     "path": "docs/aircraft-rl-protocol-candidate-v1.json",
     "protocol_id": "fgvc-aircraft-fourshot-token-grpo-candidate-v1",
     "sha256": "3beb0ddad18c45637ab59222dd2927f22e2510be1a84b26f8fd622b2bbeb275a",
-    "study": "aircraft-freshpool-screened-grpo-v1 (runs/rl-next-study-design-v1/study.json protocol_revision)",
+    "study": "docs/aircraft-freshpool-study-v1.json",
     "changed_fields": [
-      "data.train_membership",
       "data.shots_per_class",
+      "data.train_images",
+      "data.train_membership",
       "data.train_holdout (added)",
-      "supervised_controls.strong_answer_only_controls.selection"
+      "data.claim_scope",
+      "actor_and_objective.initial_policy (added)",
+      "actor_and_objective.algorithm.clip_epsilon_status (added)",
+      "actor_and_objective.optimizer.learning_rate -> learning_rate_grid",
+      "actor_and_objective.optimizer.learning_rate_selection (added)",
+      "actor_and_objective.optimizer.distinct_prompts_per_optimizer_update (added)",
+      "actor_and_objective.reasoning_instruction_v2 -> instruction",
+      "real_learning_and_resume_gate.before",
+      "real_learning_and_resume_gate.actual_task_data",
+      "real_learning_and_resume_gate.experiment",
+      "exposure_and_staging (all fields except primary_seed and conditional_replication_seeds)",
+      "supervised_controls (all fields except strong_answer_only_controls.learning_rates, strongest_definition and time_accounting)",
+      "activation_prerequisites (all items except the first)",
+      "evaluation_and_seal.validation",
+      "evaluation_and_seal.test_freeze_before_access",
+      "resources.not_measured",
+      "resources.proposed_first_seed_limits"
     ],
     "metadata_changed": [
       "protocol_id",
@@ -26,11 +43,21 @@
     "unchanged_by_rule": [
       "substantial_gain_gates (byte-identical; asserted by tests/test_aircraft_protocol_freshpool.py)",
       "strong_baseline (byte-identical; asserted by the same test)",
-      "evaluation_and_seal",
       "supervised_controls.strongest_definition"
     ],
-    "all_other_fields": "copied unchanged from the candidate, including its historical known_state_at_draft and data.claim_scope; where those describe fourshot-only label access, data.train_membership and the study claim_scope (credit extra-label gains to data, not RL) govern",
-    "retired_plan": "The unactivated 16-shot plan (docs/fgvc-aircraft-audit-2026-10-16.json prospective_train_fewshot, seed 2718, 1,600 images) is retired in docs/decision-log-2026-10-16-claude.md D11; it shares 1,390 IDs with the fresh pool."
+    "all_other_fields": "Copied unchanged from the candidate. known_state_at_draft, mechanism_gate, conditional_common_warm_start and review_amendments_before_any_activation are historical candidate records (the warm start they describe produced W); where they mention v2 reasoning prompts, 400/1,200 presentations or fourshot-only access, the revised fields above and the study govern. Study G1 (P0) replaces mechanism_gate for this revision.",
+    "retired_plan": "The unactivated 16-shot plan (docs/fgvc-aircraft-audit-2026-10-16.json prospective_train_fewshot, seed 2718, 1,600 images) is retired in docs/decision-log-2026-10-16-claude.md D11; it shares 1,390 IDs with the fresh pool.",
+    "study_sha256": "c21a792001dd36ed04af36a5042d402b834023254912d73301b3be5fd5c2514d",
+    "study_markdown": "docs/aircraft-freshpool-study-v1.md",
+    "study_markdown_sha256": "a9da9fd185c1e56a9de809fbd9d9ea600e71f369151ee3b1be22b61d97258b45",
+    "study_source": "Byte copy of runs/rl-next-study-design-v1/study.{json,md} (gitignored); study.json wins over study.md on conflict.",
+    "root_decisions_2026_10_17": [
+      "(a) Learning-rate, checkpoint and arm selection for RL and SFT uses H-select only. Full native VAL is used only for the strongest-SFT pool and the final gates (G4, G5). This supersedes the study's protocol_revision.unchanged listing of evaluation_and_seal: evaluation_and_seal.validation and test_freeze_before_access are revised to match.",
+      "(b) The 400/1,200-presentation budgets are replaced by N = 600 accepted updates, the SFT-E/SFT-T/EG-SFT definitions and the 1.25x per-arm caps; RL uses the 1e-5/5e-5/1e-4 grid, the answer-only prompt and one prompt per update.",
+      "(c) Stale fourshot scope fields (data.claim_scope, data.train_images, supervised_controls.scope) are rewritten to the study claim_scope.",
+      "(d) data.train_holdout.hash_protocol_id pins the holdout salt as a literal, read by scripts/prepare_aircraft_freshpool.py, so an activated copy with a new protocol_id cannot reshuffle H.",
+      "(e) The study design is committed at revises.study so the protocol's authority is tracked."
+    ]
   },
   "scope": "Finite local research proposal, not an executable recipe, launch authorization, completed result, or exact paper replication.",
   "purpose": "Test whether verifiable token-policy RL contributes a substantial fine-grained classification gain beyond strong scarce-data SFT, and whether the resulting specialist beats a named strong current local baseline.",
@@ -54,14 +81,16 @@
     "annotation_archive_sha256": "50e4419bd330b68a2e85dbcb32339d31120190efe6944682e87c9b431f5f202a",
     "shots_per_class": "4 (warm) + screened stream; <=29",
     "classes": 100,
-    "train_images": 400,
+    "train_images": "train400 (warm start, already consumed by W) plus, per seed, the S candidates scanned by that seed's RL arm; at most 29 per class. RL, SFT-E and EG-SFT train on the 600 accepted IDs; SFT-T trains on the full scanned sequence.",
     "native_train_pool_images": 3334,
     "native_validation_images": 3333,
     "native_test_images": 3333,
     "train_membership": "train400 (warm) ∪ the S candidates scanned by that seed's RL arm. Gold labels are read by the scorer for every scanned candidate, so the full scanned set counts as label access. W and every SFT arm get the same label access; absolute-accuracy gains from the extra labels are credited to the data, not to RL. Still no trainval merge, external task labels, synthetic class ambiguity, pseudo-label dataset, or teacher rationales; no arm trains on train_holdout, VAL or TEST.",
     "train_holdout": {
       "pool": "native TRAIN minus train400 minus the 15 non-train400 probe16 images minus pHash drops (2,919 before drops)",
-      "hash": "within class, ascending SHA256 of compact JSON [protocol_id, \"train-holdout-screen\", 791, label, id]",
+      "hash_protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1",
+      "hash_protocol_id_rule": "Pinned literal salt. It is NOT the top-level protocol_id and must not be changed when root freezes an activated copy under a new protocol_id; scripts/prepare_aircraft_freshpool.py reads this field.",
+      "hash": "within class, ascending SHA256 of compact JSON [hash_protocol_id, \"train-holdout-screen\", 791, label, id]",
       "H_select": {
         "images": 200,
         "per_class": 2,
@@ -69,7 +98,7 @@
           1,
           3
         ],
-        "use": "learning-rate selection only, for RL and SFT"
+        "use": "All learning-rate, checkpoint and arm selection for RL and SFT: RL top-2 at 150, RL* at 600, SFT-E*, SFT-T qualification (within 2.0 pp of best SFT-E) and SFT-T*, EG-SFT learning rate, replicate SFT learning rates."
       },
       "H_gate": {
         "images": 200,
@@ -78,7 +107,7 @@
           2,
           4
         ],
-        "use": "G3a/G3b only"
+        "use": "G3a/G3b only; never selection."
       },
       "rule": "No arm ever trains on H. Selecting on H-select and gating on H-gate keeps selection and gating disjoint.",
       "manifest_script": "scripts/prepare_aircraft_freshpool.py"
@@ -93,19 +122,25 @@
     ],
     "test_status": "SEALED: no task-selection, prompt, reward, hyperparameter or checkpoint selection using test.",
     "dataset_terms": "Non-commercial research only; retain provenance and publish download instructions rather than image files.",
-    "claim_scope": "Fourshot gradient training with disclosed development exposure; no claim against full-data SFT, challenge-leaderboard parity, or absence of pretraining contamination."
+    "claim_scope": "Label access is train400 ∪ S_scanned(seed), at most 29 per class: not a 4-shot claim and not comparable to fourshot papers. Absolute-accuracy gains from the extra labels are credited to the data, not to RL; W and every SFT arm get equal label access. No claim against full-data SFT, challenge-leaderboard parity, or absence of pretraining contamination."
   },
   "actor_and_objective": {
     "model": "Qwen/Qwen2-VL-2B-Instruct",
     "revision": "895c3a49bc3fa70a340399125c650a463535e71c",
     "model_source_manifest_sha256": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc",
     "engine": "Released TRL 1.16.0 GRPOTrainer, use_vllm=false; pinned dependency/source identity from docs/local-vlm-rl-design.md.",
+    "initial_policy": {
+      "id": "W",
+      "adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "role": "Common warm adapter: initial policy for every RL and SFT arm and the frozen beta 0.04 reference for RL."
+    },
     "algorithm": {
       "loss_type": "grpo",
       "reward_scaling": "group",
       "importance_sampling_level": "token",
       "num_iterations": 1,
       "clip_epsilon": 0.2,
+      "clip_epsilon_status": "Inert: num_iterations 1 makes the ratio 1, so the clip never binds; max_grad_norm 1.0 (shared with SFT) is the only binding limit. Not presented as a control; pre-clip norms are reported.",
       "beta": 0.04,
       "reference": "Frozen exact copied initial LoRA adapter sharing the pinned base; a common warm start changes the reference to that saved initial adapter.",
       "sync_reference": false
@@ -127,13 +162,23 @@
     },
     "optimizer": {
       "name": "AdamW",
-      "learning_rate": 1e-05,
+      "learning_rate_grid": [
+        1e-05,
+        5e-05,
+        0.0001
+      ],
+      "learning_rate_selection": "Seed 42: all three to 150 accepted updates; the top two by H-select sampled macro accuracy continue without reset to 600; RL* is the H-select best at 600. Replicate seeds freeze RL*'s learning rate. Branch B4 may add 2e-4 to both the RL and SFT grids before any fit. Never selected on VAL.",
       "scheduler": "constant",
       "warmup_steps": 0,
       "weight_decay": 0.0,
-      "max_grad_norm": 1.0
+      "max_grad_norm": 1.0,
+      "distinct_prompts_per_optimizer_update": 1
     },
-    "reasoning_instruction_v2": "Inspect the aircraft’s visible distinguishing features. First give a brief explanation of the visible details, enclosed by <think> and </think>. Then write one label copied exactly from the allowed list on its own line. Do not add a prefix, quotes, or any text after that label.",
+    "instruction": {
+      "id": "answer_only",
+      "text": "Placeholder-free direct-answer instruction with the same task question and the complete ordered 100-label list; identical for RL, every SFT arm, W and evaluation.",
+      "reasoning_prompts": "Not used in this revision (study not_used)."
+    },
     "prompt_identity": "Question, full ordered100-label list, instruction, family chat template and processor hashes must be frozen before new outputs; no literal answer placeholder.",
     "grammar": "canonical-label-v2/optional-tags",
     "reward": "Exactly 1 iff the completion terminates with EOS and parses as the exact canonical gold label; otherwise 0. Optional bounded think block and bare/tagged label follow the shared parser.",
@@ -373,9 +418,9 @@
     "failure": "No second warmup or extra shots under this candidate. If the fixed gate still fails, stop this recipe and propose a separately named task/method pivot."
   },
   "real_learning_and_resume_gate": {
-    "before": "Any400-presentation fit; no native test access.",
-    "actual_task_data": "Frozen400 TRAIN images and actual task-only rewards; no engineered ambiguity. Use the prospective training seed/order.",
-    "experiment": "From the exact common initial policy, run four real optimizer updates uninterrupted and compare with two-plus-two and one-plus-three updates resumed from complete optimizer-boundary checkpoints.",
+    "before": "Any fit (study E0); no native VAL or TEST access.",
+    "actual_task_data": "Seed 42 S scan order with the screened sampler from W and actual task-only rewards; no engineered ambiguity.",
+    "experiment": "From W, run four real accepted updates uninterrupted and compare with two-plus-two and one-plus-three resumed from complete optimizer-boundary checkpoints: identical scan position, screening journal, sampled tokens, rewards and adapter bytes. The scorer's p uses the sampler's exact transforms.",
     "required": [
       "At least one useful mixed task-reward group, finite nonzero task-gradient contribution, and actual LoRA parameter change. KL-only movement does not qualify.",
       "Sampled/teacher-forced token log-probability agreement within0.001 in float32 after identical sampling transforms; report any raw suppression normalization difference.",
@@ -389,23 +434,31 @@
     "accounting": "Charge all uninterrupted/replay diagnostics as engineering compute; record them separately from fit budgets."
   },
   "exposure_and_staging": {
-    "budget_unit": "A prompt presentation is one distinct image draw before expansion to four completions; also record cumulative unique IDs, per-class counts, optimizer updates, rollout tokens and actual time.",
-    "recommended_candidate_accumulation": {
-      "distinct_prompts_per_optimizer_update": 4,
-      "generation_batch_size": 4,
-      "grpo_gradient_accumulation_steps": 16,
-      "sft_gradient_accumulation_steps": 4,
-      "microbatch_size": 1,
-      "meaning": "Four sequential G4 groups per update, with no larger concurrent generation batch.",
-      "status": "Source-supported design only; adapter knob, actual group accounting, gradients/memory and resume proof are not yet complete. This is an activation prerequisite."
-    },
-    "existing_implementation": {
+    "budget_unit": "One accepted update = one screened S candidate accepted by the scorer and presented once (G = 4 completions for RL, one gold+EOS target for SFT-E/EG-SFT). Record candidates scanned, accepted IDs, per-class counts, optimizer updates, rollout tokens, scorer seconds and committed active seconds.",
+    "optimizer_update_unit": {
       "distinct_prompts_per_optimizer_update": 1,
+      "generation_batch_size": 4,
       "grpo_gradient_accumulation_steps": 4,
       "sft_gradient_accumulation_steps": 1,
-      "consequence": "Current400 presentations require400 updates; proposed four-prompt accumulation requires100 updates. These are different optimization configurations, not interchangeable step labels. Keeping the current mode requires an explicit prospective revision of both arms."
+      "microbatch_size": 1,
+      "meaning": "One accepted prompt per update for every arm; four-prompt accumulation is not used."
     },
-    "sampler": "Use the released seeded shuffled sampler without replacement within each epoch. Verify every400-presentation pass covers exactly the frozen 400 IDs; SFT and GRPO native orders can differ after epoch0, so do not claim identical traces.",
+    "N_accepted_updates": 600,
+    "sampler": {
+      "scan_order": "Per seed, random.Random(seed).shuffle(sorted(S ids)) from scripts/prepare_aircraft_freshpool.py.",
+      "score": "p = P(exact gold+EOS) from one teacher-forced forward under the current adapter with the sampler's exact transforms, including image-token suppression normalization.",
+      "accept": "u(p) = 1 - p^4 - (1-p)^4 >= 0.5, i.e. p in [0.1594, 0.8406]; an accepted candidate is yielded G times.",
+      "journal": [
+        "id",
+        "p",
+        "u",
+        "accepted",
+        "scorer_seconds",
+        "adapter_sha256"
+      ],
+      "alt_tokenization_switch": "If more than 2% of correct P0 samples are non-canonical tokenizations, sum p over the P0-observed tokenizations; frozen before G2.",
+      "exhaustion": "Scan exhausting S before N = 600 accepted updates stops the arm; it is incomplete and never quoted."
+    },
     "primary_seed": 42,
     "conditional_replication_seeds": [
       314,
@@ -413,87 +466,67 @@
     ],
     "stages": [
       {
-        "name": "first_complete_exposure",
-        "cumulative_prompt_presentations": 400,
-        "maximum_unique_training_ids": 400,
-        "cumulative_optimizer_updates": 100,
-        "cumulative_sampled_completions": 1600,
-        "maximum_cumulative_generated_tokens": 409600
+        "name": "rl_learning_rate_screen",
+        "seed": 42,
+        "learning_rates": [
+          1e-05,
+          5e-05,
+          0.0001
+        ],
+        "cumulative_accepted_updates": 150,
+        "cumulative_sampled_completions": 600,
+        "maximum_cumulative_generated_tokens": 153600,
+        "gate": "G2 (futility)"
       },
       {
-        "name": "bounded_expansion_if_first_stage_passes",
-        "cumulative_prompt_presentations": 1200,
-        "maximum_unique_training_ids": 400,
-        "cumulative_optimizer_updates": 300,
-        "cumulative_sampled_completions": 4800,
-        "maximum_cumulative_generated_tokens": 1228800
+        "name": "rl_top2_continuation",
+        "seed": 42,
+        "learning_rates": "top two by H-select sampled macro accuracy at 150",
+        "cumulative_accepted_updates": 600,
+        "cumulative_sampled_completions": 2400,
+        "maximum_cumulative_generated_tokens": 614400,
+        "selection": "RL* = H-select best at 600"
+      },
+      {
+        "name": "replicate_rl",
+        "seeds": [
+          314,
+          2718
+        ],
+        "learning_rates": "RL*'s learning rate, frozen",
+        "cumulative_accepted_updates": 600,
+        "condition": "Only if seed 42 passes G4."
       }
     ],
-    "stage_boundary": "Use the same predeclared total horizon and stop at a complete optimizer boundary after 400 presentations; preserve complete state for the800-presentation continuation. Do not reset optimizer/reference or silently change max_steps to evade the resume identity.",
-    "first_stage_continuation_gate": {
-      "status": "ROOT_APPROVED_FOR_UNACTIVATED_CANDIDATE_ONLY",
-      "purpose": "Permit one finite delayed-learning expansion based on actual task improvement and nondegraded validation; being behind faster-learning SFT after one pass is not by itself a veto.",
-      "training_assay": {
-        "selection_reference": "mechanism_gate.rows",
-        "images": 32,
-        "groups": 64,
-        "completions": 256,
-        "seeds_reference": "mechanism_gate.sampling_seeds",
-        "group_size": 4,
-        "initial_policy": "Exact common initialization used by every arm, including the fixed warm start if used; reuse its frozen gate outputs only if all identities match.",
-        "post_policy": "First complete 400-presentation RL checkpoint; use the same prompt,preprocessing,sampling profile,seeds,image and group indices.",
-        "rng_handling": "Run assay outside the fit budget and preserve/restore all training RNG and sampler states; diagnostic sampling must not alter the subsequent training trajectory.",
-        "minimum_sampled_exact_accuracy_delta": 0.02,
-        "minimum_both_policies_valid_fraction": 0.8,
-        "valid_pair_correctness_delta_strictly_greater_than": 0.0,
-        "valid_pair_definition": "Match completions by image,diagnostic seed and within-group index. Restrict this diagnostic to pairs EOS-terminated and canonical-valid under both policies; compare correctness within the same paired denominator. Format-only improvements cannot satisfy its positive-change requirement.",
-        "scope": "Finite TRAIN screening of sampled exact-task reward, not statistical generalization evidence or a causal reasoning claim. Report conditional Monte Carlo uncertainty and every raw output; no best-of-G reward."
-      },
-      "full_validation": {
-        "required_native_images": 3333,
-        "required_classes": 100,
-        "required_attempted_predictions": 3333,
-        "minimum_macroaccuracy_delta_vs_common_initialization": 0.0,
-        "minimum_eos_fraction": 0.95,
-        "minimum_canonical_valid_fraction": 0.9,
-        "maximum_eos_fraction_decline_vs_common_initialization": 0.02,
-        "maximum_canonical_valid_fraction_decline_vs_common_initialization": 0.02,
-        "minimum_delta_vs_strongest_sft": null,
-        "sft_role": "All four prescribed equal-exposure SFT endpoints must be measured and reported, but RL need not beat them at this early screen. Final substantial-RL comparisons remain mandatory."
-      },
-      "optimizer_and_reference": {
-        "required_completed_prompt_presentations": 400,
-        "required_unique_training_ids": 400,
-        "require_finite_nonzero_task_gradient": true,
-        "require_changed_trainable_adapter": true,
-        "require_reference_hash_unchanged": true,
-        "require_frozen_reference": true,
-        "require_complete_resume_receipt": true,
-        "require_all_profile_and_data_identities_unchanged": true
-      },
-      "expansion_budget": {
-        "maximum_additional_prompt_presentations": 800,
-        "maximum_total_prompt_presentations": 1200,
-        "additional_continuation_attempts": 1
-      },
-      "failure": "Stop this candidate if any conjunction fails; do not add further epochs or change thresholds after seeing the result."
+    "stage_boundary": "Continue from 150 to 600 on the same predeclared horizon without resetting optimizer, reference, sampler position or the active-time ledger.",
+    "gates": {
+      "authority": "docs/aircraft-freshpool-study-v1.json gates G0-G6 and standing_stops",
+      "G2_futility": "RL at 150, three learning rates: best RL H-select sampled macro delta vs W > 0; invalid <= W + 2; adapter changed; reference unchanged; rolling useful-mixed >= 0.6. Labelled futility, not evidence.",
+      "G3a": "On H-gate (greedy + G4 seeds 42, 314): RL* - SFT-E* >= +0.02 sampled macro (+0.05 in mechanism mode); RL* - W one-sided 90% paired LB > 0; validity/EOS held.",
+      "G3b": "On H-gate: RL* - SFT-T* >= +0.02 (+0.05 in mechanism mode).",
+      "G4": "Seed 42 full native VAL: substantial_gain_gates unchanged; protocol verdict (protocol pool) and robust verdict (pool + EG-SFT)."
     },
-    "replication_trigger": "Only if seed 42 after at most 1,200 presentations passes the full-validation substantial-RL gate against all required SFT controls, and the named-baseline discovery/resource decision is viable. Then repeat the fixed recipe at 314 and 2718; no new learning-rate search or changed shots.",
-    "stop_rule": "Failure of a declared final gate, loss of task signal, numerical/reference failure, or exhausted bounded expansion ends this candidate. Preserve all results and pivot explicitly; do not extend a marginal run indefinitely."
+    "arm_caps": "Each arm is capped at 1.25x its forecast active seconds, no reset on resume. A capped or interrupted arm leaves its comparison incomplete: it is re-run from scratch and never quoted.",
+    "replication_trigger": "Only if seed 42 passes G4 (the unchanged substantial_gain_gates against the protocol strongest-SFT pool) and the named-baseline discovery/resource decision is viable. Then repeat at 314 and 2718 with RL*'s frozen learning rate and N = 600; per-seed strongest SFT = SFT-E and SFT-T for every learning rate within 2.0 pp of the seed-42 best on H-select, plus W. No new RL learning-rate search.",
+    "stop_rule": "Failure of a declared gate, or any standing stop (rolling accepted useful-mixed fraction < 0.40 over any 100 accepted updates; scan exhausts S before N; NaN or reference hash change; arm hits its 1.25x cap; disk, RSS or MPS-driver guard; second MPS owner) ends this candidate. Preserve all results; no threshold, margin, seed, N or grid change after any output is seen."
   },
   "supervised_controls": {
     "initial_comparators": [
-      "Pinned untrained actor under v2 and answer-only inference.",
-      "Common warm-start-only actor if used; preserve its exact hash and cost."
+      "W, the common warm adapter (initial policy and KL reference); its controlled400 VAL is reused only on an exact identity match."
     ],
     "strict_matched_control": {
-      "prompt": "Same explicit-reasoning v2 prompt as RL.",
+      "arm": "SFT-E",
+      "prompt": "Same answer-only instruction as RL.",
       "targets": "Gold final label plus EOS; no invented reasoning.",
-      "learning_rate": 1e-05,
-      "reason": "Causal comparison with identical prompt, initialization, LoRA, image profile and number of distinct prompts/update; report the reasoning-prompt/answer-target asymmetry."
+      "learning_rates": [
+        1e-05,
+        5e-05,
+        0.0001
+      ],
+      "reason": "RL and SFT now share prompt, initialization, LoRA, image profile, one prompt per update and learning-rate grid, so the exposure-matched SFT-E arm is the strict matched control; there is no separate reasoning-prompt SFT arm."
     },
     "strong_answer_only_controls": {
-      "prompt": "Placeholder-free direct-answer instruction, used consistently during SFT and evaluation; same task question and complete 100-label list.",
+      "prompt": "Placeholder-free direct-answer instruction with the same task question and the complete ordered 100-label list; identical for RL, every SFT arm, W and evaluation.",
       "learning_rates": [
         1e-05,
         5e-05,
@@ -501,13 +534,26 @@
       ],
       "selection": "Train all three predeclared learning rates to N = 600 accepted updates; select the learning rate on H-select. Every SFT endpoint, selected or not, still enters the full-VAL strongest pool. Keep every result, including collapse."
     },
-    "equal_update_and_exposure": "At each RL stage, compare against strict-matched SFT and all three prospective answer-SFT learning rates trained for the same prompt presentations and optimizer updates. All receive the same 400 IDs and common initial adapter.",
-    "equal_active_time": "At the selected RL exposure stage, continue strict-matched SFT and the strongest answer-SFT setting selected on full validation from their own original trajectories to the RL arm’s cumulative synchronized committed training time, including RL generation, reward, reference and backward time. Compare their equal-time endpoints and earlier declared exposure endpoints; SFT may see additional passes through the same 400 images.",
+    "arms": {
+      "SFT-E": "Each learning rate in the grid; exactly RL*'s 600 accepted IDs in RL*'s order, 600 updates (exposure match).",
+      "SFT-T": "Every SFT-E learning rate within 2.0 pp (H-select sampled) of the best SFT-E, continued from its SFT-E endpoint without reset over RL*'s full scanned sequence (accepted and rejected) in scan order, cycling, to T_RL (active-time and label-access match).",
+      "EG-SFT": "H-select-best SFT-E learning rate; RL*'s 600 accepted IDs; SFT loss x stopgrad[w4(p)/w4(0.5)], w4 enumerated exactly over k = 0..4 under TRL group-std advantage including eps. Mechanism control: robust verdict only, never in the protocol strongest-SFT pool."
+    },
+    "equal_update_and_exposure": "SFT-E and EG-SFT receive exactly RL*'s 600 accepted presentations and optimizer updates in the same order, from W.",
+    "equal_active_time": "SFT-T continues SFT-E's trajectory without reset to T_RL, RL*'s checkpoint-bound cumulative committed active seconds including scorer forwards for every scanned candidate, generation, reward, reference and backward; setup, evaluation and I/O are logged separately. SFT-T sees every label RL's scorer read.",
     "strongest_definition": "Maximum full-validation mean-class accuracy among all predeclared base, warm-start, SFT LR, equal-update and equal-time candidates; ties choose lower active compute then lexicographic run ID. Never compare only with a collapsed SFT.",
+    "protocol_strongest_pool": [
+      "W",
+      "SFT-E at each grid learning rate",
+      "every qualifying SFT-T",
+      "every VAL-evaluated controlled400 SFT endpoint",
+      "the B4 edge-extension learning rate if added"
+    ],
     "time_accounting": "Use checkpoint-bound cumulative committed active time across resumes; record setup, validation, I/O and discarded/replayed physical time separately and also report end-to-end wall time. An optimizer-boundary overshoot must be at most one measured update and reported. No fresh time budget after resume.",
+    "arm_caps": "1.25x forecast active seconds per arm, no reset on resume; a capped or interrupted arm is re-run from scratch, never quoted.",
     "wall_time_readiness": "Cumulative checkpoint-bound active accounting is implemented and independently verified by root with 85 CPU tests and the actual tiny random-model tiny-active-budget-v3 run. Its original 0.25-second total survives resume; an exhausted checkpoint is rejected before model/forward work. Actual pretrained VLM/MPS timing and resume remain unmeasured.",
-    "selection_opportunities": "Fixed400 and1200 exposure endpoints plus equal-time endpoint; no per-step validation search. SFT receives the declared extra LR search to make the control stronger, with total tuning cost reported.",
-    "scope": "These controls test RL against fourshot SFT with the same trainable capacity. They do not establish superiority to a fully supervised specialist using all 3,334training images."
+    "selection_opportunities": "Learning rate and arm selection on H-select only (SFT-E*, SFT-T qualification and SFT-T*, EG-SFT learning rate). Full VAL is read once per endpoint, only to pick the strongest SFT from the protocol pool and for G4/G5; no per-step validation search. Tuning cost is reported per family.",
+    "scope": "These controls test RL against SFT with the same trainable capacity and the same label access (train400 ∪ S_scanned, at most 29 per class). They do not establish superiority to a fully supervised specialist using all 3,334 training images."
   },
   "evaluation_and_seal": {
     "primary_metric": "Mean of per-class exact-label accuracies across the fixed100 classes, matching the author confusion-matrix evaluator.",
@@ -524,13 +570,13 @@
       "Training seed variability"
     ],
     "author_evaluator_parity": "docs/fgvc-aircraft-evaluator-parity-2026-10-16.json",
-    "validation": "Use all 3,333 native validation images for actor/SFT checkpoint and learning-rate selection. The named baseline may first use its explicitly sample-scoped 100-image discovery design; a full-validation baseline claim requires all 3,333. Full native test remains mandatory for the final frozen comparison.",
+    "validation": "Learning-rate, checkpoint and arm selection for RL and SFT uses H-select only (data.train_holdout.H_select). All 3,333 native validation images are used only to pick the strongest SFT from the protocol pool (supervised_controls.strongest_definition) and for the final gates G4/G5; each endpoint is evaluated on VAL at most once and logged in the VAL-look ledger. The named baseline may first use its explicitly sample-scoped 100-image discovery design; a full-validation baseline claim requires all 3,333. Full native test remains mandatory for the final frozen comparison.",
     "actor_and_sft_decoding": "One deterministic greedy completion per image, max256tokens at the frozen pixel profile. Same parser and croppedRGB; instruction follows the named control.",
     "reuse": "Cache an initial-policy evaluation only when model, adapter, prompt, processor, decoding and image identities match exactly; this avoids repeated expensive identical validation.",
     "test_freeze_before_access": [
       "Freeze protocol revision, source/environment/model/adapter/data hashes and raw manifests.",
       "Fix seed 42 as the deployment candidate in advance; do not pick the best of three seeds after observing outcomes.",
-      "Select the RL exposure checkpoint and strongest SFT comparator using validation only, with declared tie rules.",
+      "Select RL* (learning rate and checkpoint) on H-select only; select the strongest SFT comparator by full-validation mean-class accuracy over the declared pool, with declared tie rules. No selection on TEST.",
       "Freeze named baseline identity, quantization, native inference profile, prompt and budget.",
       "Freeze bootstrap code, random seed and all numerical acceptance margins."
     ],
@@ -640,18 +686,16 @@
     ],
     "not_measured": [
       "V2reasoning tokens/second and task accuracy.",
-      "Actual pretrained256-token G4 backward with beta 0.04 and four-prompt accumulation on MPS.",
+      "Actual pretrained256-token G4 backward with beta 0.04 and screening scorer forwards on MPS.",
       "Full3333validation and strong27B native inference cost.",
       "Peak training memory and durable rank8 checkpoint sizes."
     ],
     "forecast_before_fit": "Use actual synchronized pilot seconds per prompt presentation for training, not paper update counts or short invalid v1 latency. Forecast each stage and all SFT/evaluation runs explicitly; publish measured mean and p95, not just best throughput.",
     "cost_formula": "fit_seconds≈prompt_presentations×measured_seconds_per_prompt_including_generation_reference_backward; evaluation_seconds≈3333×measured_model_specific_seconds_per_image. Generated-token caps are separate conservative workload bounds.",
     "proposed_first_seed_limits": {
-      "mechanism_gate_wall_seconds": 10800,
-      "real_update_and_replay_wall_seconds": 7200,
-      "first400_rl_active_seconds": 21600,
-      "cumulative1200_rl_active_seconds": 64800,
-      "limit_semantics": "Finite operational budgets, not a claim these durations suffice. Reaching a time limit before required exposure makes that comparison incomplete; freeze any enlarged budget prospectively before a new attempt."
+      "arm_caps": "1.25x forecast active seconds per arm (exposure_and_staging.arm_caps)",
+      "forecast": "docs/aircraft-freshpool-study-v1.json compute_plan_mps_hours (extrapolated, unverified)",
+      "limit_semantics": "Finite operational budgets, not a claim these durations suffice. Reaching a cap leaves that comparison incomplete; re-run from scratch, never quoted."
     },
     "memory_proposal": {
       "rss_guard_bytes": 34359738368,
@@ -682,13 +726,11 @@
   },
   "activation_prerequisites": [
     "Root reviews this candidate and freezes a separately identified activated protocol before new study outputs; this JSON remains historical candidate evidence.",
-    "Complete approved same 16 v2 diagnostics without replacing or rescoring v1. Then explicitly schedule the different 32-from400mechanismgate.",
-    "Finish data provenance/full cross-splitclearance and full native validation readiness before held-out learning selection.",
-    "Freeze exact placeholder-free reasoning and answer-only prompt/parser/processor hashes and the baseline identity; no model-revision placeholders in the activated record.",
-    "Implement and verify four distinct prompt accumulation, or explicitly revise both arms to current one-prompt semantics before sampling.",
-    "Provide TRAIN-only G4 mechanism/update/resume interfaces without the current synthetic-only probe restriction or mandatory full before/aftervalidation for mere wiring; do not label implementation gaps complete.",
-    "Prove immutable reference restoration and cumulative synchronized committed-active time on the real chosen device, including discarded-work accounting.",
-    "Measure real reasoning/backward/runtime/memory, then freeze practical supervisor and complete study budgets. Current short v1numbers cannot substitute."
+    "Study G0 before any model run: fresh-pool, H-select, H-gate and per-seed scan manifests emitted by scripts/prepare_aircraft_freshpool.py and hashed; pHash audit complete with forced fire passing; this revision committed; 16-shot plan retired (docs/decision-log-2026-10-16-claude.md D11); controlled400 native-VAL branch resolved and published; D_req published.",
+    "Freeze the answer-only prompt/parser/processor hashes and the baseline identity; no model-revision placeholders in the activated record.",
+    "Study E0 before any fit: real_learning_and_resume_gate on the chosen device with the screened sampler, charged to engineering.",
+    "Prove immutable reference restoration and cumulative synchronized committed-active time on the real chosen device, including scorer seconds and discarded-work accounting.",
+    "Freeze per-arm forecast active seconds (for the 1.25x caps) from measured pilot timing before the arm starts."
   ],
   "primary_sources": [
     {

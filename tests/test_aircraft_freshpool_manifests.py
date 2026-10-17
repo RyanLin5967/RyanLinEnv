@@ -16,6 +16,7 @@ FRESH = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FRESH)
 
 PROTOCOL = "proto-test"
+DECOY_PROTOCOL_ID = "proto-top-level-decoy"
 
 
 def row(image_id, label):
@@ -319,7 +320,15 @@ def build_tree(tmp_path, monkeypatch):
     probe = tmp_path / "probe.json"
     probe.write_text(json.dumps({"selected": [{"id": "t001", "label": "A", "split": "train"}]}))
     protocol = tmp_path / "protocol.json"
-    protocol.write_text(json.dumps({"protocol_id": PROTOCOL}))
+    # The top-level id is a decoy: the holdout salt is the pinned literal under data.
+    protocol.write_text(
+        json.dumps(
+            {
+                "protocol_id": DECOY_PROTOCOL_ID,
+                "data": {"train_holdout": {"hash_protocol_id": PROTOCOL}},
+            }
+        )
+    )
     # TEST rows: z1 matches t111 by encoded bytes only (pixel digest is a decoy); z2 matches
     # t110 by model pixels only (encoded digest is a decoy); z3 matches nothing.
     t111 = hashlib.sha256((dev / "images/train/t111.jpg").read_bytes()).hexdigest()
@@ -454,3 +463,64 @@ def test_main_refuses_bad_test_audit(tmp_path, monkeypatch, mutate, match):
     with pytest.raises(ValueError, match=match):
         run_main(monkeypatch, argv)
     assert not (tmp_path / "out").exists()
+
+
+def hand_holdout(salt, rows):
+    """Independent re-statement of the registered rule, hashing with hashlib directly."""
+    by_label = {}
+    for image_id, label in rows:
+        key = hashlib.sha256(
+            json.dumps(
+                [salt, "train-holdout-screen", 791, label, image_id], separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        by_label.setdefault(label, []).append((key, image_id))
+    select = []
+    for label in sorted(by_label):
+        ranked = [image_id for _, image_id in sorted(by_label[label])]
+        select += [ranked[0], ranked[2]]
+    return select
+
+
+def test_main_salts_holdout_with_pinned_hash_protocol_id_not_protocol_id(tmp_path, monkeypatch):
+    _, _, argv = build_tree(tmp_path, monkeypatch)
+    run_main(monkeypatch, argv)
+    output = tmp_path / "out"
+    manifest = json.loads((output / "manifest.json").read_text())
+    assert manifest["hash_protocol_id"] == PROTOCOL
+    assert manifest["protocol_id"] == DECOY_PROTOCOL_ID
+    # Audited pool, by hand: TRAIN t000-t011 (A), t100-t111 (B), minus train400 t000/t100,
+    # probe t001, and drops t005 (VAL near-dup), t110 and t111 (TEST exact).
+    audited = [(f"t0{i:02d}", "A") for i in (2, 3, 4, 6, 7, 8, 9, 10, 11)] + [
+        (f"t1{i:02d}", "B") for i in range(1, 10)
+    ]
+    expected = hand_holdout(PROTOCOL, audited)
+    decoy = hand_holdout(DECOY_PROTOCOL_ID, audited)
+    assert expected != decoy  # fixture sanity: the two salts select different images
+    lines = (output / "h_select.jsonl").read_text().splitlines()
+    assert [json.loads(line)["id"] for line in lines] == expected
+
+
+@pytest.mark.parametrize(
+    "protocol",
+    [
+        {"protocol_id": PROTOCOL},
+        {"protocol_id": PROTOCOL, "data": {"train_holdout": {}}},
+        {"protocol_id": PROTOCOL, "data": {"train_holdout": {"hash_protocol_id": ""}}},
+        {"protocol_id": PROTOCOL, "data": {"train_holdout": {"hash_protocol_id": 7}}},
+        {"protocol_id": PROTOCOL, "data": []},
+    ],
+)
+def test_main_refuses_protocol_without_pinned_hash_protocol_id(tmp_path, monkeypatch, protocol):
+    _, _, argv = build_tree(tmp_path, monkeypatch)
+    (tmp_path / "protocol.json").write_text(json.dumps(protocol))
+    with pytest.raises(ValueError, match="hash_protocol_id"):
+        run_main(monkeypatch, argv)
+    assert not (tmp_path / "out").exists()
+
+
+def test_committed_freshpool_protocol_pins_the_holdout_salt():
+    protocol = json.loads(
+        (SCRIPT.parents[1] / "docs/aircraft-rl-protocol-freshpool-v1.json").read_text()
+    )
+    assert FRESH.holdout_salt(protocol) == "fgvc-aircraft-freshpool-screened-grpo-v1"

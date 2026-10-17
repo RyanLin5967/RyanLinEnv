@@ -122,3 +122,24 @@ diagnostics, never held-out results.
 - Honest prior: the three design judges put p(substantial) at 0.08 / 0.06 / 0.05, i.e. **~5–8%**
   (study lineage; judged, not measured). The study's own pass-all estimate is ≤0.08 (unverified).
   Most likely outcome is a stop at G2/G3 or a VAL non-pass; that is a valid, reportable result.
+
+## D12 — Root decisions on the freshpool protocol revision (2026-10-17; widens D11's field list)
+- Source: root review of PR #4 (reviewer defects: budget mismatch, VAL-vs-H-select selection,
+  stale scope fields, holdout salt fragility, uncommitted study authority, empty-dict test blind spot).
+- (a) LR, checkpoint and arm selection for RL and SFT uses **H-select only**. Full native VAL is used
+  only for the strongest-SFT pool and the final gates (G4/G5). `evaluation_and_seal.validation` and
+  `test_freeze_before_access` are revised to match. This overrides the study's
+  `protocol_revision.unchanged` listing of `evaluation_and_seal`; study.json is otherwise unchanged.
+- (b) `exposure_and_staging` and `supervised_controls` drop the 400/1,200-presentation budgets for the
+  study's N = 600 accepted updates, the SFT-E / SFT-T / EG-SFT definitions and the 1.25x per-arm caps
+  (capped or interrupted arm re-run from scratch, never quoted). `actor_and_objective`: LR grid
+  1e-5/5e-5/1e-4 selected on H-select, answer-only prompt, one prompt per update.
+- (c) `data.claim_scope`, `data.train_images` and `supervised_controls.scope` now state the study's
+  label access (train400 ∪ S_scanned, ≤29/class; not a 4-shot claim).
+- (d) `data.train_holdout.hash_protocol_id` = `fgvc-aircraft-freshpool-screened-grpo-v1` is a pinned
+  literal salt. `scripts/prepare_aircraft_freshpool.py` reads it (refusing when absent; no fallback to
+  `protocol_id`), so an activated copy under a new id cannot reshuffle H.
+- (e) The study design is committed as `docs/aircraft-freshpool-study-v1.{json,md}` (byte copies of
+  `runs/rl-next-study-design-v1/study.{json,md}`); the protocol pins both by sha256.
+- `substantial_gain_gates` and `strong_baseline` stay byte-identical, asserted by
+  `tests/test_aircraft_protocol_freshpool.py`, whose leaf walk now also sees empty-dict keys.
