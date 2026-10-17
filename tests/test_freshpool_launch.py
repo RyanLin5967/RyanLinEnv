@@ -730,6 +730,8 @@ def test_unexpected_exception_is_a_journalled_stop(tmp_path, monkeypatch):
 def test_malformed_fragment_is_a_stop_not_a_crash(tmp_path, monkeypatch):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch)
+    # The live reward rows are well formed, so only the fragment itself is malformed.
+    fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {"live_mixed": [True] * 150}
     fixture.scenario["rl-1e-05-s42-u150"]["payload"]["useful_mixed"] = [None] * 150
     fixture.write()
     state = run_until_stop(launch, fixture)
@@ -975,6 +977,17 @@ def test_rolling_useful_mixed_stops_a_live_rl_arm(tmp_path, monkeypatch):
     finished = [e for e in fixture.journal() if e["event"] == "stage_finished"]
     assert (finished[-1]["stage"], finished[-1]["reason"]) == (
         "rl-1e-05-s42-u150", "rolling_useful_mixed_below_0_40")
+    assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
+
+
+def test_unparseable_live_reward_row_stops_the_arm(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    # mixed: null in the trainer's reward rows; the live guard refuses rather than skips.
+    fixture.scenario["rl-1e-05-s42-u150"]["payload"]["useful_mixed"] = [None] * 150
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "reward_groups_unparseable"
     assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
 
 
