@@ -2293,6 +2293,7 @@ def _checkpoint_receipt_files(checkpoint):
     ]
     for optional in (
         "screen.json",
+        "egsft.json",
         "mps_rng_state.pth",
         "ref/adapter_model.safetensors",
         "ref/adapter_config.json",
@@ -2392,6 +2393,20 @@ def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None)
         or [entry["id"] for entry in entries] != receipt["committed_prompt_ids"]
     ):
         raise LocalVLMError("endpoint checkpoint time/exposure lineage differs")
+    egsft = checkpoint / "egsft.json"
+    if (
+        (record["settings"]["mode"] == "egsft") != egsft.is_file()
+        or ("egsft_sha256" in active) != egsft.is_file()
+        or (
+            egsft.is_file()
+            and (
+                active["egsft_sha256"] != _file_sha256(egsft)
+                or [row["id"] for row in json.loads(egsft.read_text())["entries"]]
+                != receipt["committed_prompt_ids"]
+            )
+        )
+    ):
+        raise LocalVLMError("endpoint EG-SFT weight lineage differs")
     boundary = receipt["requested_boundary"]
     exhausted = receipt["global_step"] >= original["max_steps"] or (
         original["max_active_seconds"] is not None
@@ -2470,6 +2485,26 @@ def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: di
         range(1, active["global_step"] + 1)
     ):
         raise LocalVLMError("continuation parent exposure differs from its global step")
+    # SFT-T continues a FINISHED SFT-E endpoint: a verified receipt that stopped at its
+    # declared stop_after_steps (not total-budget exhaustion), from its final checkpoint.
+    if not (checkpoint.parent / "endpoint_receipt.json").is_file():
+        raise LocalVLMError("continuation parent must be a finished SFT-E endpoint with a receipt")
+    receipt = read_endpoint_receipt(checkpoint.parent)
+    declared = receipt["requested_boundary"]["stop_after_steps"]
+    if (
+        receipt["status"] != "boundary_reached"
+        or declared is None
+        or receipt["global_step"] != declared
+    ):
+        raise LocalVLMError(
+            "continuation parent endpoint must be boundary_reached at its declared "
+            "stop_after_steps, not budget-exhausted"
+        )
+    if (
+        (checkpoint.parent / receipt["checkpoint"]["path"]).resolve() != checkpoint
+        or receipt["global_step"] != active["global_step"]
+    ):
+        raise LocalVLMError("continuation must start from the parent's final endpoint checkpoint")
     return {
         "scope": CONTINUATION_SCOPE,
         "parent_output": str(checkpoint.parent),
@@ -2478,6 +2513,8 @@ def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: di
         "parent_committed_active_seconds": active["committed_active_seconds"],
         "parent_control_identity_sha256": _object_sha256(old),
         "parent_settings_sha256": _object_sha256(previous),
+        "parent_endpoint_receipt_sha256": _file_sha256(checkpoint.parent / "endpoint_receipt.json"),
+        "parent_endpoint_status": receipt["status"],
         "parent_train": old["train"],
         "train": identity["train"],
         "parent_checkpoint_file_sha256": {

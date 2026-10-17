@@ -2222,12 +2222,41 @@ def test_sft_t_continuation_carries_optimizer_state_onto_new_manifest(tmp_path):
     assert all(float(v["step"]) == 6 for v in _optimizer_state(reset / "checkpoint-6").values())
 
 
+def _finish_endpoint(output, identity, settings, step, *, stop_after_steps, stop_seconds=None):
+    """Complete a fixture run's record and publish its endpoint receipt at checkpoint-{step}."""
+    checkpoint = output / f"checkpoint-{step}"
+    adapter = output / "final_adapter"
+    adapter.mkdir(exist_ok=True)
+    for name in ("adapter_model.safetensors", "adapter_config.json"):
+        shutil.copyfile(checkpoint / name, adapter / name)
+    (output / "adapter-source.py").write_text("# fixture adapter source\n")
+    record = {
+        "status": "completed",
+        "stage_id": "sft-e-fixture",
+        "control_identity": identity,
+        "settings": settings,
+        "environment": {"adapter_source_sha256": local._file_sha256(output / "adapter-source.py")},
+        "optimizer_audit": {"active_time": {"fixture": True}},
+        "final_adapter_sha256": local._file_sha256(adapter / "adapter_model.safetensors"),
+        "reference": None,
+        "requested_boundary": {
+            "stop_after_steps": stop_after_steps,
+            "stop_after_active_seconds": stop_seconds,
+        },
+    }
+    (output / "local_training.json").write_text(json.dumps(record))
+    local._publish_endpoint_receipt(output, record, step)
+    return record
+
+
 def test_continuation_identity_records_old_and_new_train_and_refuses_silent_changes(
     diagnostic, tmp_path, monkeypatch
 ):
     pytest.importorskip("torch")
     parent = tmp_path / "parent"
-    _seq_sft_run(parent, _E, max_steps=3, save_steps=3)
+    # SFT-E fixture: declared total 6 steps, stopped at its declared boundary 3.
+    _seq_sft_run(parent, _E, max_steps=6, save_steps=1, stop_after_steps=3)
+    assert not (parent / "checkpoint-4").exists()
     checkpoint = parent / "checkpoint-3"
     spec = local.load_spec(diagnostic / "data_spec.json")
     rows = local.load_classification(diagnostic / "train.jsonl", "train", spec["labels"])
@@ -2254,7 +2283,7 @@ def test_continuation_identity_records_old_and_new_train_and_refuses_silent_chan
     }
     settings = {
         "mode": "sft",
-        "max_steps": 3,
+        "max_steps": 6,
         "learning_rate": 1e-5,
         "beta": None,
         "seed": 42,
@@ -2268,8 +2297,9 @@ def test_continuation_identity_records_old_and_new_train_and_refuses_silent_chan
         "order": "sequential",
         "cycle": False,
     }
-    (parent / "local_training.json").write_text(
-        json.dumps({"control_identity": identity, "settings": settings})
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    assert json.loads((parent / "endpoint_receipt.json").read_text())["status"] == (
+        "boundary_reached"
     )
     monkeypatch.setattr(
         local,
@@ -2305,6 +2335,10 @@ def test_continuation_identity_records_old_and_new_train_and_refuses_silent_chan
         (checkpoint / "optimizer.pt").read_bytes()
     ).hexdigest()
     assert not any(continuation["reset"].values())
+    assert continuation["parent_endpoint_status"] == "boundary_reached"
+    assert continuation["parent_endpoint_receipt_sha256"] == hashlib.sha256(
+        (parent / "endpoint_receipt.json").read_bytes()
+    ).hexdigest()
 
     def refuses(match, error=ValueError, **kwargs):
         target = tmp_path / f"refused-{len(list(tmp_path.iterdir()))}"
@@ -2317,15 +2351,30 @@ def test_continuation_identity_records_old_and_new_train_and_refuses_silent_chan
     refuses("cumulative past the parent", stop_after_steps=3)
     refuses("optimizer settings", learning_rate=2e-5)
     refuses("equals the parent's; use resume", train=subset)
+    # Intermediate checkpoint of a finished endpoint: refused.
+    refuses("final endpoint checkpoint", error=local.LocalVLMError,
+            continue_from_checkpoint=parent / "checkpoint-2")
+    # Total-budget exhausted at step 3 (declared max_steps 3, no boundary): refused.
+    _finish_endpoint(parent, identity, dict(settings, max_steps=3), 3, stop_after_steps=None)
+    assert json.loads((parent / "endpoint_receipt.json").read_text())["status"] == (
+        "total_budget_exhausted"
+    )
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # Stopped by an active-seconds boundary, not its declared stop_after_steps: refused.
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=None, stop_seconds=0.0)
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # No receipt at all: refused; a receipt that no longer verifies: refused.
+    (parent / "endpoint_receipt.json").unlink()
+    refuses("finished SFT-E endpoint with a receipt", error=local.LocalVLMError)
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    (parent / "final_adapter" / "adapter_config.json").write_text("{}")
+    refuses("saved adapter bytes differ", error=local.LocalVLMError)
+    record = _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
     (parent / "local_training.json").write_text(
-        json.dumps(
-            {"control_identity": dict(identity, data_spec_sha256="0" * 64), "settings": settings}
-        )
+        json.dumps(dict(record, control_identity=dict(identity, data_spec_sha256="0" * 64)))
     )
     refuses("only the TRAIN manifest identity")
-    (parent / "local_training.json").write_text(
-        json.dumps({"control_identity": identity, "settings": settings})
-    )
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
     with (checkpoint / "optimizer.pt").open("ab") as handle:
         handle.write(b"tampered")
     refuses("does not match budget/state/optimizer", error=local.LocalVLMError)
@@ -2356,6 +2405,27 @@ def test_egsft_checkpoint_commits_one_weight_row_per_step_across_resume(tmp_path
 
     assert strip(committed) == strip(expected)
     assert local._load_active_time(split / "checkpoint-5", None)["egsft_sha256"]
+    # The endpoint receipt covers egsft.json and verifies it against active_time.json.
+    settings = {"mode": "egsft", "max_steps": 5, "max_active_seconds": None}
+    _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    receipt = local.read_endpoint_receipt(split)
+    assert receipt["checkpoint"]["sha256"]["egsft.json"] == hashlib.sha256(
+        (split / "checkpoint-5" / "egsft.json").read_bytes()
+    ).hexdigest()
+    with pytest.raises(local.LocalVLMError, match="EG-SFT weight lineage"):
+        _finish_endpoint(split, {"fixture": "egsft"}, dict(settings, mode="sft"), 5,
+                         stop_after_steps=None)
+    _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    original = (split / "checkpoint-5" / "egsft.json").read_bytes()
+    tampered = json.loads(original)
+    tampered["entries"][0]["weight"] = 0.123
+    (split / "checkpoint-5" / "egsft.json").write_text(json.dumps(tampered))
+    with pytest.raises(local.LocalVLMError, match="saved adapter bytes differ"):
+        local.read_endpoint_receipt(split)  # receipt hash catches changed bytes
+    with pytest.raises(local.LocalVLMError, match="EG-SFT weight lineage"):
+        # A receipt re-issued over the changed file still fails the active-time binding.
+        _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    (split / "checkpoint-5" / "egsft.json").write_bytes(original)
     (split / "checkpoint-5" / "egsft.json").write_text('{"schema_version": 1, "entries": []}')
     with pytest.raises(local.LocalVLMError, match="EG-SFT weight identity"):
         local._load_active_time(split / "checkpoint-5", None)
