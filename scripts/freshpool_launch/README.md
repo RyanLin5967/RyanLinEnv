@@ -28,15 +28,18 @@ back through the trainer's real verifiers.
    - `manifest.json` hash, `g0_audit_complete`, `forced_fire_passed`, and every manifest file hash;
    - H-select and H-gate: unique IDs, exactly 2 per class of the evidence labels, disjoint, counts equal to `manifest.json`, and `(id, label)` pairs equal to the evidence base's rows;
    - `s_scan_seed42.jsonl`: unique IDs, disjoint from H, in `random.Random(42).shuffle(sorted(ids))` order;
+   - `pool.jsonl`: unique IDs, exactly 2,919 (study.json `pool.expected_images`, the pool before the audit) minus the audit's `pool_drops`, none of which it contains, with `manifest.json` `counts.pool_after_audit` and `counts.pool_drops` equal to those sizes; H-select and H-gate are subsets of the pool and the scan is a subset of pool − H;
    - `phash_audit.json`: forced fire passed, the planted copy at Hamming ≤ 6 and flagged, exactly 50 distinct-class pairs, each recorded at Hamming > 6, none flagged;
    - protocol revision: id `fgvc-aircraft-freshpool-screened-grpo-v1`, `activated: true`, its `revises` candidate present at the stated SHA256, `substantial_gain_gates` and `strong_baseline` equal to the candidate's, and both files committed (bytes equal to the index and `HEAD`);
-   - decision record: committed, with a line recording the 16-shot plan as retired;
+   - decision record: committed, with a line that starts with an explicit `Retired:` status (list and bold markup allowed), names the 16-shot plan, `seed 2718` and `1,600 images`, and contains no hedge (`not`, `pending`, `proposed`, `reverted` and the like). A line that merely mentions "16-shot" and "retire" does not pass;
    - branch receipt: committed; B0 (W valid EOS ≥ 0.95 and `w_evaluator_refused: false`), B1 (W VAL in [0.15, 0.85]), D_req and the B2 mode equal to the evaluator's `d_req(a*)`.
 2. **E0**, the resume proof. The fragment must report 2+2 and 1+3 identity, an unchanged reference, a finite nonzero gradient, the scorer using the sampler transform, and sampler-teacher agreement ≤ 0.001.
 3. **W on H-select and H-gate, then P0**, which writes the G1 document. Then **G1**.
 4. **RL** at every grid LR to 150 accepted updates, each followed by an H-select assay. Then **G2**.
 5. **The two G2 `continue_to_600` arms** continue from their own validated 150 endpoint to 600, then an H-select assay each. The continuation's per-step seconds must pass through the 150 endpoint's own committed seconds at step 150 and its accepted sequence must extend the 150 endpoint's, so T_RL is cumulative. **RL\*** is the evaluator's `select_rl_star()`.
 6. **SFT-E** at every grid LR on RL\*'s accepted manifest, each with an H-select assay. SFT-E\* is the evaluator's `select_sft_e()`.
+   - The `sft_e` template must pass the trainer `--stop-after-steps 600` **and** `--max-steps` above 600 (the SFT-T step bound, since SFT-T's `max_steps` is cumulative and must exceed the parent's anyway). The trainer continues SFT-T only from a parent whose receipt is `boundary_reached` at its declared `stop_after_steps`; a run to `max_steps = 600` is `total_budget_exhausted` and would be refused only at SFT-T, after G3a.
+   - The launcher therefore requires each SFT-E fragment to report `receipt_status: boundary_reached` and `requested_boundary.stop_after_steps == 600` (`sft_e_not_a_continuable_boundary` otherwise).
 7. **H-gate assays** for RL\* and SFT-E\*. Then **G3a**, which supplies the SFT-T LRs (`sft_t_lrs`).
 8. **SFT-T** for each of those LRs:
    - continues its SFT-E checkpoint on RL\*'s scanned manifest;
@@ -58,11 +61,12 @@ All of them refuse; none of them warns.
 |---|---|
 | Missing gate result | The gate stops the study if the evaluator exits non-zero, writes no report, reports the gate as anything other than `evaluated`, reports `pass` as anything other than `true`, or reports any `failed_at` |
 | Disk | A 5 GiB reserve (`DISK_RESERVE_BYTES`). A plan may raise it, but a plan below it is refused. It is checked before every stage and polled during each one |
-| 1.25× caps | Applied per arm (`CAP_FACTOR`). The cap is 1.25 × `forecast_seconds[...]`, or 1.25 × T_RL for SFT-T. It is passed to the trainer as `{active_cap}` (cumulative), enforced by the launcher on wall time that starts, for a continuation (RL 150 → 600, SFT-E → SFT-T), at the validated parent's committed seconds (never reset), and checked again against the fragment's cumulative `committed_active_seconds`. A capped arm is a standing stop |
+| 1.25× caps | Applied per arm (`CAP_FACTOR`). The cap is 1.25 × `forecast_seconds[...]`, or 1.25 × T_RL for SFT-T. The arm is charged, cumulatively and never reset: the validated parent's committed seconds for a continuation (RL 150 → 600, SFT-E → SFT-T), plus the wall seconds of every voided (interrupted) instance of the same arm label (`state.json` `void_seconds_by_arm`; RL 150 and its 600 continuation share one label), plus the running instance's wall time. The trainer receives `{active_cap}` = cap − voided seconds as its cumulative limit, and the fragment's cumulative `committed_active_seconds` is checked against the same reduced cap. A capped arm is a standing stop |
 | Second owner | Checked before every stage and every `OWNER_POLL_SECONDS` (2 s) while one runs. The launcher, its ancestors, and its running stage's process group and descendants are exempt; any other process whose command line contains a plan `owner_patterns` entry stops the stage and the study |
 | Unexpected exceptions | Any exception that is not a `Stop` is journalled as `study_stopped` with reason `unexpected_exception`, the error and the traceback tail, and the state becomes `stopped`. A malformed fragment is a stop, never a pass. Before any state exists, the launcher refuses with `verification_error` |
 | Survivor grace | After a stage exits, its process group gets `survivor_grace_seconds` to drain. Anything still alive after that is journalled, killed, and fails the stage |
-| Other guards | Process-group RSS limit; every pinned file hash checked before every stage and gate; frozen environment; rolling useful-mixed ≥ 0.40 over every 100 accepted RL updates; RL reference and every SFT arm's initial adapter equal to W |
+| Rolling useful-mixed | Standing stop, enforced live on every RL stage (150 and 600): the launcher tails the one `reward_groups.jsonl` under the stage's `{arm_dir}` each poll and stops the arm as soon as any 100 consecutive rows hold fewer than 40 `mixed: true` (`rolling_useful_mixed_below_0_40`). A second `reward_groups.jsonl` under the arm directory, an unparseable row, or an RL stage that never wrote one there (`live_useful_mixed_unmonitored`) stops the study. The RL templates must therefore give the trainer an `--output` under `{arm_dir}`. The fragment's `useful_mixed` is checked again after the stage |
+| Other guards | Process-group RSS limit; every pinned file hash checked before every stage and gate; frozen environment; RL reference and every SFT arm's initial adapter equal to W |
 | Assays | Each assay's image IDs must equal its split manifest's 200 IDs exactly, with exactly 5 (H-select) or 9 (H-gate) completions per image, each a label string or null. A partial assay stops the study: the evaluator would otherwise score a missing image as all-invalid, which lowers W or a comparator and loosens G2/G3a/G3b |
 
 ## State and journal
@@ -99,7 +103,7 @@ Template placeholders:
 - `{run_id}`, `{lr}`
 - `{split}`, `{adapter}` (the endpoint's `adapter_path`), `{split_manifest}` for assays
 - `{resume_checkpoint}` for the RL 150→600 continuation (pass it to `trainer_fragment.py --continue-output-from`)
-- `{accepted_manifest}`, `{scanned_manifest}`, `{parent_checkpoint}` and `{t_rl}` for the SFT arms (SFT-T passes `{t_rl}` as the trainer's `--stop-after-active-seconds`)
+- `{accepted_manifest}`, `{scanned_manifest}`, `{parent_checkpoint}` and `{t_rl}` for the SFT arms (SFT-T passes `{parent_checkpoint}` as the trainer's `--continue-from-checkpoint`, after the wrapper's `--`, and `{t_rl}` as its `--stop-after-active-seconds`)
 
 An unknown placeholder stops the study.
 
@@ -129,7 +133,8 @@ Each of these is needed before a real launch. None is a defect in this package.
 - **Process groups.** A descendant that calls `setsid()` escapes the RSS sum and the survivor check.
 - **Sampling.** RSS, disk and MPS driver use are sampled. The launcher polls every `poll_seconds`, and the phase worker samples MPS every 0.5 s.
 - **Owner detection.** It matches command-line substrings only.
-- **Cap measurement.** The cap is measured on wall time, which is an upper bound on active time.
+- **Cap measurement.** The cap is measured on wall time, which is an upper bound on active time. Voided time is charged per arm label, so SFT-E's voided time is not charged to SFT-T, whose cap is the separate 1.25 × T_RL budget.
+- **Live useful-mixed.** The tail sees rows at the poll interval and only under `{arm_dir}`; rows the trainer has not yet flushed are seen at the next poll or after the stage exits.
 - **Trust.** Fragment contents are trusted as written, apart from the identity, assay-shape and lineage checks above. The adapter hash on every assay must match its endpoint's.
 - **Assay chunking.** The trainer refuses TRAIN inference on more than 32 images per call, so `h_assay.py` and `p0_screen.py` work in chunks of 32 in manifest order and seed each sampled chunk at its start. The draws are deterministic for a fixed manifest, but they are not one continuous RNG stream over the split.
 - **Physical journals.** The wrapper reads per-step seconds and useful-mixed flags from the trainer's append-only `optimizer_audit.jsonl` and `reward_groups.jsonl`. These are exact only because no stage is ever resumed after an interruption. A mismatch with the receipt refuses.

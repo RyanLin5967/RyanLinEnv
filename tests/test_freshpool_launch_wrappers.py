@@ -8,10 +8,13 @@ parse_label, load_spec). Expected values are written out from the fixture design
 
 import hashlib
 import importlib
+import importlib.util
 import json
+import math
 import random
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,13 +75,36 @@ class FakeTrainer:
         if self.code:
             return self.code
         value = {flag: argv[argv.index(flag) + 1] for flag in (
-            "--output", "--resume-from-checkpoint", "--stop-after-steps") if flag in argv}
+            "--output", "--resume-from-checkpoint", "--stop-after-steps", "--max-steps",
+            "--stop-after-active-seconds", "--continue-from-checkpoint", "--train")
+            if flag in argv}
         output = Path(value["--output"])
-        start = 0
+        max_steps = int(value.get("--max-steps", self.max_steps))
+        settings = {"mode": self.mode, "max_steps": max_steps, "max_active_seconds": None,
+                    "learning_rate": self.lr, "seed": self.seed, "beta": 0.0, "device": "cpu",
+                    "probe": None, "train_only": False,
+                    "init_adapter": {"weights_sha256": W_SHA},
+                    "initial_adapter_precision_transfer": None, "continuation": None}
+        identity = {"fixture": True, "train": value.get("--train", "fixture-train")}
+        start, inherited = 0, []
         if "--resume-from-checkpoint" in value:
             start = int(Path(value["--resume-from-checkpoint"]).name.split("-")[1])
             assert Path(value["--resume-from-checkpoint"]).is_dir()
-        stop = int(value["--stop-after-steps"])
+        if "--continue-from-checkpoint" in value:
+            # SFT-T: the trainer's own parent verification (receipt boundary_reached at its
+            # declared stop_after_steps, final checkpoint, unchanged settings, new TRAIN).
+            parent = Path(value["--continue-from-checkpoint"])
+            settings["continuation"] = vlt._continuation_identity(parent, identity, settings)
+            start = settings["continuation"]["parent_global_step"]
+            inherited = json.loads((parent / "exposure.json").read_text())["entries"]
+        boundary = {"stop_after_steps": None, "stop_after_active_seconds": None}
+        if "--stop-after-steps" in value:
+            stop = boundary["stop_after_steps"] = int(value["--stop-after-steps"])
+        else:
+            limit = boundary["stop_after_active_seconds"] = float(
+                value["--stop-after-active-seconds"])
+            stop = math.ceil(limit / SECONDS_PER_STEP)  # first step at or above it
+        assert start < stop <= max_steps
         output.mkdir(parents=True, exist_ok=True)
         grpo = self.mode == "grpo"
         for step in range(start + 1, stop + 1):
@@ -97,8 +123,10 @@ class FakeTrainer:
                               ("rng_state.pth", "rng"), ("adapter_config.json", "{}")):
             (checkpoint / name).write_text(content)
         (checkpoint / "adapter_model.safetensors").write_bytes(weights)
-        entries = [{"invocation_id": "i", "global_step": k, "id": ACCEPTED[k - 1]}
-                   for k in range(1, stop + 1)]
+        entries = inherited + [
+            {"invocation_id": "i", "global_step": k,
+             "id": SCAN_IDS[(k - start - 1) % len(SCAN_IDS)] if inherited else ACCEPTED[k - 1]}
+            for k in range(len(inherited) + 1, stop + 1)]
         (checkpoint / "exposure.json").write_text(json.dumps({"schema_version": 1,
                                                               "entries": entries}))
         active = {"schema_version": 1, "scope": vlt.ACTIVE_TIME_SCOPE, "device": "cpu",
@@ -122,10 +150,8 @@ class FakeTrainer:
         (output / "adapter-source.py").write_text("# fixture source\n")
         record = {
             "status": "completed", "stage_id": "fixture",
-            "control_identity": {"fixture": True},
-            "settings": {"mode": self.mode, "max_steps": self.max_steps,
-                         "max_active_seconds": None, "learning_rate": self.lr,
-                         "seed": self.seed, "init_adapter": {"weights_sha256": W_SHA}},
+            "control_identity": identity,
+            "settings": settings,
             "environment": {"adapter_source_sha256": vlt._file_sha256(
                 output / "adapter-source.py")},
             "optimizer_audit": {"active_time": {"fixture": True}},
@@ -133,7 +159,7 @@ class FakeTrainer:
             "reference": {"kind": "initial_saved_adapter",
                           "initial_adapter_weights_sha256": W_SHA,
                           "adapter": {"sha256": "tensor-identity-of-W"}} if grpo else None,
-            "requested_boundary": {"stop_after_steps": stop, "stop_after_active_seconds": None},
+            "requested_boundary": boundary,
         }
         (output / "local_training.json").write_text(json.dumps(record))
         vlt._publish_endpoint_receipt(output, record, stop)
@@ -244,6 +270,74 @@ def test_wrapper_owns_output_and_refuses_reuse(tmp_path, monkeypatch):
     (tmp_path / "used" / "leftover").write_text("from an interrupted instance")
     with pytest.raises(SystemExit):
         run_wrapper(tmp_path, monkeypatch, FakeTrainer(), output="used")
+
+
+def load_launch():
+    spec = importlib.util.spec_from_file_location("freshpool_launch_for_wrappers",
+                                                  PACKAGE / "launch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_sft_t(tmp_path, monkeypatch, parent_checkpoint, t_rl, *, max_steps=100):
+    monkeypatch.setattr(trainer_fragment, "TRAINER", FakeTrainer(mode="sft"))
+    scan = write_manifest(tmp_path / "scanned.jsonl", SCAN_IDS)
+    stage = tmp_path / "stage-sft-t"
+    stage.mkdir()
+    fragment = stage / "fragment.json"
+    code = trainer_fragment.main([
+        "--run-id", "sft-t-1e-05-s42", "--arm", "SFT-T", "--lr", "1e-05", "--seed", "42",
+        "--fragment", str(fragment), "--output", str(tmp_path / "sft-t"), "--",
+        "--mode", "sft", "--train", str(scan), "--continue-from-checkpoint",
+        str(parent_checkpoint), "--stop-after-active-seconds", repr(t_rl),
+        "--max-steps", str(max_steps)])
+    return code, (json.loads(fragment.read_text()) if fragment.exists() else None)
+
+
+def test_sft_t_through_the_wrapper_continues_sft_e_and_satisfies_sft_t_check(
+        tmp_path, monkeypatch):
+    launch = load_launch()
+    # SFT-E (scaled: 3 steps for 600) stops at its declared boundary below max_steps.
+    code, parent = run_wrapper(tmp_path, monkeypatch, FakeTrainer(mode="sft", max_steps=6),
+                               arm="SFT-E", run_id="sft-e-1e-05-s42", output="sft-e", stop=3)
+    assert code == 0
+    assert (parent["receipt_status"], parent["requested_boundary"]["stop_after_steps"]) == (
+        "boundary_reached", 3)
+    assert launch.Launcher.sft_e_boundary_check(3)(parent) is None
+    before = snapshot(tmp_path / "sft-e")
+    # T_RL 55 s at 10 s/step: steps 4 (40) and 5 (50) are below it, step 6 (60) reaches it.
+    code, fragment = run_sft_t(tmp_path, monkeypatch, parent["checkpoint"], 55.0)
+    assert code == 0
+    assert snapshot(tmp_path / "sft-e") == before  # the parent endpoint is never written
+    assert fragment["arm"] == "SFT-T" and fragment["updates"] == 6
+    assert fragment["committed_active_seconds"] == 60.0
+    # The audit series starts at the parent's step + 1 (601 at full scale), cumulative.
+    assert fragment["step_committed_active_seconds"] == {"4": 40.0, "5": 50.0, "6": 60.0}
+    assert fragment["receipt_status"] == "boundary_reached"
+    assert fragment["requested_boundary"] == {"stop_after_steps": None,
+                                              "stop_after_active_seconds": 55.0}
+    assert fragment["reference_sha256"] == W_SHA
+    record = json.loads((tmp_path / "sft-t" / "local_training.json").read_text())
+    assert record["settings"]["continuation"]["parent_global_step"] == 3
+    # The launcher's own SFT-T checks accept the real wrapper's fragment...
+    host = SimpleNamespace(plan={"w_endpoint": {"adapter_sha256": W_SHA}}, g0={})
+    validate = launch.Launcher.train_validator(
+        host, "sft-t-1e-05-s42", "SFT-T", 1e-05, check=launch.Launcher.sft_t_check(parent, 55.0))
+    assert validate(fragment, 1000.0) is None
+    # ...and fire on it when T_RL says the run went a step too far.
+    assert launch.Launcher.sft_t_check(parent, 45.0)(fragment) == (
+        "sft_t_overshoots_first_boundary_at_t_rl")
+
+
+def test_sft_e_run_to_max_steps_is_refused_by_launcher_and_trainer(tmp_path, monkeypatch):
+    launch = load_launch()
+    code, parent = run_wrapper(tmp_path, monkeypatch, FakeTrainer(mode="sft", max_steps=3),
+                               arm="SFT-E", run_id="sft-e-1e-05-s42", output="sft-e", stop=3)
+    assert code == 0 and parent["receipt_status"] == "total_budget_exhausted"
+    assert launch.Launcher.sft_e_boundary_check(3)(parent) == "sft_e_not_a_continuable_boundary"
+    with pytest.raises(vlt.LocalVLMError, match="boundary_reached"):
+        run_sft_t(tmp_path, monkeypatch, parent["checkpoint"], 55.0)
 
 
 # ---------------------------------------------------------------- h_assay

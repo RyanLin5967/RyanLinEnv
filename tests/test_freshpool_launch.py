@@ -77,9 +77,16 @@ def main(argv):
     marker = behaviour.get("interrupt_once")
     if marker and not Path(marker).exists():
         (arm / "checkpoint-75").mkdir(parents=True, exist_ok=True)
+        time.sleep(behaviour.get("sleep_before_interrupt", 0))
         Path(marker).write_text("interrupted")
         os.kill(os.getppid(), signal.SIGTERM)
         time.sleep(30)
+    groups = arm / "trainer" / "reward_groups.jsonl"
+    if "live_mixed" in behaviour:
+        groups.parent.mkdir(parents=True, exist_ok=True)
+        with groups.open("a") as handle:
+            for n, mixed in enumerate(behaviour["live_mixed"]):
+                handle.write(json.dumps({"id": f"g{n}", "mixed": mixed}) + "\n")
     if "spawn" in behaviour:
         child = subprocess.Popen(["sleep", str(behaviour["spawn"])])
         Path(behaviour["pid_file"]).write_text(str(child.pid))
@@ -87,6 +94,10 @@ def main(argv):
     if "exit" in behaviour:
         return behaviour["exit"]
     payload = dict(spec["payload"])
+    if payload.get("arm") == "RL" and "live_mixed" not in behaviour:
+        groups.parent.mkdir(parents=True, exist_ok=True)
+        groups.write_text("".join(json.dumps({"id": f"g{n}", "mixed": m}) + "\n"
+                                  for n, m in enumerate(payload["useful_mixed"])))
     if payload.pop("make_checkpoint", False):
         checkpoint = arm / f"checkpoint-{payload['updates']}"
         checkpoint.mkdir(parents=True, exist_ok=True)
@@ -260,6 +271,9 @@ def scenario(p0_pass=True):
     for tag, (lr, correct, seconds) in SFT_E.items():
         run_id = f"sft-e-{tag}-s42"
         s[run_id] = train(run_id, "SFT-E", lr, 600, seconds, series((1, 600, 0.2, seconds)))
+        # Ended at its declared 600-step boundary with max_steps above it: continuable.
+        s[run_id]["payload"].update(receipt_status="boundary_reached", requested_boundary={
+            "stop_after_steps": 600, "stop_after_active_seconds": None})
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["sft-e-5e-05-s42-h_gate"] = assay("sft-e-5e-05-s42", "h_gate",
                                         sha_text("sft-e-5e-05-s42"), 6)
@@ -279,6 +293,12 @@ def scenario(p0_pass=True):
                                         sha_text("egsft-5e-05-s42"), 5)
     return s
 
+
+# The PR #4 decision-log entry's shape (docs/decision-log-2026-10-16-claude.md, D11).
+RETIRED_RECORD = (
+    "# Decisions\n## D11 — design adopted; 16-shot plan retired\n"
+    "- **Retired: the unactivated 16-shot prospective TRAIN plan** (seed 2718, 1,600 images,\n"
+    "  `docs/fgvc-aircraft-audit-2026-10-16.json`). It was never activated.\n")
 
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
@@ -330,17 +350,27 @@ class Fixture:
         jsonl(manifests / "s_scan_seed42.jsonl",
               [{"id": i, "split": "train", "image": f"{i}.jpg", "label": LABELS[n % 2]}
                for n, i in enumerate(o.get("scan", SCAN))])
+        # Pool: 2,919 before the audit, 3 pHash drops, so 2,916 = H (8) + S scan (1,300)
+        # + 1,608 others (S drops and the unscanned remainder, written out here).
+        drops = o.get("pool_drops", ["drop0", "drop1", "drop2"])
+        pool = [i for i, _ in H_SELECT + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1608)]
+        pool = o.get("pool", pool)
+        jsonl(manifests / "pool.jsonl",
+              [{"id": i, "split": "train", "image": f"{i}.jpg", "label": LABELS[n % 2]}
+               for n, i in enumerate(pool)])
         pairs = [{"ids": [f"p{n}", f"q{n}"], "hamming": 20} for n in range(50)]
         pairs[0]["hamming"] = o.get("pair_hamming", 20)
         (manifests / "phash_audit.json").write_text(json.dumps({
-            "hamming_max": 6, "forced_fire": {
+            "hamming_max": 6, "pool_drops": drops, "forced_fire": {
                 "passed": True, "planted_flagged": True, "planted_hamming": 2,
                 "distinct_class_pairs": pairs, "distinct_class_pairs_flagged": 0}}))
         files = {name: sha_file(manifests / name) for name in (
-            "h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl", "phash_audit.json")}
+            "pool.jsonl", "h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl",
+            "phash_audit.json")}
         manifest = {"g0_audit_complete": o.get("audit_complete", True),
                     "forced_fire_passed": True, "files_sha256": files,
-                    "counts": {"h_select": len(h_select), "h_gate": len(H_GATE)}}
+                    "counts": {"h_select": len(h_select), "h_gate": len(H_GATE),
+                               "pool_drops": len(drops), "pool_after_audit": len(pool)}}
         (manifests / "manifest.json").write_text(json.dumps(manifest))
 
         receipts_dir = self.tmp / "receipts"
@@ -357,7 +387,7 @@ class Fixture:
                   "w_evaluator_refused": o.get("w_evaluator_refused", False),
                   "w_val_accuracy": o.get("w_val_accuracy", 0.5), "d_req": 0.05,
                   "mode": "full"}
-        decision = o.get("decision", "# Decisions\n## D11 — design adopted; 16-shot plan retired\n")
+        decision = o.get("decision", RETIRED_RECORD)
         contents = {"protocol_revision": json.dumps(protocol), "decision_record": decision,
                     "branch": json.dumps(branch)}
         paths = {name: receipts_dir / f"{name}.json" for name in contents}
@@ -529,6 +559,15 @@ def test_interrupted_arm_is_rerun_from_scratch_never_resumed(tmp_path, monkeypat
     assert started["rl-1e-04-s42-u600"]["inherited_seconds"] == 250.0
     assert started["sft-t-1e-04-s42"]["inherited_seconds"] == 101.0
     assert started["e0"]["owner_poll_seconds"] == 2.0
+    # Every RL stage was watched live, and saw every reward-group row it wrote.
+    assert [s for s, e in started.items() if e["live_useful_mixed"]] == [
+        "rl-1e-05-s42-u150", "rl-5e-05-s42-u150", "rl-1e-04-s42-u150",
+        "rl-5e-05-s42-u600", "rl-1e-04-s42-u600"]
+    monitored = [(e["stage"], e["rows"]) for e in fixture.journal()
+                 if e["event"] == "useful_mixed_monitored"]
+    assert monitored == [("rl-1e-05-s42-u150", 150), ("rl-5e-05-s42-u150", 150),
+                         ("rl-1e-04-s42-u150", 150), ("rl-5e-05-s42-u600", 600),
+                         ("rl-1e-04-s42-u600", 600)]
     events = [e["event"] for e in fixture.journal()]
     assert {e["gate"]: e["verdict"] for e in fixture.journal()
             if e["event"] == "gate_finished"} == {"G1": "pass", "G2": "pass", "G3a": "pass",
@@ -837,6 +876,26 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
      "g0_protocol_frozen_gates_changed"),
     ({"uncommitted_protocol": True}, "g0_protocol_not_committed"),
     ({"decision": "# Decisions\n## D11 — design adopted\n"}, "g0_16_shot_plan_not_retired"),
+    # Loose wording that the old 'contains 16-shot and retire' check passed.
+    ({"decision": "- the 16-shot plan is NOT retired\n"}, "g0_16_shot_plan_not_retired"),
+    ({"decision": "- 16-shot plan: retirement pending\n"}, "g0_16_shot_plan_not_retired"),
+    ({"decision": "- Retired: the 16-shot plan (seed 2718, 1,600 images) is not retired\n"},
+     "g0_16_shot_plan_not_retired"),
+    ({"decision": "- Retired: the 16-shot plan (seed 314, 1,600 images)\n"},
+     "g0_16_shot_plan_not_retired"),
+    ({"decision": "- Retired: the 16-shot plan (seed 2718, 400 images)\n"},
+     "g0_16_shot_plan_not_retired"),
+    ({"decision": "- Proposal: Retired: 16-shot plan (seed 2718, 1,600 images)\n"},
+     "g0_16_shot_plan_not_retired"),
+    # Pool: 2,919 minus the drops, no drop inside it, H and the scan inside it.
+    ({"pool_drops": ["drop0", "drop1"]}, "g0_pool_count_differs"),
+    ({"pool": [i for i, _ in H_SELECT + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1605)]
+      + ["drop0", "drop1", "drop2"]}, "g0_pool_contains_a_phash_drop"),
+    ({"pool": [i for i, _ in H_SELECT + H_GATE] + SCAN[1:] + [f"y{i:04d}" for i in range(1609)]},
+     "g0_scan_outside_pool_minus_h"),
+    ({"pool": [i for i, _ in H_SELECT[1:] + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1609)]},
+     "g0_holdout_outside_pool"),
+    ({"pool_drops": "drop0"}, "g0_pool_drop_list_invalid"),
 ])
 def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, reason):
     launch = load_launch()
@@ -895,3 +954,70 @@ def test_interrupt_signal_is_restored(tmp_path, monkeypatch):
     before = signal.getsignal(signal.SIGTERM)
     launch.main(fixture.argv)
     assert signal.getsignal(signal.SIGTERM) is before
+
+
+# Rows 0-59 mixed, then unmixed: the window over rows 21-120 holds 39 mixed (< 40), so the
+# stop fires at row 120; with one fewer unmixed row the last window (rows 20-119) holds
+# exactly 40, which is not below 0.40 and must not fire.
+FIRES = [True] * 60 + [False] * 61
+HOLDS = [True] * 60 + [False] * 60
+
+
+def test_rolling_useful_mixed_stops_a_live_rl_arm(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {"live_mixed": FIRES, "sleep": 30}
+    fixture.write()
+    started = time.monotonic()
+    state = run_until_stop(launch, fixture)
+    assert time.monotonic() - started < 25  # the 30 s stage was stopped, not waited out
+    assert state["stop_reason"] == "rolling_useful_mixed_below_0_40"
+    finished = [e for e in fixture.journal() if e["event"] == "stage_finished"]
+    assert (finished[-1]["stage"], finished[-1]["reason"]) == (
+        "rl-1e-05-s42-u150", "rolling_useful_mixed_below_0_40")
+    assert first_order(fixture.stages_called())[-1] == "rl-1e-05-s42-u150"
+
+
+def test_rolling_useful_mixed_at_exactly_0_40_does_not_stop(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {"live_mixed": HOLDS, "sleep": 1}
+    # The control ends at the next stage, so the RL stage itself must have passed.
+    fixture.scenario["rl-1e-05-s42-u150-h_select"]["behaviour"] = {"exit": 9}
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "stage_failed"
+    assert "rl-1e-05-s42-u150" in state["completed"]
+    monitored = [e for e in fixture.journal() if e["event"] == "useful_mixed_monitored"]
+    assert [(e["stage"], e["rows"]) for e in monitored] == [("rl-1e-05-s42-u150", 120)]
+
+
+def test_voided_instance_time_is_charged_to_the_arm_cap(tmp_path, monkeypatch):
+    # Cap 1.25 x 4.0 = 5.0 s. Each instance runs >= 3 s: alone under the cap, but the void
+    # instance's >= 3 s stays charged, so the re-run reaches the cap. Without the charge
+    # the re-run would pass.
+    fixture = Fixture(tmp_path, monkeypatch, e0_forecast=4.0)
+    marker = tmp_path / "interrupted-once"
+    fixture.scenario["e0"]["behaviour"] = {"interrupt_once": str(marker),
+                                           "sleep_before_interrupt": 3.0, "sleep": 3.0}
+    fixture.write()
+    command = [sys.executable, "-B", str(PACKAGE / "launch.py"), *fixture.argv]
+    first = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    assert first.returncode == 3, first.stdout + first.stderr
+    second = subprocess.run([*command, "--resume"], capture_output=True, text=True,
+                            timeout=120)
+    assert second.returncode == 2, second.stdout + second.stderr
+    state = fixture.state()
+    assert state["stop_reason"] == "arm_cap"
+    [void] = state["void_instances"]
+    assert (void["stage"], void["arm"], void["instance"]) == ("e0", "e0", 1)
+    assert void["instance_wall_seconds"] >= 3.0
+    assert state["void_seconds_by_arm"]["e0"] == void["instance_wall_seconds"]
+    started = [e for e in fixture.journal() if e["event"] == "stage_started"]
+    assert [(e["instance"], e["void_seconds"]) for e in started] == [
+        (1, 0.0), (2, void["instance_wall_seconds"])]
+    finished = [e for e in fixture.journal() if e["event"] == "stage_finished"]
+    assert finished[-1]["reason"] == "arm_cap"
+    # The re-run was stopped well before its own 3 s: only the remainder was available.
+    assert finished[-1]["elapsed_seconds"] < 2.5
+    assert finished[-1]["arm_wall_seconds"] >= 5.0

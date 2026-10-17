@@ -22,7 +22,11 @@ Guards (all refuse, none warn): plan identity and every pinned file hash before 
 frozen environment; a fixed 5 GiB disk reserve the plan may raise but not lower; process-group
 RSS; a second owner of the accelerator, checked before every stage and every
 OWNER_POLL_SECONDS while one runs; per-arm 1.25x forecast caps, counted from the validated
-parent's committed seconds for a continuation and never reset; a survivor-grace check on
+parent's committed seconds for a continuation plus the wall seconds of every voided instance of
+the arm, cumulatively, so neither a continuation nor an interrupt resets them; the rolling
+useful-mixed standing stop (< 40 of any 100 accepted updates), enforced live on RL stages by
+tailing reward_groups.jsonl under the arm directory and again on the fragment; SFT-E must end
+boundary_reached at stop_after_steps 600 so SFT-T can continue it; a survivor-grace check on
 every stage's process group. State is single-use: a stopped or completed study never runs
 again. An interrupted stage is NEVER resumed or quoted (study.json budget_matching.caps):
 ``--resume`` journals its instance as void and re-runs the stage from scratch in a fresh
@@ -32,7 +36,9 @@ journalled study stop. The journal is append-only and fsynced.
 
 Blind spots, stated: process-group membership is the ownership boundary, so a descendant that
 calls setsid() escapes the RSS sum and the survivor check; RSS, disk and the owner scan are
-sampled; the owner scan matches command-line substrings, so an owner whose command line names
+sampled; the live useful-mixed tail reads only a reward_groups.jsonl under the arm
+directory (a stage writing it elsewhere stops as unmonitored) and sees rows at the poll
+interval; the owner scan matches command-line substrings, so an owner whose command line names
 none of the plan's patterns is invisible; the lock trusts that a dead lock pid was not
 reused; the per-arm cap is measured on launcher wall time (an upper bound on active time) and
 the trainer receives the same cap as its cumulative active-seconds limit; the fragment
@@ -76,8 +82,20 @@ FROZEN_PROTOCOL_KEYS = ("substantial_gain_gates", "strong_baseline")
 TRAIN_TEMPLATES = ("e0", "rl150", "rl600", "sft_e", "sft_t", "egsft")
 TEMPLATES = (*TRAIN_TEMPLATES, "assay", "p0")
 FORECASTS = ("e0", "p0", "assay_h_select", "assay_h_gate", "rl", "sft_e", "egsft")
-REQUIRED_MANIFESTS = ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl",
+REQUIRED_MANIFESTS = ("pool.jsonl", "h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl",
                       "phash_audit.json")
+POOL_BEFORE_AUDIT = 2919  # study.json data_manifests_to_create pool.expected_images
+MIXED_WINDOW, MIXED_MIN_IN_WINDOW = 100, 40  # standing stop: < 0.40 over any 100 accepted
+# G0 '16-shot plan retired': study.json protocol_revision.same_commit names the plan
+# "the unactivated 16-shot plan (seed 2718, 1,600 images)". A decision-record line passes
+# only if it STARTS with an explicit "Retired:" status (list/bold markup allowed), names
+# that plan by all three facts, and carries no hedge.
+RETIRED_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*)?Retired:", re.I)
+RETIRED_FACTS = (re.compile(r"16-shot", re.I), re.compile(r"\bseed 2718\b"),
+                 re.compile(r"\b1,?600 images\b"))
+RETIRED_HEDGE = re.compile(
+    r"\b(?:not|no longer|pending|proposed|planned|reverted|undone|unretired|reinstated)\b",
+    re.I)
 RECEIPTS = ("protocol_revision", "decision_record", "branch")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 GATE_ORDER = ("G1", "G2", "G3a", "G3b")
@@ -350,6 +368,7 @@ def verify_manifest_content(directory, manifest, base, evaluator):
     if scan != evaluator["scan_order"](scan, SEED):
         raise Stop("g0_scan_not_seed42_order")
     audit = read_json(directory / "phash_audit.json")
+    verify_pool(directory, manifest, audit, holdout, scan)
     fire = (audit or {}).get("forced_fire") if isinstance(audit, dict) else None
     pairs = (fire or {}).get("distinct_class_pairs") if isinstance(fire, dict) else None
     if not (
@@ -363,6 +382,32 @@ def verify_manifest_content(directory, manifest, base, evaluator):
     ):
         raise Stop("g0_forced_fire_not_demonstrated")
     return {"split_ids": splits, "scan_ids": scan}
+
+
+def verify_pool(directory, manifest, audit, holdout, scan):
+    """G0 pool: pool.jsonl = native TRAIN - train400 - 15 probe16 - pHash drops, so its size is
+    POOL_BEFORE_AUDIT minus the audit's pool_drops, none of which it contains; H-select,
+    H-gate and S_scan_seed42 are subsets of it."""
+    pool = jsonl_ids(directory / "pool.jsonl")
+    if not pool or len(set(pool)) != len(pool):
+        raise Stop("g0_pool_manifest_invalid")
+    drops = audit.get("pool_drops") if isinstance(audit, dict) else None
+    if (not isinstance(drops, list) or not all(isinstance(i, str) and i for i in drops)
+            or len(set(drops)) != len(drops)):
+        raise Stop("g0_pool_drop_list_invalid")
+    if set(drops) & set(pool):
+        raise Stop("g0_pool_contains_a_phash_drop")
+    expected = POOL_BEFORE_AUDIT - len(drops)
+    counts = manifest.get("counts") or {}
+    if len(pool) != expected or counts.get("pool_after_audit") != len(pool) or counts.get(
+            "pool_drops") != len(drops):
+        raise Stop("g0_pool_count_differs", pool=len(pool), expected=expected,
+                   pool_drops=len(drops))
+    members = set(pool)
+    if not holdout <= members:
+        raise Stop("g0_holdout_outside_pool")
+    if not set(scan) <= members - holdout:
+        raise Stop("g0_scan_outside_pool_minus_h")
 
 
 def verify_protocol(path):
@@ -386,14 +431,21 @@ def verify_protocol(path):
         raise Stop("g0_protocol_not_committed")
 
 
+def retirement_entry(line):
+    """True only for an explicit 'Retired:' line naming the seed-2718, 1,600-image 16-shot
+    plan, with no hedge ('not', 'pending', 'proposed', ...)."""
+    return bool(RETIRED_LINE.match(line)) and all(f.search(line) for f in RETIRED_FACTS) and (
+        not RETIRED_HEDGE.search(line))
+
+
 def verify_decision_record(path):
-    """G0 '16-shot plan retired': a committed decision record with a retirement entry."""
+    """G0 '16-shot plan retired': a committed decision record with an explicit retirement
+    entry for the seed-2718, 1,600-image plan."""
     try:
         lines = Path(path).read_text().splitlines()
     except (OSError, UnicodeDecodeError):
         lines = []
-    if not any(re.search(r"16-shot", line, re.I) and re.search(r"retire", line, re.I)
-               for line in lines):
+    if not any(retirement_entry(line) for line in lines):
         raise Stop("g0_16_shot_plan_not_retired")
     if not git_committed(path):
         raise Stop("g0_decision_record_not_committed")
@@ -456,6 +508,45 @@ def verify_g0(plan, evaluator):
         raise Stop("g0_failed", checks=checks)
     paths = {f"manifest_{Path(name).stem}": str(directory / name) for name in files}
     return {"checks": checks, "d_req": d, "manifests": paths, **content}
+
+
+class MixedMonitor:
+    """Live standing stop: tails the RL stage's reward_groups.jsonl (one row per accepted
+    update, ``mixed`` a bool) under its arm directory and reports the first 100-update window
+    with fewer than 40 mixed groups. A second reward_groups.jsonl or an unparseable row is a
+    stop, never a skip. The fragment's useful_mixed is checked again after the stage."""
+
+    def __init__(self, arm_dir):
+        self.arm_dir, self.path, self.offset, self.buffer = arm_dir, None, 0, b""
+        self.flags = []
+
+    def poll(self):
+        if self.path is None:
+            found = sorted(self.arm_dir.rglob("reward_groups.jsonl"))
+            if len(found) > 1:
+                return "reward_groups_ambiguous"
+            if not found:
+                return None
+            self.path = found[0]
+        with self.path.open("rb") as handle:
+            handle.seek(self.offset)
+            data = handle.read()
+        self.offset += len(data)
+        *lines, self.buffer = (self.buffer + data).split(b"\n")
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                return "reward_groups_unparseable"
+            if not isinstance(row, dict) or type(row.get("mixed")) is not bool:
+                return "reward_groups_unparseable"
+            self.flags.append(row["mixed"])
+            if (len(self.flags) >= MIXED_WINDOW
+                    and sum(self.flags[-MIXED_WINDOW:]) < MIXED_MIN_IN_WINDOW):
+                return "rolling_useful_mixed_below_0_40"
+        return None
 
 
 # ---------------------------------------------------------------- state and journal
@@ -525,6 +616,8 @@ class Launcher:
         self.limits = plan["limits"]
         self.state = ledger.state
         self.state.setdefault("void_instances", [])
+        self.state.setdefault("void_seconds_by_arm", {})
+        self.state.setdefault("instance_start_seconds", {})
 
     # -- guards
     def check_disk(self):
@@ -541,10 +634,12 @@ class Launcher:
 
     # -- running one stage
     def run(self, stage_id, template_name, arm, forecast, values, validate, *,
-            inherited_seconds=0.0):
+            inherited_seconds=0.0, watch_mixed=False):
         """Run one stage in a fresh instance. ``inherited_seconds`` is the validated parent
         endpoint's committed active seconds for a continuation, so the arm cap counts the
-        whole arm and is never reset."""
+        whole arm and is never reset. Wall seconds spent in this arm's voided (interrupted)
+        instances are charged on top, cumulatively: the arm's cap is never refilled by an
+        interrupt. ``watch_mixed`` enforces the rolling useful-mixed standing stop live."""
         if stage_id in self.state["completed"]:
             return self.state["completed"][stage_id]["fragment"]
         template = self.plan["templates"][template_name]
@@ -552,20 +647,29 @@ class Launcher:
         free = self.check_disk()
         self.check_owners()
         cap = CAP_FACTOR * forecast
-        if inherited_seconds >= cap:
-            raise Stop("arm_cap", arm=arm, used_seconds=inherited_seconds, cap_seconds=cap)
         previous = self.state["attempts"].get(stage_id, 0)
+        voids = self.state["void_seconds_by_arm"]
         if previous:
             # Interrupted earlier: never resumed and never quoted. Its instance is void and
-            # the stage re-runs from scratch in a fresh directory.
+            # the stage re-runs from scratch in a fresh directory. Its wall time stays
+            # charged to the arm (study.json budget_matching.caps: no reset on resume).
+            start = self.state["instance_start_seconds"].get(stage_id, 0.0)
+            spent = max(0.0, self.state["arm_wall_seconds"].get(stage_id, start) - start)
+            voids[arm] = voids.get(arm, 0.0) + spent
             void = {"stage": stage_id, "arm": arm, "instance": previous,
                     "instance_dir": str(self.ledger.directory / "arms" / stage_id
                                         / f"instance-{previous}"),
-                    "wall_seconds": self.state["arm_wall_seconds"].get(stage_id)}
+                    "wall_seconds": self.state["arm_wall_seconds"].get(stage_id),
+                    "instance_wall_seconds": spent, "arm_void_seconds": voids[arm]}
             self.state["void_instances"].append(void)
             self.ledger.save()
             self.ledger.append("arm_instance_void", reason="interrupted; never resumed or quoted",
                                **void)
+        voided = voids.get(arm, 0.0)
+        used = inherited_seconds + voided
+        if used >= cap:
+            raise Stop("arm_cap", arm=arm, used_seconds=used, inherited_seconds=inherited_seconds,
+                       void_seconds=voided, cap_seconds=cap)
         instance = previous + 1
         stage_dir = self.ledger.directory / "stages" / stage_id / f"instance-{instance}"
         arm_dir = self.ledger.directory / "arms" / stage_id / f"instance-{instance}"
@@ -575,7 +679,8 @@ class Launcher:
         substitutions = {
             "python": self.plan["python"], "stage_id": stage_id, "arm": arm,
             "stage_dir": str(stage_dir), "arm_dir": str(arm_dir), "fragment": str(fragment),
-            "seed": str(SEED), "active_cap": repr(cap), "w_adapter": self.plan["w_endpoint"][
+            "seed": str(SEED), "active_cap": repr(cap - voided),
+            "w_adapter": self.plan["w_endpoint"][
                 "adapter_path"], **self.g0["manifests"], **values,
         }
         try:
@@ -589,23 +694,36 @@ class Launcher:
             "--entry-sha256", template["entry_sha256"], "--", *forwarded,
         ]
         self.state["attempts"][stage_id] = instance
-        self.state["arm_wall_seconds"][stage_id] = inherited_seconds
+        self.state["arm_wall_seconds"][stage_id] = used
+        self.state["instance_start_seconds"][stage_id] = used
         self.state["next_action"] = stage_id
         self.ledger.save()
         self.ledger.append("stage_started", stage=stage_id, arm=arm, instance=instance,
                            command=command, cap_seconds=cap, inherited_seconds=inherited_seconds,
-                           free_disk_bytes=free, owner_poll_seconds=OWNER_POLL_SECONDS)
-        outcome = self.supervise(stage_id, command, stage_dir, inherited_seconds, cap)
+                           void_seconds=voided, free_disk_bytes=free,
+                           owner_poll_seconds=OWNER_POLL_SECONDS, live_useful_mixed=watch_mixed)
+        monitor = MixedMonitor(arm_dir) if watch_mixed else None
+        outcome = self.supervise(stage_id, command, stage_dir, used, cap, monitor)
         self.ledger.append("stage_finished", stage=stage_id, **outcome)
         if outcome["reason"]:
             raise Stop(outcome["reason"], stage=stage_id)
         if outcome["exit_code"] != 0:
             raise Stop("stage_failed", stage=stage_id, exit_code=outcome["exit_code"])
+        if monitor is not None:
+            # Read what the stage wrote after the last poll; a stage whose reward groups
+            # were never visible under its arm directory was not monitored, so it stops.
+            late = monitor.poll()
+            if late:
+                raise Stop(late, stage=stage_id)
+            if monitor.path is None:
+                raise Stop("live_useful_mixed_unmonitored", stage=stage_id)
+            self.ledger.append("useful_mixed_monitored", stage=stage_id, path=str(monitor.path),
+                               rows=len(monitor.flags))
         payload = read_json(fragment)
         if not isinstance(payload, dict):
             raise Stop("stage_fragment_missing", stage=stage_id)
         try:
-            problem = validate(payload, cap)
+            problem = validate(payload, cap - voided)
         except Stop:
             raise
         except Exception as exc:  # a malformed fragment is a stop, never a pass
@@ -618,7 +736,7 @@ class Launcher:
                            fragment_sha256=sha(fragment))
         return payload
 
-    def supervise(self, stage_id, command, stage_dir, used, cap):
+    def supervise(self, stage_id, command, stage_dir, used, cap, monitor=None):
         started, peak, reason = time.monotonic(), 0, None
         last_save = last_owner = started
         with (stage_dir / "stage.log").open("x") as log:
@@ -643,12 +761,13 @@ class Launcher:
                             self.ledger.append("second_owner_seen", stage=stage_id,
                                                processes=owners)
                     free = free_bytes(self.ledger.directory)
+                    mixed = monitor.poll() if monitor is not None else None
                     reason = (
                         "process_group_rss_limit" if rss > self.limits["rss_limit_bytes"]
                         else "disk_reserve" if free < self.limits["minimum_free_bytes"]
                         else "arm_cap" if used + elapsed >= cap
                         else "second_accelerator_owner" if owners
-                        else None
+                        else mixed
                     )
                     if reason:
                         stop_group(child, pgid)
@@ -806,6 +925,20 @@ class Launcher:
         return check
 
     @staticmethod
+    def sft_e_boundary_check(steps):
+        """SFT-E must end as a continuable endpoint: the trainer's SFT-T continuation accepts
+        only a parent whose receipt is boundary_reached at its declared stop_after_steps
+        (vlm_local_training._continuation_identity). An SFT-E run to max_steps is
+        total_budget_exhausted and would be refused only at SFT-T, after G3a."""
+        def check(f):
+            boundary = f.get("requested_boundary")
+            if (f.get("receipt_status") != "boundary_reached" or not isinstance(boundary, dict)
+                    or boundary.get("stop_after_steps") != steps or f["updates"] != steps):
+                return "sft_e_not_a_continuable_boundary"
+            return None
+        return check
+
+    @staticmethod
     def sft_t_check(parent, t_rl):
         """SFT-T continues SFT-E without reset and stops at the first step at or above
         T_RL: the step before it is still below T_RL."""
@@ -933,7 +1066,8 @@ class Launcher:
             rl[run_id] = self.run(run_id, "rl150", arm, forecast["rl"],
                                   {"run_id": run_id, "lr": repr(lr)},
                                   self.train_validator(run_id, "RL", lr, RL_SCREEN_UPDATES,
-                                                       rl=True))
+                                                       rl=True),
+                                  watch_mixed=True)
             self.assay_fragment(rl[run_id], "h_select")
         g2 = self.gate("G2")
         continuers = g2.get("continue_to_600")
@@ -952,7 +1086,8 @@ class Launcher:
                               "resume_checkpoint": parent["checkpoint"]},
                              self.train_validator(run_id, "RL", lr, FINAL_UPDATES, rl=True,
                                                   check=self.continuation_check(parent)),
-                             inherited_seconds=parent["committed_active_seconds"])
+                             inherited_seconds=parent["committed_active_seconds"],
+                             watch_mixed=True)
             self.assay_fragment(final, "h_select")
         _, rl_star = self.study().select_rl_star()
         rl_star = self.fragment(rl_star["run_id"])
@@ -964,7 +1099,9 @@ class Launcher:
             sft_e[lr] = self.run(run_id, "sft_e", run_id, forecast["sft_e"],
                                  {"run_id": run_id, "lr": repr(lr),
                                   "accepted_manifest": rl_star["accepted_manifest"]},
-                                 self.train_validator(run_id, "SFT-E", lr, FINAL_UPDATES))
+                                 self.train_validator(
+                                     run_id, "SFT-E", lr, FINAL_UPDATES,
+                                     check=self.sft_e_boundary_check(FINAL_UPDATES)))
             self.assay_fragment(sft_e[lr], "h_select")
         _, sft_e_star, _ = self.study().select_sft_e()
         self.record_selection("sft_e_star", sft_e_star["run_id"])
