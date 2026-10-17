@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import math
+import shutil
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -1139,3 +1141,1352 @@ def test_released_trl_reference_is_initial_adapter_and_both_adapters_restore(tmp
     trainer.save_model(str(corrupt_checkpoint))
     with pytest.raises(local.LocalVLMError, match="pinned initial anchor"):
         trainer._load_from_checkpoint(str(corrupt_checkpoint))
+
+
+# --- fresh-pool screened GRPO, EG-SFT and sequential SFT (study aircraft-freshpool-v1) ---
+
+
+def _hand_w4(p):
+    """w_4(p) written out term by term from TRL's advantage (Bessel std, eps 1e-4)."""
+    s13, s2 = 0.5, 3**-0.5  # unbiased std of a 4-group with 1 or 3 correct, and with 2
+    return (
+        4 * p * (1 - p) ** 2 * 1 * 3 / (4 * (s13 + 1e-4))
+        + 6 * p**2 * (1 - p) * 2 * 2 / (4 * (s2 + 1e-4))
+        + 4 * p**3 * 3 * 1 / (4 * (s13 + 1e-4))
+    )
+
+
+def test_acceptance_band_matches_preregistered_p_interval():
+    assert local.group_useful_probability(0.5) == 1 - 2 / 16
+    # u(p) >= 0.5 is p in [0.1594, 0.8406] (study.json screening.accept).
+    for p in (0.159, 0.841):
+        assert local.group_useful_probability(p) < 0.5
+    for p in (0.16, 0.5, 0.84):
+        assert local.group_useful_probability(p) >= 0.5
+    assert local.group_useful_probability(0.3, 2) == pytest.approx(2 * 0.3 * 0.7)
+    with pytest.raises(ValueError):
+        local.group_useful_probability(1.01)
+
+
+def test_w4_enumeration_matches_hand_expansion_and_trl_monte_carlo():
+    torch = pytest.importorskip("torch")
+    released_trl()
+    from trl.trainer.utils import nanstd
+
+    torch.set_num_threads(2)
+    for p in (0.0, 0.1, 0.3, 0.5, 0.8, 0.95):
+        assert local.expected_gradient_weight(p) == pytest.approx(_hand_w4(p), rel=1e-12)
+    assert local.egsft_weight(0.5) == 1.0
+    assert local.egsft_weight(0.3) == pytest.approx(_hand_w4(0.3) / _hand_w4(0.5))
+    generator = torch.Generator().manual_seed(791)
+    groups = 200_000
+    for p in (0.2, 0.5, 0.8):
+        # Three-way softmax policy, gold = token 0. d log pi(y) / d logits = onehot(y) - pi.
+        pi = torch.tensor([p, (1 - p) / 2, (1 - p) / 2], dtype=torch.float64)
+        samples = torch.multinomial(pi, groups * 4, replacement=True, generator=generator)
+        rewards = (samples == 0).to(torch.float64).view(groups, 4)
+        # Released TRL 1.16 scale_rewards="group" advantage.
+        mean = rewards.mean(dim=1, keepdim=True)
+        std = nanstd(rewards, dim=1).unsqueeze(1)
+        advantages = (rewards - mean) / (std + 1e-4)
+        scores = torch.nn.functional.one_hot(samples, 3).to(torch.float64) - pi
+        per_group = (advantages.view(-1, 1) * scores).view(groups, 4, 3).sum(dim=1)
+        estimate = per_group.mean(dim=0)
+        standard_error = per_group.std(dim=0) / groups**0.5
+        expected = _hand_w4(p) * (torch.tensor([1.0, 0, 0], dtype=torch.float64) - pi)
+        assert ((estimate - expected).abs() <= 4 * standard_error + 1e-9).all(), (p, estimate)
+        assert local.expected_gradient_weight(p) == pytest.approx(_hand_w4(p))
+
+
+class _BigramPolicy:
+    """Next-token probabilities depend only on the current token: an exact fixture."""
+
+    def __init__(self, table, vocab):
+        torch = pytest.importorskip("torch")
+        self.torch = torch
+        logits = torch.full((vocab, vocab), -torch.inf)
+        for token, row in table.items():
+            for target, probability in row.items():
+                logits[token, target] = math.log(probability)
+        self.parameter = torch.nn.Parameter(logits.clone().nan_to_num(neginf=-1e9))
+        self.training = True
+        self.modes = []
+
+    def eval(self):
+        self.training = False
+        self.modes.append("eval")
+        return self
+
+    def train(self, mode=True):
+        self.training = mode
+        self.modes.append(f"train={mode}")
+        return self
+
+    def __call__(self, input_ids, attention_mask, use_cache, logits_to_keep):
+        assert use_cache is False and bool((attention_mask == 1).all())
+        logits = self.parameter[input_ids][:, -logits_to_keep:]
+        return SimpleNamespace(logits=logits)
+
+
+# Tokens: 0 pad, 1 EOS, 2 image (suppressed by the sampler), 3/4/5 prompt markers, 6 gold, 7 tail.
+_EOS, _IMAGE, _GOLD, _TAIL = 1, 2, 6, 7
+_PLANTED = {
+    3: {_GOLD: 0.45, _IMAGE: 0.5, 4: 0.05},  # all-correct after suppression: P(gold)=0.9
+    4: {_GOLD: 0.05, _IMAGE: 0.5, 5: 0.45},  # all-wrong after suppression: P(gold)=0.1
+    5: {_GOLD: 0.25, _IMAGE: 0.5, 4: 0.25},  # mixed after suppression: P(gold)=0.5
+    _GOLD: {_EOS: 0.495, _IMAGE: 0.5, 4: 0.005},  # P(EOS | gold)=0.99 after suppression
+    _EOS: {_TAIL: 1.0},
+}
+
+
+def _gold_batch(marker, tail=True):
+    torch = pytest.importorskip("torch")
+    # Chat templates supervise a token after the assistant EOS; sampling stops at EOS.
+    completion = [_GOLD, _EOS] + ([_TAIL] if tail else [])
+    ids = torch.tensor([[0 + 3, marker] + completion])
+    labels = torch.tensor([[-100, -100] + completion])
+    return {"input_ids": ids, "attention_mask": torch.ones_like(ids), "labels": labels}
+
+
+def test_gold_probability_uses_sampler_suppression_and_stops_at_first_eos():
+    policy = _BigramPolicy(_PLANTED, 8)
+    kwargs = dict(eos_token_ids=[_EOS], suppress_tokens=[_IMAGE], temperature=1.0)
+    for marker, expected in ((3, 0.9 * 0.99), (4, 0.1 * 0.99), (5, 0.5 * 0.99)):
+        p, canonical = local._batch_gold_probability(policy, _gold_batch(marker), **kwargs)
+        assert p == pytest.approx(expected, rel=1e-6)
+        assert canonical == [_GOLD, _EOS]
+    raw, _ = local._batch_gold_probability(
+        policy, _gold_batch(3), eos_token_ids=[_EOS], suppress_tokens=[], temperature=1.0
+    )
+    assert raw == pytest.approx(0.45 * 0.495, rel=1e-6)
+    # Without the sampler's suppression the planted all-correct image would be accepted.
+    assert local.group_useful_probability(raw) >= 0.5 > local.group_useful_probability(0.9 * 0.99)
+    alternative, _ = local._batch_gold_probability(
+        policy, _gold_batch(5), alternatives=[[4, _EOS], [_GOLD, _EOS]], **kwargs
+    )
+    # P(4 | marker 5) = 0.5 after suppression; P(EOS | 4) is 0 in the fixture.
+    assert alternative == pytest.approx(0.5 * 0.99, rel=1e-6)
+    table = {**_PLANTED, 4: {_EOS: 1.0}}
+    alternative, _ = local._batch_gold_probability(
+        _BigramPolicy(table, 8), _gold_batch(5), alternatives=[[4, _EOS]], **kwargs
+    )
+    assert alternative == pytest.approx(0.5 * 0.99 + 0.5 * 1.0, rel=1e-6)
+    with pytest.raises(local.LocalVLMError, match="only EOS"):
+        local._batch_gold_probability(policy, _gold_batch(5), alternatives=[[4]], **kwargs)
+    batch = _gold_batch(5)
+    batch["labels"][0, 3] = 99
+    with pytest.raises(local.LocalVLMError, match="differ from the supervised"):
+        local._batch_gold_probability(policy, batch, **kwargs)
+
+
+def test_gold_probability_reads_the_row_through_the_collator_and_restores_mode(diagnostic):
+    spec, rows, _ = load_diagnostic(diagnostic)
+    seen = []
+
+    def collator(records):
+        seen.append(records[0])
+        return _gold_batch(4)
+
+    policy = _BigramPolicy(_PLANTED, 8)
+    p = local.gold_probability(
+        policy,
+        None,
+        rows[0],
+        spec,
+        replace(local.Profile(), response_format="answer_only"),
+        "cpu",
+        eos_token_ids=[_EOS],
+        suppress_tokens=[_IMAGE],
+        collator=collator,
+    )
+    assert p == pytest.approx(0.1 * 0.99, rel=1e-6)
+    assert seen[0]["completion"] == [{"role": "assistant", "content": rows[0]["label"]}]
+    assert seen[0]["image"].mode == "RGB"
+    assert policy.modes == ["eval", "train=True"] and policy.training
+
+
+def test_screen_rejects_planted_all_correct_and_all_wrong_accepts_mixed_and_refuses_exhaustion(
+    tmp_path,
+):
+    policy = _BigramPolicy(_PLANTED, 8)
+    markers = {"correct": 3, "wrong": 4, "mixed": 5}
+    ids = ["correct", "wrong", "mixed", "correct"]
+
+    def score(model, index):
+        p, _ = local._batch_gold_probability(
+            model,
+            _gold_batch(markers[ids[index]]),
+            eos_token_ids=[_EOS],
+            suppress_tokens=[_IMAGE],
+            temperature=1.0,
+        )
+        return p
+
+    journal = tmp_path / "screen.jsonl"
+    screen = local._ScreenedScan(
+        journal,
+        ids,
+        threshold=0.5,
+        target_accepted=2,
+        group_size=4,
+        score=score,
+        adapter_identity=lambda model: "fixture-adapter",
+    )
+    assert screen.next_accepted(policy, 1) == 2
+    rows = [json.loads(line) for line in journal.read_text().splitlines()]
+    assert [row["id"] for row in rows] == ["correct", "wrong", "mixed"]
+    assert [row["accepted"] for row in rows] == [False, False, True]
+    assert [row["p"] for row in rows] == pytest.approx([0.891, 0.099, 0.495], rel=1e-6)
+    assert {row["adapter_sha256"] for row in rows} == {"fixture-adapter"}
+    assert all(row["scorer_seconds"] >= 0 and row["global_step"] == 1 for row in rows)
+    with pytest.raises(local.LocalVLMError, match="exhausted S"):
+        screen.next_accepted(policy, 2)
+    assert screen.position == 4 and screen.accepted_ids == ["mixed"]
+    with pytest.raises(local.LocalVLMError, match="differs from committed prompt exposure"):
+        screen.save(tmp_path, [])
+    screen.save(tmp_path, [{"id": "mixed"}])
+    state = json.loads((tmp_path / "screen.json").read_text())
+    restored = local._ScreenedScan(
+        journal, ids, threshold=0.5, target_accepted=2, group_size=4, resume_state=state
+    )
+    assert restored.position == 4 and restored.accepted_ids == ["mixed"]
+    for change in ({"threshold": 0.4}, {"scan_ids_sha256": "other"}, {"position": 3}):
+        with pytest.raises(local.LocalVLMError, match="scan identity"):
+            local._ScreenedScan(
+                journal,
+                ids,
+                threshold=0.5,
+                target_accepted=2,
+                group_size=4,
+                resume_state=dict(state, **change),
+            )
+
+
+def test_scorer_probability_matches_sampled_exact_match_frequency():
+    torch = pytest.importorskip("torch")
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    torch.set_num_threads(2)
+    torch.manual_seed(2718)
+    config = LlamaConfig(
+        vocab_size=6,
+        hidden_size=8,
+        intermediate_size=16,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        pad_token_id=0,
+        eos_token_id=1,
+        bos_token_id=2,
+        initializer_range=0.6,
+    )
+    model = LlamaForCausalLM(config).eval()
+    # At this prompt the fixture model puts ~0.51 on token 0, which plays the image token:
+    # the sampler suppresses it, so P(EOS first) is ~0.41 suppressed and ~0.20 raw.
+    prompt, suppressed = [2, 5, 4], 0
+    samples = 2000
+    with torch.no_grad():
+        generated = model.generate(
+            input_ids=torch.tensor([prompt] * samples),
+            attention_mask=torch.ones(samples, len(prompt), dtype=torch.long),
+            do_sample=True,
+            temperature=1.0,
+            top_p=1.0,
+            top_k=0,
+            suppress_tokens=[suppressed],
+            eos_token_id=[1],
+            pad_token_id=0,
+            max_new_tokens=3,
+        )[:, len(prompt) :].tolist()
+    completions = []
+    for tokens in generated:
+        stop = tokens.index(1) if 1 in tokens else len(tokens) - 1
+        completions.append(tokens[: stop + 1])
+    assert not any(suppressed in tokens for tokens in completions)  # the sampler suppressed
+    for gold in ([1], [3, 1], [5, 1]):
+        ids = torch.tensor([prompt + gold + [4]])
+        batch = {
+            "input_ids": ids,
+            "attention_mask": torch.ones_like(ids),
+            "labels": torch.tensor([[-100] * len(prompt) + gold + [4]]),
+        }
+        with torch.no_grad():
+            p, _ = local._batch_gold_probability(
+                model, batch, eos_token_ids=[1], suppress_tokens=[suppressed], temperature=1.0
+            )
+        frequency = sum(tokens == gold for tokens in completions) / samples
+        standard_error = (p * (1 - p) / samples) ** 0.5
+        assert abs(frequency - p) <= 3 * standard_error, (gold, frequency, p)
+
+
+def test_egsft_weight_scales_sft_loss_and_carries_no_gradient(tmp_path):
+    torch = pytest.importorskip("torch")
+    theta = torch.nn.Parameter(torch.tensor([0.5, -1.0]))
+
+    class Base:
+        state = SimpleNamespace(global_step=6)
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            assert "labels" in inputs
+            loss = (theta * torch.tensor([2.0, 3.0])).sum()
+            return (loss, "outputs") if return_outputs else loss
+
+    policy = _BigramPolicy(_PLANTED, 8)
+    trainer = local._trainer_with_egsft(
+        Base,
+        eos_token_ids=[_EOS],
+        suppress_tokens=[_IMAGE],
+        temperature=1.0,
+        group_size=4,
+        journal=tmp_path / "egsft.jsonl",
+    )()
+    trainer._vision_rl_prompt_id = "row-5"
+    loss = trainer.compute_loss(policy, _gold_batch(5))
+    p = 0.5 * 0.99
+    weight = _hand_w4(p) / _hand_w4(0.5)
+    assert float(loss.detach()) == pytest.approx(weight * (0.5 * 2 - 1.0 * 3), rel=1e-6)
+    loss.backward()
+    assert theta.grad.tolist() == pytest.approx([2 * weight, 3 * weight], rel=1e-6)
+    assert policy.parameter.grad is None  # p never enters the gradient
+    row = json.loads((tmp_path / "egsft.jsonl").read_text())
+    assert row == {
+        "global_step": 7,
+        "id": "row-5",
+        "p": pytest.approx(p, rel=1e-6),
+        "weight": pytest.approx(weight, rel=1e-6),
+        "invocation_id": row["invocation_id"],
+    }
+    assert row["invocation_id"].isdigit()
+    loss, outputs = trainer.compute_loss(policy, _gold_batch(3), return_outputs=True)
+    assert outputs == "outputs"
+    assert float(loss.detach()) == pytest.approx(_hand_w4(0.891) / _hand_w4(0.5) * -2.0, rel=1e-6)
+
+
+def test_scorer_time_is_a_sub_account_inside_the_active_step(tmp_path, monkeypatch):
+    plain = local._ActiveStepTimer(tmp_path / "plain", 40.0, "cpu")
+    plain.begin()
+    assert "observed_scorer_seconds" not in json.loads(plain.path.read_text())
+    plain.end()
+    assert not any("scorer" in key for key in plain.summary())
+    with pytest.raises(local.LocalVLMError, match="open active optimizer step"):
+        plain.charge_scorer(1.0)
+    clock = iter([100.0, 110.0])
+    monkeypatch.setattr(local.time, "monotonic", lambda: next(clock))
+    timer = local._ActiveStepTimer(tmp_path / "screened", 40.0, "cpu")
+    timer.enable_scorer()
+    with pytest.raises(local.LocalVLMError, match="open active optimizer step"):
+        timer.charge_scorer(1.0)
+    timer.begin()
+    timer.charge_scorer(3.0)
+    timer.end()
+    report = timer.summary()
+    assert timer.completed == 10.0  # scorer seconds are already inside the step span
+    assert report["invocation_scorer_seconds"] == 3.0
+    assert report["observed_scorer_seconds_within_active"] == 3.0
+    checkpoint = tmp_path / "checkpoint-1"
+    checkpoint.mkdir()
+    for name in local.ACTIVE_CHECKPOINT_FILES:
+        (checkpoint / name).write_text(
+            '{"global_step": 1}' if name == "trainer_state.json" else name
+        )
+    (checkpoint / "screen.json").write_text("{}")
+    timer.save(checkpoint, 1)
+    assert local._load_active_time(checkpoint, 40.0)["screen_sha256"]
+    (checkpoint / "screen.json").write_text('{"changed": true}')
+    with pytest.raises(local.LocalVLMError, match="screen identity"):
+        local._load_active_time(checkpoint, 40.0)
+    (checkpoint / "screen.json").unlink()
+    with pytest.raises(local.LocalVLMError, match="screen identity"):
+        local._load_active_time(checkpoint, 40.0)
+
+
+def _tiny_text_policy(seed=0):
+    import torch
+    from peft import LoraConfig, get_peft_model
+    from tokenizers import Tokenizer, models
+    from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
+
+    torch.manual_seed(seed)
+    vocab = {"[PAD]": 0, "[EOS]": 1, "[BOS]": 2, "[UNK]": 3, "a": 4, "b": 5, "c": 6}
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(models.WordLevel(vocab, unk_token="[UNK]")),
+        pad_token="[PAD]",
+        eos_token="[EOS]",
+        bos_token="[BOS]",
+        unk_token="[UNK]",
+    )
+    tokenizer.backend_tokenizer.pre_tokenizer = import_pre_tokenizer()
+    policy = get_peft_model(
+        LlamaForCausalLM(
+            LlamaConfig(
+                vocab_size=7,
+                hidden_size=8,
+                intermediate_size=16,
+                num_hidden_layers=1,
+                num_attention_heads=2,
+                num_key_value_heads=2,
+                pad_token_id=0,
+                eos_token_id=1,
+                bos_token_id=2,
+            )
+        ),
+        LoraConfig(r=2, lora_alpha=4, target_modules=["q_proj", "v_proj"], task_type="CAUSAL_LM"),
+    )
+    return tokenizer, policy
+
+
+def import_pre_tokenizer():
+    from tokenizers import pre_tokenizers
+
+    return pre_tokenizers.WhitespaceSplit()
+
+
+# Scan fixture: "R" rows have a five-token gold (p ~ 1e-4, rejected), "A" rows have the
+# one-token gold EOS (p ~ 1/7, accepted at threshold 0.05 with G=2). Four accepted
+# updates therefore take the A rows at scan positions 1, 3, 4, 6 and stop at position 7.
+_SCAN = [("s0", "R"), ("s1", "A"), ("s2", "R"), ("s3", "A"), ("s4", "A"), ("s5", "R")]
+_SCAN += [("s6", "A"), ("s7", "A")]
+_GOLDS = {"A": [1], "R": [4, 5, 6, 4, 1]}
+
+
+def _screened_grpo_run(output, *, stop_after_steps=None, resume=None):
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+
+    torch.set_num_threads(2)
+    tokenizer, policy = _tiny_text_policy()
+    dataset = Dataset.from_dict(
+        {
+            "prompt": ["a b", "b c", "c a", "a a", "b b", "c c", "a c", "b a"],
+            "id": [identifier for identifier, _ in _SCAN],
+            "label": ["a"] * len(_SCAN),
+        }
+    )
+    profile = replace(local.Profile(), num_generations=2, max_completion_length=4)
+    args = trl.GRPOConfig(
+        **local.trainer_kwargs(
+            "grpo",
+            output,
+            profile,
+            device="cpu",
+            max_steps=4,
+            learning_rate=5e-2,
+            seed=42,
+            save_steps=1,
+        )
+    )
+    active, exposure_state, screen_state = None, None, None
+    if resume is not None:
+        active = local._load_active_time(resume, None)
+        exposure_state = json.loads((resume / "exposure.json").read_text())
+        screen_state = json.loads((resume / "screen.json").read_text())
+    ids = [identifier for identifier, _ in _SCAN]
+    exposure = local._ExposureLedger(output, ids, exposure_state)
+    screen = local._ScreenedScan(
+        output / "screen_journal.jsonl",
+        ids,
+        threshold=0.05,
+        target_accepted=4,
+        group_size=2,
+        resume_state=screen_state,
+    )
+    audit = local._audit_callback(
+        output,
+        None,
+        resume_state=active,
+        exposure=exposure,
+        stop_after_steps=stop_after_steps,
+        screen=screen,
+    )
+
+    def reward(completions, completion_ids, id, **_):
+        # Length parity: a varied reward, so updates change the adapter and later scores.
+        values = [float(len(tokens) % 2) for tokens in completion_ids]
+        for start in range(0, len(id), 2):
+            audit.observe_prompt(id[start])
+            with (output / "reward_groups.jsonl").open("a") as handle:
+                group = {
+                    "id": id[start],
+                    "rewards": values[start : start + 2],
+                    "completion_ids": completion_ids[start : start + 2],
+                }
+                handle.write(json.dumps(group) + "\n")
+        return values
+
+    constructor = local._trainer_with_active_time(
+        local._trainer_with_screening(
+            local._trainer_with_grpo_resume(trl.GRPOTrainer), screen, dataset
+        )
+    )
+    trainer = constructor(
+        model=policy,
+        args=args,
+        processing_class=tokenizer,
+        train_dataset=dataset,
+        callbacks=[audit],
+        reward_funcs=reward,
+    )
+    transform = local._sampler_transform(trainer)
+    assert transform == {"temperature": 1.0, "suppress_tokens": [], "eos_token_ids": [1]}
+
+    def score(model, index):
+        prompt = tokenizer(dataset[index]["prompt"], add_special_tokens=False)["input_ids"]
+        gold = _GOLDS[_SCAN[index][1]]
+        ids = torch.tensor([prompt + gold])
+        batch = {
+            "input_ids": ids,
+            "attention_mask": torch.ones_like(ids),
+            "labels": torch.tensor([[-100] * len(prompt) + gold]),
+        }
+        was_training = model.training
+        model.eval()
+        with torch.no_grad():
+            p, _ = local._batch_gold_probability(
+                model,
+                batch,
+                eos_token_ids=transform["eos_token_ids"],
+                suppress_tokens=transform["suppress_tokens"],
+                temperature=transform["temperature"],
+            )
+        model.train(was_training)
+        return p
+
+    screen.score = score
+    trainer.train(resume_from_checkpoint=str(resume) if resume else None)
+    return trainer
+
+
+def _committed(entries):
+    return [
+        {
+            k: v
+            for k, v in entry.items()
+            if k not in {"scorer_seconds", "adapter_hash_seconds", "invocation_id"}
+        }
+        for entry in entries
+    ]
+
+
+def test_screened_grpo_resume_is_identical_to_uninterrupted(tmp_path):
+    released_trl()
+    runs = {}
+    straight = tmp_path / "straight"
+    _screened_grpo_run(straight)
+    runs["4"] = straight
+    for first in (2, 1):
+        output = tmp_path / f"split-{first}"
+        _screened_grpo_run(output, stop_after_steps=first)
+        assert not (output / "checkpoint-4").exists()
+        _screened_grpo_run(output, resume=output / f"checkpoint-{first}")
+        runs[f"{first}+{4 - first}"] = output
+    final = {}
+    for name, output in runs.items():
+        checkpoint = output / "checkpoint-4"
+        screen = json.loads((checkpoint / "screen.json").read_text())
+        exposure = json.loads((checkpoint / "exposure.json").read_text())
+        groups = [
+            json.loads(line) for line in (output / "reward_groups.jsonl").read_text().splitlines()
+        ]
+        physical = (output / "screen_journal.jsonl").read_text().splitlines()
+        assert len(physical) == screen["position"] == 7  # nothing scored twice or discarded
+        assert local._load_active_time(checkpoint, None)["screen_sha256"]
+        final[name] = {
+            "adapter": (checkpoint / "adapter_model.safetensors").read_bytes(),
+            "position": screen["position"],
+            "journal": _committed(screen["entries"]),
+            "exposure": [entry["id"] for entry in exposure["entries"]],
+            "groups": [(g["id"], g["rewards"], g["completion_ids"]) for g in groups],
+        }
+    assert final["4"]["exposure"] == ["s1", "s3", "s4", "s6"]
+    assert [entry["accepted"] for entry in final["4"]["journal"]] == [
+        kind == "A" for _, kind in _SCAN[:7]
+    ]
+    assert [entry["global_step"] for entry in final["4"]["journal"]] == [1, 1, 2, 2, 3, 4, 4]
+    # Each update's candidates are scored under the adapter that update starts from.
+    hashes = [entry["adapter_sha256"] for entry in final["4"]["journal"]]
+    assert hashes[0] == hashes[1] and hashes[2] == hashes[3] and hashes[5] == hashes[6]
+    assert len({hashes[1], hashes[3], hashes[4], hashes[6]}) == 4
+    assert any(rewards[0] != rewards[1] for _, rewards, _ in final["4"]["groups"])
+    assert final["2+2"] == final["4"]
+    assert final["1+3"] == final["4"]
+
+
+def test_screened_trainer_refuses_scan_exhaustion_inside_training(tmp_path):
+    released_trl()
+    global _SCAN
+    saved = _SCAN
+    _SCAN = [
+        (identifier, "R") if identifier != "s1" else (identifier, "A") for identifier, _ in saved
+    ]
+    try:
+        with pytest.raises(local.LocalVLMError, match="exhausted S"):
+            _screened_grpo_run(tmp_path / "out")
+    finally:
+        _SCAN = saved
+    journal = (tmp_path / "out" / "screen_journal.jsonl").read_text().splitlines()
+    assert len(journal) == 8  # the whole scan was read before refusing
+
+
+def test_sequential_sft_replays_given_order_cycles_and_egsft_trains(tmp_path):
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+
+    torch.set_num_threads(2)
+    assert "train_sampling_strategy" not in local.trainer_kwargs(
+        "sft",
+        tmp_path,
+        local.Profile(),
+        device="cpu",
+        max_steps=1,
+        learning_rate=1e-5,
+        seed=42,
+        save_steps=1,
+    )
+    with pytest.raises(ValueError, match="sequential for SFT"):
+        local.trainer_kwargs(
+            "grpo",
+            tmp_path,
+            local.Profile(),
+            device="cpu",
+            max_steps=1,
+            learning_rate=1e-5,
+            seed=42,
+            save_steps=1,
+            order="sequential",
+        )
+    order = ["r2", "r0", "r1"]
+    for mode in ("sft", "egsft"):
+        output = tmp_path / mode
+        tokenizer, policy = _tiny_text_policy()
+        dataset = Dataset.from_dict(
+            {"id": order, "prompt": ["a b", "b c", "c a"], "completion": [" a", " b", " c"]}
+        )
+        args = trl.SFTConfig(
+            **local.trainer_kwargs(
+                "sft",
+                output,
+                local.Profile(),
+                device="cpu",
+                max_steps=5,
+                learning_rate=1e-2,
+                seed=42,
+                save_steps=5,
+                order="sequential",
+            )
+        )
+        exposure = local._ExposureLedger(output, order)
+        audit = local._audit_callback(output, None, exposure=exposure)
+        constructor = trl.SFTTrainer
+        if mode == "egsft":
+            constructor = local._trainer_with_egsft(
+                constructor,
+                eos_token_ids=[1],
+                suppress_tokens=[],
+                temperature=1.0,
+                group_size=4,
+                journal=output / "egsft_weights.jsonl",
+                journal_io_context=audit.timer.exclude_journal_io,
+            )
+        constructor = local._trainer_with_active_time(
+            local._trainer_with_sft_exposure(constructor, audit)
+        )
+        trainer = constructor(
+            model=policy,
+            args=args,
+            processing_class=tokenizer,
+            train_dataset=dataset,
+            callbacks=[audit],
+        )
+        trainer.data_collator = local._sft_collator_with_ids(trainer.data_collator)
+        trainer.train()
+        committed = json.loads((output / "checkpoint-5" / "exposure.json").read_text())
+        assert [entry["id"] for entry in committed["entries"]] == order + order[:2]
+        assert audit.summary["nonzero_gradient_steps"] == 5
+    weights = [
+        json.loads(line)
+        for line in (tmp_path / "egsft" / "egsft_weights.jsonl").read_text().splitlines()
+    ]
+    assert [row["id"] for row in weights] == order + order[:2]
+    for row in weights:
+        assert 0 < row["p"] < 1
+        assert row["weight"] == pytest.approx(_hand_w4(row["p"]) / _hand_w4(0.5), rel=1e-9)
+
+
+def _settings_after_model_refusal(diagnostic, tmp_path, monkeypatch, name, **kwargs):
+    """Run train_local until it opens the (absent) model directory; return its settings."""
+    monkeypatch.setattr(
+        local,
+        "preflight",
+        lambda *_: {"adapter_source_sha256": local._file_sha256(Path(local.__file__))},
+    )
+    output = tmp_path / name
+    with pytest.raises((FileNotFoundError, ImportError, ModuleNotFoundError)):
+        local.train_local(
+            diagnostic / "train.jsonl",
+            None,
+            diagnostic / "data_spec.json",
+            output,
+            model_directory=tmp_path / "absent-model",
+            device="cpu",
+            max_steps=4,
+            train_only=True,
+            **kwargs,
+        )
+    record = json.loads((output / "local_training.json").read_text())
+    assert record["status"] == "failed"
+    return record
+
+
+def test_new_options_leave_existing_settings_identity_unchanged(diagnostic, tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    record = _settings_after_model_refusal(diagnostic, tmp_path, monkeypatch, "plain")
+    assert record["settings"] == {
+        "mode": "grpo",
+        "max_steps": 4,
+        "learning_rate": 1e-5,
+        "beta": 0.04,
+        "seed": 42,
+        "save_steps": 8,
+        "max_active_seconds": None,
+        "probe": False,
+        "train_only": True,
+        "init_adapter": None,
+        "device": "cpu",
+        "initial_adapter_precision_transfer": None,
+    }
+    assert record["algorithm"] == "TRL-GRPO" and "screen_sampler_transform" not in record
+    sft = _settings_after_model_refusal(
+        diagnostic,
+        tmp_path,
+        monkeypatch,
+        "sequential",
+        mode="egsft",
+        order="sequential",
+        cycle=True,
+    )
+    assert sft["settings"]["order"] == "sequential" and sft["settings"]["cycle"] is True
+    assert sft["settings"]["egsft"]["advantage_eps"] == 1e-4
+    assert sft["algorithm"] == "TRL-EGSFT" and sft["settings"]["beta"] is None
+    screened = _settings_after_model_refusal(
+        diagnostic,
+        tmp_path,
+        monkeypatch,
+        "screened",
+        screen_journal=tmp_path / "screened" / "screen.jsonl",
+        target_accepted=4,
+        screen_threshold=0.5,
+    )
+    assert screened["settings"]["screening"]["journal"] == "screen.jsonl"
+    assert screened["settings"]["screening"]["target_accepted"] == 4
+
+
+def test_screen_and_order_options_refuse_before_model_access(diagnostic, tmp_path, monkeypatch):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must refuse before model"))
+    output = tmp_path / "out"
+    base = dict(
+        train=diagnostic / "train.jsonl",
+        validation=None,
+        data_spec=diagnostic / "data_spec.json",
+        output=output,
+        model_directory=tmp_path / "model",
+        max_steps=4,
+        train_only=True,
+    )
+    journal = output / "screen.jsonl"
+    for kwargs, match in (
+        ({"order": "sequential"}, "sequential for sft/egsft"),
+        ({"mode": "sft", "cycle": True}, "cycle requires sequential"),
+        ({"mode": "sft", "screen_journal": journal}, "only to GRPO"),
+        ({"screen_threshold": 0.4}, "require screen_journal"),
+        ({"target_accepted": 4}, "require screen_journal"),
+        ({"screen_journal": journal}, "equal the fixed target_accepted"),
+        ({"screen_journal": journal, "target_accepted": 4, "screen_threshold": 1.0}, "(0, 1)"),
+        ({"screen_journal": journal, "max_steps": 9, "target_accepted": 9}, "exhaust S"),
+        ({"screen_journal": tmp_path / "elsewhere.jsonl", "target_accepted": 4}, "inside output"),
+        ({"mode": "sft", "order": "sequential", "max_steps": 9}, "cannot exceed"),
+        ({"screen_tokenizations": tmp_path / "t.json"}, "screening or EG-SFT"),
+        ({"mode": "nope"}, "sft/egsft/grpo"),
+    ):
+        with pytest.raises(ValueError, match=match.replace("(", r"\(").replace(")", r"\)")):
+            local.train_local(**dict(base, **kwargs))
+    assert not output.exists()
+
+
+def test_screened_resume_requires_matching_checkpoint_screen_state(
+    diagnostic, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must refuse before model"))
+    output = tmp_path / "out"
+    checkpoint = output / "checkpoint-1"
+    checkpoint.mkdir(parents=True)
+    for name in (*local.ACTIVE_CHECKPOINT_FILES, "rng_state.pth"):
+        (checkpoint / name).write_text(
+            '{"global_step": 1}' if name == "trainer_state.json" else name
+        )
+    (checkpoint / "ref").mkdir()
+    (checkpoint / "ref" / "adapter_model.safetensors").write_text("ref")
+    kwargs = dict(
+        model_directory=tmp_path / "model",
+        max_steps=4,
+        train_only=True,
+        screen_journal=output / "screen.jsonl",
+        target_accepted=4,
+        resume_from_checkpoint=checkpoint,
+    )
+    spec_sha = local._file_sha256(diagnostic / "data_spec.json")
+    rows = local.load_classification(
+        diagnostic / "train.jsonl", "train", ["blue", "red"], require_all_classes=False
+    )
+    identity = {
+        "model": local.DEFAULT_MODEL,
+        "model_revision": local.MODEL_REVISIONS[local.DEFAULT_MODEL],
+        "processor_model": local.DEFAULT_MODEL,
+        "processor_revision": local.MODEL_REVISIONS[local.DEFAULT_MODEL],
+        "profile": asdict(local.Profile()),
+        "output_grammar": local.OUTPUT_GRAMMAR,
+        "data_spec_sha256": spec_sha,
+        "train": local._classification_identity(diagnostic / "train.jsonl", rows),
+        "validation": None,
+        "image_transform_source_sha256": None,
+    }
+    settings = {
+        "mode": "grpo",
+        "max_steps": 4,
+        "learning_rate": 1e-5,
+        "beta": 0.04,
+        "seed": 42,
+        "save_steps": 8,
+        "max_active_seconds": None,
+        "probe": False,
+        "train_only": True,
+        "init_adapter": None,
+        "device": "mps",
+        "initial_adapter_precision_transfer": None,
+        "screening": {
+            "journal": "screen.jsonl",
+            "threshold": 0.5,
+            "target_accepted": 4,
+            "group_size": 4,
+            "acceptance": "u(p) = 1 - p^G - (1 - p)^G >= threshold",
+            "scan_order": "TRAIN manifest file order",
+            "scope": local.SCREEN_SCOPE,
+        },
+    }
+    (output / "local_training.json").write_text(
+        json.dumps({"control_identity": identity, "settings": settings})
+    )
+    (checkpoint / "mps_rng_state.pth").write_text("mps")
+    ids = [row["id"] for row in rows]
+    (checkpoint / "exposure.json").write_text(
+        json.dumps({"schema_version": 1, "entries": [{"global_step": 1, "id": ids[1]}]})
+    )
+    timer = local._ActiveStepTimer(output, None, "mps")
+
+    def save(screen_ids_accepted):
+        entries = [
+            {
+                "scan_position": i,
+                "id": ids[i],
+                "p": 0.5 if accepted else 0.01,
+                "u": 0.875 if accepted else 0.0394,
+                "accepted": accepted,
+                "global_step": 1,
+                "adapter_sha256": "x",
+                "scorer_seconds": 0.1,
+                "invocation_id": "1",
+            }
+            for i, accepted in enumerate(screen_ids_accepted)
+        ]
+        state = local._ScreenedScan(
+            output / "screen.jsonl", ids, threshold=0.5, target_accepted=4, group_size=4
+        )
+        state.entries = entries
+        (checkpoint / "screen.json").write_text(json.dumps(state.state()))
+        timer.save(checkpoint, 1)
+
+    save([False, False])  # accepted nothing, but exposure committed ids[1]
+    with pytest.raises(local.LocalVLMError, match="differs from exposure"):
+        local.train_local(
+            diagnostic / "train.jsonl", None, diagnostic / "data_spec.json", output, **kwargs
+        )
+    (checkpoint / "screen.json").unlink()
+    timer.save(checkpoint, 1)
+    with pytest.raises(local.LocalVLMError, match="exactly a checkpoint screen state"):
+        local.train_local(
+            diagnostic / "train.jsonl", None, diagnostic / "data_spec.json", output, **kwargs
+        )
+    save([False, True] + [False] * (len(ids) - 2))
+    with pytest.raises(local.LocalVLMError, match="already exhausted S"):
+        local.train_local(
+            diagnostic / "train.jsonl", None, diagnostic / "data_spec.json", output, **kwargs
+        )
+    save([False, True])
+    with pytest.raises(pytest.fail.Exception, match="must refuse before model"):
+        local.train_local(
+            diagnostic / "train.jsonl", None, diagnostic / "data_spec.json", output, **kwargs
+        )
+
+
+def test_cli_passes_new_training_options_and_keeps_inference_clean(monkeypatch, capsys):
+    def train(**kwargs):
+        assert kwargs["mode"] == "egsft" and kwargs["order"] == "sequential"
+        assert kwargs["cycle"] is True and kwargs["screen_journal"] is None
+        assert kwargs["screen_threshold"] == 0.5 and kwargs["target_accepted"] == 600
+        return {"ok": True}
+
+    monkeypatch.setattr(local, "train_local", train)
+    args = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
+    assert local.main(args + ["--mode", "egsft", "--order", "sequential", "--cycle"]) == 0
+    capsys.readouterr()
+
+    def screened(**kwargs):
+        assert kwargs["screen_journal"] == Path("o/screen.jsonl")
+        assert kwargs["target_accepted"] == 150 and kwargs["screen_threshold"] == 0.5
+        return {"ok": True}
+
+    monkeypatch.setattr(local, "train_local", screened)
+    assert (
+        local.main(args + ["--screen-journal", "o/screen.jsonl", "--target-accepted", "150"]) == 0
+    )
+    capsys.readouterr()
+    monkeypatch.setattr(local, "predict_train_subset", lambda *a, **k: pytest.fail("refuse"))
+    predict = [
+        "--predict-train",
+        "t.jsonl",
+        "--data-spec",
+        "s.json",
+        "--output",
+        "o",
+        "--model-directory",
+        "m",
+    ]
+    for extra in (["--screen-journal", "j"], ["--order", "sequential"], ["--target-accepted", "5"]):
+        with pytest.raises(SystemExit):
+            local.main(predict + extra)
+
+
+# --- SFT-T continuation and EG-SFT committed lineage (review fixes) ---
+
+_E = (["e0", "e1", "e2"], ["a b", "b c", "c a"], [" a", " b", " c"])
+_T = (["t0", "t1", "t2", "t3"], ["a a", "b b", "c c", "a c"], [" c", " a", " b", " a"])
+
+
+def _seq_sft_run(
+    output,
+    rows,
+    *,
+    max_steps,
+    save_steps,
+    mode="sft",
+    parent=None,
+    resume=None,
+    stop_after_steps=None,
+    reset_from=None,
+):
+    """Tiny CPU sequential SFT through the module's wrappers, as train_local assembles them."""
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+    from safetensors.torch import load_file
+
+    torch.set_num_threads(2)
+    ids, prompts, completions = rows
+    tokenizer, policy = _tiny_text_policy()
+    if reset_from is not None:  # control: parent weights only, fresh optimizer
+        from peft import set_peft_model_state_dict
+
+        set_peft_model_state_dict(policy, load_file(reset_from / "adapter_model.safetensors"))
+    dataset = Dataset.from_dict({"id": ids, "prompt": prompts, "completion": completions})
+    args = trl.SFTConfig(
+        **local.trainer_kwargs(
+            "sft",
+            output,
+            local.Profile(),
+            device="cpu",
+            max_steps=max_steps,
+            learning_rate=1e-2,
+            seed=42,
+            save_steps=save_steps,
+            order="sequential",
+        )
+    )
+    start = resume or parent
+    active = local._load_active_time(start, None) if start else None
+    exposure_state = json.loads((start / "exposure.json").read_text()) if start else None
+    inherited = json.loads((parent / "exposure.json").read_text())["entries"] if parent else None
+    egsft_state = (
+        json.loads((resume / "egsft.json").read_text()) if resume and mode == "egsft" else None
+    )
+    exposure = local._ExposureLedger(output, ids, exposure_state, inherited=inherited)
+    audit = local._audit_callback(
+        output, None, resume_state=active, exposure=exposure, stop_after_steps=stop_after_steps
+    )
+    constructor = trl.SFTTrainer
+    if mode == "egsft":
+        constructor = local._trainer_with_egsft(
+            constructor,
+            eos_token_ids=[1],
+            suppress_tokens=[],
+            temperature=1.0,
+            group_size=4,
+            journal=output / "egsft_weights.jsonl",
+            journal_io_context=audit.timer.exclude_journal_io,
+            resume_state=egsft_state,
+        )
+    constructor = local._trainer_with_sft_exposure(constructor, audit)
+    if parent is not None:
+        step = json.loads((parent / "trainer_state.json").read_text())["global_step"]
+        constructor = local._trainer_with_continuation(constructor, step)
+    constructor = local._trainer_with_active_time(constructor)
+    trainer = constructor(
+        model=policy,
+        args=args,
+        processing_class=tokenizer,
+        train_dataset=dataset,
+        callbacks=[audit],
+    )
+    trainer.data_collator = local._sft_collator_with_ids(trainer.data_collator)
+    trainer.train(resume_from_checkpoint=str(start) if start else None)
+    return trainer
+
+
+def _optimizer_state(checkpoint):
+    import torch
+
+    state = torch.load(checkpoint / "optimizer.pt", map_location="cpu", weights_only=True)
+    return state["state"]
+
+
+def test_sft_t_continuation_carries_optimizer_state_onto_new_manifest(tmp_path):
+    torch = pytest.importorskip("torch")
+
+    parent = tmp_path / "sft-e"
+    _seq_sft_run(parent, _E, max_steps=3, save_steps=3)
+    parent_checkpoint = parent / "checkpoint-3"
+    # Fixture: one uninterrupted optimizer over E then T from its first row, cycling
+    # (t0..t3, t0, t1). A continuation without reset must reproduce it exactly.
+    reference = tmp_path / "reference"
+    sequence = [_E[i] + _T[i] + _T[i][:2] for i in range(3)]
+    _seq_sft_run(reference, sequence, max_steps=9, save_steps=9)
+    expected_ids = ["e0", "e1", "e2", "t0", "t1", "t2", "t3", "t0", "t1"]
+
+    straight = tmp_path / "sft-t"
+    _seq_sft_run(straight, _T, max_steps=9, save_steps=3, parent=parent_checkpoint)
+    split = tmp_path / "sft-t-split"
+    _seq_sft_run(
+        split, _T, max_steps=9, save_steps=3, parent=parent_checkpoint, stop_after_steps=6
+    )
+    assert not (split / "checkpoint-9").exists()
+    _seq_sft_run(
+        split,
+        _T,
+        max_steps=9,
+        save_steps=3,
+        parent=parent_checkpoint,
+        resume=split / "checkpoint-6",
+    )
+    expected_state = _optimizer_state(reference / "checkpoint-9")
+    assert set(expected_state) and all(
+        float(value["step"]) == 9 for value in expected_state.values()
+    )
+    for run in (straight, split):
+        checkpoint = run / "checkpoint-9"
+        exposure = json.loads((checkpoint / "exposure.json").read_text())["entries"]
+        assert [entry["id"] for entry in exposure] == expected_ids
+        assert local._load_active_time(checkpoint, None)["global_step"] == 9
+        assert (checkpoint / "adapter_model.safetensors").read_bytes() == (
+            reference / "checkpoint-9" / "adapter_model.safetensors"
+        ).read_bytes()
+        state = _optimizer_state(checkpoint)
+        assert set(state) == set(expected_state)
+        for key, value in expected_state.items():
+            for name in ("step", "exp_avg", "exp_avg_sq"):
+                assert torch.equal(state[key][name], value[name]), (key, name)
+    # The parent's optimizer moments are what was carried: three steps in, not zero.
+    assert all(float(v["step"]) == 3 for v in _optimizer_state(parent_checkpoint).values())
+    # Control: parent weights with a reset optimizer on the same data must differ,
+    # so the equality above is evidence of carry-over, not of an insensitive check.
+    reset = tmp_path / "reset"
+    _seq_sft_run(
+        reset,
+        [_T[i] + _T[i][:2] for i in range(3)],
+        max_steps=6,
+        save_steps=6,
+        reset_from=parent_checkpoint,
+    )
+    assert (reset / "checkpoint-6" / "adapter_model.safetensors").read_bytes() != (
+        reference / "checkpoint-9" / "adapter_model.safetensors"
+    ).read_bytes()
+    assert all(float(v["step"]) == 6 for v in _optimizer_state(reset / "checkpoint-6").values())
+
+
+def _finish_endpoint(output, identity, settings, step, *, stop_after_steps, stop_seconds=None):
+    """Complete a fixture run's record and publish its endpoint receipt at checkpoint-{step}."""
+    checkpoint = output / f"checkpoint-{step}"
+    adapter = output / "final_adapter"
+    adapter.mkdir(exist_ok=True)
+    for name in ("adapter_model.safetensors", "adapter_config.json"):
+        shutil.copyfile(checkpoint / name, adapter / name)
+    (output / "adapter-source.py").write_text("# fixture adapter source\n")
+    record = {
+        "status": "completed",
+        "stage_id": "sft-e-fixture",
+        "control_identity": identity,
+        "settings": settings,
+        "environment": {"adapter_source_sha256": local._file_sha256(output / "adapter-source.py")},
+        "optimizer_audit": {"active_time": {"fixture": True}},
+        "final_adapter_sha256": local._file_sha256(adapter / "adapter_model.safetensors"),
+        "reference": None,
+        "requested_boundary": {
+            "stop_after_steps": stop_after_steps,
+            "stop_after_active_seconds": stop_seconds,
+        },
+    }
+    (output / "local_training.json").write_text(json.dumps(record))
+    local._publish_endpoint_receipt(output, record, step)
+    return record
+
+
+def test_continuation_identity_records_old_and_new_train_and_refuses_silent_changes(
+    diagnostic, tmp_path, monkeypatch
+):
+    pytest.importorskip("torch")
+    parent = tmp_path / "parent"
+    # SFT-E fixture: declared total 6 steps, stopped at its declared boundary 3.
+    _seq_sft_run(parent, _E, max_steps=6, save_steps=1, stop_after_steps=3)
+    assert not (parent / "checkpoint-4").exists()
+    checkpoint = parent / "checkpoint-3"
+    spec = local.load_spec(diagnostic / "data_spec.json")
+    rows = local.load_classification(diagnostic / "train.jsonl", "train", spec["labels"])
+    subset = diagnostic / "accepted.jsonl"
+    subset.write_text(
+        "".join(
+            line + "\n" for line in (diagnostic / "train.jsonl").read_text().splitlines()[:-1]
+        )
+    )
+    subset_rows = local.load_classification(
+        subset, "train", spec["labels"], require_all_classes=False
+    )
+    identity = {
+        "model": local.DEFAULT_MODEL,
+        "model_revision": local.MODEL_REVISIONS[local.DEFAULT_MODEL],
+        "processor_model": local.DEFAULT_MODEL,
+        "processor_revision": local.MODEL_REVISIONS[local.DEFAULT_MODEL],
+        "profile": asdict(local.Profile()),
+        "output_grammar": local.OUTPUT_GRAMMAR,
+        "data_spec_sha256": local._file_sha256(diagnostic / "data_spec.json"),
+        "train": local._classification_identity(subset, subset_rows),
+        "validation": None,
+        "image_transform_source_sha256": None,
+    }
+    settings = {
+        "mode": "sft",
+        "max_steps": 6,
+        "learning_rate": 1e-5,
+        "beta": None,
+        "seed": 42,
+        "save_steps": 3,
+        "max_active_seconds": None,
+        "probe": False,
+        "train_only": True,
+        "init_adapter": None,
+        "device": "cpu",
+        "initial_adapter_precision_transfer": None,
+        "order": "sequential",
+        "cycle": False,
+    }
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    assert json.loads((parent / "endpoint_receipt.json").read_text())["status"] == (
+        "boundary_reached"
+    )
+    monkeypatch.setattr(
+        local,
+        "preflight",
+        lambda *_: {"adapter_source_sha256": local._file_sha256(Path(local.__file__))},
+    )
+    base = dict(
+        train=diagnostic / "train.jsonl",
+        validation=None,
+        data_spec=diagnostic / "data_spec.json",
+        model_directory=tmp_path / "absent-model",
+        device="cpu",
+        mode="sft",
+        order="sequential",
+        cycle=True,
+        max_steps=7,
+        train_only=True,
+        continue_from_checkpoint=checkpoint,
+    )
+    output = tmp_path / "sft-t"
+    with pytest.raises((FileNotFoundError, ImportError, ModuleNotFoundError)):
+        local.train_local(output=output, **base)
+    record = json.loads((output / "local_training.json").read_text())
+    continuation = record["settings"]["continuation"]
+    new_train = local._classification_identity(diagnostic / "train.jsonl", rows)
+    assert continuation["parent_train"]["manifest_sha256"] == local._file_sha256(subset)
+    assert continuation["train"]["manifest_sha256"] == local._file_sha256(
+        diagnostic / "train.jsonl"
+    )
+    assert continuation["train"] == new_train == record["control_identity"]["train"]
+    assert continuation["parent_global_step"] == 3
+    assert continuation["parent_checkpoint_file_sha256"]["optimizer.pt"] == hashlib.sha256(
+        (checkpoint / "optimizer.pt").read_bytes()
+    ).hexdigest()
+    assert not any(continuation["reset"].values())
+    assert continuation["parent_endpoint_status"] == "boundary_reached"
+    assert continuation["parent_endpoint_receipt_sha256"] == hashlib.sha256(
+        (parent / "endpoint_receipt.json").read_bytes()
+    ).hexdigest()
+
+    def refuses(match, error=ValueError, **kwargs):
+        target = tmp_path / f"refused-{len(list(tmp_path.iterdir()))}"
+        with pytest.raises(error, match=match):
+            local.train_local(output=target, **dict(base, **kwargs))
+
+    refuses("only to sequential SFT", mode="egsft")
+    refuses("only to sequential SFT", order="random", cycle=False)
+    refuses("must exceed the parent", max_steps=3)
+    refuses("cumulative past the parent", stop_after_steps=3)
+    refuses("optimizer settings", learning_rate=2e-5)
+    refuses("equals the parent's; use resume", train=subset)
+    # Intermediate checkpoint of a finished endpoint: refused.
+    refuses("final endpoint checkpoint", error=local.LocalVLMError,
+            continue_from_checkpoint=parent / "checkpoint-2")
+    # Total-budget exhausted at step 3 (declared max_steps 3, no boundary): refused.
+    _finish_endpoint(parent, identity, dict(settings, max_steps=3), 3, stop_after_steps=None)
+    assert json.loads((parent / "endpoint_receipt.json").read_text())["status"] == (
+        "total_budget_exhausted"
+    )
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # Declared boundary equals the total budget (both 3): the receipt is budget-exhausted
+    # at global_step == declared, so only the status check can refuse it.
+    _finish_endpoint(parent, identity, dict(settings, max_steps=3), 3, stop_after_steps=3)
+    exhausted = json.loads((parent / "endpoint_receipt.json").read_text())
+    assert exhausted["status"] == "total_budget_exhausted"
+    assert exhausted["global_step"] == exhausted["requested_boundary"]["stop_after_steps"] == 3
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # Stopped by an active-seconds boundary, not its declared stop_after_steps: refused.
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=None, stop_seconds=0.0)
+    refuses("boundary_reached at its declared stop_after_steps", error=local.LocalVLMError)
+    # No receipt at all: refused; a receipt that no longer verifies: refused.
+    (parent / "endpoint_receipt.json").unlink()
+    refuses("finished SFT-E endpoint with a receipt", error=local.LocalVLMError)
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    (parent / "final_adapter" / "adapter_config.json").write_text("{}")
+    refuses("saved adapter bytes differ", error=local.LocalVLMError)
+    record = _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    (parent / "local_training.json").write_text(
+        json.dumps(dict(record, control_identity=dict(identity, data_spec_sha256="0" * 64)))
+    )
+    refuses("only the TRAIN manifest identity")
+    _finish_endpoint(parent, identity, settings, 3, stop_after_steps=3)
+    with (checkpoint / "optimizer.pt").open("ab") as handle:
+        handle.write(b"tampered")
+    refuses("does not match budget/state/optimizer", error=local.LocalVLMError)
+
+
+def test_egsft_checkpoint_commits_one_weight_row_per_step_across_resume(tmp_path):
+    straight = tmp_path / "straight"
+    _seq_sft_run(straight, _T, max_steps=5, save_steps=2, mode="egsft")
+    split = tmp_path / "split"
+    _seq_sft_run(split, _T, max_steps=5, save_steps=2, mode="egsft")
+    # Re-run steps 3..5 from checkpoint-2: the physical journal now holds discarded rows.
+    for name in ("checkpoint-4", "checkpoint-5"):
+        shutil.rmtree(split / name)
+    _seq_sft_run(split, _T, max_steps=5, save_steps=2, mode="egsft", resume=split / "checkpoint-2")
+    physical = [
+        json.loads(line) for line in (split / "egsft_weights.jsonl").read_text().splitlines()
+    ]
+    assert [row["global_step"] for row in physical] == [1, 2, 3, 4, 5, 3, 4, 5]
+    assert len({row["invocation_id"] for row in physical}) == 2
+    expected = json.loads((straight / "checkpoint-5" / "egsft.json").read_text())["entries"]
+    committed = json.loads((split / "checkpoint-5" / "egsft.json").read_text())["entries"]
+    assert [row["global_step"] for row in committed] == [1, 2, 3, 4, 5]
+    assert [row["id"] for row in committed] == ["t0", "t1", "t2", "t3", "t0"]
+    assert [row["invocation_id"] for row in committed[:2]] == [physical[0]["invocation_id"]] * 2
+    assert [row["invocation_id"] for row in committed[2:]] == [physical[5]["invocation_id"]] * 3
+    def strip(rows):
+        return [{k: v for k, v in row.items() if k != "invocation_id"} for row in rows]
+
+    assert strip(committed) == strip(expected)
+    assert local._load_active_time(split / "checkpoint-5", None)["egsft_sha256"]
+    # The endpoint receipt covers egsft.json and verifies it against active_time.json.
+    settings = {"mode": "egsft", "max_steps": 5, "max_active_seconds": None}
+    _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    receipt = local.read_endpoint_receipt(split)
+    assert receipt["checkpoint"]["sha256"]["egsft.json"] == hashlib.sha256(
+        (split / "checkpoint-5" / "egsft.json").read_bytes()
+    ).hexdigest()
+    with pytest.raises(local.LocalVLMError, match="EG-SFT weight lineage"):
+        _finish_endpoint(split, {"fixture": "egsft"}, dict(settings, mode="sft"), 5,
+                         stop_after_steps=None)
+    _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    original = (split / "checkpoint-5" / "egsft.json").read_bytes()
+    tampered = json.loads(original)
+    tampered["entries"][0]["weight"] = 0.123
+    (split / "checkpoint-5" / "egsft.json").write_text(json.dumps(tampered))
+    with pytest.raises(local.LocalVLMError, match="saved adapter bytes differ"):
+        local.read_endpoint_receipt(split)  # receipt hash catches changed bytes
+    with pytest.raises(local.LocalVLMError, match="EG-SFT weight lineage"):
+        # A receipt re-issued over the changed file still fails the active-time binding.
+        _finish_endpoint(split, {"fixture": "egsft"}, settings, 5, stop_after_steps=None)
+    (split / "checkpoint-5" / "egsft.json").write_bytes(original)
+    (split / "checkpoint-5" / "egsft.json").write_text('{"schema_version": 1, "entries": []}')
+    with pytest.raises(local.LocalVLMError, match="EG-SFT weight identity"):
+        local._load_active_time(split / "checkpoint-5", None)
+
+
+def test_screen_hashes_adapter_once_per_update_outside_scorer_seconds(tmp_path):
+    hashed = []
+
+    def slow_hash(model):
+        hashed.append(model)
+        return "fixture-adapter"
+
+    scan = local._ScreenedScan(
+        tmp_path / "screen.jsonl",
+        ["r0", "r1", "r2"],
+        threshold=0.5,
+        target_accepted=1,
+        group_size=4,
+        score=lambda model, index: [0.001, 0.002, 0.5][index],
+        adapter_identity=slow_hash,
+    )
+    assert scan.next_accepted("model", 1) == 2
+    assert hashed == ["model"]  # one hash for the update's three candidates
+    rows = [json.loads(line) for line in (tmp_path / "screen.jsonl").read_text().splitlines()]
+    assert [row["adapter_sha256"] for row in rows] == ["fixture-adapter"] * 3
+    assert rows[0]["adapter_hash_seconds"] >= 0
+    assert [row["adapter_hash_seconds"] for row in rows[1:]] == [0.0, 0.0]
+    checkpoint = tmp_path / "checkpoint-1"
+    checkpoint.mkdir()
+    (checkpoint / "screen.json").write_text(json.dumps(scan.state()))
+    (checkpoint / "active_time.json").write_text(
+        json.dumps({"screen_sha256": local._file_sha256(checkpoint / "screen.json")})
+    )
+    assert local.committed_screen_entries(checkpoint) == scan.entries
+    (checkpoint / "screen.json").write_text(json.dumps(dict(scan.state(), entries=[])))
+    with pytest.raises(local.LocalVLMError, match="not bound"):
+        local.committed_screen_entries(checkpoint)
+
+
+def test_exposure_ledger_inherits_parent_prefix_verbatim(tmp_path):
+    parent = [{"global_step": 1, "id": "e0"}, {"global_step": 2, "id": "e1"}]
+    own = parent + [{"global_step": 3, "id": "t0"}]
+    # Parent IDs come from the parent's TRAIN and need not be in this one.
+    ledger = local._ExposureLedger(tmp_path, ["t0", "t1"], {"entries": own}, inherited=parent)
+    assert ledger.entries == own
+    with pytest.raises(local.LocalVLMError, match="TRAIN identity"):
+        local._ExposureLedger(tmp_path, ["t0", "t1"], {"entries": own})
+    swapped = [dict(parent[0], id="e9"), parent[1], own[2]]
+    with pytest.raises(local.LocalVLMError, match="continuation parent's"):
+        local._ExposureLedger(tmp_path, ["t0"], {"entries": swapped}, inherited=parent)
+    with pytest.raises(local.LocalVLMError, match="TRAIN identity"):
+        local._ExposureLedger(
+            tmp_path,
+            ["t0"],
+            {"entries": parent + [{"global_step": 3, "id": "e0"}]},
+            inherited=parent,
+        )
