@@ -525,3 +525,133 @@ def test_strongest_sft_gate_fires_between_four_and_five_points():
     assert robust["strongest_sft"] == "egsft"
     assert robust["values"]["delta_vs_strongest_sft"] == pytest.approx(0.045)
     assert not robust["checks"]["delta_vs_strongest_sft_at_least_0_05"]
+
+
+def per_class_study(splits, labels=LABELS, baseline=None):
+    """A Study over hand-set per-class correct counts: image index < count is right.
+
+    ``splits`` holds "rows" ({split: rows}) and maps each run ID to (arm, {split:
+    {label: correct}}). Wrong answers name the next label in ``labels``.
+    """
+    rows, endpoints = splits.pop("rows"), []
+    wrong = {label: labels[(index + 1) % len(labels)] for index, label in enumerate(labels)}
+
+    def answers(counts, split):
+        return {r["id"]: r["label"] if int(r["id"].split("-")[1]) < counts[r["label"]]
+                else wrong[r["label"]] for r in rows[split]}
+
+    for run_id, (arm, by_split) in splits.items():
+        item = endpoint(run_id, arm, 1e-5, None if arm == "W" else 42, 600, 1.0)
+        item["splits"] = {split: {"predictions": answers(counts, split)}
+                          for split, counts in by_split.items()}
+        endpoints.append(item)
+    document = {"labels": labels, "rows": rows, "a_star": 0.75, "b4_edge_extension": False,
+                "endpoints": endpoints}
+    if baseline is not None:
+        document["named_baseline_test"] = {"run_id": "27b", "valid_eos_fraction": 0.96,
+                                           "predictions": answers(baseline, "test")}
+    return GATES["Study"](document)
+
+
+def class_rows(labels, per_class):
+    return [{"id": f"{label}-{index}", "label": label}
+            for label in labels for index in range(per_class)]
+
+
+# Mean-class accuracy over 100 images per class; each pair straddles one threshold by
+# half a point (or one RER step), so lowering or raising the constant flips one case.
+@pytest.mark.parametrize(("check", "w", "rl", "sft", "expected"), [
+    # .80 accuracy: (80+80)/200 = .80 passes; (80+79)/200 = .795 fails.
+    ("accuracy_at_least_0_80", (50, 50), (80, 80), (70, 70), True),
+    ("accuracy_at_least_0_80", (50, 50), (80, 79), (70, 70), False),
+    # +.05 vs init: RL .90 vs W .85 passes; vs W .855 (+.045) fails.
+    ("delta_vs_w_at_least_0_05", (85, 85), (90, 90), (70, 70), True),
+    ("delta_vs_w_at_least_0_05", (86, 85), (90, 90), (70, 70), False),
+    # +.05 vs strongest SFT: .90 vs .85 passes; vs .855 (+.045) fails.
+    ("delta_vs_strongest_sft_at_least_0_05", (50, 50), (90, 90), (85, 85), True),
+    ("delta_vs_strongest_sft_at_least_0_05", (50, 50), (90, 90), (86, 85), False),
+    # .20 RER: SFT error .40; RL .68 removes .08/.40 = .20; RL .675 removes .1875.
+    ("relative_error_reduction_at_least_0_20", (50, 50), (68, 68), (60, 60), True),
+    ("relative_error_reduction_at_least_0_20", (50, 50), (68, 67), (60, 60), False),
+])
+def test_substantial_gate_thresholds_at_their_boundaries(check, w, rl, sft, expected):
+    labels = LABELS
+    rows = {"val": class_rows(labels, 100)}
+    study = per_class_study({
+        "rows": rows,
+        "w": ("W", {"val": dict(zip(labels, w, strict=True))}),
+        "rl": ("RL", {"val": dict(zip(labels, rl, strict=True))}),
+        "sft": ("SFT-E", {"val": dict(zip(labels, sft, strict=True))}),
+    })
+    result = study.substantial_against(study.endpoints["rl"], study.endpoints["sft"], "val")
+    assert result["checks"][check] is expected
+
+
+def frontier(rl, baseline, labels=LABELS, per_class=100):
+    rows = {"test": class_rows(labels, per_class)}
+    counts = {"test": dict(zip(labels, rl, strict=True))}
+    study = per_class_study({"rows": rows, "w": ("W", counts), "rl": ("RL", counts),
+                             "sft": ("SFT-E", counts)}, labels,
+                            baseline=dict(zip(labels, baseline, strict=True)))
+    g4 = {"rl_star": "rl", "protocol": {"strongest_sft": "sft"}}
+    return study.gate_g6(g4)["named_baseline"]
+
+
+@pytest.mark.parametrize(("check", "rl", "baseline", "expected"), [
+    # +.10: RL .90 vs baseline .80 passes; vs .805 (+.095) fails.
+    ("delta_at_least_0_10", (90, 90), (80, 80), True),
+    ("delta_at_least_0_10", (90, 90), (81, 80), False),
+    # .25 RER: baseline error .40, RL .70 removes .10/.40 = .25; baseline error .45,
+    # RL .66 removes .11/.45 = .244 (delta .11 still clears .10).
+    ("relative_error_reduction_at_least_0_25", (70, 70), (60, 60), True),
+    ("relative_error_reduction_at_least_0_25", (66, 66), (55, 55), False),
+])
+def test_named_baseline_thresholds_at_their_boundaries(check, rl, baseline, expected):
+    assert frontier(rl, baseline)["checks"][check] is expected
+
+
+def test_named_baseline_lower_bound_must_exceed_five_points_not_zero():
+    """Twenty classes of four images. A class where RL is right and the baseline wrong on
+    every image adds exactly 1/20 in every bootstrap draw, and equal classes add 0, so the
+    95% interval collapses to the point: one such class gives LB .05, two give .10."""
+    labels = [f"L{index:02d}" for index in range(20)]
+    rl = [4] * 20
+    one = frontier(rl, [0] + [4] * 19, labels, 4)
+    assert one["values"]["paired_95_ci"] == [0.05, 0.05]
+    assert not one["checks"]["paired_95_lb_above_0_05"]  # .05 is not above .05
+    two = frontier(rl, [0, 0] + [4] * 18, labels, 4)
+    assert two["values"]["paired_95_ci"] == [0.1, 0.1]
+    assert two["checks"]["paired_95_lb_above_0_05"]
+
+
+@pytest.mark.parametrize(("delta_42", "expected"), [(0.05, True), (0.049, False)])
+def test_replicate_mean_threshold_at_its_boundary(delta_42, expected):
+    document = evidence()
+    # Seed 314 strongest SFT .80 vs RL .85: +.05; seed 2718 is +.05 in the fixture.
+    find(document, "SFT-E-5e-05-314")["splits"]["val"]["predictions"] = greedy(
+        {"A": 16, "B": 16})
+    gate = GATES["Study"](document).gate_g5(
+        {"protocol": {"values": {"delta_vs_strongest_sft": delta_42}}})
+    assert gate["deltas"] == pytest.approx({"42": delta_42, "314": 0.05, "2718": 0.05})
+    # (.05 + .05 + .05) / 3 = .05 passes; (.049 + .10) / 3 = .0497 fails.
+    assert gate["checks"]["three_seed_mean_at_least_0_05"] is expected
+    assert gate["checks"]["every_seed_delta_positive"]
+
+
+@pytest.mark.parametrize(("invalid_images", "expected"), [(2, True), (3, False)])
+def test_g2_invalid_slack_is_exactly_two(invalid_images, expected):
+    document = evidence()
+    # RL*150 keeps 3 of 5 right per image; turn one wrong answer into None on the first
+    # `invalid_images` images. W has 0 invalid, so 2 is within W + 2 and 3 is not.
+    predictions = repeated(H_SELECT, [3, 3, 3, 3], 5)
+    for identifier, _ in H_SELECT[:invalid_images]:
+        predictions[identifier][4] = None
+    find(document, "rl150-5e-5")["splits"]["h_select"]["predictions"] = predictions
+    gate = evaluate(document)["gates"]["G2"]
+    assert gate["best"] == "rl150-5e-5"
+    assert gate["checks"]["invalid_within_w_plus_2"] is expected
+
+
+def test_substantial_constants_hold_no_dead_quantile():
+    assert set(GATES["SUBSTANTIAL"]) == {"accuracy", "vs_init", "vs_sft", "rer",
+                                         "replicate_mean"}

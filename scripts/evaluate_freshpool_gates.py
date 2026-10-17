@@ -70,8 +70,10 @@ G2 = {"updates": 150, "invalid_slack": 2, "rolling_window": 100, "rolling_mixed"
 G3 = {"full_margin": 0.02, "mechanism_margin": 0.05, "lb_quantile": 0.10,
       "valid": G1["valid"], "eos": G1["eos"]}
 SFT_T_WINDOW = 0.02
+# The paired 95% lower bound is compare_classification's stratified_image_ci95[0]; its
+# confidence level is fixed in that module, so no quantile constant lives here.
 SUBSTANTIAL = {"accuracy": 0.80, "vs_init": 0.05, "vs_sft": 0.05, "rer": 0.20,
-               "lb_quantile": 0.025, "replicate_mean": 0.05}
+               "replicate_mean": 0.05}
 FRONTIER = {"delta": 0.10, "rer": 0.25, "lb": 0.05, "valid_eos": 0.95}
 FINAL_UPDATES = 600
 # runs/aircraft-controlled400-v1-plan: answer-SFT at three LRs, exposure- and time-matched.
