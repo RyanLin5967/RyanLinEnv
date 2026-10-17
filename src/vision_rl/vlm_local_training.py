@@ -3274,8 +3274,6 @@ def train_local(
             }
         _write(output / "local_training.json", record)
         _publish_endpoint_receipt(output, record, trainer.state.global_step)
-        if _expanded.is_expanded(profile):
-            record["expanded_endpoint_receipt_sha256"] = _expanded.publish_endpoint(output)
     except BaseException as exc:
         if audit is not None:
             try:
@@ -3290,6 +3288,11 @@ def train_local(
         )
         _write(output / "local_training.json", record)
         raise
+    if _expanded.is_expanded(profile):
+        # Outside the try: a refusal here (e.g. vision_rl source changed during the run)
+        # must not rewrite the completed native record that the receipt already binds.
+        # The verifier's pin is the SHA-256 of the expanded_endpoint.json written here.
+        _expanded.publish_endpoint(output)
     return record
 
 

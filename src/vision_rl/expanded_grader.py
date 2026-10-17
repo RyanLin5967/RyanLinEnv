@@ -39,7 +39,7 @@ def predict_images(submitted_weights, image_rows, spec, profile, model_directory
         use_safetensors=True, dtype=torch.float32, attn_implementation="sdpa")
     if base.config.model_type != "qwen2_vl":
         raise ValueError("expanded grader requires the pinned Qwen2-VL architecture")
-    policy = contract._attach_values(base, values, layout=contract.converter().QWEN,
+    policy = contract._attach_values(base, values, layout=contract.active_layout(),
                                      is_trainable=False).to(device).eval()
     eos = policy.generation_config.eos_token_id
     eos = set(([eos] if isinstance(eos, int) else list(eos or [])) +

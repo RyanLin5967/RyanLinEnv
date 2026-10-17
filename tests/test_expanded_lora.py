@@ -91,6 +91,7 @@ def trust(tmp_path, monkeypatch):
     monkeypatch.setattr(e, "ASSETS", assets)
     monkeypatch.setattr(e, "APPROVAL_SHA256", sha(assets / "approval.json"))
     monkeypatch.setattr(e, "LAYOUT", "TINY")
+    write_json(assets / e.ENDPOINT_PINS_FILE, {"schema_version": 1, "pins": []})
     profile = native.ExpandedProfile(response_format="answer_only", max_completion_length=8)
     return SimpleNamespace(
         root=tmp_path, assets=assets, initial=initial, profile=profile,
@@ -162,6 +163,15 @@ def make_endpoint(trust, output, *, mode="sft", steps=2, max_steps=2, max_active
     return e.publish_endpoint(output)
 
 
+def register(trust, *pins):
+    """A reviewed registry change: data only, so the bound source closure is untouched."""
+    closure = e.source_closure()
+    registry = e.read_json(trust.assets / e.ENDPOINT_PINS_FILE)
+    write_json(trust.assets / e.ENDPOINT_PINS_FILE,
+               {**registry, "pins": [*registry["pins"], *pins]})
+    assert e.source_closure() == closure
+
+
 def changed_weights(trust, path, amount=1.0):
     values = {name: value.copy() for name, value in trust.values.items()}
     values[sorted(values)[0]] += np.float32(amount)
@@ -179,7 +189,8 @@ def test_committed_production_trust_root_matches_its_source_pins():
     assert approval["converter_sha256"] == sha(Path(e.converter().__file__))
     for name in ("conversion-plan.json", "warm-local-training.json", "warm/adapter_config.json"):
         assert sha(assets / name) == approval["trusted_files"][name]
-    assert e.LAYOUT == "QWEN" and e.ENDPOINT_RECEIPT_PINS == frozenset()
+    assert e.LAYOUT == "QWEN" and e.endpoint_receipt_pins() == frozenset()
+    assert e.ENDPOINT_PINS_FILE not in approval["trusted_files"]
 
 
 def test_legacy_profile_identity_and_112_tensor_grader_are_unchanged():
@@ -332,6 +343,15 @@ def test_endpoint_verification_requires_a_verifier_pin(trust):
     with pytest.raises(ValueError, match="registry"):
         e.artifact_identity(output / "final_adapter", trust.identity, trust.profile,
                             inference=True)
+    register(trust, pin)
+    e.artifact_identity(output / "final_adapter", trust.identity, trust.profile, inference=True)
+    e.validate_endpoint(output, expected_receipt_sha256=pin)  # still verifies once registered
+    for registry in ([pin], {"schema_version": 1, "pins": [pin, pin]},
+                     {"schema_version": 1, "pins": ["0" * 63]}, {"schema_version": 2, "pins": []}):
+        write_json(trust.assets / e.ENDPOINT_PINS_FILE, registry)
+        with pytest.raises(ValueError, match="registry"):
+            e.artifact_identity(output / "final_adapter", trust.identity, trust.profile,
+                                inference=True)
 
 
 def test_tampered_endpoint_files_are_rejected(trust):
@@ -362,7 +382,7 @@ def test_tampered_endpoint_files_are_rejected(trust):
 def test_endpoint_identity_binds_only_final_adapter_bytes(trust, monkeypatch):
     output = trust.root / "run"
     pin = make_endpoint(trust, output)
-    monkeypatch.setattr(e, "ENDPOINT_RECEIPT_PINS", frozenset({pin}))
+    register(trust, pin)
     identity = e.artifact_identity(output / "final_adapter", trust.identity, trust.profile,
                                    inference=True)
     assert identity["weights_sha256"] == sha(output / "final_adapter/adapter_model.safetensors")
@@ -386,7 +406,7 @@ def test_endpoint_identity_binds_only_final_adapter_bytes(trust, monkeypatch):
 def test_attach_refuses_bytes_other_than_the_validated_ones(trust, monkeypatch):
     output = trust.root / "run"
     pin = make_endpoint(trust, output)
-    monkeypatch.setattr(e, "ENDPOINT_RECEIPT_PINS", frozenset({pin}))
+    register(trust, pin)
     final = output / "final_adapter"
     for expected in (None, "0" * 64, trust.initial_identity["weights_sha256"]):
         with pytest.raises(ValueError):
@@ -509,6 +529,12 @@ def test_matched_controls_reject_duplicates_and_missing_or_wrong_pins(controls):
         e.check_matched_controls(entry | {"arm": None}, [entry])
     with pytest.raises(ValueError):
         e.check_matched_controls(controls.rl, [])
+    no_endpoint = {key: value for key, value in entry.items() if key != "endpoint"}
+    for malformed in (no_endpoint, {**entry, "learning_rate": [1e-4]},
+                      {**entry, "learning_rate": 1}, {**entry, "learning_rate": -1e-4},
+                      {**entry, "accepted_subset": "yes"}, {**entry, "extra": True}):
+        with pytest.raises(ValueError):
+            e.check_matched_controls(controls.rl, [malformed])
 
 
 def test_matched_controls_reject_changed_seed_lr_or_arm(controls):
@@ -662,7 +688,7 @@ def test_tiny_model_training_publishes_a_verifiable_endpoint(trust, monkeypatch,
     _, approved = e.validate_submission(final, endpoint=work, expected_receipt_sha256=pin)
     assert approved == payload
 
-    monkeypatch.setattr(e, "ENDPOINT_RECEIPT_PINS", frozenset({pin}))
+    register(trust, pin)
     identity = native._inference_adapter_identity(
         work / "final_adapter", trust.identity, trust.profile)
     loaded = e.attach_numeric(tiny_base(torch), work / "final_adapter", is_trainable=False,

@@ -14,7 +14,9 @@ without it every expanded path refuses.
 Blind spots, stated here on purpose: the endpoint binds the exact ``vision_rl``
 package source and the native receipt, but not the installed third-party stack
 beyond what native ``preflight`` records, and not the operator's data files
-beyond the identities the native record carries.
+beyond the identities the native record carries. Because the binding is exact,
+an endpoint verifies only against the ``vision_rl`` source that produced it: a
+verifier checks out that commit (any later edit to any package module refuses).
 """
 
 from __future__ import annotations
@@ -33,10 +35,11 @@ ASSETS = Path(__file__).with_name("expanded_assets")
 # layouts exist: QWEN for production, TINY for the random CPU test fixture.
 LAYOUT = "QWEN"
 ENDPOINT_KIND = "native-expanded-trained-endpoint-v2"
-# Verifier-owned registry of accepted expanded_endpoint.json SHA-256 pins. An
-# endpoint enters only by a reviewed source change; empty means none is accepted
-# where no explicit verifier pin is supplied (TRAIN assay, numeric attach).
-ENDPOINT_RECEIPT_PINS: frozenset[str] = frozenset()
+# Verifier-owned registry of accepted expanded_endpoint.json SHA-256 pins, kept in
+# ASSETS (a reviewed data file, not a .py, so adding a pin leaves the source closure
+# every endpoint binds unchanged). Empty means none is accepted where no explicit
+# verifier pin is supplied (TRAIN assay, numeric attach).
+ENDPOINT_PINS_FILE = "endpoint-pins.json"
 MAX_BYTES = 64 * 1024**2
 JSON_BYTES = 1024**2
 RECORD_BYTES = 64 * 1024**2
@@ -243,10 +246,22 @@ def check_task(identity, profile):
             raise ValueError("expanded profile changes approved pixel or precision contract")
 
 
+def endpoint_receipt_pins():
+    """The registry file; a data asset, so listing a pin never changes the source closure."""
+    registry = read_json(ASSETS / ENDPOINT_PINS_FILE)
+    if not isinstance(registry, dict):
+        raise ValueError("verifier-owned endpoint pin registry is malformed")
+    pins = registry.get("pins")
+    if (registry.get("schema_version") != 1 or not isinstance(pins, list)
+            or not all(is_sha256(pin) for pin in pins) or len(set(pins)) != len(pins)):
+        raise ValueError("verifier-owned endpoint pin registry is malformed")
+    return frozenset(pins)
+
+
 def registered_pin(output):
     """Receipt pin from the verifier-owned registry; an unlisted endpoint is refused."""
     digest = sha(bounded(Path(output) / "expanded_endpoint.json"))
-    if digest not in ENDPOINT_RECEIPT_PINS:
+    if digest not in endpoint_receipt_pins():
         raise ValueError("expanded endpoint receipt is not in the verifier-owned pin registry")
     return digest
 
@@ -464,45 +479,55 @@ def check_matched_controls(rl, controls, *, initial_path=None):
     """Matched SFT controls for one expanded GRPO endpoint, every budget rule explicit.
 
     ``rl`` is ``{"endpoint": path, "receipt_sha256": pin}``. Each control adds
-    ``"arm"``: ``"exposure"`` (same optimizer steps and prompt presentations as RL)
-    or ``"time"`` (``max_active_seconds`` equal to RL's committed active seconds, and
-    reached), and ``"learning_rate"``, its declared LR. ``"accepted_subset": True``
-    declares an SFT on a different TRAIN manifest whose every committed prompt is one
-    RL actually committed (useful-group control); otherwise the task identity must
-    be identical. Every endpoint must have exhausted its declared total budget.
+    ``"arm"``: ``"exposure"`` (the same number of optimizer steps and of prompt
+    presentations as RL; which prompts is the sampler's, as in the controlled400
+    design) or ``"time"`` (``max_active_seconds`` equal to RL's committed active
+    seconds, and reached), and ``"learning_rate"``, its declared LR (a positive
+    float). ``"accepted_subset": True`` declares an SFT on a different TRAIN
+    manifest whose every committed prompt is one RL actually committed
+    (useful-group control); otherwise the task identity must be identical. Every
+    endpoint must have exhausted its declared total budget.
     """
-    def load(entry, keys):
-        if not isinstance(entry, dict) or set(entry) - keys or not {
-            "endpoint", "receipt_sha256"
-        } <= set(entry):
+    def require_fields(entry, required, optional=frozenset()):
+        if (not isinstance(entry, dict) or not required <= set(entry)
+                or set(entry) - required - optional
+                or not isinstance(entry["endpoint"], (str, Path))
+                or not is_sha256(entry["receipt_sha256"])):
             raise ValueError("each endpoint needs exactly its declared fields and receipt pin")
+        return entry
+
+    def load(entry):
         payload = validate_endpoint(entry["endpoint"], expected_receipt_sha256=entry[
             "receipt_sha256"], initial_path=initial_path)
         if payload["status"] != "total_budget_exhausted":
             raise ValueError("a matched endpoint must have exhausted its declared total budget")
         return payload
 
-    if (not isinstance(rl, dict) or not isinstance(controls, list) or not controls
-            or not all(isinstance(entry, dict) for entry in controls)):
+    if not isinstance(controls, list) or not controls:
         raise ValueError("require one GRPO endpoint and at least one declared SFT control")
-    rl_payload = load(rl, {"endpoint", "receipt_sha256"})
-    if rl_payload["settings"]["mode"] != "grpo":
-        raise ValueError("require GRPO and at least one declared expanded SFT control")
-    pins = [rl["receipt_sha256"], *(entry.get("receipt_sha256") for entry in controls)]
-    paths = [Path(rl["endpoint"]).resolve(),
-             *(Path(entry.get("endpoint", "")).resolve() for entry in controls)]
+    require_fields(rl, {"endpoint", "receipt_sha256"})
+    for entry in controls:
+        require_fields(entry, {"endpoint", "receipt_sha256", "arm", "learning_rate"},
+                 {"accepted_subset"})
+        rate, subset = entry["learning_rate"], entry.get("accepted_subset", False)
+        if (entry["arm"] not in MATCHED_ARMS or type(rate) is not float or not rate > 0
+                or rate == float("inf") or type(subset) is not bool):
+            raise ValueError("each control declares an exposure/time arm and a positive LR")
+    if len({(entry["arm"], entry["learning_rate"]) for entry in controls}) != len(controls):
+        raise ValueError("each control declares a distinct exposure/time arm and LR")
+    pins = [rl["receipt_sha256"], *(entry["receipt_sha256"] for entry in controls)]
+    paths = [Path(entry["endpoint"]).resolve() for entry in (rl, *controls)]
     if len(set(pins)) != len(pins) or len(set(paths)) != len(paths):
         raise ValueError("every matched endpoint must be distinct")
-    declared, arms = set(), []
+    rl_payload = load(rl)
+    if rl_payload["settings"]["mode"] != "grpo":
+        raise ValueError("require GRPO and at least one declared expanded SFT control")
+    arms = []
     rl_ids = set(rl_payload["actual_prompt_ids"])
     for entry in controls:
-        control = load(entry, {"endpoint", "receipt_sha256", "arm", "learning_rate",
-                               "accepted_subset"})
-        arm, rate, subset = entry.get("arm"), entry.get("learning_rate"), entry.get(
+        control = load(entry)
+        arm, rate, subset = entry["arm"], entry["learning_rate"], entry.get(
             "accepted_subset", False)
-        if arm not in MATCHED_ARMS or type(subset) is not bool or (arm, rate) in declared:
-            raise ValueError("each control declares a distinct exposure/time arm and LR")
-        declared.add((arm, rate))
         settings = control["settings"]
         if (settings["mode"] != "sft" or settings["learning_rate"] != rate
                 or settings["seed"] != rl_payload["settings"]["seed"]
