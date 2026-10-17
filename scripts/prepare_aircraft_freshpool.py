@@ -11,13 +11,16 @@ Scan order per seed = random.Random(seed).shuffle(sorted(ids)).
 
 Blind spots, stated rather than hidden:
 - TEST stays sealed, so this script never opens sealed/. Pool-vs-TEST coverage is an exact
-  encoded-byte SHA256 match against audit/test-images.json plus, only when root supplies one,
-  a precomputed TEST pHash file. Without that file the audit records TEST pHash as NOT_CHECKED
-  and g0_audit_complete is false.
+  match on encoded-byte SHA256 and on model_rgb_sha256 (decoded pixels after the bottom20
+  transform) against audit/test-images.json (must hold exactly 3,333 rows), plus, only when
+  root supplies one, a precomputed TEST pHash file whose keys must equal the test-images.json
+  image_ids, each a 16-hex value. Without that file the audit records TEST pHash as
+  NOT_CHECKED and g0_audit_complete is false.
 - Hamming <= 6 is pre-registered and unverified as optimal. A shared background can make two
   different aircraft collide, and a heavy crop can make a true duplicate miss.
 - Within-pool pairs that sit both in S, or both in H, are reported but not dropped (the study
-  rule names only H/S straddles).
+  rule names only H/S straddles). That includes pairs straddling H-select and H-gate, which
+  study.json is silent on; the audit flags them (straddles_h_select_and_h_gate) and notes them.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import hashlib
 import io
 import json
 import random
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -38,6 +42,14 @@ HOLDOUT_SALT = "train-holdout-screen"
 HOLDOUT_SEED = 791
 SCAN_SEEDS = (42, 314, 2718)
 FORCED_FIRE_DISTINCT_PAIRS = 50
+TEST_IMAGE_COUNT = 3333  # audit/test-images.json rows; the sealed TEST split size
+HEX16 = re.compile(r"[0-9a-f]{16}")
+HEX64 = re.compile(r"[0-9a-f]{64}")
+EXACT_FIELDS = ("encoded_sha256", "model_rgb_sha256")
+H_SELECT_GATE_NOTE = (
+    "Within-pool pairs straddling H-select and H-gate are reported, not dropped: study.json "
+    "names only H/S straddles. Root should read straddles_h_select_and_h_gate before G0."
+)
 # The real-data contract from runs/aircraft-train-screen-review-v1/analysis.json.
 REAL_CONTRACT = {
     "classes": 100,
@@ -80,6 +92,49 @@ def phash64(image: Image.Image) -> int:
     coefficients = (basis @ pixels @ basis.T).ravel()
     median = np.median(coefficients)
     return sum(int(value > median) << i for i, value in enumerate(coefficients))
+
+
+def load_test_audit(rows) -> list[dict]:
+    """Validate audit/test-images.json rows; refuse an empty, short or malformed list."""
+    if not isinstance(rows, list) or len(rows) != TEST_IMAGE_COUNT:
+        count = len(rows) if isinstance(rows, list) else type(rows).__name__
+        raise ValueError(f"test-images.json must list {TEST_IMAGE_COUNT} TEST rows, got {count}")
+    image_ids = [row.get("image_id") for row in rows]
+    if None in image_ids or len(set(image_ids)) != len(image_ids):
+        raise ValueError("test-images.json image_id values must be present and unique")
+    for row in rows:
+        for field in EXACT_FIELDS:
+            if not isinstance(row.get(field), str) or not HEX64.fullmatch(row[field]):
+                raise ValueError(f"test-images.json {row['image_id']} has no valid {field}")
+    return rows
+
+
+def load_test_phashes(raw, test_ids) -> dict[str, int]:
+    """Validate a TEST pHash file: keys equal to the TEST image_ids, values 16 lowercase hex."""
+    if not isinstance(raw, dict):
+        raise ValueError("--test-phashes must be a JSON object {image_id: 16-hex pHash}")
+    expected = set(test_ids)
+    if not expected or set(raw) != expected:
+        missing, extra = len(expected - set(raw)), len(set(raw) - expected)
+        raise ValueError(
+            f"--test-phashes keys must equal the {len(expected)} test-images.json image_ids "
+            f"(missing {missing}, extra {extra})"
+        )
+    bad = sorted(k for k, v in raw.items() if not isinstance(v, str) or not HEX16.fullmatch(v))
+    if bad:
+        raise ValueError(f"--test-phashes values must be 16 lowercase hex: {bad[:5]}")
+    return {k: int(v, 16) for k, v in raw.items()}
+
+
+def exact_test_matches(test_rows, pool_digests: dict[str, dict[str, str]]):
+    """Map pool id -> sorted matched fields, for pool images equal to a TEST image exactly."""
+    test_values = {field: {row[field] for row in test_rows} for field in EXACT_FIELDS}
+    matches = {}
+    for pool_id, digests in sorted(pool_digests.items()):
+        fields = [f for f in EXACT_FIELDS if digests[f] in test_values[f]]
+        if fields:
+            matches[pool_id] = fields
+    return matches
 
 
 def near_pairs(queries: dict[str, int], references: dict[str, int], within: bool = False):
@@ -157,13 +212,14 @@ def make_manifests(
     protocol_id: str,
     pool_hashes: dict[str, int],
     reference_hashes: dict[str, dict[str, int]],
-    exact_matches: dict[str, list[str]] | None = None,
+    exact_matches: dict[str, dict[str, list[str]]] | None = None,
     contract: dict | None = None,
 ):
     """Build every manifest from metadata and precomputed hashes; no image IO here.
 
     reference_hashes maps a reference split name (validation, train400, test) to id->pHash.
-    exact_matches maps a reference split name to pool IDs whose encoded bytes match it exactly.
+    exact_matches maps a reference split name to {pool_id: matched exact fields}, the fields
+    being encoded_sha256 and/or model_rgb_sha256.
     """
     if not protocol_id:
         raise ValueError("protocol_id is required; there is no default")
@@ -187,21 +243,25 @@ def make_manifests(
                     "hamming": distance,
                 }
             )
-    for split, pool_ids in sorted((exact_matches or {}).items()):
-        external += [
-            {
-                "pool_id": i,
-                "reference_split": split,
-                "reference_id": None,
-                "hamming": 0,
-                "exact_encoded_sha256": True,
-            }
-            for i in sorted(pool_ids)
-        ]
+    for split, matched in sorted((exact_matches or {}).items()):
+        for i, fields in sorted(matched.items()):
+            if not fields or set(fields) - set(EXACT_FIELDS):
+                raise ValueError(f"Exact match for {i} must name fields from {EXACT_FIELDS}")
+            external.append(
+                {
+                    "pool_id": i,
+                    "reference_split": split,
+                    "reference_id": None,
+                    "hamming": 0,
+                    "exact_match_fields": sorted(fields),
+                }
+            )
     pool_drops = sorted({row["pool_id"] for row in external})
     audited = [row for row in pool if row["id"] not in set(pool_drops)]
     h_select, h_gate = split_holdout(audited, protocol_id)
     holdout = {row["id"] for row in [*h_select, *h_gate]}
+    select_ids = {row["id"] for row in h_select}
+    gate_ids = {row["id"] for row in h_gate}
     within = near_pairs(
         {r["id"]: pool_hashes[r["id"]] for r in audited},
         {r["id"]: pool_hashes[r["id"]] for r in audited},
@@ -212,8 +272,14 @@ def make_manifests(
         straddles = (first in holdout) != (second in holdout)
         if straddles:
             s_drops.add(second if first in holdout else first)
+        select_gate = {first, second} & select_ids and {first, second} & gate_ids
         within_rows.append(
-            {"ids": [first, second], "hamming": distance, "straddles_h_and_s": straddles}
+            {
+                "ids": [first, second],
+                "hamming": distance,
+                "straddles_h_and_s": straddles,
+                "straddles_h_select_and_h_gate": bool(select_gate),
+            }
         )
     s_rows = [row for row in audited if row["id"] not in holdout | s_drops]
     by_id = {row["id"]: row for row in s_rows}
@@ -231,6 +297,7 @@ def make_manifests(
         "pool_drops": pool_drops,
         "within_pool_pairs": within_rows,
         "s_drops": sorted(s_drops),
+        "notes": [H_SELECT_GATE_NOTE],
         "counts": {
             **counts,
             "pool_drops": len(pool_drops),
@@ -239,6 +306,9 @@ def make_manifests(
             "h_gate": len(h_gate),
             "within_pool_pairs": len(within_rows),
             "within_pool_pairs_straddling": sum(r["straddles_h_and_s"] for r in within_rows),
+            "within_pool_pairs_straddling_h_select_and_h_gate": sum(
+                r["straddles_h_select_and_h_gate"] for r in within_rows
+            ),
             "s_drops": len(s_drops),
             "s": len(s_rows),
         },
@@ -354,7 +424,7 @@ def write_outputs(output: Path, result, forced, provenance):
 
 
 def main():
-    from vision_rl.aircraft_data import load_aircraft_rgb
+    from vision_rl.aircraft_data import load_aircraft_rgb, rgb_pixel_sha256
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     root = Path("data/fgvc-aircraft-2013b")
@@ -394,23 +464,35 @@ def main():
     paths = {("train", r["id"]): args.development / r["image"] for r in train_rows}
     paths |= {("validation", r["id"]): args.development / r["image"] for r in val_rows}
 
+    # Validate TEST references before any image work, so a bad file refuses fast.
+    test_rows = load_test_audit(json.loads(args.test_audit.read_text()))
+    test_status = "NOT_CHECKED"
+    test_phashes = None
+    if args.test_phashes:
+        test_phashes = load_test_phashes(
+            json.loads(args.test_phashes.read_text()), [r["image_id"] for r in test_rows]
+        )
+        test_status = "checked"
+
     def hashes(split, ids):
         return {i: phash64(load_aircraft_rgb(paths[(split, i)])) for i in ids}
 
-    pool_hashes = hashes("train", [r["id"] for r in pool])
+    pool_hashes, pool_digests = {}, {}
+    for r in pool:
+        path = paths[("train", r["id"])]
+        with load_aircraft_rgb(path) as image:
+            pool_hashes[r["id"]] = phash64(image)
+            pool_digests[r["id"]] = {
+                "encoded_sha256": sha(path.read_bytes()),
+                "model_rgb_sha256": rgb_pixel_sha256(image),
+            }
     references = {
         "validation": hashes("validation", [r["id"] for r in val_rows]),
         "train400": hashes("train", [r["id"] for r in train400_rows]),
     }
-    test_status = "NOT_CHECKED"
-    if args.test_phashes:
-        references["test"] = {
-            k: int(v, 16) for k, v in json.loads(args.test_phashes.read_text()).items()
-        }
-        test_status = "checked"
-    test_bytes = {row["encoded_sha256"] for row in json.loads(args.test_audit.read_text())}
-    pool_bytes = {r["id"]: sha(paths[("train", r["id"])].read_bytes()) for r in pool}
-    exact = {"test": [i for i, digest in pool_bytes.items() if digest in test_bytes]}
+    if test_phashes is not None:
+        references["test"] = test_phashes
+    exact = {"test": exact_test_matches(test_rows, pool_digests)}
     result = make_manifests(
         train_rows,
         train400_rows,

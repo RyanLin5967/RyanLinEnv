@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -64,12 +65,13 @@ def fixture():
     pool["b04"] = base["b06"] ^ 0b111  # straddle, S member sorts first: drop b04
     pool["b05"] = base["b03"] ^ 0b1  # straddle, H member sorts first: drop b05
     pool["b10"] = base["b02"] ^ 0b11  # both in S: reported, not dropped
-    pool["a05"] = base["a04"] ^ 0b1111  # both in H: reported, not dropped
+    pool["a05"] = base["a04"] ^ 0b1111  # both in H-gate: reported, not dropped
+    pool["a07"] = base["a04"] ^ (0b1111 << 40)  # H-select x H-gate: reported, flagged
     references = {
         "validation": {"v01": base["a03"] ^ 0b111111},  # Hamming 6: boundary, dropped
         "train400": {"b01": base["b08"] ^ 0b1111111},  # Hamming 7: boundary, kept
     }
-    exact = {"test": ["b07"]}
+    exact = {"test": {"b07": ["encoded_sha256", "model_rgb_sha256"]}}
     return train, train400, probe, pool, references, exact
 
 
@@ -101,12 +103,24 @@ def test_pool_holdout_and_scan_manifests_follow_the_registered_rules():
     assert ids(out["h_select"]) == ["a07", "a06", "b06", "b08"]
     assert ids(out["h_gate"]) == ["a04", "a05", "b09", "b03"]
     assert audit["s_drops"] == ["b04", "b05"]
+
+    def pair(a, b, hamming, h_s, select_gate=False):
+        return {
+            "ids": [a, b],
+            "hamming": hamming,
+            "straddles_h_and_s": h_s,
+            "straddles_h_select_and_h_gate": select_gate,
+        }
+
     assert audit["within_pool_pairs"] == [
-        {"ids": ["a04", "a05"], "hamming": 4, "straddles_h_and_s": False},
-        {"ids": ["b02", "b10"], "hamming": 2, "straddles_h_and_s": False},
-        {"ids": ["b03", "b05"], "hamming": 1, "straddles_h_and_s": True},
-        {"ids": ["b04", "b06"], "hamming": 3, "straddles_h_and_s": True},
+        pair("a04", "a05", 4, False),
+        pair("a04", "a07", 4, False, True),
+        pair("b02", "b10", 2, False),
+        pair("b03", "b05", 1, True),
+        pair("b04", "b06", 3, True),
     ]
+    assert audit["counts"]["within_pool_pairs_straddling_h_select_and_h_gate"] == 1
+    assert any("H-select and H-gate" in note for note in audit["notes"])
     assert ids(out["s"]) == ["b02", "b10"]
     assert {seed: ids(rows) for seed, rows in out["scans"].items()} == {
         42: ["b10", "b02"],
@@ -123,7 +137,7 @@ def test_pool_holdout_and_scan_manifests_follow_the_registered_rules():
             "reference_split": "test",
             "reference_id": None,
             "hamming": 0,
-            "exact_encoded_sha256": True,
+            "exact_match_fields": ["encoded_sha256", "model_rgb_sha256"],
         },
     ]
 
@@ -259,7 +273,20 @@ def test_forced_fire_refuses_too_few_distinct_class_pairs():
         FRESH.forced_fire(rows, hashes, images.__getitem__)
 
 
-def test_main_reads_jpegs_and_writes_hashed_manifests(tmp_path, monkeypatch):
+def model_rgb_sha256_by_hand(path):
+    """Fixture-side: bottom20 crop of decoded RGB, hashed as header + NUL + raw pixels."""
+    with Image.open(path) as source:
+        rgb = source.convert("RGB")
+    cropped = rgb.crop((0, 0, rgb.width, rgb.height - 20))
+    header = json.dumps(
+        {"width": cropped.width, "height": cropped.height, "mode": "RGB"},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(header + b"\0" + cropped.tobytes()).hexdigest()
+
+
+def build_tree(tmp_path, monkeypatch):
     dev = tmp_path / "development"
     (dev / "images/train").mkdir(parents=True)
     (dev / "images/validation").mkdir(parents=True)
@@ -293,44 +320,137 @@ def test_main_reads_jpegs_and_writes_hashed_manifests(tmp_path, monkeypatch):
     probe.write_text(json.dumps({"selected": [{"id": "t001", "label": "A", "split": "train"}]}))
     protocol = tmp_path / "protocol.json"
     protocol.write_text(json.dumps({"protocol_id": PROTOCOL}))
+    # TEST rows: z1 matches t111 by encoded bytes only (pixel digest is a decoy); z2 matches
+    # t110 by model pixels only (encoded digest is a decoy); z3 matches nothing.
+    t111 = hashlib.sha256((dev / "images/train/t111.jpg").read_bytes()).hexdigest()
+    t110_rgb = model_rgb_sha256_by_hand(dev / "images/train/t110.jpg")
+    test_rows = [
+        {"image_id": "z1", "encoded_sha256": t111, "model_rgb_sha256": "1" * 64},
+        {"image_id": "z2", "encoded_sha256": "2" * 64, "model_rgb_sha256": t110_rgb},
+        {"image_id": "z3", "encoded_sha256": "3" * 64, "model_rgb_sha256": "4" * 64},
+    ]
     test_audit = tmp_path / "test-images.json"
-    t111_sha = FRESH.sha((dev / "images/train/t111.jpg").read_bytes())
-    test_audit.write_text(json.dumps([{"encoded_sha256": t111_sha}]))
+    test_audit.write_text(json.dumps(test_rows))
     monkeypatch.setattr(
         FRESH,
         "REAL_CONTRACT",
         {"classes": 2, "train400": 2, "probe16_outside_train400": 1, "pool_before_audit": 21},
     )
-    output = tmp_path / "out"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "prepare",
-            "--protocol",
-            str(protocol),
-            "--probe",
-            str(probe),
-            "--output",
-            str(output),
-            "--development",
-            str(dev),
-            "--train400",
-            str(train400),
-            "--test-audit",
-            str(test_audit),
-        ],
-    )
+    monkeypatch.setattr(FRESH, "TEST_IMAGE_COUNT", 3)
+    argv = [
+        "prepare",
+        "--protocol",
+        str(protocol),
+        "--probe",
+        str(probe),
+        "--output",
+        str(tmp_path / "out"),
+        "--development",
+        str(dev),
+        "--train400",
+        str(train400),
+        "--test-audit",
+        str(test_audit),
+    ]
+    return dev, test_audit, argv
+
+
+def run_main(monkeypatch, argv):
+    monkeypatch.setattr(sys, "argv", argv)
     FRESH.main()
+
+
+def test_main_reads_jpegs_and_writes_hashed_manifests(tmp_path, monkeypatch):
+    _, _, argv = build_tree(tmp_path, monkeypatch)
+    output = tmp_path / "out"
+    run_main(monkeypatch, argv)
     manifest = json.loads((output / "manifest.json").read_text())
     audit = json.loads((output / "phash_audit.json").read_text())
-    assert audit["pool_drops"] == ["t005", "t111"]
-    assert manifest["counts"]["pool_after_audit"] == 19
+    assert audit["pool_drops"] == ["t005", "t110", "t111"]
+    exact = [r for r in audit["external_near_duplicates"] if r["reference_split"] == "test"]
+    assert [(r["pool_id"], r["exact_match_fields"]) for r in exact] == [
+        ("t110", ["model_rgb_sha256"]),
+        ("t111", ["encoded_sha256"]),
+    ]
+    assert manifest["counts"]["pool_after_audit"] == 18
     assert manifest["test_phash_reference"] == "NOT_CHECKED"
     assert manifest["g0_audit_complete"] is False
     assert audit["forced_fire"]["passed"] is True
     for name, digest in manifest["files_sha256"].items():
         assert FRESH.sha((output / name).read_bytes()) == digest
     assert len((output / "h_select.jsonl").read_text().splitlines()) == 4
+    # Each scan file is that seed's shuffle of the sorted S ids, and the seeds differ.
+    s_ids = [json.loads(line)["id"] for line in (output / "s.jsonl").read_text().splitlines()]
+    assert len(s_ids) == 10
+    scans = {}
+    for seed in (42, 314, 2718):
+        expected = sorted(s_ids)
+        random.Random(seed).shuffle(expected)
+        lines = (output / f"s_scan_seed{seed}.jsonl").read_text().splitlines()
+        scans[seed] = [json.loads(line)["id"] for line in lines]
+        assert scans[seed] == expected
+    assert len({tuple(order) for order in scans.values()}) == 3
     with pytest.raises(FileExistsError):
         FRESH.main()
+
+
+def test_main_with_test_phashes_checks_test_and_completes_g0(tmp_path, monkeypatch):
+    dev, _, argv = build_tree(tmp_path, monkeypatch)
+    # z3's pHash is a planted resized/recompressed copy of pool image t006.
+    with Image.open(dev / "images/train/t006.jpg") as source:
+        rgb = source.convert("RGB")
+    planted = FRESH.planted_copy(rgb.crop((0, 0, rgb.width, rgb.height - 20)))
+    phashes = {"z1": "0" * 16, "z2": "f" * 16, "z3": f"{FRESH.phash64(planted):016x}"}
+    phash_file = tmp_path / "test-phashes.json"
+    phash_file.write_text(json.dumps(phashes))
+    run_main(monkeypatch, [*argv, "--test-phashes", str(phash_file)])
+    output = tmp_path / "out"
+    manifest = json.loads((output / "manifest.json").read_text())
+    audit = json.loads((output / "phash_audit.json").read_text())
+    assert manifest["test_phash_reference"] == "checked"
+    assert manifest["g0_audit_complete"] is True
+    assert "test" in audit["reference_splits_phash"]
+    assert audit["pool_drops"] == ["t005", "t006", "t110", "t111"]
+    test_phash = [r for r in audit["external_near_duplicates"] if r.get("reference_id") == "z3"]
+    assert [r["pool_id"] for r in test_phash] == ["t006"]
+    assert str(phash_file) in manifest["inputs_sha256"]
+
+
+@pytest.mark.parametrize(
+    "phashes, match",
+    [
+        ({}, "keys must equal"),
+        ({"z1": "0" * 16, "z2": "0" * 16}, "keys must equal"),
+        ({"z1": "0" * 16, "z2": "0" * 16, "z3": "0" * 16, "z4": "0" * 16}, "keys must equal"),
+        ({"z1": "0" * 16, "z2": "0" * 16, "z3": "0" * 15}, "16 lowercase hex"),
+        ({"z1": "0" * 16, "z2": "0" * 16, "z3": "G" * 16}, "16 lowercase hex"),
+        ({"z1": "0" * 16, "z2": "0" * 16, "z3": 0}, "16 lowercase hex"),
+        ([], "JSON object"),
+    ],
+)
+def test_main_refuses_bad_test_phashes(tmp_path, monkeypatch, phashes, match):
+    _, _, argv = build_tree(tmp_path, monkeypatch)
+    phash_file = tmp_path / "test-phashes.json"
+    phash_file.write_text(json.dumps(phashes))
+    with pytest.raises(ValueError, match=match):
+        run_main(monkeypatch, [*argv, "--test-phashes", str(phash_file)])
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(
+    "mutate, match",
+    [
+        (lambda rows: [], "must list 3 TEST rows, got 0"),
+        (lambda rows: rows[:2], "must list 3 TEST rows, got 2"),
+        (lambda rows: {"rows": rows}, "must list 3 TEST rows"),
+        (lambda rows: [rows[0], rows[0], rows[2]], "unique"),
+        (lambda rows: [rows[0], rows[1], {**rows[2], "model_rgb_sha256": None}], "model_rgb"),
+        (lambda rows: [rows[0], rows[1], {**rows[2], "encoded_sha256": "x"}], "encoded_sha256"),
+    ],
+)
+def test_main_refuses_bad_test_audit(tmp_path, monkeypatch, mutate, match):
+    _, test_audit, argv = build_tree(tmp_path, monkeypatch)
+    test_audit.write_text(json.dumps(mutate(json.loads(test_audit.read_text()))))
+    with pytest.raises(ValueError, match=match):
+        run_main(monkeypatch, argv)
+    assert not (tmp_path / "out").exists()
