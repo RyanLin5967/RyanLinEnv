@@ -218,3 +218,103 @@ and declared count in the experiment's independent evaluation receipt.
         "implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "scope": "Offline comparison only; protocol, split, model and parser evidence required",
     }
+
+
+def compare_repeated_classification(
+    rows: Sequence[Mapping],
+    candidate: Mapping[str, Sequence[str | None]],
+    comparator: Mapping[str, Sequence[str | None]],
+    labels: Sequence[str],
+    *,
+    completions: int,
+    lower_quantile: float = 0.025,
+    resamples: int = 20_000,
+    seed: int = 2718,
+) -> dict:
+    """Paired equal-class comparison when every image has a fixed number of completions.
+
+Each image's score is its fraction of exactly correct completions (greedy and
+sampled alike). The image is the resampling unit: its completions are never
+resampled apart, so within-image correlation cannot narrow the interval. A
+missing image record counts as ``completions`` invalid, incorrect answers.
+``lower_quantile`` is the one-sided bound: 0.025 is the lower end of a two-sided
+95% interval, 0.10 a one-sided 90% bound. Every declared class must be present
+with at least two images, otherwise the bound is undefined and this refuses.
+"""
+    if type(completions) is not int or completions < 1:
+        raise ValueError("completions must be a positive integer")
+    if type(resamples) is not int or not 100 <= resamples <= 1_000_000:
+        raise ValueError("resamples must be an integer in [100, 1000000]")
+    if type(seed) is not int or seed < 0:
+        raise ValueError("seed must be a nonnegative integer")
+    if not isinstance(lower_quantile, float) or not 0.0 < lower_quantile < 0.5:
+        raise ValueError("lower_quantile must be a float in (0, 0.5)")
+    rows = _inputs(rows, (), labels)
+    identifiers = {row["id"] for row in rows}
+    for predictions in (candidate, comparator):
+        if not isinstance(predictions, Mapping) or set(predictions) - identifiers:
+            raise ValueError("prediction IDs must belong to the fixed evaluation rows")
+        for answers in predictions.values():
+            if (
+                not isinstance(answers, Sequence)
+                or isinstance(answers, (str, bytes))
+                or len(answers) != completions
+                or any(value is not None and not isinstance(value, str) for value in answers)
+            ):
+                raise ValueError("each image needs exactly the declared completions")
+    vocabulary = set(labels)
+    class_indices = {label: [] for label in labels}
+    for index, row in enumerate(rows):
+        class_indices[row["label"]].append(index)
+    if any(len(indices) < 2 for indices in class_indices.values()):
+        raise ValueError("every declared class needs at least two images")
+
+    def score(predictions):
+        image_scores, invalid = [], 0
+        for row in rows:
+            answers = predictions.get(row["id"], [None] * completions)
+            invalid += sum(answer not in vocabulary for answer in answers)
+            image_scores.append(sum(answer == row["label"] for answer in answers) / completions)
+        values = np.asarray(image_scores, dtype=np.float64)
+        per_class = {label: float(values[class_indices[label]].mean()) for label in labels}
+        return values, {
+            "images": len(rows),
+            "completions_per_image": completions,
+            "mean_class_accuracy": float(np.mean(list(per_class.values()))),
+            "per_class": per_class,
+            "invalid_completions_including_missing": invalid,
+            "missing_image_records": sum(row["id"] not in predictions for row in rows),
+            "valid_fraction": (len(rows) * completions - invalid) / (len(rows) * completions),
+        }
+
+    a, candidate_score = score(candidate)
+    b, comparator_score = score(comparator)
+    delta = a - b
+    class_deltas = [delta[class_indices[label]] for label in labels]
+    rng = np.random.default_rng(np.random.SeedSequence(seed))
+    draws = np.zeros(resamples, dtype=np.float64)
+    for values in class_deltas:
+        selected = rng.integers(0, len(values), size=(resamples, len(values)))
+        draws += values[selected].mean(axis=1) / len(labels)
+    return {
+        "schema_version": 1,
+        "metric": "exact_label_equal_class_accuracy_over_repeated_completions",
+        "candidate": candidate_score,
+        "comparator": comparator_score,
+        "mean_class_accuracy_difference": float(np.mean([v.mean() for v in class_deltas])),
+        "per_class_difference": {
+            label: float(values.mean()) for label, values in zip(labels, class_deltas, strict=True)
+        },
+        "uncertainty": {
+            "draws": resamples,
+            "seed": seed,
+            "lower_quantile": lower_quantile,
+            "quantile_method": "linear percentile",
+            "lower_bound": float(np.quantile(draws, lower_quantile)),
+            "method": (
+                "Paired image bootstrap independently within each fixed class, image as "
+                "the unit (its completions kept together), then equal-class mean"
+            ),
+        },
+        "implementation_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
