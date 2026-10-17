@@ -1,5 +1,6 @@
 import copy
 import json
+import random
 import runpy
 from pathlib import Path
 
@@ -20,6 +21,11 @@ OTHER = {"A": "B", "B": "A"}
 H_SELECT = [("a1", "A"), ("a2", "A"), ("b1", "B"), ("b2", "B")]
 H_GATE = [("c1", "A"), ("c2", "A"), ("d1", "B"), ("d2", "B")]
 FULL = [(f"{label}{index:02d}", label) for label in LABELS for index in range(20)]
+# Scanned pool for G1: 500 IDs in the study's S_scan order, written out independently.
+POOL = [f"x{index:03d}" for index in range(500)]
+SCAN = sorted(POOL)
+random.Random(42).shuffle(SCAN)
+C400 = [f"sft-{lr}-{match}" for lr in ("1e5", "5e5", "1e4") for match in ("exposure", "time")]
 
 
 def repeated(split, counts, completions, invalid=0):
@@ -31,10 +37,10 @@ def repeated(split, counts, completions, invalid=0):
     return out
 
 
-def greedy(correct_per_class):
+def greedy(correct_per_class, split=FULL):
     """The first n images of each class are correct, so smaller sets are nested subsets."""
     return {identifier: label if int(identifier[1:]) < correct_per_class[label] else OTHER[label]
-            for identifier, label in FULL}
+            for identifier, label in split}
 
 
 def endpoint(run_id, arm, lr, seed, updates, active, h_select=None, h_gate=None, val=None,
@@ -59,9 +65,15 @@ def journal():
     entries = []
     for index in range(400):
         p = 0.5 if index < 200 else 0.95
-        entries.append({"id": f"s{index:03d}", "p": p, "u": 1 - p**4 - (1 - p) ** 4,
-                        "accepted": p == 0.5, "scorer_seconds": 1.0})
+        entries.append({"id": SCAN[index], "p": p, "u": 1 - p**4 - (1 - p) ** 4,
+                        "accepted": p == 0.5, "scorer_seconds": 1.0, "adapter_sha256": "w"})
     return entries
+
+
+def g1(journal_entries=None, groups=None):
+    return {"seed": 42, "adapter_sha256": "w", "scan_order": list(SCAN),
+            "journal": journal() if journal_entries is None else journal_entries,
+            "rollouts": rollouts() if groups is None else groups}
 
 
 def rollouts(mixed_groups=112):
@@ -71,7 +83,7 @@ def rollouts(mixed_groups=112):
         for seed in (42, 314):
             mixed = len(groups) < mixed_groups
             outcomes = [True, False, False, False] if mixed else [False] * 4
-            groups.append({"id": f"s{index:03d}", "seed": seed, "completions": [
+            groups.append({"id": SCAN[index], "seed": seed, "completions": [
                 {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True}
                 for c in outcomes]})
     return groups
@@ -104,19 +116,24 @@ def evidence():
         endpoint("sfte-1e-4", "SFT-E", 1e-4, 42, 600, 3400, h_select=[4, 3, 3, 4],
                  val=[14, 14]),
         # SFT-T on H-select: .75 beats .7. H-gate of SFT-T*: (7+7)/18, (7+6)/18.
-        endpoint("sftt-5e-5", "SFT-T", 5e-5, 42, None, 13338, h_select=[4, 4, 4, 3],
+        # SFT-T runs to T_RL = RL*'s 13338 s; one checkpoint past it is allowed.
+        endpoint("sftt-5e-5", "SFT-T", 5e-5, 42, 2400, 13338, h_select=[4, 4, 4, 3],
                  h_gate=[7, 7, 7, 6], val=[14, 14]),
-        endpoint("sftt-1e-4", "SFT-T", 1e-4, 42, None, 13338, h_select=[4, 3, 4, 3],
+        endpoint("sftt-1e-4", "SFT-T", 1e-4, 42, 2400, 13400, h_select=[4, 3, 4, 3],
                  val=[13, 13]),
-        endpoint("c400-sft", "controlled400-SFT", 1e-4, None, 400, 2000, val=[13, 13]),
         endpoint("egsft", "EG-SFT", 5e-5, 42, 600, 3384, val=[17, 17]),
     ]
+    # All six controlled400 SFT endpoints, VAL .55-.675: below the .7 strongest SFT.
+    for index, run_id in enumerate(C400):
+        correct = 11 + index % 3
+        endpoints.append(endpoint(run_id, "controlled400-SFT", 1e-4, None, 400, 2000 + index,
+                                  val=[correct, correct + 1]))
     # Replicates: seed 314 RL .85 vs best SFT .75 (+.10); seed 2718 RL .85 vs .80 (+.05).
     for seed, rl, sft in ((314, 17, 15), (2718, 17, 16)):
         endpoints.append(endpoint(f"rl-{seed}", "RL", 1e-5, seed, 600, 13338, val=[rl, rl]))
-        for arm in ("SFT-E", "SFT-T"):
+        for arm, updates, active in (("SFT-E", 600, 3384), ("SFT-T", 2400, 13338)):
             for lr, correct in ((5e-5, sft), (1e-4, sft - 1)):
-                endpoints.append(endpoint(f"{arm}-{lr}-{seed}", arm, lr, seed, 600, 3384,
+                endpoints.append(endpoint(f"{arm}-{lr}-{seed}", arm, lr, seed, updates, active,
                                           val=[correct, correct]))
     return {
         "labels": LABELS,
@@ -125,7 +142,7 @@ def evidence():
                                      ("val", FULL), ("test", FULL))},
         "a_star": 0.75,
         "b4_edge_extension": False,
-        "g1": {"journal": journal(), "rollouts": rollouts()},
+        "g1": g1(),
         "endpoints": endpoints,
     }
 
@@ -180,34 +197,33 @@ def test_repeated_comparison_keeps_completions_of_one_image_together():
 
 
 def test_g1_hand_fixture_passes_and_each_threshold_fires():
-    result = gate_g1({"journal": journal(), "rollouts": rollouts()})
+    result = gate_g1(g1(), "w")
     assert result["pass"]
     assert result["values"]["acceptance"] == 0.5
     assert result["values"]["mean_u_accepted"] == 0.875
     assert result["values"]["observed_useful_mixed"] == 0.875  # 112 / 128
     assert result["values"]["predicted_useful_mixed"] == 0.875
     # 0.875 - 80/128 = 0.25 > 0.10: miscalibrated screen.
-    assert not gate_g1({"journal": journal(), "rollouts": rollouts(80)})["checks"][
-        "useful_mixed_calibrated"]
+    assert not gate_g1(g1(groups=rollouts(80)), "w")["checks"]["useful_mixed_calibrated"]
     low = journal()
     for entry in low[100:200]:
         entry.update(p=0.95, u=1 - 0.95**4 - 0.05**4, accepted=False)
-    assert gate_g1({"journal": low, "rollouts": rollouts()})["values"]["acceptance"] == 0.25
+    assert gate_g1(g1(low), "w")["values"]["acceptance"] == 0.25
     slow = journal()
     slow[0]["scorer_seconds"] = 400.0  # mean (399 + 400) / 400 = 1.9975 s: still passes
-    assert gate_g1({"journal": slow, "rollouts": rollouts()})["checks"]["scorer_seconds"]
+    assert gate_g1(g1(slow), "w")["checks"]["scorer_seconds"]
     slow[1]["scorer_seconds"] = 3.0  # mean 2.0025 s > 2.0
-    assert not gate_g1({"journal": slow, "rollouts": rollouts()})["checks"]["scorer_seconds"]
+    assert not gate_g1(g1(slow), "w")["checks"]["scorer_seconds"]
     forged = journal()
     forged[300]["accepted"] = True
     with pytest.raises(ValueError, match="disagrees"):
-        gate_g1({"journal": forged, "rollouts": rollouts()})
+        gate_g1(g1(forged), "w")
 
 
 def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
     report = evaluate(evidence())
     gates = report["gates"]
-    assert report["failed_at"] is None and report["awaiting"] is None
+    assert report["failed_at"] is None
     assert gates["G2"]["continue_to_600"] == ["rl150-5e-5", "rl150-1e-5"]
     assert gates["G2"]["values"]["h_select_delta_vs_w"] == pytest.approx(0.4)
     assert gates["G2"]["values"]["trailing_useful_mixed"] == pytest.approx(0.7)
@@ -242,7 +258,11 @@ def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
     assert gates["G6"]["contenders"] == ["rl600-1e-5", "sfte-5e-5", "w"]
     assert gates["G6"]["substantial_rl_test"]["pass"]
     assert gates["G6"]["named_baseline"]["status"] == "incomplete"
-    assert report["substantial_val_and_replication"] and report["final_test_gates"]
+    # RL TEST gates pass, but the final claim also needs the named baseline: waiting.
+    assert gates["G6"]["status"] == "partially_evaluated" and not gates["G6"]["pass"]
+    assert report["awaiting"] == "G6" and report["failed_at"] is None
+    assert report["substantial_val_and_replication"] and report["rl_test_gates"]
+    assert not report["final_claim"]
     assert json.loads(json.dumps(report, allow_nan=False)) == report
 
 
@@ -336,7 +356,8 @@ def test_g5_needs_every_seed_positive_not_only_the_mean():
     report = evaluate(document)
     assert report["gates"]["G5"]["mean"] == pytest.approx(0.1)
     assert report["gates"]["G5"]["checks"] == {
-        "every_seed_delta_positive": False, "three_seed_mean_at_least_0_05": True}
+        "every_seed_delta_positive": False, "three_seed_mean_at_least_0_05": True,
+        "adapter_changed": True, "reference_unchanged": True}
     assert report["failed_at"] == "G5"
     assert report["gates"]["G6"]["status"] == "not_evaluated"
 
@@ -346,12 +367,22 @@ def test_named_baseline_gates_on_test():
     baseline = {"run_id": "27b", "predictions": greedy({"A": 14, "B": 14}),
                 "valid_eos_fraction": 0.96}
     document["named_baseline_test"] = baseline
-    frontier = evaluate(document)["gates"]["G6"]["named_baseline"]
+    report = evaluate(document)
+    frontier = report["gates"]["G6"]["named_baseline"]
     assert frontier["values"]["delta"] == pytest.approx(0.2)
     assert frontier["pass"]  # +.2, RER 2/3, LB > .05 for 4-of-20 nested gains per class
+    assert report["final_claim"] and report["awaiting"] is None
     document["named_baseline_test"] = {**baseline, "valid_eos_fraction": 0.94}
-    frontier = evaluate(document)["gates"]["G6"]["named_baseline"]
+    report = evaluate(document)
+    frontier = report["gates"]["G6"]["named_baseline"]
     assert frontier["status"] == "interface_failure" and not frontier["pass"]
+    assert report["failed_at"] == "G6" and report["rl_test_gates"]
+    assert not report["final_claim"]
+    # RL* TEST .75 < .80 accuracy gate: the RL TEST gates fail, so G6 fails outright.
+    document = evidence()
+    find(document, "rl600-1e-5")["splits"]["test"]["predictions"] = greedy({"A": 15, "B": 15})
+    report = evaluate(document)
+    assert report["failed_at"] == "G6" and not report["rl_test_gates"]
 
 
 def test_missing_or_mismatched_evidence_refuses_instead_of_passing():
@@ -395,4 +426,102 @@ def test_robust_point_gate_fails_below_five_points():
     find(document, "egsft")["splits"]["val"]["predictions"] = greedy({"A": 18, "B": 17})
     robust = evaluate(document)["gates"]["G4"]["robust"]
     assert robust["values"]["delta_vs_strongest_sft"] == pytest.approx(0.025)
+    assert not robust["checks"]["delta_vs_strongest_sft_at_least_0_05"]
+
+
+def test_protocol_pool_needs_all_six_controlled400_sft_endpoints():
+    for change in (
+        lambda d: d["endpoints"].remove(find(d, "sft-1e4-time")),
+        lambda d: find(d, "sft-5e5-exposure").update(run_id="sft-5e5-exposur"),
+        lambda d: d["endpoints"].append(
+            {**find(d, "sft-1e5-time"), "run_id": "sft-2e4-time"}),
+    ):
+        document = evidence()
+        change(document)
+        with pytest.raises(ValueError, match="controlled400 SFT endpoints"):
+            evaluate(document)
+    # A controlled400 endpoint at VAL .9 is the strongest SFT: RL* .9 leads by 0.
+    document = evidence()
+    find(document, "sft-1e4-time")["splits"]["val"]["predictions"] = greedy({"A": 18, "B": 18})
+    report = evaluate(document)
+    assert report["gates"]["G4"]["protocol"]["strongest_sft"] == "sft-1e4-time"
+    assert report["failed_at"] == "G4"
+
+
+def test_update_and_active_time_budgets_refuse_on_mismatch():
+    for run_id, field, value, match in (
+        ("sfte-1e-5", "updates", 37, "exactly 600 updates"),
+        ("egsft", "updates", 5, "exactly 600 updates"),
+        ("SFT-E-5e-05-314", "updates", 599, "exactly 600 updates"),
+        ("sftt-1e-4", "committed_active_seconds", 13000, "T_RL"),  # < RL* 13338 s
+        ("SFT-T-0.0001-2718", "committed_active_seconds", 3384, "T_RL"),
+        ("sftt-5e-5", "updates", None, "T_RL"),
+    ):
+        document = evidence()
+        find(document, run_id)[field] = value
+        with pytest.raises(ValueError, match=match):
+            evaluate(document)
+
+
+def test_adapter_and_reference_checks_cover_every_arm():
+    for run_id, field, gate, check in (
+        ("rl150-1e-4", "reference_sha256", "G2", "reference_unchanged"),  # not the best LR
+        ("rl150-1e-5", "adapter_sha256", "G2", "adapter_changed"),
+        ("rl600-5e-5", "reference_sha256", "G3a", "reference_unchanged"),
+        ("sfte-1e-5", "adapter_sha256", "G3a", "adapter_changed"),
+        ("sftt-1e-4", "adapter_sha256", "G3b", "adapter_changed"),
+        ("rl-2718", "reference_sha256", "G5", "reference_unchanged"),
+        ("SFT-T-5e-05-314", "adapter_sha256", "G5", "adapter_changed"),
+    ):
+        document = evidence()
+        find(document, run_id)[field] = "drift" if field == "reference_sha256" else "w"
+        report = evaluate(document)
+        assert report["failed_at"] == gate, run_id
+        assert not report["gates"][gate]["checks"][check]
+    document = evidence()
+    find(document, "egsft")["adapter_sha256"] = "w"
+    report = evaluate(document)
+    assert report["failed_at"] == "G4"
+    assert report["gates"]["G4"]["protocol"]["pass"]
+    assert not report["gates"]["G4"]["identity"]["adapter_changed"]
+
+
+def test_g1_refuses_wrong_provenance():
+    unsorted = journal()
+    unsorted[0]["id"], unsorted[1]["id"] = unsorted[1]["id"], unsorted[0]["id"]
+    sorted_scan = {**g1(), "scan_order": sorted(POOL)}
+    later = {**g1(), "scan_order": list(SCAN), "journal": [
+        {**entry, "id": SCAN[index + 1]} for index, entry in enumerate(journal())]}
+    for document, match in (
+        ({**g1(), "seed": 314}, "seed 42"),
+        ({**g1(), "adapter_sha256": "rl150-1e-5"}, "W adapter"),
+        (sorted_scan, "shuffle"),
+        (g1(unsorted), "scan order"),
+        (later, "scan order"),  # skips the first scanned candidate
+    ):
+        with pytest.raises(ValueError, match=match):
+            gate_g1(document, "w")
+    other = journal()
+    other[7]["adapter_sha256"] = "rl150-1e-5"
+    with pytest.raises(ValueError, match="W adapter"):
+        gate_g1(g1(other), "w")
+
+
+def test_strongest_sft_gate_fires_between_four_and_five_points():
+    """100 images per class make a 4.5-point gap expressible, so a 0.04 threshold dies."""
+    document = evidence()
+    wide = [(f"{label}{index:03d}", label) for label in LABELS for index in range(100)]
+    document["rows"]["val"] = [{"id": i, "label": label} for i, label in wide]
+    for item in document["endpoints"]:
+        if "val" in item["splits"]:
+            twenty = item["splits"]["val"]["predictions"]
+            # Same accuracy at five times the images: count per class from the fixture.
+            counts = {label: 5 * sum(twenty[i] == label for i, gold in FULL if gold == label)
+                      for label in LABELS}
+            item["splits"]["val"]["predictions"] = greedy(counts, wide)
+    # RL* 90/100 per class = .9; EG-SFT (86 + 85) / 200 = .855; gap .045.
+    find(document, "egsft")["splits"]["val"]["predictions"] = greedy({"A": 86, "B": 85}, wide)
+    robust = evaluate(document)["gates"]["G4"]["robust"]
+    assert robust["strongest_sft"] == "egsft"
+    assert robust["values"]["delta_vs_strongest_sft"] == pytest.approx(0.045)
     assert not robust["checks"]["delta_vs_strongest_sft_at_least_0_05"]
