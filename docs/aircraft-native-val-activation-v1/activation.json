@@ -1,0 +1,84 @@
+{
+  "activated_at_utc": "2026-10-17T06:20:50Z",
+  "activated_declaration": "/Users/idide/RyanLinEnv/runs/aircraft-native-val-activation-v1/activated-declaration.json",
+  "activated_declaration_sha256": "6a1faaaf38576ff537f6d4964a525a33c9864a270048df6a80ca6c93466faefe",
+  "author_clearance_sha256": "ceeea17735c0726610568f076cd6ba3fa451304920e363059bdc287513a10f35",
+  "bundle": "/Users/idide/RyanLinEnv/runs/aircraft-native-val-activation-v1/bundle",
+  "bundle_budget": {
+    "chunk_images": 128,
+    "chunk_seconds": 1800,
+    "image_seconds": 120,
+    "max_invocations": 512,
+    "max_output_bytes": 2147483648,
+    "max_wall_seconds": 86400
+  },
+  "bundle_plan_sha256": "cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896",
+  "continuation": {
+    "events": 20,
+    "journal": "/Users/idide/RyanLinEnv/runs/aircraft-controlled400-continuation-v1/guards/journal.jsonl",
+    "journal_sha256": "fe59527b584509722a3efbf62ba1eef29aa102e7170733c6ff79920e2e9a8bfc"
+  },
+  "endpoint_hashes": {
+    "common": {
+      "record_sha256": "d7f2f59664abb2f819d491402e422d6e65cc7ba4c639411758207f1e1077e2be",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"
+    },
+    "rl-exposure": {
+      "record_sha256": "85a55d2ff82905dea3247a02fb6876ad60a169abc6409d22aaf383cf102054c0",
+      "weights_sha256": "83226668a3b765ea20eb5e625cd55bda56c463ace09e7091b37c9ce6afb37d1f"
+    },
+    "sft-1e4-exposure": {
+      "record_sha256": "d0e900266929fb88d566898147877d3b57b753bf8bbf15b9249b4ed87447574f",
+      "weights_sha256": "456a4c3e1029463228ea50e532769e80f568b4719403a7ab0c15f3ef93aa3440"
+    },
+    "sft-1e4-time": {
+      "record_sha256": "ed68f0a24a38fc8e11e7270793d65a7ba844b63f7ea7c885dc671668cfaef793",
+      "weights_sha256": "ca762da20acba723e06b1246baa1707df6cdf5039ff0da0bb1ac619c18d70ed4"
+    },
+    "sft-1e5-exposure": {
+      "record_sha256": "3859c61ee58681c0dadf1c51a309d8c2cc6fcd55cd107ac8c297bd72e3c139f7",
+      "weights_sha256": "148f9158a9c5053630f03307d046a304de7d5ac5709a1311a2e4485d913dea82"
+    },
+    "sft-1e5-time": {
+      "record_sha256": "d7693c83b232351341083dd19dc1391636a3e47020b72431ba2f25d0e705674f",
+      "weights_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
+    },
+    "sft-5e5-exposure": {
+      "record_sha256": "afe6665d75beb9f2e1ac0e81575757cce1b70d046a2351fcb869d42e4cdf37ec",
+      "weights_sha256": "be1d9cfc5fe8129c5f1b5ac9a365f14021b02e784e15f6837ca986056fd6c6d9"
+    },
+    "sft-5e5-time": {
+      "record_sha256": "c0534c769145c4e5d84a4aa1fe67ac4fcaa97c3d7ec24b1c7f28ecd3ac546020",
+      "weights_sha256": "6a29c6fb82f77236ed3df85e0c7c54ceda3b9b93bdb58cf08159e5edd79593dc"
+    }
+  },
+  "frozen_source": {
+    "commit": "85f0865920015fd7e637d2b997bd9d7597dc1e83",
+    "files": 41,
+    "tree_sha256": "a579ea9593b2e44225c6a31c0b252759c90e2b00cc4b49224a3a43294b5b7091"
+  },
+  "inference_calls": 0,
+  "model_loads": 0,
+  "plan_document": "/Users/idide/RyanLinEnv/docs/aircraft-native-validation-plan-v1.json",
+  "plan_document_sha256": "67f8c0d3f0e30bab2994ea7cdd43f59634b5f6aff244f2a6fb4351552108292b",
+  "prepare_seconds": 62.04567503929138,
+  "process": {
+    "environment": {
+      "ACCELERATE_TORCH_DEVICE": "mps",
+      "HF_HUB_OFFLINE": "1",
+      "MKL_NUM_THREADS": "2",
+      "OMP_NUM_THREADS": "2",
+      "OPENBLAS_NUM_THREADS": "2",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "PYTHONPATH": "/Users/idide/RyanLinEnv/runs/aircraft-native-val-activation-v1/frozen/src:/Users/idide/RyanLinEnv/runs/vlm-local-libs/site-packages",
+      "PYTORCH_ENABLE_MPS_FALLBACK": "0",
+      "TOKENIZERS_PARALLELISM": "false",
+      "TRANSFORMERS_OFFLINE": "1"
+    },
+    "python": "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+    "runtime_pins_checked": 35
+  },
+  "schema_version": 1,
+  "scope": "native-VAL activation and preparation only; no model load or inference",
+  "test_consumed": false
+}

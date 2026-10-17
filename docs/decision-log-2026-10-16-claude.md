@@ -157,3 +157,8 @@ diagnostics, never held-out results.
 - `resources.storage_proposal.minimum_free_bytes` 10 GiB → 5 GiB (5368709120), the study's standing-stop
   reserve (addendum-5/6). The stale "V2 reasoning tokens/second" item is dropped from
   `resources.not_measured`.
+
+## D14 — controlled400 complete; native VAL activated before any VAL call
+- Continuation envelope (addendum-6) completed: all 8 endpoints published, equal active time 8116-8118 s per arm.
+- TRAIN32 (in-sample) greedy/sampled: warm 26/0.707, RL400 27/0.730, SFT-time 1e-5 29/0.879, 5e-5 30/0.938, 1e-4 30/0.934. SFT memorizes TRAIN far better than RL at equal time; this is not a held-out result.
+- Native VAL eight-endpoint evaluation activated (activation sha c9557c70..., bundle plan cf871cfb...; copies in docs/aircraft-native-val-activation-v1/). Next: supervise_chunks envelope-1, no TEST.
