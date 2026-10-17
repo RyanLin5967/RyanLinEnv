@@ -10,7 +10,7 @@ agent container got 2 CPUs and a 13 GiB cgroup with zero swap. It trained the pr
 tensors). A **separate, fresh verifier environment** then scored the submitted numeric adapter.
 By design the verifier executes no submitted code, config or pickle; its report records `submitted_code_executed: false` (that code path was not independently audited here).
 
-Plan `plan/plan.json` (sha256 `62fe9ff1…`) is the reviewed local variant of the frozen CPU7946
+Plan `plan/plan.json` (inside `plan-source.tar.gz`; hashes in `plan-SHA256SUMS`) (sha256 `62fe9ff1…`) is the reviewed local variant of the frozen CPU7946
 science (TRL 1.16 GRPO, G4, answer-only, LR 1e-5, beta 0.04, seed 42). The image was built from the
 37 hash-verified frozen source files.
 
@@ -61,4 +61,4 @@ verification. It does **not** show learning, an RL advantage, or any held-out or
 Throughput is about 530–750 s per GRPO update on 2 container CPUs, so CPU Harbor suits
 dogfooding and CI, not the study itself.
 
-Reproduce: `plan/README.md` (steps 3–9). Decision log: `docs/decision-log-2026-10-16-claude.md` D4–D9. Independent claim check: `runs/harbor-dogfood-report-verification/verification.json` (local).
+Reproduce: `plan/README.md` inside `plan-source.tar.gz` (steps 3–9). Decision log: `docs/decision-log-2026-10-16-claude.md` D4–D9. Independent claim check: `runs/harbor-dogfood-report-verification/verification.json` (local).
