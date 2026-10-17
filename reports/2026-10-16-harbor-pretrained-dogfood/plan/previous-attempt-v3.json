@@ -1,4 +1,0 @@
-{"plan_sha256": "6f1d0d6c8558816418f4071fe2af796faf41bd92c69f1a7adf87ba2179570373",
- "evidence": "runs/aircraft-harbor-dogfood-local-v3/ (execute.log, output/dogfood-local-result.json)",
- "result": "FAILED: driver_error 'RuntimeError: Harbor host output/disk guard' after the host disk fell to ~0.3 GiB, mostly from other sessions. SFT probe completed (77.78 s active, peak RSS 12,151,910,400 B). rl-exposure GRPO update 1 committed (633.98 s active) and the stage was still running at 1650 s when the host guard stopped the trial. C1-C4 false.",
- "v4_change": "None to plan content. New output root/job names (-v4) only, because v1-v3 outputs are single-use preserved evidence."}
