@@ -172,3 +172,8 @@ diagnostics, never held-out results.
 - envelope-2 completed chunk 1 (arm common, 128 images, exit 0), then halted before chunk 2 with accelerator_owner_live: the guard saw my concurrent CPU-only G0 manifest run (scripts/prepare_aircraft_freshpool.py) as a possible second accelerator owner. Halt was between chunks: no reservation left unknown. Root error, not a guard defect.
 - envelope-3 resumes with identical flags; evaluator invocation count and 24 h wall budget carry over (never reset). Rule while VAL runs: no other RyanLinEnv python process.
 - G0 (runs/aircraft-freshpool-g0-v1, TEST pHashes 3333/3333 digest-verified, 0 model calls): pool 2919 -> 2429 after audit (490 near-duplicate drops), S=2027. The drop count is far above the design assumption and is under review before any launch.
+
+## D17 — G0 pHash audit: high false-positive rate, threshold kept (pre-registered)
+- 2,455 external pairs flagged at Hamming <= 6 (test 1,200 / validation 1,100 / train400 155), Hamming {0:3, 2:94, 4:504, 6:1,854}; 490 pool drops (2,919 -> 2,429), S = 2,027.
+- Where reference labels may be read (VAL, train400), only 6-14% of flagged pairs share the pool image label (random-pair baseline ~1% with 100 classes); even Hamming-0 pairs are cross-label. So 64-bit DCT pHash on aircraft-against-sky images mostly flags look-alike compositions, not duplicates.
+- Consequence: drops are conservative (cost data, cannot leak). The detector is weak evidence about true near-duplicates in either direction. Threshold 6 was pre-registered, so it is NOT re-tuned after seeing data. S = 2,027 still supports N = 600 accepted at acceptance >= 0.30.
