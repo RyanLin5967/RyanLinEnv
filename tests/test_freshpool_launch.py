@@ -308,8 +308,9 @@ RETIRED_RECORD = (
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
 RL_WRAPPER = ["--output", "{arm_dir}/trainer"]
-SFT_E_TAIL = TRAIN_TAIL + ["--train", "{accepted_manifest}", "--stop-after-steps", "600",
-                           "--max-steps", "1200"]
+SEQUENTIAL_CYCLE = ["--order", "sequential", "--cycle"]
+SFT_E_TAIL = TRAIN_TAIL + SEQUENTIAL_CYCLE + [
+    "--train", "{accepted_manifest}", "--stop-after-steps", "600", "--max-steps", "1200"]
 
 
 def git(directory, *args):
@@ -627,6 +628,20 @@ def test_plan_declaring_a_resume_command_is_refused(tmp_path, monkeypatch, capsy
     ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--stop-after-steps", "600",
                          "--max-steps", "1200", "--"] + TRAIN_TAIL},
      "sft_e_template_stop_after_steps_not_600"),
+    # sft_e: max_steps above the 600-row accepted manifest needs sequential replay that
+    # cycles, or the trainer refuses the arm; again only after the --.
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200", "--order", "sequential"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200", "--cycle"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--order", "sequential", "--cycle", "--"]
+      + TRAIN_TAIL + ["--stop-after-steps", "600", "--max-steps", "1200"]},
+     "sft_e_template_not_sequential_cycle"),
 ])
 def test_bad_stage_template_is_refused_at_plan_load(tmp_path, monkeypatch, capsys, patch,
                                                     reason):
@@ -646,7 +661,8 @@ def test_stage_template_equals_form_is_accepted(tmp_path, monkeypatch, capsys):
     fixture = Fixture(tmp_path, monkeypatch, template_patch={
         "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + TRAIN_TAIL},
         "sft_e": {"argv": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
-                  + ["--stop-after-steps=600", "--max-steps=601"]}})
+                  + ["--stop-after-steps=600", "--max-steps=601", "--order=sequential",
+                     "--cycle"]}})
     assert launch.main([*fixture.argv, "--verify-only"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "verified"
 
@@ -915,6 +931,50 @@ def test_mps_driver_guard_fails_the_stage(tmp_path, monkeypatch):
     summaries = list((tmp_path / "state" / "guards").glob("e0-*.json"))
     assert summaries
     assert "exceeded 24 GiB" in json.loads(summaries[0].read_text())["stop_reason"]
+
+
+PHASE_ENTRY = '''
+def main(argv):
+    return 0 if argv == ["forwarded"] else 9
+'''
+
+
+@pytest.mark.parametrize("device, code, guard", [
+    ("mps", 0, "armed"), ("cpu", 0, "not armed: device cpu"), ("cuda", 1, None), (None, 1, None)])
+def test_phase_worker_device_is_the_frozen_accelerate_device(tmp_path, device, code, guard):
+    """The MPS driver guard follows ACCELERATE_TORCH_DEVICE, the device Accelerate uses: armed
+    on mps, not armed on cpu (the dry run), and any other value refuses before any import.
+    The fake torch reports MPS available in every case, so cpu is chosen, not inferred."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "phase_entry.py").write_text(PHASE_ENTRY)
+    (pkg / "torch.py").write_text(FAKE_TORCH)
+    env = {**os.environ, "PYTHONPATH": str(pkg), "PYTORCH_ENABLE_MPS_FALLBACK": "0",
+           "HF_HUB_OFFLINE": "1"}
+    env.pop("ACCELERATE_TORCH_DEVICE", None)
+    env.pop("FAKE_DRIVER_BYTES", None)
+    if device is not None:
+        env["ACCELERATE_TORCH_DEVICE"] = device
+    guards = tmp_path / "guards"
+    result = subprocess.run(
+        [sys.executable, "-B", str(PACKAGE / "phase_worker.py"), "--guard-dir", str(guards),
+         "--stage", "s", "--kind", "train", "--entry", "phase_entry:main",
+         "--entry-sha256", sha_file(pkg / "phase_entry.py"), "--", "forwarded"],
+        env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == code, result.stderr
+    if guard is None:
+        assert "ACCELERATE_TORCH_DEVICE must be one of" in result.stderr
+        assert not guards.exists()
+        return
+    (summary,) = guards.glob("s-*.json")
+    stats = json.loads(summary.read_text())
+    assert (stats["status"], stats["device"]) == ("completed", device)
+    if guard == "armed":
+        assert stats["recommended_max_memory_bytes"] == 48 * GiB
+        assert "mps_driver_guard" not in stats
+    else:
+        assert stats["mps_driver_guard"] == guard
+        assert "recommended_max_memory_bytes" not in stats
 
 
 def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):

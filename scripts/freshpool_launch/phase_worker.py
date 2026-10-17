@@ -6,10 +6,17 @@ environment is set, imports exactly one entry ``module:function`` whose source f
 SHA256 the launcher pinned (an allowlist by content, not by name), samples MPS driver
 allocation every 0.5 s for model-owning kinds, and writes a summary receipt.
 
+The device is the frozen ``ACCELERATE_TORCH_DEVICE``, which is what Accelerate (and so the
+trainer) actually uses: ``mps`` for a real launch, ``cpu`` only for the CPU dry run
+(scripts/freshpool_dryrun). Any other value refuses. On ``cpu`` there is no MPS allocation
+to guard, so the driver guard is not armed; the stage's own ``--device`` must still agree,
+or the trainer refuses (it checks Accelerate's device against it).
+
 Blind spots, stated: the hash covers the entry module's own file, not modules it imports
 (the launcher pins those through the plan's ``file_sha256``); the driver limit is sampled,
 so an allocation spike shorter than one interval is missed; kind ``common`` gets no MPS
-guard and must not load a model.
+guard and must not load a model; an inference-only entry (``h_assay``, ``p0_screen``) does
+not go through Accelerate, so on ``cpu`` nothing but its own ``--device`` keeps it off MPS.
 """
 
 import argparse
@@ -29,9 +36,10 @@ KINDS = ("train", "assay", "common")
 MODEL_KINDS = ("train", "assay")
 FROZEN_ENVIRONMENT = {
     "PYTORCH_ENABLE_MPS_FALLBACK": "0",
-    "ACCELERATE_TORCH_DEVICE": "mps",
     "HF_HUB_OFFLINE": "1",
 }
+# ACCELERATE_TORCH_DEVICE: mps for a real launch; cpu only for the CPU dry run.
+DEVICES = ("mps", "cpu")
 
 
 def write(path, value):
@@ -77,6 +85,10 @@ def main(argv=None):
     for name, value in FROZEN_ENVIRONMENT.items():
         if os.environ.get(name) != value:
             raise RuntimeError(f"{name} must be {value!r} before any torch import")
+    device = os.environ.get("ACCELERATE_TORCH_DEVICE")
+    if device not in DEVICES:
+        raise RuntimeError(f"ACCELERATE_TORCH_DEVICE must be one of {DEVICES} before any "
+                           f"torch import, got {device!r}")
     args.guard_dir.mkdir(parents=True, exist_ok=True)
     identifier = f"{args.stage}-{os.getpid()}-{time.time_ns()}"
     summary = args.guard_dir / (identifier + ".json")
@@ -85,6 +97,7 @@ def main(argv=None):
         "pid": os.getpid(),
         "stage": args.stage,
         "kind": args.kind,
+        "device": device,
         "entry": args.entry,
         "entry_sha256": args.entry_sha256,
         "argv": forwarded,
@@ -99,7 +112,12 @@ def main(argv=None):
     try:
         function, source = load_entry(args.entry, args.entry_sha256)
         stats["entry_source"] = source
-        if args.kind in MODEL_KINDS:
+        if args.kind in MODEL_KINDS and device == "cpu":
+            import torch
+
+            torch.set_num_threads(2)
+            stats["mps_driver_guard"] = "not armed: device cpu"
+        elif args.kind in MODEL_KINDS:
             import torch
 
             torch.set_num_threads(2)

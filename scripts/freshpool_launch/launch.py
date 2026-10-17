@@ -356,7 +356,9 @@ def verify_stage_templates(templates):
       run to completion and only then stop as live_useful_mixed_unmonitored);
     - sft_e gives the trainer exactly ``--stop-after-steps 600`` and one integer
       ``--max-steps`` above 600, so SFT-E ends boundary_reached and SFT-T can continue it
-      (otherwise every SFT-E arm would run and stop only at its fragment check)."""
+      (otherwise every SFT-E arm would run and stop only at its fragment check), and
+      ``--order sequential --cycle``, without which the trainer refuses that max_steps on
+      a 600-row manifest."""
     for name in ("rl150", "rl600", "sft_e"):
         parts = wrapper_and_trainer(templates[name]["argv"])
         if parts is None or not all(isinstance(a, str) for a in templates[name]["argv"]):
@@ -376,6 +378,12 @@ def verify_stage_templates(templates):
     if (len(maxes) != 1 or not isinstance(maxes[0], str) or not maxes[0].isdigit()
             or int(maxes[0]) <= FINAL_UPDATES):
         raise Stop("sft_e_template_max_steps_not_above_600", max_steps=maxes)
+    # RL*'s accepted manifest holds exactly FINAL_UPDATES rows, and the trainer refuses a
+    # sequential run whose max_steps exceeds its manifest unless it cycles
+    # (vlm_local_training.train_local), so SFT-E must replay it --order sequential --cycle.
+    if flag_values(trainer, "--order") != ["sequential"] or trainer.count("--cycle") != 1:
+        raise Stop("sft_e_template_not_sequential_cycle",
+                   order=flag_values(trainer, "--order"), cycle=trainer.count("--cycle"))
 
 
 def verify_pins(plan):
@@ -929,8 +937,8 @@ class Launcher:
                         or not set(accepted) <= set(scanned)
                         or scanned != self.g0["scan_ids"][: len(scanned)]):
                     return "fragment_screen_manifests_inconsistent"
-                for start in range(0, max(0, len(mixed) - 99)):
-                    if sum(mixed[start:start + 100]) / 100 < 0.40:
+                for start in range(0, max(0, len(mixed) - MIXED_WINDOW + 1)):
+                    if sum(mixed[start:start + MIXED_WINDOW]) < MIXED_MIN_IN_WINDOW:
                         return "rolling_useful_mixed_below_0_40"
             return check(f) if check else None
 

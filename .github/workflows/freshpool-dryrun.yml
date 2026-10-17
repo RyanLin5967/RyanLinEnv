@@ -1,0 +1,48 @@
+name: Freshpool CPU dry run
+# The real freshpool launch pipeline end to end on a tiny random Qwen2-VL (CPU, no downloads):
+# scripts/freshpool_dryrun/run.py. Integration only; it measures no learning.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/freshpool-dryrun.yml
+      - scripts/freshpool_dryrun/**
+      - scripts/freshpool_launch/**
+      - scripts/evaluate_freshpool_gates.py
+      - scripts/prepare_aircraft_freshpool.py
+      - src/vision_rl/vlm_local_training.py
+      - src/vision_rl/vlm.py
+      - src/vision_rl/classification_comparison.py
+      - docs/aircraft-rl-protocol-freshpool-v1.json
+      - docs/aircraft-rl-protocol-candidate-v1.json
+      - docs/decision-log-2026-10-16-claude.md
+      - requirements-vlm-local.lock
+permissions:
+  contents: read
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      OMP_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
+      - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip check
+      - run: .venv/bin/python -m vision_rl.vlm_local_training --preflight --device cpu
+      - name: Dry run (drive, then strict)
+        run: timeout 3600 .venv/bin/python -B scripts/freshpool_dryrun/run.py --work "$RUNNER_TEMP/freshpool-dryrun"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: freshpool-dryrun
+          path: ${{ runner.temp }}/freshpool-dryrun
+          retention-days: 7
+          if-no-files-found: ignore
