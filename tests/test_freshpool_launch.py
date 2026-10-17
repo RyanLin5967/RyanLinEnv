@@ -86,7 +86,7 @@ def main(argv):
         groups.parent.mkdir(parents=True, exist_ok=True)
         with groups.open("a") as handle:
             for n, mixed in enumerate(behaviour["live_mixed"]):
-                handle.write(json.dumps({"id": f"g{n}", "mixed": mixed}) + "\n")
+                handle.write(json.dumps({"id": f"g{n}", "mixed": mixed}) + "\\n")
     if "spawn" in behaviour:
         child = subprocess.Popen(["sleep", str(behaviour["spawn"])])
         Path(behaviour["pid_file"]).write_text(str(child.pid))
@@ -96,7 +96,7 @@ def main(argv):
     payload = dict(spec["payload"])
     if payload.get("arm") == "RL" and "live_mixed" not in behaviour:
         groups.parent.mkdir(parents=True, exist_ok=True)
-        groups.write_text("".join(json.dumps({"id": f"g{n}", "mixed": m}) + "\n"
+        groups.write_text("".join(json.dumps({"id": f"g{n}", "mixed": m}) + "\\n"
                                   for n, m in enumerate(payload["useful_mixed"])))
     if payload.pop("make_checkpoint", False):
         checkpoint = arm / f"checkpoint-{payload['updates']}"
