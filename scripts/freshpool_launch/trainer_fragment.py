@@ -33,6 +33,11 @@ Fragment fields:
                                                  whose IDs must equal the committed exposure
   accepted_manifest, scanned_manifest            RL: committed accepted IDs and every scanned
                                                  ID in scan order, as trainer-loadable rows
+  committed_prompt_ids                           every arm: the receipt's committed prompt
+                                                 exposure, one ID per update in order (the
+                                                 launcher checks SFT-E / EG-SFT against RL*'s
+                                                 accepted sequence and SFT-T against SFT-E's
+                                                 then the scanned sequence from row 0)
   receipt_status, requested_boundary             from the receipt
 
 Blind spots, stated: the per-step seconds and the useful-mixed flags come from append-only
@@ -137,6 +142,7 @@ def build_fragment(args, output):
         "reference_sha256": reference_sha,
         "checkpoint": str(checkpoint),
         "useful_mixed": [],
+        "committed_prompt_ids": receipt["committed_prompt_ids"],
         "receipt_status": receipt["status"],
         "requested_boundary": receipt["requested_boundary"],
         "trainer_output": str(output),

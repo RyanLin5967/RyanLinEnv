@@ -10,8 +10,8 @@ LABELS = ("alpha", "bravo", "charlie", "delta")  # the fake 4-class label set
 # Launcher and evaluator update counts (study: 150 and 600 accepted updates).
 RL_SCREEN_UPDATES = 3
 FINAL_UPDATES = 6
-# E0 trajectory length (study: 4 updates, uninterrupted vs 2+2 vs 1+3): not scaled.
-E0_STEPS = 4
+# E0 is not scaled: scripts/freshpool_launch/e0_gate.py fixes 4 updates (uninterrupted vs
+# 2+2 vs 1+3), as the protocol's real_learning_and_resume_gate does.
 # The per-arm cap is 1.25 x forecast, measured on launcher WALL time, process start-up
 # included. A tiny arm's start-up dominates its seconds-long active time (SFT-T's cap is
 # 1.25 x T_RL), so the dry run widens the factor; the cap logic itself still runs.
