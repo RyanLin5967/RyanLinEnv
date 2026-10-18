@@ -57,23 +57,28 @@ print(json.dumps({"unit": name, "rc": rc, "instrument": "optimizer_audit.jsonl "
 PY
 }
 
-train sft --mode sft --order sequential --train inputs/train.jsonl --max-steps 6
-train egsft --mode egsft --order sequential --train inputs/train.jsonl --max-steps 6 \
+# UNITS (environment, space-separated) picks a subset; default: every unit.
+UNITS=${UNITS:-"sft egsft hn_sft hls_sft cce_sft grpo_g8 grpo_g16 inference"}
+want() { case " $UNITS " in *" $1 "*) return 0;; *) return 1;; esac; }
+
+want sft && train sft --mode sft --order sequential --train inputs/train.jsonl --max-steps 6
+want egsft && train egsft --mode egsft --order sequential --train inputs/train.jsonl --max-steps 6 \
     --egsft-scale none --egsft-band-group 8
-train hn_sft --mode hn_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
+want hn_sft && train hn_sft --mode hn_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
     --confusion-map data/fgvc-aircraft-2013b/audit/p0-confusion-map.json
-train hls_sft --mode hls_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
+want hls_sft && train hls_sft --mode hls_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
     --taxonomy data/fgvc-aircraft-2013b/audit/taxonomy-train-only.json
-train cce_sft --mode cce_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
+want cce_sft && train cce_sft --mode cce_sft --order sequential --train inputs/train.jsonl --max-steps 6 \
     --label-trie data/fgvc-aircraft-2013b/audit/label-trie-qwen2vl2b.json
 for g in 8 16; do
+  want "grpo_g$g" || continue
   train "grpo_g$g" --mode grpo --train inputs/train.jsonl --num-generations "$g" --beta 0 \
       --loss-type dr_grpo --scale-rewards none --screen-threshold 0.5 --max-steps 3 \
       --target-accepted 3 --screen-journal "out/grpo_g$g/screen.jsonl"
 done
 
 # Inference units: p scoring (P0 and the screen), greedy and one G4 group per image (assays).
-"$PY" -s -P - "$MODEL" >> out/units.jsonl 2> out/inference.log <<'PY'
+want inference && "$PY" -s -P - "$MODEL" >> out/units.jsonl 2> out/inference.log <<'PY'
 import json, sys, time
 from dataclasses import replace
 from pathlib import Path
