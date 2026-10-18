@@ -184,7 +184,7 @@ def color_hierarchy(tmp_path):
 
 def test_train_local_shaping_enters_identity_only_when_used(diagnostic, tmp_path, monkeypatch):
     plain = _refused_settings(diagnostic, tmp_path, monkeypatch, "plain")
-    assert "reward_shaping" not in plain["settings"] and "torch_threads" not in plain
+    assert "reward_shaping" not in plain["settings"]
     shaped = _refused_settings(
         diagnostic, tmp_path, monkeypatch, "shaped", label_hierarchy=color_hierarchy(tmp_path),
         family_credit=0.5, manufacturer_credit=0.25,
@@ -208,10 +208,9 @@ def test_train_local_shaping_enters_identity_only_when_used(diagnostic, tmp_path
         ({"label_hierarchy": "H"}, "explicit family_credit"),
         ({"label_hierarchy": "H", "family_credit": 0.5, "manufacturer_credit": 0.2,
           "mode": "sft"}, "only to GRPO"),
-        ({"torch_threads": 0}, "torch_threads"),
     ],
 )
-def test_shaping_and_thread_options_refuse_before_any_output(
+def test_shaping_options_refuse_before_any_output(
     diagnostic, tmp_path, monkeypatch, kwargs, match
 ):
     monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must refuse first"))
@@ -289,16 +288,21 @@ class FakePolicy:
         (Path(path) / "adapter_model.safetensors").write_text(f"weight={self.weight}")
 
 
+THREADS = []
+
+
 def fake_stack(monkeypatch, policies):
     class Dropout:
         pass
+
+    THREADS.clear()
 
     def from_pretrained(*_, **__):
         policies.append(FakePolicy())
         return policies[-1]
 
     modules = {
-        "torch": SimpleNamespace(set_num_threads=lambda n: None, float32="f32",
+        "torch": SimpleNamespace(set_num_threads=THREADS.append, float32="f32",
                                  nn=SimpleNamespace(Dropout=Dropout)),
         "transformers": SimpleNamespace(
             AutoModelForImageTextToText=SimpleNamespace(from_pretrained=from_pretrained),
@@ -369,8 +373,10 @@ def test_rft_rounds_keep_correct_samples_train_on_them_and_bind_the_endpoint(
 ):
     policies, calls, seen = [], [], []
     fake_stack(monkeypatch, policies)
-    record = run_rft(diagnostic, tmp_path / "rft", policies, calls, seen)
+    record = run_rft(diagnostic, tmp_path / "rft", policies, calls, seen, threads=16)
     assert record["status"] == "completed" and record["stop_reason"] == "rounds"
+    assert THREADS == [16] and record["torch_threads"] == 16
+    assert "threads" not in record["settings"]  # a speed knob, not part of the identity
     assert [len(c) for c in calls] == [4, 4, 4]
     assert calls[0] + calls[1] != []  # rounds sample through the seeded permutation
     expected_kept = [sum(int(i.split("-")[1]) % 5 > 0 for i in round_ids) for round_ids in calls]
@@ -448,7 +454,8 @@ def test_rft_skip_all_correct_drops_solved_prompts(diagnostic, tmp_path, monkeyp
         ({"max_steps": 0}, "max_steps"),
         ({"stop_after_rounds": 4}, "stop_after_rounds"),
         ({"epochs_per_round": 0}, "epochs_per_round"),
-        ({"torch_threads": 999}, "torch_threads"),
+        ({"threads": 0}, "threads"),
+        ({"device": "cuda"}, "RFT device"),
     ],
 )
 def test_rft_refuses_bad_options_before_any_output(diagnostic, tmp_path, monkeypatch, kwargs,
@@ -479,16 +486,17 @@ def test_cli_routes_rft_and_keeps_legacy_max_steps_default(monkeypatch, capsys, 
     monkeypatch.setattr(local, "train_local", capture("train"))
     base = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--device", "cpu"]
     assert local.main(base + ["--mode", "rft", "--model-directory", "m", "--rft-rounds", "2",
-                              "--rft-prompts-per-round", "8", "--torch-threads", "16"]) == 0
+                              "--rft-prompts-per-round", "8", "--threads", "16"]) == 0
     rft = captured["rft"]
     assert (rft["rounds"], rft["prompts_per_round"], rft["max_steps"]) == (2, 8, None)
     assert (rft["epochs_per_round"], rft["max_keep_per_prompt"]) == (1, 1)
-    assert rft["torch_threads"] == 16
+    assert rft["threads"] == 16
     assert local.main(base + ["--train-only"]) == 0
     train = captured["train"]
-    assert train["max_steps"] == 64 and train["torch_threads"] == 2
+    assert train["max_steps"] == 64 and "threads" not in train
     assert train["label_hierarchy"] is None and train["family_credit"] is None
     for bad in (base + ["--rft-rounds", "2", "--train-only"],
+                base + ["--threads", "8", "--train-only"],
                 base + ["--mode", "rft", "--model-directory", "m", "--rft-rounds", "1",
                         "--rft-prompts-per-round", "1", "--validation", "v.jsonl"],
                 base + ["--mode", "rft", "--model-directory", "m", "--rft-rounds", "1",

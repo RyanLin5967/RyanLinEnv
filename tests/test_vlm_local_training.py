@@ -2500,7 +2500,7 @@ def test_gold_nll_improved_is_none_without_a_pre_score():
     assert local.gold_nll_improved({"before_train_gold_nll": 1.25}, 1.25) is False
 
 
-# --- RFT / expert iteration and device knobs (released TRL; CI local-vlm job) ---------
+# --- RFT / expert iteration (released TRL; CI local-vlm job) ---------------------
 
 
 def test_rft_sft_round_trains_on_given_completions_and_respects_time_budget(tmp_path):
@@ -2622,14 +2622,3 @@ def test_batched_group_sampler_cuts_each_draw_at_first_eos(tmp_path):
     journal = json.loads((tmp_path / "sampled_completions.jsonl").read_text())
     assert journal["id"] == "one" and len(journal["samples"]) == 4
 
-
-def test_cuda_device_is_accepted_but_refused_when_unavailable():
-    released_trl()
-    import torch
-
-    if torch.cuda.is_available():
-        pytest.skip("this check needs a host without CUDA")
-    with pytest.raises(local.LocalVLMError, match="CUDA is unavailable"):
-        local.preflight("cuda")
-    with pytest.raises(local.LocalVLMError, match="one local process"):
-        local.preflight("xla")

@@ -68,16 +68,13 @@ def answer(completion, labels):
     return vlt.parse_label(completion.get("response", ""), labels, allow_reasoning=True), True
 
 
-def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
-          torch_threads=vlt.DEFAULT_TORCH_THREADS):
+def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile):
     labels = vlt.load_spec(Path(data_spec))["labels"]
     adapter_sha = file_sha256(Path(adapter) / "adapter_model.safetensors")
     answers = {row["id"]: [] for row in rows}
     terminated = total = 0
     common = {"data_spec": Path(data_spec), "model_directory": Path(model_directory),
               "device": device, "profile": profile, "init_adapter": Path(adapter)}
-    if torch_threads != vlt.DEFAULT_TORCH_THREADS:  # default call stays byte-identical
-        common["torch_threads"] = torch_threads
     chunks = [rows[i:i + CHUNK] for i in range(0, len(rows), CHUNK)]
     for number, chunk in enumerate(chunks):
         manifest = stage_dir / "chunks" / f"chunk-{number:02d}.jsonl"
@@ -127,8 +124,7 @@ def main(argv=None):
     parser.add_argument("--stage-dir", type=Path, required=True)
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
-    parser.add_argument("--device", choices=vlt.DEVICES, default="mps")
-    parser.add_argument("--torch-threads", type=int, default=vlt.DEFAULT_TORCH_THREADS)
+    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
@@ -138,8 +134,7 @@ def main(argv=None):
     rows = read_rows(args["manifest"])
     result = assay(rows, args["split"], args["adapter"], args["stage_dir"],
                    data_spec=args["data_spec"], model_directory=args["model_directory"],
-                   device=args["device"], profile=profile,
-                   torch_threads=args["torch_threads"])
+                   device=args["device"], profile=profile)
     fragment = {"run_id": args["run_id"], "split": args["split"],
                 "manifest_sha256": file_sha256(args["manifest"]),
                 "seeds": list(SEEDS[args["split"]]), "completion_order":

@@ -61,14 +61,19 @@ TRL_SOURCES = {
 }
 
 
-# Historical CPU intra-op thread count; a sweep arm on a many-core host raises it.
-DEFAULT_TORCH_THREADS = 2
-DEVICES = ("mps", "cpu", "cuda")
+# Same text as branch sweep-feat-cuda.noindex, which owns threads/CUDA for train_local and
+# TRAIN inference; here only the RFT mode uses it.
+DEFAULT_THREADS = 2
 
 
-def _validate_threads(value: int) -> None:
-    if type(value) is not int or not 1 <= value <= 256:
-        raise ValueError("torch_threads must be an integer in 1..256")
+def _set_threads(torch, threads: int) -> None:
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    torch.set_num_threads(threads)
+
+
+# RFT devices on this branch; merging sweep-feat-cuda.noindex adds cuda.
+RFT_DEVICES = ("mps", "cpu")
 
 
 class LocalVLMError(RuntimeError):
@@ -137,8 +142,8 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
 
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
-    if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
-        raise LocalVLMError("Use one local process with --device mps, cpu or cuda")
+    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps or cpu")
     if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
     try:
@@ -165,8 +170,6 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
     if device == "mps" and not torch.backends.mps.is_available():
         raise LocalVLMError("MPS is unavailable; no model files have been opened")
-    if device == "cuda" and not torch.cuda.is_available():
-        raise LocalVLMError("CUDA is unavailable; no model files have been opened")
     return {
         "device": device,
         "python": sys.version.split()[0],
@@ -941,7 +944,6 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
-    torch_threads: int = DEFAULT_TORCH_THREADS,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
@@ -953,7 +955,6 @@ def predict_train_subset(
     used to re-verify a registered expanded endpoint (default: the trainer's path).
     """
     profile.validate()
-    _validate_threads(torch_threads)
     if expanded_initial_path is not None and not _expanded.is_expanded(profile):
         raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
@@ -1030,9 +1031,7 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(torch_threads)
-        if torch_threads != DEFAULT_TORCH_THREADS:
-            record["torch_threads"] = torch_threads
+        torch.set_num_threads(2)
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -1918,8 +1917,6 @@ class _ActiveStepTimer:
     def _sync(self):
         if self.device == "mps":
             import_module("torch").mps.synchronize()
-        elif self.device == "cuda":
-            import_module("torch").cuda.synchronize()
 
     def _persist(self):
         value = {
@@ -2825,7 +2822,6 @@ def train_local(
     family_credit: float | None = None,
     manufacturer_credit: float | None = None,
     invalid_reward: float | None = None,
-    torch_threads: int = DEFAULT_TORCH_THREADS,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -2846,10 +2842,8 @@ def train_local(
     `label_hierarchy` (GRPO only, default off) swaps the exact reward for hierarchical
     partial credit; `family_credit` and `manufacturer_credit` must then be explicit, and
     `invalid_reward` (default 0) scores a non-EOS or out-of-vocabulary answer.
-    `torch_threads` sets CPU intra-op threads (default 2, the historical value).
     """
     profile.validate()
-    _validate_threads(torch_threads)
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
@@ -3214,9 +3208,7 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(torch_threads)
-        if torch_threads != DEFAULT_TORCH_THREADS:
-            record["torch_threads"] = torch_threads
+        torch.set_num_threads(2)
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
@@ -3791,7 +3783,7 @@ def rft_local(
     max_steps: int | None = None,
     max_active_seconds: float | None = None,
     stop_after_rounds: int | None = None,
-    torch_threads: int = DEFAULT_TORCH_THREADS,
+    threads: int = DEFAULT_THREADS,
     _sample=None,
     _train_round=None,
 ) -> dict:
@@ -3815,7 +3807,8 @@ def rft_local(
     later GRPO warm start accept it.
     """
     profile.validate()
-    _validate_threads(torch_threads)
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
     if _expanded.is_expanded(profile):
         raise ValueError("RFT supports the legacy Q/V LoRA profile only")
     if model not in MODEL_REVISIONS:
@@ -3846,8 +3839,8 @@ def rft_local(
         raise ValueError("learning_rate must be finite and in (0, 0.01]")
     if initial_adapter_precision_transfer is not None and not init_adapter:
         raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
-    if device not in DEVICES:
-        raise ValueError("device must be mps, cpu or cuda")
+    if device not in RFT_DEVICES:
+        raise ValueError(f"RFT device must be one of {RFT_DEVICES}")
     spec = load_spec(data_spec)
     rows = load_classification(
         train,
@@ -3954,8 +3947,8 @@ def rft_local(
         "rounds": committed,
         "resumed_after_round": len(committed) - 1 if committed else None,
     }
-    if torch_threads != DEFAULT_TORCH_THREADS:
-        record["torch_threads"] = torch_threads
+    if threads != DEFAULT_THREADS:
+        record["torch_threads"] = threads
     _write(output / "local_training.json", record)
     _archive_source(output, environment["adapter_source_sha256"])
     rows_by_id = {row["id"]: row for row in rows}
@@ -3967,7 +3960,7 @@ def rft_local(
     total_steps = sum(entry["optimizer_steps"] for entry in committed)
     try:
         torch = import_module("torch")
-        torch.set_num_threads(torch_threads)
+        _set_threads(torch, threads)
         transformers, peft = (import_module(x) for x in ("transformers", "peft"))
         record["model_source"] = _verified_model_directory(model_directory, model)
         processor = _processor(model_directory, profile)
@@ -4249,7 +4242,7 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             max_steps=args["max_steps"],
             max_active_seconds=args["max_active_seconds"],
             stop_after_rounds=rft_args["rft_stop_after_rounds"],
-            torch_threads=args["torch_threads"],
+            threads=args.pop("threads"),
         )
     except (LocalVLMError, ValueError, OSError) as exc:
         print(f"local VLM: {exc}", file=sys.stderr)
@@ -4288,7 +4281,7 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.add_argument(f"--{name}", type=Path)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
-    parser.add_argument("--device", choices=DEVICES, default="mps")
+    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
     # None means "not given": legacy modes then use 64; RFT treats it as an optional cap.
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
@@ -4319,7 +4312,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--family-credit", type=float, help="GRPO hierarchical reward")
     parser.add_argument("--manufacturer-credit", type=float, help="GRPO hierarchical reward")
     parser.add_argument("--invalid-reward", type=float, help="GRPO hierarchical reward")
-    parser.add_argument("--torch-threads", type=int, default=DEFAULT_TORCH_THREADS)
+    # sweep-feat-cuda.noindex adds the same flag for every mode; here only RFT honours it.
+    parser.add_argument("--threads", type=int, default=DEFAULT_THREADS)
     for name in ("rounds", "prompts-per-round", "epochs-per-round", "max-keep-per-prompt"):
         parser.add_argument(f"--rft-{name}", type=int)
     parser.add_argument("--rft-stop-after-rounds", type=int)
@@ -4355,6 +4349,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _rft_main(parser, args, rft_args)
             if any(value not in (None, False) for value in rft_args.values()):
                 parser.error("--rft-* options require --mode rft")
+            if args.pop("threads") != DEFAULT_THREADS:
+                parser.error("--threads applies only to --mode rft on this branch")
             if args["max_steps"] is None:
                 args["max_steps"] = 64
             if predict_train is not None or sample_train is not None:
@@ -4404,7 +4400,6 @@ def main(argv: list[str] | None = None) -> int:
                             "device",
                             "profile",
                             "init_adapter",
-                            "torch_threads",
                         )
                     },
                 )
