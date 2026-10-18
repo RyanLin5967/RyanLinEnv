@@ -3,7 +3,7 @@
 Launcher entry ``trainer_fragment:main`` (scripts/freshpool_launch/launch.py reads the
 fragment). Usage, after the phase worker's ``--``:
 
-  --run-id ID --arm {RL,SFT-E,SFT-T,EG-SFT} --lr LR --seed 42 --fragment F --output DIR
+  --run-id ID --arm {RL,SFT-E,SFT-T,EG-SFT,A1..A5,LIM-T} --lr LR --seed 42 --fragment F --output DIR
   [--scan-manifest S_scan_seed42.jsonl] [--continue-output-from PARENT_CHECKPOINT]
   -- <vision_rl.vlm_local_training CLI arguments, without --output>
 
@@ -39,6 +39,10 @@ Fragment fields:
                                                  accepted sequence and SFT-T against SFT-E's
                                                  then the scanned sequence from row 0)
   receipt_status, requested_boundary             from the receipt
+  mode, init_sha256 [, loss_type, scale_rewards,  signal-limit arms (A1-A5, LIM-T) and an RL run
+   beta, group, reward] [, egsft_scale,          whose trainer recorded a loss_type only: the
+   egsft_band_group] [, confusion_map_sha256,    trainer settings the signal-limit gates and
+   taxonomy_sha256, label_trie_sha256]           the launcher check
 
 Blind spots, stated: the per-step seconds and the useful-mixed flags come from append-only
 physical journals (optimizer_audit.jsonl, reward_groups.jsonl). They are exact only because
@@ -57,6 +61,12 @@ from pathlib import Path
 from vision_rl import vlm_local_training as vlt
 
 ARM_MODES = {"RL": "grpo", "SFT-E": "sft", "SFT-T": "sft", "EG-SFT": "egsft"}
+# Signal-limit v1 (docs/aircraft-rl-next-study-v1.json stages; stage_table.py): the Stage A
+# objectives, and LIM-T, which continues the Gate-A limit objective (A2's egsft; A3 is a
+# supervised comparator since design-review amendment 1, never continued as LIM-T).
+SIGNAL_LIMIT_ARMS = {"A1": ("sft",), "A2": ("egsft",), "A3": ("hn_sft",), "A4": ("hls_sft",),
+                     "A5": ("cce_sft",), "LIM-T": ("egsft",)}
+RESOURCE_KEYS = ("confusion_map_sha256", "taxonomy_sha256", "label_trie_sha256")
 # The trainer entry; module-level so tests substitute a fake, never selectable by a plan.
 TRAINER = vlt.main
 
@@ -104,12 +114,41 @@ def step_seconds(output):
     return {str(step): steps[step] for step in sorted(steps)}
 
 
+def signal_limit_profile(arm, settings, initial):
+    """The trainer settings the signal-limit gates check (scripts/evaluate_signal_limit_gates.py
+    identity), for the signal-limit arms and for an RL run that recorded a loss_type (the
+    trainer records loss_type only when it is not the default, so every freshpool fragment is
+    unchanged): mode, init_sha256 and, for RL, loss_type, scale_rewards, beta, the screen's
+    G and the reward name."""
+    if arm not in SIGNAL_LIMIT_ARMS and not (arm == "RL" and "loss_type" in settings):
+        return {}
+    profile = {"mode": settings["mode"], "init_sha256": initial.get("weights_sha256")}
+    egsft = settings.get("egsft")
+    if isinstance(egsft, dict):
+        # The objective's identity, so the launcher can refuse an A2 / LIM-T that is not the
+        # screened no-std limit at the declared band (study amendment 1).
+        profile.update(egsft_scale=egsft.get("scale_rewards", "group"),
+                       egsft_band_group=(egsft.get("band") or {}).get("group_size"))
+    for key in RESOURCE_KEYS:
+        # The frozen label resources the trainer hashed (A3 map, A4 taxonomy, A5 trie).
+        if key in settings:
+            profile[key] = settings[key]
+    if arm == "RL":
+        screening = settings.get("screening") or {}
+        profile.update(
+            loss_type=settings["loss_type"], scale_rewards=settings.get("scale_rewards", "group"),
+            beta=settings.get("beta"), group=screening.get("group_size"),
+            reward=(settings.get("reward") or {}).get("name", "exact"))
+    return profile
+
+
 def build_fragment(args, output):
     receipt = vlt.read_endpoint_receipt(output)
     record = json.loads((output / "local_training.json").read_text())
     settings = record["settings"]
-    if settings["mode"] != ARM_MODES[args.arm]:
-        raise FragmentError(f"arm {args.arm} needs trainer mode {ARM_MODES[args.arm]}, "
+    modes = SIGNAL_LIMIT_ARMS.get(args.arm) or (ARM_MODES[args.arm],)
+    if settings["mode"] not in modes:
+        raise FragmentError(f"arm {args.arm} needs trainer mode {' or '.join(modes)}, "
                             f"trainer ran {settings['mode']}")
     if settings["learning_rate"] != args.lr or settings["seed"] != args.seed:
         raise FragmentError("trainer learning rate or seed differs from the stage identity")
@@ -147,6 +186,7 @@ def build_fragment(args, output):
         "requested_boundary": receipt["requested_boundary"],
         "trainer_output": str(output),
     }
+    fragment.update(signal_limit_profile(args.arm, settings, initial))
     if args.arm == "RL":
         if args.scan_manifest is None:
             raise FragmentError("RL fragments need --scan-manifest")
@@ -175,7 +215,7 @@ def main(argv=None):
     split = argv.index("--")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--arm", choices=tuple(ARM_MODES), required=True)
+    parser.add_argument("--arm", choices=(*ARM_MODES, *SIGNAL_LIMIT_ARMS), required=True)
     parser.add_argument("--lr", type=float, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--fragment", type=Path, required=True)

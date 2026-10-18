@@ -2498,3 +2498,867 @@ def test_gold_nll_improved_is_none_without_a_pre_score():
     assert local.gold_nll_improved({"before_note": "continuation"}, 1.25) is None
     assert local.gold_nll_improved({"before_train_gold_nll": 2.0}, 1.25) is True
     assert local.gold_nll_improved({"before_train_gold_nll": 1.25}, 1.25) is False
+
+
+# ---------------------------------------------------------------------------------------
+# Signal-limit study trainer options (docs/aircraft-rl-next-study-v1.json work list).
+# Every expected value below is hand-computed from the fixture, never read off the subject.
+
+
+@pytest.mark.parametrize("group", [4, 8, 16])
+@pytest.mark.parametrize("p", [0.1, 0.5, 0.9])
+def test_dr_grpo_nostd_weight_is_g_minus_one_times_p(group, p):
+    hand = {4: 3, 8: 7, 16: 15}[group] * p
+    assert abs(local.expected_gradient_weight(p, group, scale_rewards="none") - hand) <= 1e-12
+    # Normalised at p = 0.5 the no-std limit is 2p for every G.
+    assert local.egsft_weight(p, group, scale_rewards="none") == pytest.approx(2 * p, abs=1e-12)
+    assert local.expected_gradient_weight(1.0, group, scale_rewards="none") == group - 1
+    assert local.expected_gradient_weight(0.0, group, scale_rewards="none") == 0
+    with pytest.raises(ValueError, match="group or none"):
+        local.expected_gradient_weight(p, group, scale_rewards="batch")
+
+
+def test_dr_grpo_nostd_weight_matches_monte_carlo_without_std():
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(2)
+    generator = torch.Generator().manual_seed(2026)
+    groups = 200_000
+    for p, group, hand in ((0.3, 8, 2.1), (0.7, 4, 2.1)):
+        pi = torch.tensor([p, (1 - p) / 2, (1 - p) / 2], dtype=torch.float64)
+        samples = torch.multinomial(pi, groups * group, replacement=True, generator=generator)
+        rewards = (samples == 0).to(torch.float64).view(groups, group)
+        advantages = rewards - rewards.mean(dim=1, keepdim=True)  # scale_rewards="none"
+        scores = torch.nn.functional.one_hot(samples, 3).to(torch.float64) - pi
+        per_group = (advantages.view(-1, 1) * scores).view(groups, group, 3).sum(dim=1)
+        estimate = per_group.mean(dim=0)
+        standard_error = per_group.std(dim=0) / groups**0.5
+        expected = hand * (torch.tensor([1.0, 0, 0], dtype=torch.float64) - pi)
+        assert ((estimate - expected).abs() <= 4 * standard_error + 1e-9).all(), (p, estimate)
+
+
+def test_egsft_band_is_the_screen_acceptance_set():
+    # u_8(p) = 1 - p^8 - (1-p)^8: 0.92^8 = 0.5132 (out), 0.91^8 = 0.4703 (in), symmetric.
+    for p, inside in ((0.08, False), (0.09, True), (0.5, True), (0.91, True), (0.92, False)):
+        assert local.egsft_in_band(p, 8) is inside
+    # G = 4 keeps the pre-registered [0.1594, 0.8406] band.
+    for p, inside in ((0.159, False), (0.16, True), (0.84, True), (0.841, False)):
+        assert local.egsft_in_band(p, 4) is inside
+
+
+def test_egsft_nostd_band_scales_loss_by_2p_and_zeroes_outside(tmp_path):
+    torch = pytest.importorskip("torch")
+    theta = torch.nn.Parameter(torch.tensor([0.5, -1.0]))
+    ce_calls = []
+
+    class Base:
+        state = SimpleNamespace(global_step=0)
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            ce_calls.append(self._vision_rl_prompt_id)
+            return (theta * torch.tensor([2.0, 3.0])).sum()
+
+    def trainer(band_group):
+        return local._trainer_with_egsft(
+            Base,
+            eos_token_ids=[_EOS],
+            suppress_tokens=[_IMAGE],
+            temperature=1.0,
+            group_size=8,
+            journal=tmp_path / f"egsft-{band_group}.jsonl",
+            scale_rewards="none",
+            band_group=band_group,
+        )()
+
+    policy = _BigramPolicy(_PLANTED, 8)
+    base_loss = 0.5 * 2 - 1.0 * 3
+    # Marker 5: p = 0.5 * 0.99 = 0.495, inside B_4 and B_8; weight 2p = 0.99.
+    four = trainer(4)
+    four._vision_rl_prompt_id = "mixed"
+    loss = four.compute_loss(policy, _gold_batch(5))
+    assert float(loss.detach()) == pytest.approx(0.99 * base_loss, rel=1e-6)
+    # Marker 4: p = 0.1 * 0.99 = 0.099; u_4 = 1 - 0.901^4 - 0.099^4 = 0.341 < 0.5: out of B_4.
+    four._vision_rl_prompt_id = "hard"
+    loss = four.compute_loss(policy, _gold_batch(4))
+    assert float(loss.detach()) == 0.0 and loss.requires_grad
+    # Out of band: TRL's CE forward never ran (only "mixed" reached it) and backward() on
+    # the zero leaf reaches no parameter; the optimizer step is skipped by the band guard.
+    assert ce_calls == ["mixed"]
+    loss.backward()
+    assert theta.grad is None
+    assert four._vision_rl_skip_step is True
+    rows = [json.loads(x) for x in (tmp_path / "egsft-4.jsonl").read_text().splitlines()]
+    assert [row["in_band"] for row in rows] == [True, False]
+    assert [row["optimizer_step"] for row in rows] == [True, False]
+    assert rows[1]["weight"] == 0.0 and rows[1]["p"] == pytest.approx(0.099, rel=1e-6)
+    # u_8(0.099) = 1 - 0.901^8 - 0.099^8 = 0.566: a larger G widens the band.
+    eight = trainer(8)
+    eight._vision_rl_prompt_id = "hard"
+    loss = eight.compute_loss(policy, _gold_batch(4))
+    assert float(loss.detach()) == pytest.approx(2 * 0.099 * base_loss, rel=1e-6)
+    assert ce_calls == ["mixed", "hard"]
+    # Outside a no-grad context only: evaluation (no gradient) still runs the CE pass, and
+    # without a band the legacy path always does.
+    four._vision_rl_prompt_id = "hard"
+    with torch.no_grad():
+        four.compute_loss(policy, _gold_batch(4))
+    assert ce_calls == ["mixed", "hard", "hard"]
+
+
+def test_egsft_band_skips_the_optimizer_step_and_leaves_adamw_state_untouched(tmp_path):
+    torch = pytest.importorskip("torch")
+    theta = torch.nn.Parameter(torch.tensor([0.5, -1.0]))
+
+    class Base:
+        state = SimpleNamespace(global_step=0)
+        optimizer = None
+
+        def create_optimizer(self):
+            self.optimizer = torch.optim.AdamW([theta], lr=0.1, weight_decay=0.0)
+            return self.optimizer
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            return (theta * torch.tensor([2.0, 3.0])).sum()
+
+    def build(band_group):
+        trainer = local._trainer_with_egsft(
+            Base, eos_token_ids=[_EOS], suppress_tokens=[_IMAGE], temperature=1.0,
+            group_size=8, journal=tmp_path / f"guard-{band_group}.jsonl",
+            scale_rewards="none", band_group=band_group)()
+        optimizer = trainer.create_optimizer()
+        # torch's LR scheduler rebinds optimizer.step.__func__; the guard must survive it.
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+        return trainer, optimizer, scheduler
+
+    def update(trainer, optimizer, scheduler, marker, identifier):
+        trainer._vision_rl_prompt_id = identifier
+        optimizer.zero_grad()
+        trainer.compute_loss(_BigramPolicy(_PLANTED, 8), _gold_batch(marker)).backward()
+        optimizer.step()
+        scheduler.step()
+
+    trainer, optimizer, scheduler = build(4)
+    # Marker 5: p = .495, in B_4 -> a real AdamW step moves theta and creates its state.
+    update(trainer, optimizer, scheduler, 5, "mixed")
+    after_first = theta.detach().clone()
+    assert not torch.equal(after_first, torch.tensor([0.5, -1.0]))
+    state = {k: v.clone() for k, v in optimizer.state[theta].items()}
+    assert int(state["step"]) == 1
+    # Marker 4: p = .099, outside B_4: AdamW would still move theta on its first moment
+    # (m = .9 m_prev, nonzero) if it stepped; the guard must leave theta and state as they are.
+    update(trainer, optimizer, scheduler, 4, "hard")
+    assert torch.equal(theta.detach(), after_first)
+    assert all(torch.equal(optimizer.state[theta][k], v) for k, v in state.items())
+    # Back in band: the step happens again and AdamW's count resumes at 2.
+    update(trainer, optimizer, scheduler, 5, "mixed")
+    assert not torch.equal(theta.detach(), after_first)
+    assert int(optimizer.state[theta]["step"]) == 2
+    # Without a band nothing is wrapped: the legacy EG-SFT optimizer is the plain one.
+    plain, plain_optimizer, _ = build(None)
+    assert not getattr(plain_optimizer.step, "_vision_rl_band_guard", False)
+
+
+def test_egsft_band_guard_holds_through_the_released_trainer_and_accelerate(
+    tmp_path, monkeypatch
+):
+    """The band guard on the real path: TRL's SFTTrainer builds the optimizer through
+    create_optimizer_and_scheduler, accelerate wraps it (AcceleratedOptimizer) and the
+    constant scheduler advances every step. AdamW's step count must equal the in-band count
+    the trainer journals, and the adapter must not move on an out-of-band step."""
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+    from transformers import TrainerCallback
+
+    torch.set_num_threads(2)
+    # Band membership by call order (the band function itself is tested above): steps 1
+    # and 3 in band, 2, 4 and 5 out.
+    pattern = iter([True, False, True, False, False])
+    monkeypatch.setattr(local, "egsft_in_band", lambda p, group: next(pattern))
+    order = ["r2", "r0", "r1"]
+    output = tmp_path / "band"
+    tokenizer, policy = _tiny_text_policy()
+    dataset = Dataset.from_dict(
+        {"id": order, "prompt": ["a b", "b c", "c a"], "completion": [" a", " b", " c"]}
+    )
+    args = trl.SFTConfig(
+        **local.trainer_kwargs(
+            "sft", output, local.Profile(), device="cpu", max_steps=5, learning_rate=1e-2,
+            seed=42, save_steps=5, order="sequential",
+        )
+    )
+    exposure = local._ExposureLedger(output, order)
+    audit = local._audit_callback(output, None, exposure=exposure)
+    constructor = local._trainer_with_egsft(
+        trl.SFTTrainer, eos_token_ids=[1], suppress_tokens=[], temperature=1.0, group_size=4,
+        journal=output / "egsft_weights.jsonl", journal_io_context=audit.timer.exclude_journal_io,
+        scale_rewards="none", band_group=4,
+    )
+    constructor = local._trainer_with_active_time(
+        local._trainer_with_sft_exposure(constructor, audit)
+    )
+    snapshots = []
+
+    class Snapshot(TrainerCallback):
+        def on_step_end(self, args, state, control, model=None, **kwargs):
+            snapshots.append({
+                name: value.detach().clone() for name, value in model.named_parameters()
+                if value.requires_grad})
+
+    trainer = constructor(
+        model=policy, args=args, processing_class=tokenizer, train_dataset=dataset,
+        callbacks=[audit, Snapshot()],
+    )
+    trainer.data_collator = local._sft_collator_with_ids(trainer.data_collator)
+    trainer.train()
+    assert trainer.state.global_step == 5
+    rows = [json.loads(x) for x in (output / "egsft_weights.jsonl").read_text().splitlines()]
+    assert [row["optimizer_step"] for row in rows] == [True, False, True, False, False]
+    assert [row["id"] for row in rows] == order + order[:2]
+    inner = getattr(trainer.optimizer, "optimizer", trainer.optimizer)
+    assert type(trainer.optimizer).__name__ == "AcceleratedOptimizer"
+    assert type(inner).__name__ == "AdamW"
+    steps = {int(state["step"]) for state in inner.state.values()}
+    assert steps == {2}  # the two in-band updates, nothing for the three outside
+    assert audit.summary["nonzero_gradient_steps"] == 2
+    for step in (1, 3, 4):  # snapshots[i] is after step i + 1: steps 2, 4 and 5 are out
+        assert all(torch.equal(snapshots[step][k], snapshots[step - 1][k])
+                   for k in snapshots[step])
+    assert not all(torch.equal(snapshots[2][k], snapshots[1][k]) for k in snapshots[2])
+    committed = json.loads((output / "checkpoint-5" / "egsft.json").read_text())
+    assert [row["optimizer_step"] for row in committed["entries"]] == [
+        True, False, True, False, False]
+
+
+def test_float16_training_refuses_in_train_local_before_any_output(
+    diagnostic, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        local,
+        "preflight",
+        lambda *_: {"adapter_source_sha256": local._file_sha256(Path(local.__file__))},
+    )
+    output = tmp_path / "out"
+    with pytest.raises(local.LocalVLMError, match="float16 training"):
+        local.train_local(
+            diagnostic / "train.jsonl",
+            None,
+            diagnostic / "data_spec.json",
+            output,
+            model_directory=tmp_path / "model",
+            device="cpu",
+            max_steps=4,
+            train_only=True,
+            profile=local.Profile(dtype="float16"),
+        )
+    assert not output.exists()
+
+
+def test_every_committed_label_collates_in_context_as_its_trie_canonical():
+    """hn_sft and hls_sft refuse a step whose collated in-context gold differs from
+    tokenizer.encode(label) + EOS. For all 100 committed labels, with the real processor and
+    collator: the collated canonical gold (through its first EOS) is the trie's canonical
+    sequence (scripts/build_label_trie.py's encode) plus one EOS, and equals the trainer's
+    label_token_ids sequence."""
+    released_trl()
+    model = Path(__file__).parents[1] / "data/models/Qwen2-VL-2B-Instruct-895c3a49"
+    if not (model / "preprocessor_config.json").is_file():
+        pytest.skip("requires the separately acquired pinned processor; never downloads")
+    import torch
+    from trl.trainer.sft_trainer import DataCollatorForVisionLanguageModeling
+
+    torch.set_num_threads(2)
+    trie = json.loads(
+        (Path(__file__).parents[1] / "data/fgvc-aircraft-2013b/audit/label-trie-qwen2vl2b.json"
+         ).read_text()
+    )
+    labels = trie["labels"]
+    assert len(labels) == 100
+    profile = replace(local.Profile(), min_pixels=50176, max_pixels=50176)
+    processor = local._processor(model, profile)
+    collator = DataCollatorForVisionLanguageModeling(
+        processor, max_length=None, completion_only_loss=True
+    )
+    spec = {"question": "Which aircraft variant is this?", "labels": labels}
+    image = Image.new("RGB", (224, 224), (120, 130, 140))
+    mismatched = []
+    for label in labels:
+        record = local.training_records(
+            [{"id": "x", "image": None, "label": label}], spec, "sft", profile.response_format
+        )[0]
+        record["image"] = image
+        _, _, canonical = local._supervised_completion(collator([record]), trie["eos_ids"])
+        encoded = processor.tokenizer.encode(label, add_special_tokens=False)
+        if not (canonical[:-1] == trie["entries"][label]["canonical"] == encoded
+                and canonical[-1] in trie["eos_ids"]):
+            mismatched.append(label)
+    assert mismatched == []
+    # Planted: another completion text collates to another sequence, so the check can fire.
+    record = local.training_records(
+        [{"id": "x", "image": None, "label": labels[0] + " X"}], spec, "sft",
+        profile.response_format,
+    )[0]
+    record["image"] = image
+    _, _, planted = local._supervised_completion(collator([record]), trie["eos_ids"])
+    assert planted[:-1] != trie["entries"][labels[0]]["canonical"]
+
+
+def test_grpo_loss_type_and_scale_rewards_reach_trainer_kwargs(tmp_path):
+    profile = local.Profile()
+    kwargs = dict(device="cpu", max_steps=4, learning_rate=1e-5, seed=42, save_steps=1)
+    legacy = local.trainer_kwargs("grpo", tmp_path, profile, **kwargs)
+    assert local.trainer_kwargs("grpo", tmp_path, profile, loss_type="grpo", **kwargs) == legacy
+    dr = local.trainer_kwargs(
+        "grpo", tmp_path, profile, beta=0, loss_type="dr_grpo", scale_rewards="none", **kwargs
+    )
+    assert (dr["loss_type"], dr["scale_rewards"], dr["beta"]) == ("dr_grpo", "none", 0)
+    assert {k: v for k, v in dr.items() if k not in {"loss_type", "scale_rewards", "beta"}} == {
+        k: v for k, v in legacy.items() if k not in {"loss_type", "scale_rewards", "beta"}
+    }
+    with pytest.raises(ValueError, match="only to GRPO"):
+        local.trainer_kwargs("sft", tmp_path, profile, loss_type="grpo", **kwargs)
+    with pytest.raises(ValueError, match="grpo or dr_grpo"):
+        local.trainer_kwargs("grpo", tmp_path, profile, loss_type="dapo", **kwargs)
+
+
+def test_released_grpo_config_accepts_dr_grpo_without_std(tmp_path):
+    trl = released_trl()
+    config = trl.GRPOConfig(
+        **local.trainer_kwargs(
+            "grpo",
+            tmp_path,
+            local.Profile(),
+            device="cpu",
+            max_steps=2,
+            learning_rate=1e-5,
+            seed=42,
+            save_steps=1,
+            beta=0.0,
+            loss_type="dr_grpo",
+            scale_rewards="none",
+        )
+    )
+    assert (config.loss_type, config.scale_rewards, config.beta) == ("dr_grpo", "none", 0.0)
+
+
+def test_beta_zero_refuses_without_explicit_loss_type(diagnostic, tmp_path, monkeypatch):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must refuse before model"))
+    with pytest.raises(ValueError, match="explicit loss_type"):
+        local.train_local(
+            diagnostic / "train.jsonl",
+            None,
+            diagnostic / "data_spec.json",
+            tmp_path / "out",
+            model_directory=tmp_path / "model",
+            max_steps=4,
+            train_only=True,
+            beta=0.0,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_signal_limit_options_enter_settings_only_when_non_default(
+    diagnostic, tmp_path, monkeypatch
+):
+    pytest.importorskip("torch")
+    plain = _settings_after_model_refusal(diagnostic, tmp_path, monkeypatch, "plain")
+    explicit = _settings_after_model_refusal(
+        diagnostic,
+        tmp_path,
+        monkeypatch,
+        "explicit-defaults",
+        loss_type="grpo",
+        scale_rewards="group",
+        reward="exact",
+    )
+    assert explicit["settings"] == plain["settings"]
+    beta_zero = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "beta-zero-legacy", beta=0.0, loss_type="grpo"
+    )
+    assert beta_zero["settings"] == dict(plain["settings"], beta=0.0)
+    assert beta_zero["regularization_profile"] == "beta-zero-ablation"
+    dr = _settings_after_model_refusal(
+        diagnostic,
+        tmp_path,
+        monkeypatch,
+        "dr",
+        beta=0.0,
+        loss_type="dr_grpo",
+        scale_rewards="none",
+    )
+    assert dr["settings"] == dict(
+        plain["settings"], beta=0.0, loss_type="dr_grpo", scale_rewards="none"
+    )
+    egsft = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "egsft-plain", mode="egsft"
+    )
+    limit = _settings_after_model_refusal(
+        diagnostic,
+        tmp_path,
+        monkeypatch,
+        "egsft-limit",
+        mode="egsft",
+        egsft_scale="none",
+        egsft_band_group=8,
+    )
+    assert set(egsft["settings"]["egsft"]) == {"group_size", "advantage_eps", "weight"}
+    assert limit["settings"]["egsft"]["scale_rewards"] == "none"
+    assert limit["settings"]["egsft"]["band"]["group_size"] == 8
+    assert limit["settings"]["egsft"]["band"]["threshold"] == 0.5
+
+
+def _write_json(path, value):
+    path.write_text(json.dumps(value))
+    return path
+
+
+def _confusion_doc(confusers):
+    # scripts/build_label_trie.py's map format; only "confusers" is read by the trainer.
+    return {"schema_version": 1, "map": {
+        gold: {"confusers": options, "family": [], "observed": options}
+        for gold, options in confusers.items()}}
+
+
+def _taxonomy_doc(variants):
+    # scripts/build_label_trie.py's taxonomy format; only "variants" is read by the trainer.
+    return {"schema_version": 1, "variants": variants, "families": {}, "manufacturers": {}}
+
+
+def _trie_doc(paths, eos_ids):
+    # scripts/build_label_trie.py's trie format: EOS-free paths per label plus the EOS IDs,
+    # with its content hash written out from the builder's stated rule (compact, sorted,
+    # ASCII JSON without sha256/provenance).
+    document = {"schema_version": 1, "eos_ids": eos_ids, "labels": list(paths),
+                "entries": {label: {"paths": options} for label, options in paths.items()}}
+    body = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return {**document, "sha256": hashlib.sha256(body.encode()).hexdigest(),
+            "provenance": {"note": "fixture"}}
+
+
+def test_label_loss_modes_bind_their_frozen_resources(diagnostic, tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    confusion = _write_json(tmp_path / "confusion.json", _confusion_doc({"blue": ["red"]}))
+    taxonomy = _write_json(
+        tmp_path / "taxonomy.json",
+        _taxonomy_doc(
+            {
+                "blue": {"family": "F", "manufacturer": "M"},
+                "red": {"family": "F", "manufacturer": "M"},
+            }
+        ),
+    )
+    trie = _write_json(tmp_path / "trie.json", _trie_doc({"blue": [[5]], "red": [[6]]}, [1]))
+    expected = {
+        "hn_sft": ("confusion_map", confusion, "completion-only-SFT-plus-confuser-unlikelihood"),
+        "hls_sft": ("taxonomy", taxonomy, "hierarchical-label-smoothed-completion-only-SFT"),
+        "cce_sft": ("label_trie", trie, "label-trie-constrained-completion-only-SFT"),
+    }
+    for mode, (name, path, profile_name) in expected.items():
+        record = _settings_after_model_refusal(
+            diagnostic, tmp_path, monkeypatch, mode, mode=mode, **{name: path}
+        )
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        key = {"confusion_map": "confusion_map_sha256", "taxonomy": "taxonomy_sha256"}.get(
+            name, "label_trie_sha256"
+        )
+        assert record["settings"][key] == digest
+        assert record["regularization_profile"] == profile_name
+        assert record["algorithm"] == f"TRL-{mode.upper()}"
+        assert record["settings"]["beta"] is None
+    hn_grpo = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "hn-grpo", reward="exact_hn", confusion_map=confusion
+    )
+    assert hn_grpo["settings"]["reward"] == {"name": "exact_hn", "confuser_reward": -0.5}
+
+
+def test_recorded_trainer_settings_feed_the_launcher_profile_checks(
+    diagnostic, tmp_path, monkeypatch
+):
+    """The settings train_local actually records, passed through trainer_fragment's
+    signal_limit_profile, satisfy the launcher's A2 identity (stage_table.A2_EGSFT) and carry
+    each label resource's sha256 under the key stage_table.ARM_RESOURCES names: a key renamed
+    on either side fails here, not in a real Stage A run."""
+    pytest.importorskip("torch")
+    import importlib
+    import sys
+
+    package = str(Path(__file__).parents[1] / "scripts" / "freshpool_launch")
+    monkeypatch.syspath_prepend(package)
+    trainer_fragment = importlib.import_module("trainer_fragment")
+    stage_table = importlib.import_module("stage_table")
+    assert sys.modules["stage_table"].__file__.startswith(package)
+    initial = {"weights_sha256": "c" * 64}
+    limit = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "a2", mode="egsft", egsft_scale="none",
+        egsft_band_group=8,
+    )
+    a2 = trainer_fragment.signal_limit_profile("A2", limit["settings"], initial)
+    assert {key: a2[key] for key in stage_table.A2_EGSFT} == stage_table.A2_EGSFT
+    assert (a2["egsft_scale"], a2["egsft_band_group"]) == ("none", 8)
+    lim16 = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "lim16", mode="egsft", egsft_scale="none",
+        egsft_band_group=16,
+    )
+    lim = trainer_fragment.signal_limit_profile("LIM-T", lim16["settings"], initial)
+    assert (lim["egsft_scale"], lim["egsft_band_group"]) == ("none", 16)
+    resources = {
+        "A3": ("confusion_map",
+               _write_json(tmp_path / "c.json", _confusion_doc({"blue": ["red"]}))),
+        "A4": ("taxonomy", _write_json(tmp_path / "t.json", _taxonomy_doc({
+            "blue": {"family": "F", "manufacturer": "M"},
+            "red": {"family": "F", "manufacturer": "M"}}))),
+        "A5": ("label_trie", _write_json(
+            tmp_path / "trie.json", _trie_doc({"blue": [[5]], "red": [[6]]}, [1]))),
+    }
+    modes = {"A3": "hn_sft", "A4": "hls_sft", "A5": "cce_sft"}
+    for arm, (name, path) in resources.items():
+        record = _settings_after_model_refusal(
+            diagnostic, tmp_path, monkeypatch, arm, mode=modes[arm], **{name: path})
+        profile = trainer_fragment.signal_limit_profile(arm, record["settings"], initial)
+        plan_key, fragment_key = stage_table.ARM_RESOURCES[arm]
+        assert plan_key == name
+        assert profile[fragment_key] == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert profile["mode"] == modes[arm]
+    dr = _settings_after_model_refusal(
+        diagnostic, tmp_path, monkeypatch, "rl", beta=0.0, loss_type="dr_grpo",
+        scale_rewards="none",
+    )
+    rl = trainer_fragment.signal_limit_profile("RL", dr["settings"], initial)
+    assert (rl["loss_type"], rl["scale_rewards"], rl["beta"], rl["reward"]) == (
+        "dr_grpo", "none", 0.0, "exact")
+
+
+def test_signal_limit_options_refuse_before_model_access(diagnostic, tmp_path, monkeypatch):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must refuse before model"))
+    output = tmp_path / "out"
+    base = dict(
+        train=diagnostic / "train.jsonl",
+        validation=None,
+        data_spec=diagnostic / "data_spec.json",
+        output=output,
+        model_directory=tmp_path / "model",
+        max_steps=4,
+        train_only=True,
+    )
+    self_map = _write_json(tmp_path / "self.json", _confusion_doc({"blue": ["blue"]}))
+    for kwargs, match in (
+        ({"mode": "sft", "loss_type": "dr_grpo"}, "only to GRPO"),
+        ({"mode": "sft", "scale_rewards": "none"}, "only to GRPO"),
+        ({"loss_type": "dapo"}, "grpo or dr_grpo"),
+        ({"reward": "exact_hn"}, "confusion_map is required"),
+        ({"mode": "sft", "reward": "exact_hn", "confusion_map": self_map}, "exact_hn for GRPO"),
+        ({"mode": "hn_sft"}, "confusion_map is required"),
+        ({"mode": "hls_sft"}, "taxonomy is required"),
+        ({"mode": "cce_sft"}, "label_trie is required"),
+        ({"mode": "sft", "label_trie": tmp_path / "t.json"}, "label_trie is required"),
+        ({"mode": "sft", "egsft_scale": "none"}, "only to EG-SFT"),
+        ({"mode": "egsft", "egsft_band_group": 5}, "4, 8 or 16"),
+        ({"mode": "hn_sft", "confusion_map": self_map}, "own confuser"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            local.train_local(**dict(base, **kwargs))
+    assert not output.exists()
+
+
+def test_exact_hn_reward_is_separately_named_and_penalises_only_map_confusers(tmp_path):
+    labels = ["blue", "red", "green"]
+    path = tmp_path / "hn.jsonl"
+    reward = local.make_reward(
+        labels, 4, [99], path, reward="exact_hn", confusers={"blue": ["red"]}
+    )
+    assert reward.__name__ == "exact_hn_reward"
+    assert local.make_reward(labels, 4, [99], tmp_path / "x").__name__ == "exact_label_accuracy"
+    # gold, map confuser, non-map wrong label, unterminated confuser (invalid -> 0).
+    rewards = reward(
+        ["blue", "red", "green", "red"], ["blue"] * 4, ["i"] * 4, [[99], [99], [99], [7]]
+    )
+    assert rewards == [1.0, -0.5, 0.0, 0.0]
+    row = json.loads(path.read_text())
+    assert row["rewards"] == [1.0, -0.5, 0.0, 0.0]
+    assert row["exact"] == [1.0, 0.0, 0.0, 0.0]
+    assert row["confuser"] == [False, True, False, False]
+    assert reward.stats["confuser_completions"] == 1 and reward.stats["mixed_groups"] == 1
+    # All confusers: mixed by reward = no; no exact gold, so it counts as an all-zero group.
+    assert reward(["red"] * 4, ["blue"] * 4, ["j"] * 4, [[99]] * 4) == [-0.5] * 4
+    assert reward.stats["mixed_groups"] == 1 and reward.stats["all_zero_groups"] == 1
+    assert reward.stats["all_correct_groups"] == 0
+    with pytest.raises(ValueError, match="frozen confusion map"):
+        local.make_reward(labels, 4, [99], path, reward="exact_hn")
+    legacy = local.make_reward(labels, 4, [99], tmp_path / "legacy.jsonl")
+    legacy(["blue", "red", "green", "red"], ["blue"] * 4, ["i"] * 4, [[99], [99], [99], [7]])
+    assert "confuser_completions" not in legacy.stats
+    assert set(json.loads((tmp_path / "legacy.jsonl").read_text())) == {
+        "id", "label", "rewards", "mixed", "recognition_mixed", "canonical_predictions",
+        "completions", "completion_ids", "completion_tokens", "terminated",
+        "complete_think_block",
+    }
+
+
+# Label fixture: 0 pad, 1 EOS, 3 prompt start, 5 marker, 6 gold "g", 4 confuser "a",
+# 7 confuser "b" (and the post-EOS template tail), 8 second token of label "gx".
+_LABELS = {
+    5: {6: 0.5, 4: 0.3, 7: 0.2},
+    6: {1: 0.9, 8: 0.05, 2: 0.05},
+    4: {1: 1.0},
+    7: {1: 1.0},
+    8: {1: 1.0},
+    1: {7: 1.0},
+}
+_LABEL_IDS = {"g": [6], "a": [4], "b": [7], "gx": [6, 8]}
+
+
+def _label_batch():
+    torch = pytest.importorskip("torch")
+    ids = torch.tensor([[3, 5, 6, 1, 7]])
+    labels = torch.tensor([[-100, -100, 6, 1, 7]])
+    return {"input_ids": ids, "attention_mask": torch.ones_like(ids), "labels": labels}
+
+
+def _label_trainer(tmp_path, mode, base_loss=1.0, label_token_ids=_LABEL_IDS, **resources):
+    torch = pytest.importorskip("torch")
+    anchor = torch.nn.Parameter(torch.tensor(base_loss))
+
+    class Base:
+        state = SimpleNamespace(global_step=2)
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            assert "labels" in inputs
+            return (anchor * 1.0, "outputs") if return_outputs else anchor * 1.0
+
+    trainer = local._trainer_with_label_loss(
+        Base,
+        mode=mode,
+        journal=tmp_path / f"{mode}.jsonl",
+        labels_by_id={"row": "g"},
+        eos_token_ids=[1],
+        label_token_ids=label_token_ids,
+        **resources,
+    )()
+    trainer._vision_rl_prompt_id = "row"
+    return trainer
+
+
+def test_hn_sft_picks_top_live_confuser_and_its_term_lowers_pi_c(tmp_path):
+    torch = pytest.importorskip("torch")
+    policy = _BigramPolicy(_LABELS, 9)
+    trainer = _label_trainer(tmp_path, "hn_sft", confusers={"g": ["b", "a"]})
+    loss = trainer.compute_loss(policy, _label_batch())
+    # The pick is scored in eval mode (no LoRA dropout) and the policy is back in train mode
+    # for the gradient pass.
+    assert policy.modes == ["eval", "train=True"] and policy.training
+    # "a" (0.3) beats "b" (0.2) although listed second; term = -log(1 - 0.3).
+    assert float(loss.detach()) == pytest.approx(1.0 + 0.5 * -math.log(0.7), rel=1e-6)
+    row = json.loads((tmp_path / "hn_sft.jsonl").read_text())
+    assert row["confuser"] == "a" and row["global_step"] == 3
+    assert row["confuser_probability"] == pytest.approx(0.3, rel=1e-6)
+    loss.backward()
+    # d/dz[5,4] of 0.5 * -log(1 - pi_a) = 0.5 * pi_a = 0.15; d/dz[5,6] = 0.5 * -pi_a pi_g / 0.7.
+    assert float(policy.parameter.grad[5, 4]) == pytest.approx(0.15, rel=1e-5)
+    assert float(policy.parameter.grad[5, 6]) == pytest.approx(-0.5 * 0.3 * 0.5 / 0.7, rel=1e-5)
+    assert float(policy.parameter.grad[4, 1]) == pytest.approx(0.0, abs=1e-9)
+    prompt = {"input_ids": torch.tensor([[3, 5]]), "attention_mask": torch.ones(1, 2)}
+
+    def pi_a():
+        return math.exp(
+            local._completion_logprob(policy, prompt, [4, 1], temperature=1.0, suppress_tokens=())
+        )
+
+    before = pi_a()
+    with torch.no_grad():
+        policy.parameter -= 1.0 * policy.parameter.grad
+    assert pi_a() < before
+
+
+def test_hn_sft_without_confuser_is_plain_ce_and_refuses_bad_resources(tmp_path):
+    policy = _BigramPolicy(_LABELS, 9)
+    trainer = _label_trainer(tmp_path, "hn_sft", confusers={"a": ["g"]})
+    assert float(trainer.compute_loss(policy, _label_batch()).detach()) == 1.0
+    assert json.loads((tmp_path / "hn_sft.jsonl").read_text())["confuser"] is None
+    trainer = _label_trainer(tmp_path, "hn_sft", confusers={"g": ["g"]})
+    with pytest.raises(local.LocalVLMError, match="equals the gold"):
+        trainer.compute_loss(policy, _label_batch())
+    with pytest.raises(ValueError, match="own confuser"):
+        local.load_confusion_map(
+            _write_json(tmp_path / "m.json", _confusion_doc({"g": ["g"]})),
+            ["g", "a"],
+        )
+    mismatched = _label_trainer(
+        tmp_path, "hn_sft", label_token_ids=dict(_LABEL_IDS, g=[7]), confusers={"g": ["a"]}
+    )
+    with pytest.raises(local.LocalVLMError, match="differs from collated gold"):
+        mismatched.compute_loss(policy, _label_batch())
+
+
+def test_hls_targets_and_loss_follow_the_taxonomy(tmp_path):
+    taxonomy = {
+        "A1": {"family": "F1", "manufacturer": "M"},
+        "A2": {"family": "F1", "manufacturer": "M"},
+        "B1": {"family": "F2", "manufacturer": "M"},
+        "C1": {"family": "F3", "manufacturer": "N"},
+    }
+    assert local.hls_targets("A1", taxonomy) == pytest.approx({"A1": 0.9, "A2": 0.05, "B1": 0.05})
+    assert local.hls_targets("B1", taxonomy) == pytest.approx(
+        {"B1": 0.95, "A1": 0.025, "A2": 0.025}
+    )
+    assert local.hls_targets("C1", taxonomy) == {"C1": 1.0}
+    with pytest.raises(ValueError, match="every declared label"):
+        local.load_taxonomy(
+            _write_json(tmp_path / "t.json", _taxonomy_doc(taxonomy)),
+            ["A1", "A2", "B1", "C1", "D1"],
+        )
+    policy = _BigramPolicy(_LABELS, 9)
+    labels = {
+        "g": {"family": "F", "manufacturer": "M"},
+        "a": {"family": "F", "manufacturer": "M"},
+        "b": {"family": "X", "manufacturer": "N"},
+        "gx": {"family": "Y", "manufacturer": "N"},
+    }
+    trainer = _label_trainer(tmp_path, "hls_sft", base_loss=2.0, taxonomy=labels)
+    loss = trainer.compute_loss(policy, _label_batch())
+    # q_g = 0.95 (no manufacturer tier) on the gold's own label sequence [6, EOS], mean NLL
+    # -(ln .5 + ln .9)/2, NOT TRL's CE (2.0, which also averages the post-EOS tail);
+    # q_a = 0.05 on mean NLL of [4, EOS] = -(ln .3 + 0)/2.
+    gold = -(math.log(0.5) + math.log(0.9)) / 2
+    assert float(loss.detach()) == pytest.approx(0.95 * gold + 0.05 * -math.log(0.3) / 2,
+                                                 rel=1e-6)
+
+
+def test_trie_masked_logprob_and_cce_loss(tmp_path):
+    torch = pytest.importorskip("torch")
+    policy = _BigramPolicy(_LABELS, 9)
+    sequences = {"g": [[6, 1]], "a": [[4, 1]], "gx": [[6, 8, 1]]}
+    trie = local.label_trie(sequences)
+    assert local.trie_allowed(trie, []) == [4, 6]
+    assert local.trie_allowed(trie, [6]) == [1, 8]
+    assert local.trie_allowed(trie, [6, 1]) is None and local.trie_allowed(trie, [7]) is None
+    mask = local.trie_position_mask(trie, [6, 1, 7])
+    assert mask == [[4, 6], [1, 8], None]
+    prompt = {"input_ids": torch.tensor([[3, 5]]), "attention_mask": torch.ones(1, 2)}
+    score = dict(temperature=1.0, suppress_tokens=())
+    unmasked = local._completion_logprob(policy, prompt, [6, 1, 7], **score)
+    assert unmasked == pytest.approx(math.log(0.5) + math.log(0.9), rel=1e-6)
+    masked = local._completion_logprob(policy, prompt, [6, 1, 7], allowed_tokens=mask, **score)
+    # Constrained: P(6 | {4, 6}) = .5/.8, P(EOS | {1, 8}) = .9/.95, tail unrestricted (1.0).
+    assert masked == pytest.approx(math.log(0.5 / 0.8) + math.log(0.9 / 0.95), rel=1e-6)
+    # Forced fire: a planted off-trie token scores -inf under the mask.
+    assert local._completion_logprob(
+        policy, prompt, [7, 1], allowed_tokens=[[4, 6], None], **score
+    ) == -math.inf
+    trainer = _label_trainer(tmp_path, "cce_sft", trie=trie)
+    loss = trainer.compute_loss(policy, _label_batch())
+    hand = -(math.log(0.5 / 0.8) + math.log(0.9 / 0.95) + 0.0) / 3
+    assert float(loss.detach()) == pytest.approx(hand, rel=1e-6)
+    assert json.loads((tmp_path / "cce_sft.jsonl").read_text())["constrained_positions"] == 2
+    loss.backward()
+    assert float(policy.parameter.grad[5, 7]) == 0.0  # masked logit gets no gradient
+    # With no restriction the same path is TRL's completion-only CE (mean over 3 tokens).
+    free = local._completion_token_logps(
+        policy, prompt, [6, 1, 7], allowed_tokens=[None] * 3, **score
+    )
+    assert float(local.constrained_nll(free[0], 3).detach()) == pytest.approx(
+        -(math.log(0.5) + math.log(0.9)) / 3, rel=1e-6
+    )
+    off = _label_trainer(tmp_path, "cce_sft", trie=local.label_trie({"a": [[4, 1]]}))
+    with pytest.raises(local.LocalVLMError, match="leaves the label trie"):
+        off.compute_loss(policy, _label_batch())
+    with pytest.raises(ValueError, match="proper prefix"):
+        local.label_trie({"g": [[6, 1]], "h": [[6, 1, 8, 1]]})
+
+
+def test_label_trie_logits_processor_masks_off_trie_tokens_for_constrained_greedy():
+    torch = pytest.importorskip("torch")
+    trie = local.label_trie({"g": [[6, 1]], "a": [[4, 1]], "gx": [[6, 8, 1]]})
+    processor = local.label_trie_logits_processor(trie, 2)
+    assert processor.scope.startswith("assay-only")
+    input_ids = torch.tensor([[3, 5, 9], [3, 5, 6], [3, 5, 4]])
+    scores = torch.zeros(3, 10)
+    scores[:, 7] = 5.0  # planted off-trie favourite
+    out = processor(input_ids[:, :2], scores.clone())
+    for row in range(3):
+        assert torch.isfinite(out[row]).nonzero().flatten().tolist() == [4, 6]
+    out = processor(input_ids, scores.clone())
+    assert out[0].tolist() == scores[0].tolist()  # off-trie prefix: left unrestricted
+    assert torch.isfinite(out[1]).nonzero().flatten().tolist() == [1, 8]
+    assert torch.isfinite(out[2]).nonzero().flatten().tolist() == [1]
+    transformers = pytest.importorskip("transformers")
+    chained = transformers.LogitsProcessorList([processor])(input_ids[:, :2], scores.clone())
+    assert int(chained[0].argmax()) == 4  # greedy can no longer pick the planted token 7
+
+
+def test_cuda_and_float16_options_validate_without_hardware(monkeypatch):
+    local.Profile(dtype="float16").validate()
+    with pytest.raises(ValueError, match="float16"):
+        local.Profile(dtype="int8").validate()
+    monkeypatch.setattr(local.metadata, "version", lambda _: "wrong")
+    with pytest.raises(local.LocalVLMError, match="Expected torch"):
+        local.preflight("cuda")  # cuda passes the device gate, then the stack check runs
+    with pytest.raises(local.LocalVLMError, match="mps, cpu or cuda"):
+        local.preflight("tpu")
+    card = {"name": "RTX 2080 Ti", "capability": [7, 5], "native_bfloat16": False}
+    with pytest.raises(local.LocalVLMError, match="no native bfloat16"):
+        local._refuse_unsupported_dtype({"cuda_device": card}, local.Profile(dtype="bfloat16"))
+    local._refuse_unsupported_dtype({"cuda_device": card}, local.Profile(dtype="float16"))
+    local._refuse_unsupported_dtype({}, local.Profile(dtype="bfloat16"))
+    # float16 is inference-only: no GradScaler (fp16=False), so training refuses it anywhere.
+    for environment in ({"cuda_device": card}, {}):
+        with pytest.raises(local.LocalVLMError, match="float16 training"):
+            local._refuse_unsupported_dtype(
+                environment, local.Profile(dtype="float16"), training=True)
+    with pytest.raises(local.LocalVLMError, match="use float32"):
+        local._refuse_unsupported_dtype(
+            {"cuda_device": card}, local.Profile(dtype="bfloat16"), training=True)
+    local._refuse_unsupported_dtype({}, local.Profile(), training=True)  # float32 trains
+
+
+def test_cli_passes_signal_limit_options_and_inference_takes_only_the_trie(monkeypatch, capsys):
+    seen = {}
+
+    def train(**kwargs):
+        seen.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(local, "train_local", train)
+    args = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
+    argv = args + ["--beta", "0", "--loss-type", "dr_grpo", "--scale-rewards", "none",
+                   "--reward", "exact_hn", "--confusion-map", "m.json", "--device", "cuda",
+                   "--dtype", "float16"]
+    assert local.main(argv) == 0
+    assert (seen["loss_type"], seen["scale_rewards"], seen["reward"]) == (
+        "dr_grpo", "none", "exact_hn"
+    )
+    assert seen["confusion_map"] == Path("m.json") and seen["device"] == "cuda"
+    assert seen["profile"].dtype == "float16"
+    assert local.main(args + ["--mode", "egsft", "--egsft-scale", "none",
+                              "--egsft-band-group", "8"]) == 0
+    assert (seen["egsft_scale"], seen["egsft_band_group"]) == ("none", 8)
+    assert local.main(args + ["--mode", "cce_sft", "--label-trie", "trie.json"]) == 0
+    assert seen["mode"] == "cce_sft" and seen["label_trie"] == Path("trie.json")
+    capsys.readouterr()
+
+    def predict(manifest, **kwargs):
+        assert kwargs["label_trie"] == Path("trie.json")
+        return {"optimizer_steps": 0}
+
+    monkeypatch.setattr(local, "predict_train_subset", predict)
+    inference = ["--predict-train", "train.jsonl", "--data-spec", "spec.json", "--output",
+                 "out", "--model-directory", "model"]
+    assert local.main(inference + ["--label-trie", "trie.json"]) == 0
+    for extra in (["--loss-type", "dr_grpo"], ["--scale-rewards", "none"],
+                  ["--egsft-band-group", "8"], ["--taxonomy", "t.json"]):
+        with pytest.raises(SystemExit):
+            local.main(inference + extra)
+    monkeypatch.setattr(local, "sample_train_groups", lambda *a, **k: pytest.fail("refuse"))
+    sample = ["--sample-train", "train.jsonl"] + inference[2:]
+    with pytest.raises(SystemExit):
+        local.main(sample + ["--label-trie", "trie.json"])
+
+
+def test_constrained_greedy_is_refused_for_sampling(diagnostic, tmp_path):
+    with pytest.raises(ValueError, match="greedy-only"):
+        local.predict_train_subset(
+            diagnostic / "train.jsonl",
+            diagnostic / "data_spec.json",
+            tmp_path / "out",
+            model_directory=tmp_path / "model",
+            sample_groups=True,
+            label_trie=tmp_path / "trie.json",
+        )
