@@ -264,3 +264,22 @@ the gcd of the declared stops and any `resume_stop`, which is the same in every 
 saves at every boundary. Nothing about updates, data or schedules changes. The sftall arms
 launched before the fix will refuse their epoch-2 stage; each is continued from its kept
 checkpoint-2329 under the fixed payload, on the same host.
+
+## Engineering fix 2 (2026-10-18, plan-neutral): save_steps across rungs, host table, continuations
+
+- **save_steps across rungs.** The gcd of an arm's own stops and `resume_stop` drifts across
+  rungs (150 → 600 → 1500 gives 150, 150, 300), so every rung-3 resume would have refused.
+  A promoted arm now carries `save_steps`, the value its trajectory started with: 150 for seed
+  42 and 600 for a seed entering at rung 2.
+- **Host table.** uwrun v5 added `cores` and `ourThr` columns to `uwrun hosts`. The positional
+  parser then read physical cores as free GB, with no error. The runner now reads columns by
+  header and refuses when one is missing. Capacity counts physical cores, which is how uwrun v5
+  places runs.
+- **Payload rollout.** A host is re-bootstrapped with the pinned payload (`runner.py refresh`)
+  only once none of our arms is LAUNCHED or RUNNING on it, because bootstrap rewrites
+  `ROOT/payload`. Until then its matched controls wait (skipped, not launched) instead of
+  aborting the whole launch pass.
+- **sftall continuation.** `runner.py continue ARM --reason R` retires the FAILED record as
+  `ARM#failN` and relaunches the remaining stops in place on the same host: same id and work
+  dir, `resume_stop` set to the last completed stop, and the earlier endpoints carried into the
+  new summary.

@@ -7,8 +7,10 @@ All heavy work runs on UW hosts through ~/.claude/bin/uwrun; this script only la
 polls and fetches small files, so it is light enough for the Mac under quiet mode
 (Python 3.9 standard library only).
 
-  runner.py bootstrap --payload DIR --host H [--host H ...]
+  runner.py bootstrap --payload DIR [--repin] [--host H ...]  # no host: pin only
   runner.py receipts                       # read every host's bootstrap receipt into state
+  runner.py refresh                        # bootstrap the pinned payload on drained stale hosts
+  runner.py continue ARM --reason R        # FAILED multi-stop arm: rest of its stops, in place
   runner.py launch --table T [--ids A,B] [--wave 1] [--rung 1] [--hosts H,...]
                    [--max-launch N] [--timeout S] [--dry-run]
   runner.py bench --host H --kind grpo4|grpo8|sft [--steps N] [--threads 16]
@@ -102,14 +104,33 @@ def run_status(name: str) -> str:
     return out[-1] if out else "UNKNOWN"
 
 
-def host_table() -> dict:
-    """{host: {load1, nproc, avail_gb, local_gb}} from `uwrun hosts all`."""
+def host_table(text: str | None = None) -> dict:
+    """{host: {load1, nproc, cores, avail_gb, local_gb}} from `uwrun hosts all`.
+
+    Columns are found by the header row, never by position: uwrun v5 inserted `cores` and
+    `ourThr`, which shifted availGB and localGB, and positional parsing then read physical
+    cores as free GB without any error. A missing column refuses. `cores` is physical cores
+    (uwrun v5 places by them: a second hardware thread adds 0-3% here, measured by uwrun).
+    """
+    lines = (uw("hosts", "all", timeout=300) if text is None else text).splitlines()
+    header = next((ln.split() for ln in lines if ln.split()[:2] == ["host", "load1"]), None)
+    need = ("load1", "nproc", "cores", "availGB", "localGB")
+    if header is None or not set(need) <= set(header):
+        raise SystemExit(f"REFUSE: `uwrun hosts all` header lacks {need}: {header}")
+    col = {k: header.index(k) for k in need}
     hosts = {}
-    for line in uw("hosts", "all", timeout=300).splitlines():
+    for line in lines:
         parts = line.split()
-        if len(parts) >= 6 and parts[1].replace(".", "", 1).isdigit():
-            hosts[parts[0]] = {"load1": float(parts[1]), "nproc": int(parts[2]),
-                               "avail_gb": float(parts[3]), "local_gb": float(parts[5])}
+        if len(parts) != len(header) or parts[0] == "host":
+            continue
+        try:
+            hosts[parts[0]] = {"load1": float(parts[col["load1"]]),
+                               "nproc": int(parts[col["nproc"]]),
+                               "cores": int(parts[col["cores"]]),
+                               "avail_gb": float(parts[col["availGB"]]),
+                               "local_gb": float(parts[col["localGB"]])}
+        except ValueError:
+            raise SystemExit(f"REFUSE: unparsable `uwrun hosts` row: {line!r}")
     if not hosts:
         raise SystemExit("REFUSE: `uwrun hosts all` returned no parsable host rows")
     return hosts
@@ -120,7 +141,25 @@ def safe_name(text: str) -> str:
 
 
 # ---- bootstrap and receipts ------------------------------------------------------------
+# uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+MIN_LOCAL_GB = 3.0
+
+
+def low_disk_hosts(hosts: dict, names) -> list:
+    """Hosts whose free /var/tmp (uwrun's localGB) is below MIN_LOCAL_GB, or not listed at all."""
+    return sorted(h for h in names if (hosts.get(h) or {}).get("local_gb", 0.0) < MIN_LOCAL_GB)
+
+
 def cmd_bootstrap(a, state_path: Path) -> int:
+    live = sorted({x.get("host") for x in read_state(state_path)["arms"].values()
+                   if x.get("status") in ("LAUNCHED", "RUNNING")} & set(a.host))
+    if live:
+        raise SystemExit(f"REFUSE: {live} run our arms; bootstrap rewrites ROOT/payload under"
+                         " them (wait until drained; `refresh` does this)")
+    low = low_disk_hosts(host_table(), a.host)
+    if low:
+        raise SystemExit(f"REFUSE: {low} have < {MIN_LOCAL_GB} GB free in /var/tmp (uwrun hosts"
+                         " localGB); the payload sync would fill a shared disk")
     payload = Path(a.payload).resolve()
     doc = json.loads((payload / "PAYLOAD.json").read_bytes())
     import hashlib
@@ -174,6 +213,34 @@ def cmd_receipts(a, state_path: Path) -> int:
     return 1 if bad else 0
 
 
+def drained_stale_hosts(state: dict) -> list:
+    """Hosts whose receipt is for an older payload, none of our arms LAUNCHED/RUNNING on them,
+    and no bootstrap of the pinned payload already issued (one attempt; a failed one shows in
+    `receipts` and is not retried here). Re-bootstrapping rewrites ROOT/payload, so it never
+    happens under a live arm."""
+    pinned = state.get("payload", {}).get("sha256")
+    live = {x.get("host") for x in state["arms"].values()
+            if x.get("status") in ("LAUNCHED", "RUNNING")}
+    return sorted(host for host, h in state["hosts"].items()
+                  if (h.get("receipt") or {}).get("payload_sha256") not in (None, pinned)
+                  and host not in live and h.get("boot_payload_sha256") != pinned)
+
+
+def cmd_refresh(a, state_path: Path) -> int:
+    """Bootstrap the pinned payload on every drained host whose receipt is stale."""
+    state = read_state(state_path)
+    hosts = drained_stale_hosts(state)
+    low = low_disk_hosts(host_table(), hosts)
+    for host in low:
+        print(f"refresh: skip {host}: < {MIN_LOCAL_GB} GB free in /var/tmp")
+    hosts = [h for h in hosts if h not in low]
+    if not hosts:
+        print("refresh: no drained host with a stale receipt")
+        return 0
+    return cmd_bootstrap(argparse.Namespace(payload=state["payload"]["dir"], host=hosts,
+                                            repin=False), state_path)
+
+
 def receipt_gpu(device: dict) -> str | None:
     """The GPU model class a receipt's device names (None for a CPU receipt)."""
     if device.get("kind") != "cuda":
@@ -210,7 +277,7 @@ def valid_receipt(state: dict, host: str, features, spec: dict | None = None) ->
 
 # ---- launching ------------------------------------------------------------------------
 def capacity(state: dict, hosts: dict, host: str, threads: int, device: str = "cpu") -> int:
-    """Arms of `threads` threads `host` can take now, keeping 25% of cores and memory."""
+    """Arms of `threads` threads `host` can take now, keeping 25% of physical cores and memory."""
     t = hosts.get(host)
     if t is None:
         return 0
@@ -221,7 +288,7 @@ def capacity(state: dict, hosts: dict, host: str, threads: int, device: str = "c
     our_threads = sum(x.get("threads", 16) for x in ours)
     # load1 lags a fresh launch; count our own arms at full weight until load reflects them
     busy = max(t["load1"], our_threads)
-    cores = HEADROOM * t["nproc"] - busy
+    cores = HEADROOM * t["cores"] - busy  # physical cores, as uwrun v5 places
     recent = sum(ARM_RSS_GB for x in ours if time.time() - x.get("launched_ts", 0) < 900)
     mem = HEADROOM * t["avail_gb"] - recent
     return max(0, min(int(cores // threads), int(mem // ARM_RSS_GB)))
@@ -277,6 +344,71 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     return name
 
 
+def continuation_spec(spec: dict, summary: dict) -> dict:
+    """The rest of a FAILED multi-stop arm, resumed in place from its last completed stop.
+
+    Same id, work dir and host; the completed endpoints are carried into the new summary.
+    Refuses unless the completed `step` endpoints are exactly a proper prefix of the stops."""
+    # a continuation keeps the arm's full stop list, so it can itself be continued
+    stops = [int(x) for x in spec.get("stops_all") or spec.get("stops") or []]
+    # the stop each endpoint was cut at (label stepN): an RFT endpoint's `steps` can pass its
+    # stop (round-granular boundary); for every other mode label and steps agree
+    done = [int(str(e["label"])[4:]) for e in summary.get("endpoints", [])
+            if str(e.get("label", "")).startswith("step")]
+    if not done or done != stops[:len(done)] or len(done) >= len(stops):
+        raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
+    cont = dict(spec)
+    cont.update(stops=stops[len(done):], stops_all=stops, resume_stop=done[-1],
+                save_steps=arm_exec_module().save_steps_for(spec, int(spec["max_steps_total"])),
+                work_id=spec.get("work_id", spec["id"]),
+                prior_endpoints=summary["endpoints"])
+    return cont
+
+
+def cmd_continue(a, state_path: Path) -> int:
+    """Retire a FAILED arm's record (ARM#failN) and relaunch its remaining stops in place."""
+    state = read_state(state_path)
+    x = state["arms"].get(a.arm) or {}
+    if x.get("status") != "FAILED":
+        raise SystemExit(f"REFUSE: {a.arm} is {x.get('status')}, not FAILED")
+    spec = json.loads(Path(x["spec_path"]).read_text())
+    summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+    cont = continuation_spec(spec, summary)
+    cont["continued_from_run"] = x["run"]
+    host = x["host"]
+    r = valid_receipt(state, host, cont.get("features", []), cont)
+    if capacity(state, host_table(), host, cont.get("threads", 16),
+                cont.get("device", "cpu")) < 1 and not a.dry_run:
+        raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
+    if a.dry_run:
+        launch_one(state_path, cont, host, r["root"], a.timeout, True)
+        return 0
+    with state_lock(state_path) as st:
+        n = 1
+        while f"{a.arm}#fail{n}" in st["arms"]:
+            n += 1
+        retired = f"{a.arm}#fail{n}"
+        rec = st["arms"].pop(a.arm)
+        rec.update(retired_reason=a.reason, retired_at=now(), retired_from=a.arm,
+                   kind="retired", continued_by=True)
+        st["arms"][retired] = rec
+    try:
+        launch_one(state_path, cont, host, r["root"], a.timeout, False)
+    except BaseException:
+        # the launch never happened: put the FAILED record back, so a plain `launch` cannot
+        # treat the arm as new and restart it from scratch over its kept checkpoints
+        with state_lock(state_path) as st:
+            if a.arm not in st["arms"]:
+                rec = st["arms"].pop(retired)
+                for k in ("retired_reason", "retired_at", "retired_from", "kind",
+                          "continued_by"):
+                    rec.pop(k, None)
+                rec["kind"] = x.get("kind", "train")
+                st["arms"][a.arm] = rec
+        raise
+    return 0
+
+
 def cmd_launch(a, state_path: Path) -> int:
     table = json.loads(Path(a.table).read_text())
     if table.get("study_id") != STUDY:
@@ -324,8 +456,8 @@ def cmd_launch(a, state_path: Path) -> int:
             try:
                 r = valid_receipt(st, host, spec.get("features", []), spec)
             except SystemExit as exc:
-                if spec["track"] == "control":
-                    raise
+                # a control waits for its RL arm's host (refreshed once drained); skipping
+                # it still refuses that launch without aborting every other arm's
                 skipped.append(str(exc))
                 continue
             free = capacity(st, hosts, host, spec.get("threads", 16),
@@ -422,6 +554,15 @@ def control_for(rl: dict, control_lr: dict) -> dict:
 SFT_ACTIVE_CAP_SECONDS = 259200.0
 
 
+def arm_exec_module():
+    """arm_exec.py beside this file, so the runner reuses its save_steps rule, not a copy."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("arm_exec", HERE.parent / "arm_exec.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def promoted_arms(unit: str, xs: list, track: str, r: int, table: dict) -> list:
     seeds_next = table["rung_seeds"][str(r + 1)]
     updates_next = table["rung_updates"][str(r + 1)]
@@ -433,10 +574,14 @@ def promoted_arms(unit: str, xs: list, track: str, r: int, table: dict) -> list:
         arm.update(id=f"{unit}@r{r + 1}-s{seed}", unit=unit, rung=r + 1, seed=seed,
                    updates=updates_next, stops=[updates_next])
         arm.pop("resume_stop", None)
+        arm.pop("save_steps", None)
         if prev is not None:  # continue this seed's own trajectory in place
+            # save_steps is in the trainer's resume identity: keep the trajectory's own value
             arm.update(work_id=prev.get("work_id", prev["id"]),
                        resume_stop=prev["stops"][-1], same_host_as=prev["id"],
-                       train_manifest=prev["train_manifest"])
+                       train_manifest=prev["train_manifest"],
+                       save_steps=arm_exec_module().save_steps_for(
+                           prev, int(prev["max_steps_total"])))
         else:
             arm.update(work_id=arm["id"], same_host_as=None,
                        train_manifest=base["train_manifest"].replace("seed42", f"seed{seed}"))
@@ -715,9 +860,16 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("bootstrap")
     b.add_argument("--payload", required=True)
-    b.add_argument("--host", action="append", required=True)
+    b.add_argument("--host", action="append", default=[],
+                   help="none: only (re)pin the payload; drained hosts follow via `refresh`")
     b.add_argument("--repin", action="store_true")
     sub.add_parser("receipts")
+    sub.add_parser("refresh")
+    co = sub.add_parser("continue")
+    co.add_argument("arm")
+    co.add_argument("--reason", required=True)
+    co.add_argument("--timeout", type=int, default=86400)
+    co.add_argument("--dry-run", action="store_true")
     ln = sub.add_parser("launch")
     ln.add_argument("--table", default=str(DESIGN / "arms-rung1.json"))
     ln.add_argument("--ids")
@@ -745,8 +897,9 @@ def main(argv=None) -> int:
     r = sub.add_parser("report")
     r.add_argument("--resamples", type=int, default=20000)
     a = p.parse_args(argv)
-    fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "launch": cmd_launch,
-          "bench": cmd_bench, "poll": cmd_poll, "report": cmd_report,
+    fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "refresh": cmd_refresh,
+          "continue": cmd_continue, "launch": cmd_launch, "bench": cmd_bench,
+          "poll": cmd_poll, "report": cmd_report,
           "promote": cmd_promote, "derive": cmd_derive}[a.cmd]
     return fn(a, a.state)
 

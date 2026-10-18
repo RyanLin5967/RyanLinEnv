@@ -18,6 +18,13 @@
    "kind": "engineering (plan-neutral, not science)",
    "what": "arm_exec passes --save-steps gcd(declared stops + resume_stop) instead of the current stage's stop",
    "why": "save_steps is part of the trainer's resume identity; with a per-stage value every multi-stop arm refuses its second stage (rc=2, 'resume must preserve exact model/data/profile/settings'); found by the GPU lane (3/3 multi-stop GPU arms, ecetesla2/4), fix ported from its acdab57; regression test fails on the old code, passes on the new (uwrun rlesweep-savesteps-test2-1792349070)"
+  },
+  {
+   "at": "2026-10-18T20:10Z",
+   "effect": "no update, data, schedule or ranking changes; rung-2 and rung-3 continuations resume with the save_steps their trajectory started with (150 for seed 42, 600 for a seed entering at rung 2); new arms launch only on hosts holding the pinned payload, and a host is re-bootstrapped only after none of our arms runs on it",
+   "kind": "engineering (plan-neutral, not science)",
+   "what": "promoted arms carry save_steps; runner reads uwrun v5 host columns by header and counts physical cores; a control on a stale-receipt host waits instead of aborting the launch pass; runner refresh and runner continue",
+   "why": "the gcd rule alone gives 150, 150, 300 over the 150/600/1500 rungs, so every rung-3 resume would refuse; uwrun v5 added cores/ourThr columns and the positional parser read physical cores as free GB; sftall arms launched before the save_steps fix need an in-place epoch-2 continuation"
   }
  ],
  "base_settings": {
