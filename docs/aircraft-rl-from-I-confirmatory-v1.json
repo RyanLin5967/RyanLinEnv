@@ -1,0 +1,415 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-rl-from-I-confirmatory-v1",
+  "status": "UNACTIVATED",
+  "activated": false,
+  "activation": null,
+  "created_date": "2026-10-18",
+  "author_agent": "claude (subagent, branch rl-from-i-confirmatory)",
+  "written_before_any_winner": "Written and committed before any dev800 winner of the RL-from-I program exists (critic M7). No RL-from-I candidate has been named, frozen or scored on native VAL when this file is first committed; nothing in it came from running a model.",
+  "scope": "Confirmatory phase of the RL-from-I program (RL started from I = controlled400 sft-1e5-time). It fixes in advance: which dev800-screened arms may enter (at most K = 3), the comparator pool, the native-VAL gates with multiplicity across K, replicate semantics at seeds 314 and 2718, a single native-VAL look with a look ledger, the evaluator identity and device class, the disclosures, the named-baseline prerequisite, and the once-only sealed native TEST. Screening (GATE 0, rungs, dev800, h_gate) is governed by CORRECTIONS.md and the screening plans, not by this file; this file only says what screening output it accepts.",
+  "precedence": "This JSON wins over its .md twin. The substantial_gain_gates block of the freshpool protocol revision is inherited unchanged as a FLOOR: every inherited threshold must hold, and every stricter rule in this plan (the Bonferroni 98.333% interval in V5, the replicate and intake rules) applies in addition; no inherited value can be read as relaxing a stricter rule here. Amendments are append-only. The gate-bearing blocks (candidate_intake, comparator_pool, replication, val_look, evaluator, val_gates, test, named_baseline_prerequisite) are frozen from the earlier of (a) the first dev800 or h_gate result of any RL-from-I arm trained after GATE 0, or (b) activation. After (a) and before activation only amendments that add a disclosure or a pin, or change the evaluator device class after a failed canary, are allowed; none after activation.",
+  "pins": {
+    "protocol_revision": {
+      "path": "docs/aircraft-rl-protocol-freshpool-v1.json",
+      "sha256": "3d735a3244a733e5576c618474ef8b60068f34094ab3f5a326fd694d490968b9",
+      "role": "source of substantial_gain_gates and evaluation_and_seal.uncertainty, inherited unchanged. This program is not run under the freshpool activated protocol (that study stopped at G1, D25); only these blocks are inherited."
+    },
+    "corrections": {
+      "path": "docs/aircraft-rl-lessons-audit-2026-10-18/CORRECTIONS.md",
+      "sha256": "cc392fa092a5682982bd2a596822f8774a0b9462728668f22b7bf77c66e01dcf",
+      "role": "GATE 0 and the arm design rules a candidate must satisfy (adopted by D35). Byte copy of runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md."
+    },
+    "audit": {
+      "path": "docs/aircraft-rl-lessons-audit-2026-10-18/audit.md",
+      "sha256": "bfc3dd1ba8d726ada0526ceb810fc89f5f8f8cff012d9e597e470f221a35ab29",
+      "role": "evidence for C1-C19"
+    },
+    "critic": {
+      "path": "docs/aircraft-rl-lessons-audit-2026-10-18/critic.md",
+      "sha256": "ed9c3845c544055d3580142c7bee035322d845aac6ec76a75cdeffcbe03a4bd3",
+      "role": "evidence for M1-M12; M7 is this plan"
+    },
+    "evaluator_bundle_plan": {
+      "path": "reports/2026-10-17-controlled400-native-val/plan.json",
+      "sha256": "cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896",
+      "commit": "85f0865920015fd7e637d2b997bd9d7597dc1e83",
+      "role": "frozen evaluator identity: the 41 source files in its source_sha256, prompt 859dd366..., greedy answer-only, EOS-required canonical parse, equal-class metric. Same bundle the 3B CI baseline materialises (docs/aircraft-named-baseline-ci-plan-v1-activated.json evaluator_identity)."
+    },
+    "prior_val_comparison": {
+      "path": "reports/2026-10-17-controlled400-native-val/comparison.json",
+      "sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5",
+      "role": "the VAL look that selected I (a* = 0.7539); prediction journal of I = 12abe0597...; of W = 2c39d423..."
+    },
+    "endpoint_declaration": {
+      "path": "docs/aircraft-native-val-activation-v1/activated-declaration.json",
+      "role": "weights_sha256 of I and the other controlled400 endpoints",
+      "sha256": "6a1faaaf38576ff537f6d4964a525a33c9864a270048df6a80ca6c93466faefe"
+    },
+    "splits": {
+      "path": "docs/aircraft-exploratory-sweep-v2/splits.json",
+      "sha256": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed",
+      "source": "origin/exploratory-sweep-v2.noindex @ 85bc3dd (PR #29, open). Not yet on main: activation requires it on main with this SHA256 (activation_prerequisites).",
+      "role": "dev800, s_train, all_train, h_select, h_gate_final, scan manifests for seeds 42/314/2718, and the 477 near-duplicate count"
+    }
+  },
+  "frozen_identities": {
+    "I": {
+      "id": "sft-1e5-time",
+      "weights_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7",
+      "record_sha256": "d7693c83b232351341083dd19dc1391636a3e47020b72431ba2f25d0e705674f",
+      "lineage": "Qwen2-VL-2B, rank-8 Q/V LoRA, SFT from W (f05840be...) on train400 at LR 1e-5 continued to equal committed active time (8,116-8,118 s); seed 42 only",
+      "prior_native_val": 0.7539126559714795
+    },
+    "W": {
+      "id": "common",
+      "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+      "role": "parent of I; descriptive only in this plan (not a gate, not on TEST)"
+    }
+  },
+  "inherited_unchanged": {
+    "rule": "Canonical JSON (sorted keys, compact separators, UTF-8) SHA256 of each block of pins.protocol_revision. Any difference is a refusal.",
+    "substantial_gain_gates": "f58da53c40654c0c3ffeadabe1841c6494223db05c4b0cbcda9603363682ffb9",
+    "strong_baseline": "818a3c1f9b37691c86000a35ae6a6b58c714529b2a2bc8046c331b69ff0d60b5"
+  },
+  "restated_thresholds": {
+    "note": "Copies for the reader; the inherited block wins.",
+    "substantial_rl": {
+      "minimum_absolute_accuracy": 0.8,
+      "minimum_delta_vs_common_initialization": 0.05,
+      "minimum_delta_vs_strongest_sft": 0.05,
+      "minimum_relative_error_reduction_vs_strongest_sft": 0.2,
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_vs_strongest_sft_strictly_greater_than": 0.0
+    },
+    "named_frontier_comparison": {
+      "minimum_delta": 0.1,
+      "minimum_relative_error_reduction": 0.25,
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_strictly_greater_than": 0.05,
+      "baseline_valid_eos_fraction_minimum": 0.95
+    },
+    "replicate_mean_delta_minimum": 0.05,
+    "which_point_gate_binds": "The pool always contains I, so S >= acc(I) in this look. If I re-predicts at 0.7539 (MPS fp32 canary), then S >= 0.7539 and: the +0.05-over-S gate implies +0.05 over I; the 0.20 relative-error-reduction gate needs delta >= 0.2(1-S) <= 0.0492; the 0.80 absolute gate needs S + 0.05 >= 0.80 iff S >= 0.75. So the binding point gate is acc_RL >= S + 0.05 (at least 0.8039). On a validated equivalent acc(I) may differ by up to 0.005, S can fall below 0.75, and then V1 (>= 0.80) binds. Every point gate is always evaluated."
+  },
+  "common_initialization": {
+    "definition": "I, for every candidate. A candidate started from sftall* (critic M2 family) is still judged against I as the common initialization, and sftall* itself is in its comparator pool, so 'over init' is checked against both.",
+    "why_not_retrain_I": "I exists only at seed 42. This plan does not retrain I (or W) at other seeds; the claim is conditional on this I, and I's own seed variance is disclosed as unreplicated."
+  },
+  "candidate_intake": {
+    "K": 3,
+    "K_justification": [
+      "Multiplicity cost is small: with Bonferroni over K = 3 the paired interval is two-sided 98.33% instead of 95% (z 2.39 vs 1.96). At the measured paired SE of about 0.54 pp on full VAL (RL400 vs strongest SFT, 95% CI [-6.63, -4.52] pp, reports/2026-10-17-controlled400-native-val/README.md) that lowers the lower bound by about 0.23 pp, negligible next to the 5 pp point gate that binds.",
+      "More than one is needed: dev800 SE is about 1.6 pp (sweep plan blind-spot note, quoted in audit C11) and dev800-to-VAL rank agreement is only checked on 7 endpoints (GATE 0 calibration), so the dev800 ranking among close arms is unreliable; K = 1 would bet the single look on a noisy rank.",
+      "More than three is not affordable: every candidate brings 2 replicate seeds of training (1 RL + 3 control LRs, each with E and T endpoints) and 21 full-VAL endpoints to the roster (3 RL + 18 controls over 3 seeds), each roughly 4.7 CPU-lane-hours (68 min per 800 images on iccad7, campaign arms.json facts; unverified at 3,333). Three candidates already put about 77 endpoints in the roster (compute_unverified).",
+      "Three matches the campaign's own plan to carry its top 3 to h_gate (audit C18)."
+    ],
+    "eligible_source": "An RL arm from the RL-from-I program's dev800 screen (campaign rungs or sweep rungs) whose trajectory ran entirely after GATE 0 was committed.",
+    "admission_requires_all": [
+      {
+        "id": "gate0_committed_and_go",
+        "rule": "A GATE 0 receipt is committed on main containing all four measurements of CORRECTIONS.md GATE 0 (P0-I; SFT-from-I curve on s_train and all_train at LR {5e-6, 1e-5, 2e-5} excluding train400; dev800 calibration on the 7 endpoints with native VAL scores; placebo pairs and I's seed noise), with: P0-I go (pass@8 headroom on I-greedy-wrong images >= 0.05 of all images in the measured pool, unless GATE 0's own committed pre-registration fixed another number, which then governs); dev800 calibration pass (rank agreement as GATE 0 defines it, and dev800 reproduces the negative sign of RL400 minus same-LR SFT). The arm's first training step is later than that commit."
+      },
+      {
+        "id": "arm_rules",
+        "rule": "The arm's committed record shows every CORRECTIONS.md arm design rule that applies: GRPO in fp32 (or a committed bf16 waiver from the 2-seed replicate within the placebo spread) with parity within_tolerance true; one device class start to end; controls at LR {5e-6, 1e-5, 2e-5}, best-of-k vs best-of-k with the same k, trained on every scanned or scored row in scan order, time-matched at each RL checkpoint, pool-scoring seconds charged to RL; dynamic sampling max draws >= 8 if unscreened; hard pool = greedy-wrong and p >= 0.02 with p summed over tokenisations; the 477 VAL/TEST near-duplicates and train400 excluded from its RL pool and its paired controls; any confusion map rebuilt from s_train-only P0-I rollouts; co-tenancy recorded and equal for RL and control; refuted families (hierarchical partial credit, CoT/think) not admissible; any CUDA resume preceded by a passed CUDA fp32 E0 (C19). An arm missing any record is inadmissible; there is no waiver at intake."
+      },
+      {
+        "id": "placebo_adjusted_promotion_bar",
+        "rule": "Let P_max be the largest absolute value, over the GATE 0 placebo pairs (SFT-from-I vs SFT-from-I at another seed), of the promotion statistic computed by the identical best-of-k code at the same k and the same rung stops. Let B = max(0.03, P_max). The arm is admissible only if its dev800 delta = (RL best-of-k) - max(paired control best-of-k, I, best tuned same-label SFT from the GATE 0 curve) is strictly greater than B."
+      },
+      {
+        "id": "h_gate_sign",
+        "rule": "Exactly one h_gate_final assay per admitted arm (RL endpoint and the comparator endpoints of the previous rule), logged in the shared look ledger (CORRECTIONS C18). RL minus the best comparator on h_gate must be > 0 (sign only)."
+      }
+    ],
+    "ranking_if_more_than_K": "Order admissible arms by (dev800 delta - B) descending, then lower committed active seconds, then arm id ascending; admit the first 3. Rejected admissible arms are listed in the intake receipt.",
+    "freeze": "For each admitted candidate the intake receipt records: adapter_model.safetensors sha256, adapter_config.json sha256, endpoint receipt sha256, checkpoint step, init identity (I or sftall*), LR, recipe config sha256, label set (s_train, all_train or a named pool), scan seed 42, device class, committed active seconds, and the dev800 and h_gate numbers. The receipt is created once (exclusive create) and committed before any replicate training starts and before any native-VAL prediction of any roster member. Intake then closes: no candidate is added, swapped or re-frozen afterwards.",
+    "zero_admitted": "If no arm is admissible when the screening plans finish their fixed rung schedule, this plan is marked WITHDRAWN_NOT_RUN and VAL is not looked at for RL-from-I."
+  },
+  "comparator_pool": {
+    "principle": "The strongest SFT is the maximum native-VAL equal-class accuracy over every SFT endpoint listed here, all scored in the same look on the same evaluator and device class. Taking the max on VAL inflates the comparator by selection noise; that bias is against RL and is accepted.",
+    "seed_42_pool_S42": [
+      "I (re-predicted on the look's device class by the canary; its 2026-10-17 score 0.7539 is reported next to it and is not used)",
+      "for every admitted candidate: its paired SFT controls from the candidate's init at every control LR {5e-6, 1e-5, 2e-5}, both E (example-matched) and T (time-matched at the candidate's frozen checkpoint) endpoints",
+      "sftall* and its siblings: the GATE 0 SFT-from-I curve endpoints on each label set used by any candidate (s_train and/or all_train), the dev800-best stop at each of the three LRs, frozen by sha256 in the roster; sftall* is the dev800-best of these on all_train",
+      "for a candidate started from sftall*: sftall* itself and continued-SFT-from-sftall* controls at every control LR, E and T",
+      "the five other controlled400 SFT endpoints (sft-1e5-exposure, sft-5e5-exposure, sft-1e4-exposure, sft-5e5-time, sft-1e4-time), re-predicted in this look on the same device class like every other member. Their 2026-10-17 scores are not used: sft-5e5-time (0.7534) is within 0.0005 of I, so on another device it could bind."
+    ],
+    "seed_s_pool_Ss": [
+      "I (shared, seedless; the same prediction file as in S42)",
+      "every admitted candidate's paired SFT controls retrained at seed s (all three LRs, E and T)",
+      "the sftall* recipe (frozen LR, label set and stop) retrained from I at seed s",
+      "for a candidate started from sftall*: its continued-SFT controls retrained at seed s from the same frozen seed-42 sftall*"
+    ],
+    "global_not_per_candidate": "Each candidate is compared with the pool's maximum over all candidates' controls, not only its own. This is at least as strong as a per-candidate pool, and it gives every candidate the same bar.",
+    "replicate_pools_weaker": "Disclosed: S_314 and S_2718 omit the sftall LR siblings, the other label set's curve endpoints and the controlled400 endpoints that S_42 contains, so per-seed comparators can be weaker than S_42. They still contain I, so S_s >= acc(I)."
+  },
+  "replication": {
+    "seeds": [
+      314,
+      2718
+    ],
+    "semantics": "Replicates start from the same frozen I (or the same frozen seed-42 sftall* for that family); I and sftall*'s parent I are never retrained. At seed s the candidate's frozen recipe (init, LR, G, beta, T, pool definition and screen settings, checkpoint step, device class) is re-run with the trainer seed set to s and the scan order taken from the seed-s scan manifest of the same label set (s_train_scan_seed{s} or all_train_scan_seed{s} in pins.splits). Its paired controls are re-run at seed s from the same init on that seed's RL label access (every scanned or scored row, scan order), time-matched to that seed's RL checkpoint, at all three control LRs. Nothing is re-selected per seed: no LR, stop or checkpoint search.",
+    "timing": "All replicate training finishes, and its endpoints are frozen in the roster receipt, before the single VAL look. Replicates are trained for every admitted candidate, whatever its seed-42 dev800 rank, so no seed is hidden.",
+    "caps": "Each replicate arm's active-time cap is 1.25 x its seed-42 committed active seconds. A capped, crashed or interrupted replicate is re-run once from scratch on the same device class; its first attempt is published. If the re-run also fails, that seed's delta is recorded as failed (counts as delta <= 0). A replicate resumed on CUDA is admissible only if the CUDA fp32 E0 resume check (CORRECTIONS C19) passed on that GPU model before its first update.",
+    "pass_rule": "Per candidate k: d_k,s = acc(RL_k,s) - acc(S_s) for s in {42, 314, 2718}, where S_42 = max of seed_42_pool_S42 and S_s = max of seed_s_pool_Ss. Pass iff every d_k,s > 0 and mean_s d_k,s >= 0.05 (protocol validation_replicates, unchanged).",
+    "dev800_of_replicates": "assayed and reported, descriptive only"
+  },
+  "val_look": {
+    "count": 1,
+    "definition": "The look is the single scoring event that joins roster predictions to native VAL labels. Prediction runs may span many invocations; none of them computes or prints an accuracy, a per-class result or a label match. The scorer runs once, after every roster prediction file is complete and committed, and writes one result file.",
+    "roster": "Every endpoint the gates need, frozen by sha256 in a roster receipt committed after the intake receipt and after replicate training: K seed-42 candidates, 2K replicate RL endpoints, every pool member of S42 (including I and the five other controlled400 SFT endpoints) and of S314 and S2718. W is not in the roster. Hard cap: at most 80 roster endpoints; a roster above 80 is refused (roster_too_large), not trimmed.",
+    "order_of_runs": [
+      "1. The evaluator canary has already passed as an activation prerequisite (evaluator.canary); its I prediction file is the I roster member.",
+      "2. All other roster prediction files, any order, one device class.",
+      "3. Commit every prediction file; the roster receipt lists its sha256.",
+      "4. Score once with the frozen bootstrap; commit the result before anyone interprets it."
+    ],
+    "no_second_look": "No roster member is scored twice on VAL, no member is added after scoring, and no gate is recomputed with a changed roster, threshold, seed or device. A run that fails mid-way resumes from its append-only journal under the identical identity; if it cannot complete, the look is INCOMPLETE and every gate that needs it is not passed.",
+    "ledger": {
+      "path": "reports/aircraft-rl-from-I-confirmatory-v1/val-look-ledger.jsonl",
+      "rule": "Append-only, one line per VAL-touching event (prediction run start, prediction run complete, scoring), each with UTC time, roster member, adapter or model sha256, evaluator identity, device class, image count and commit. Shared with the screening plans' h_gate ledger by reference (CORRECTIONS C18).",
+      "prior_looks_disclosed": [
+        "2026-10-17 controlled400 native VAL (reports/2026-10-17-controlled400-native-val): W, RL400 and six SFT endpoints, all 3,333 images. This look SELECTED I as the strongest declared SFT (a* = 0.7539) and fixed D_req = 0.05 (branch receipt).",
+        "Qwen3.8-27B-8bit MLX discovery run 1 and run 2 (100 VAL images each; D22, D23) and run-2 full invocations 1-3 before the permanent pause (D31).",
+        "Qwen2.5-VL-3B CI discovery (100 VAL images; D34) and its full VAL (run 39144098450, dispatched 2026-10-18 16:14Z, status queued when this plan was written).",
+        "Any Qwen3.8-27B v2 HF-CPU VAL run (PR #31), if it runs.",
+        "No RL-from-I endpoint, GATE 0 endpoint or sftall endpoint has touched native VAL when this plan is written (D31: VAL untouched until a recipe is pre-registered)."
+      ],
+      "selection_disclosure": "VAL already selected I among six SFT endpoints. I's VAL score therefore carries upward selection noise. That makes RL-minus-I harder but RL-from-I inherits I's weights, so the absolute 0.80 gate may be helped by the same noise. Only sealed TEST is free of this selection."
+    }
+  },
+  "evaluator": {
+    "identity": "Frozen evaluator at commit 85f0865 as bundled by pins.evaluator_bundle_plan (41 source files, each re-hashed before import; prompt 859dd366...; greedy; max 256 new tokens; EOS-terminated canonical parse; metric mean(diag(row_normalised_confusion)) over 100 classes; missing or invalid outputs stay in their class denominators).",
+    "default_device_class": "Apple MPS, float32, the device and dtype of the 2026-10-17 look.",
+    "one_device_class": "Every roster member, the canary and (on TEST) every actor contender is evaluated on the same single device class. A prediction file from any other class is refused, never mixed in.",
+    "validated_equivalent": {
+      "allowed": "One other device class (e.g. a single CPU model in fp32 on one UW host type, or CUDA fp32 on a single GPU model) may replace MPS fp32 for the whole look, chosen and committed before the canary.",
+      "validation": "On that class, re-predict all 3,333 VAL images for three endpoints whose MPS fp32 VAL predictions are already committed: W (f05840be...), RL400 (83226668...) and I (8f27d0ca...). Pass iff for each endpoint the per-image parsed prediction agrees with the 2026-10-17 journal on >= 0.99 of images and |macro accuracy difference| <= 0.005, and |difference of (RL400 - I) paired delta| <= 0.005. These three endpoints were already looked at, so this spends no new VAL information. Fail is a refusal to use that class; there is no tolerance widening.",
+      "precision": "fp32 only. bf16 and fp16 are not eligible (same_prediction_fraction 0.9575 for bf16 vs CPU fp32, audit C2)."
+    },
+    "canary": "Activation prerequisite, run before activation (it spends no new VAL information: I was already looked at). Re-predict I on the chosen class. On MPS fp32 the per-image parsed predictions must equal the 2026-10-17 I journal on all 3,333 images; on a validated equivalent the validation's I run serves. A failure means the plan is not activated on that class: the class is changed by an appended amendment (allowed, since activation has not happened) and the canary is re-run on the new class. The passing result is committed, and its prediction file is the I member of the roster.",
+    "bootstrap": "Paired class-stratified image bootstrap (protocol evaluation_and_seal.uncertainty): 20,000 draws, seed 2718, same indices for both models, linear percentile. Class-cluster bootstrap reported as sensitivity only."
+  },
+  "val_gates": {
+    "per_candidate": "Candidate k (its seed-42 endpoint RL_k) passes VAL iff all of V1-V6 hold.",
+    "V1_absolute": "acc(RL_k) >= 0.80",
+    "V2_over_init": "acc(RL_k) - acc(I) >= 0.05 (and, for a candidate from sftall*, also minus acc(sftall*) >= 0.05)",
+    "V3_over_strongest_sft": "acc(RL_k) - acc(S_42) >= 0.05",
+    "V4_relative_error_reduction": "(acc(RL_k) - acc(S_42)) / (1 - acc(S_42)) >= 0.20",
+    "V5_interval_with_multiplicity": "Lower bound of the two-sided (1 - 0.05/K) = 98.333% paired class-stratified bootstrap interval of acc(RL_k) - acc(S_42) is > 0, i.e. the 0.8333th percentile of 20,000 draws (seed 2718). K is the pre-registered 3 even if fewer candidates were admitted. S_42 is treated as fixed in the bootstrap (it is VAL-selected; disclosed).",
+    "V6_replicates": "replication.pass_rule",
+    "multiplicity_rationale": "Each candidate's family V1-V6 is an intersection-union test (all must pass), level alpha without adjustment within the candidate. Across the K candidates the claim is 'at least one passes', so the interval in V5 is Bonferroni-adjusted (familywise one-sided 2.5% over K), valid under any dependence between candidates (they share I and the comparator).",
+    "selection_for_test": "If one or more candidates pass, RL** is the passing candidate with the largest mean_s d_k,s; ties by lower seed-42 committed active seconds, then candidate id. Exactly one candidate goes to TEST. Its seed-42 endpoint is the TEST identity (predeclared seed 42, protocol validation_replicates).",
+    "descriptive_only": [
+      "per-gate values for every candidate including failures",
+      "RL vs its own paired control only",
+      "micro accuracy, valid and EOS rates, confusion pairs (Gulfstream IV/V, E-190/E-195, 737-500/600, A318/A319)",
+      "class-cluster bootstrap",
+      "VAL accuracy on the subset of VAL images with no pHash partner in any roster member's training rows (near-duplicate sensitivity)",
+      "replicate dev800 numbers and seed spread"
+    ]
+  },
+  "named_baseline_prerequisite": {
+    "rule": "Before activation, at least one full-VAL named baseline is complete and its merged result committed on main: all 3,333 images, merge refusals all clear, valid fraction reported.",
+    "qualifying_runs": [
+      {
+        "id": "named_baseline_3b_ci",
+        "plan": "docs/aircraft-named-baseline-ci-plan-v1-activated.json",
+        "plan_sha256": "8ae93e9969f636084329a875801e50c73f6cb149b1603dcf78bd0addd71e0901",
+        "model": "Qwen/Qwen2.5-VL-3B-Instruct@66285546d2b821cf421d4f5eb2576359d3770cd3",
+        "profile": "zero-shot, bf16 CPU, frozen 85f0865 prompt/parser",
+        "run": "GitHub Actions run 39144098450 (full VAL, N = 159 shards, D34)"
+      },
+      {
+        "id": "named_baseline_27b_v2",
+        "plan": "docs/aircraft-named-baseline-plan-v2.json (PR #31, unactivated)",
+        "model": "Qwen/Qwen3.8-27B@1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "profile": "author bf16 weights, fp32 compute, transformers CPU, native-instruct direct answer",
+        "run": "after its activation"
+      }
+    ],
+    "frozen_at_activation": "The activated copy names which of these completed; only those enter TEST. A baseline that completes after activation does not enter."
+  },
+  "test": {
+    "split": "native_test",
+    "images": 3333,
+    "uses": 1,
+    "opened_only_if": "At least one candidate passes all VAL gates V1-V6, and the VAL result file is committed and on main.",
+    "role_allowlist": [
+      {
+        "role": "rl_star_seed42",
+        "identity": "seed-42 endpoint of RL** (val_gates.selection_for_test), by adapter sha256 from the intake receipt"
+      },
+      {
+        "role": "strongest_sft",
+        "identity": "the argmax of seed_42_pool_S42 on VAL, by adapter sha256 from the roster receipt"
+      },
+      {
+        "role": "init_I",
+        "identity": "I, weights 8f27d0ca..."
+      },
+      {
+        "role": "named_baseline_3b_ci",
+        "identity": "named_baseline_prerequisite.qualifying_runs[0], only if listed in the activated copy"
+      },
+      {
+        "role": "named_baseline_27b_v2",
+        "identity": "named_baseline_prerequisite.qualifying_runs[1], only if listed in the activated copy"
+      }
+    ],
+    "same_identity_rule": "If strongest_sft is I, one TEST run serves both roles.",
+    "never_on_test": [
+      "W",
+      "replicate-seed endpoints",
+      "candidates other than RL**",
+      "SFT endpoints other than the VAL-selected strongest",
+      "RL400 and controlled400 endpoints other than I",
+      "GATE 0 and placebo endpoints",
+      "anything chosen after any TEST output exists"
+    ],
+    "decoding": "Actors: the frozen evaluator, same single device class as the VAL look. Named baselines: their own frozen plan profiles unchanged.",
+    "scoring": "All contender prediction files complete and committed before any TEST score is computed; scored once.",
+    "T1_primary": "RL** on TEST, all of: acc >= 0.80; minus I >= 0.05; minus strongest_sft >= 0.05; relative error reduction vs strongest_sft >= 0.20; lower bound of the two-sided 95% paired class-stratified bootstrap (20,000 draws, seed 2718) of RL** - strongest_sft > 0. No K adjustment: exactly one candidate reaches TEST, selected on VAL.",
+    "T2_named_baselines": "Tested only if T1 passes, in fixed order 3B then 27B v2 (whichever are on the allowlist). Each: baseline valid EOS-terminated fraction >= 0.95 (else interface failure, no claim for that baseline); RL** - baseline >= 0.10; relative error reduction >= 0.25; 95% lower bound > 0.05. A failure stops the sequence.",
+    "multiplicity": "Fixed sequence of conjunctive families: VAL (V1-V6, Bonferroni across K inside V5) -> T1 -> T2(3B) -> T2(27B v2). Each family is tested only if all earlier ones passed; nothing is re-tested and the order is fixed.",
+    "seal": {
+      "envelope_receipt": "reports/aircraft-rl-from-I-confirmatory-v1/test-envelope.json, exclusive create, max_uses 1, committed by the authorizer before it returns; a receipt that exists or ever existed in git history makes validate refuse.",
+      "looks_dir": "reports/aircraft-rl-from-I-confirmatory-v1/test-looks, one committed record per role, exclusive create; a second claim for a role is refused.",
+      "allowlist_guard": "The authorizer derives the TEST identities from the committed VAL result and intake/roster receipts; nobody types them. Any role or identity not in the receipt is refused.",
+      "runner_obligation": "A TEST runner claims its role and refuses unless it gets a look record, before opening data/fgvc-aircraft-2013b/sealed/.",
+      "blind_spots": [
+        "Binds cooperating runners only; a process that opens the sealed directory directly is not seen.",
+        "FGVC-Aircraft TEST images are public (the CI baseline fetches images from a public Hugging Face dataset). The seal is a procedural guard on this project's runners, not secrecy.",
+        "Git-history checks see only the local clone's refs and reflogs; validate, authorize and claim must run in one full clone.",
+        "It cannot prove which weights produced a prediction file; files carry the adapter or model sha256 and are trusted."
+      ]
+    }
+  },
+  "disclosures": {
+    "near_duplicates": "all_train keeps 477 pHash near-duplicates of native VAL/TEST images (splits.json val_test_near_duplicates_kept_in_all_train). RL pools and their paired controls exclude them (intake rule). The sftall* comparator may include them, which can only strengthen the comparator. The D17 audit found the pHash threshold has a high false-positive rate, so 477 is an upper-leaning count. A near-duplicate-free VAL sensitivity is reported, descriptive only.",
+    "setting_relabel": "This is NOT a 4-shot result. I was trained on train400 (4 images per class). RL-from-I candidates and sftall* read labels of s_train (1,424 images, about 14 per class) or all_train (2,329 images, about 23.3 per class, which contains train400). Every claim is labelled with the largest label access in the comparison, at most about 23 labelled TRAIN images per class (all_train), plus the 1,005 TRAIN holdout images (h_select, h_gate, dev600) whose labels were read for selection only.",
+    "confusion_map_overlap": "The earlier p0-confusion-map.json drew 15 of its 64 source images from dev600, which is inside dev800 (audit C13). An arm using that map is inadmissible; only the map rebuilt from s_train-only P0-I rollouts is admissible.",
+    "val_selected_I": "val_look.ledger.selection_disclosure",
+    "unreplicated_I": "I and W exist only at seed 42; replicates vary RL and SFT-from-I randomness, not I.",
+    "dev800_selection": "Candidates are selected on dev800 and h_gate (TRAIN-derived). Their VAL scores are free of that selection, but the max over the comparator pool on VAL is not.",
+    "overfitting_rationale_dropped": "Per critic M8 no claim may say RL 'generalises where SFT memorises'; SFT on train400 plateaued (0.752-0.754 at three LRs), it did not overfit."
+  },
+  "gate_outcomes": {
+    "gate0_no_go_or_zero_admitted": {
+      "val": false,
+      "test": false,
+      "action": "Mark WITHDRAWN_NOT_RUN. VAL not looked at for RL-from-I."
+    },
+    "prerequisite_unmet": {
+      "val": false,
+      "test": false,
+      "action": "Not activated until a full-VAL named baseline is committed and splits.json is on main."
+    },
+    "canary_or_equivalence_fail": {
+      "val": false,
+      "test": false,
+      "action": "Happens before activation (activation prerequisite). Not activated on that class; another class is chosen by appended amendment and the canary re-run. No candidate VAL output exists, so nothing is spent."
+    },
+    "val_incomplete": {
+      "val": "incomplete",
+      "test": false,
+      "action": "No gate passes; publish what completed."
+    },
+    "no_candidate_passes": {
+      "val": true,
+      "test": false,
+      "action": "Substantial RL-from-I claim FAILED. Publish every candidate's gates, the full pool and replicates. TEST stays sealed."
+    },
+    "val_pass": {
+      "val": true,
+      "test": true,
+      "action": "Authorize the single-use envelope for the allowlisted roles, run each once, commit predictions, score once."
+    },
+    "T1_fail": {
+      "action": "Final claim FAILED on TEST. Report all TEST numbers. No second look."
+    },
+    "T1_pass_T2_fail_or_interface": {
+      "action": "RL-from-I beats the strongest SFT on TEST at the stated label access; no frontier claim for the failing baseline and those after it."
+    },
+    "T1_pass_T2_pass": {
+      "action": "Final claim holds, scoped to the named baseline(s), quantization, profile, dataset, label access and split."
+    }
+  },
+  "refusal_conditions": [
+    {
+      "id": "plan_not_activated",
+      "condition": "anything in this plan run from the unactivated file, or from an activated copy whose activation.activates SHA256 does not match this file, or which differs outside status, activated and activation"
+    },
+    {
+      "id": "pin_mismatch",
+      "condition": "any pins.* SHA256 differs from the file at the activated commit"
+    },
+    {
+      "id": "inherited_block_changed",
+      "condition": "inherited_unchanged hash or a restated threshold differs from the protocol revision"
+    },
+    {
+      "id": "intake_not_frozen",
+      "condition": "a VAL prediction or replicate training run starts before the intake receipt is committed, or the receipt names more than K = 3 candidates, or a candidate lacks any admission_requires_all evidence"
+    },
+    {
+      "id": "roster_not_frozen",
+      "condition": "a roster member's prediction is scored without a committed roster receipt listing its sha256, or the roster differs from comparator_pool and replication"
+    },
+    {
+      "id": "device_class_mixed",
+      "condition": "roster or TEST actor predictions from more than one device class, or from an unvalidated class, or in bf16/fp16, or any roster member entering by a score from an earlier look"
+    },
+    {
+      "id": "evaluator_not_reproduced",
+      "condition": "the canary or the equivalence validation fails"
+    },
+    {
+      "id": "second_val_look",
+      "condition": "any roster member scored on VAL a second time, or any gate recomputed after a roster, threshold or seed change"
+    },
+    {
+      "id": "prerequisite_missing",
+      "condition": "no committed full-VAL named baseline on main at activation"
+    },
+    {
+      "id": "test_before_val_pass",
+      "condition": "a TEST envelope requested without a committed VAL result in which some candidate passes V1-V6"
+    },
+    {
+      "id": "test_role_not_allowlisted",
+      "condition": "a TEST look for a role or identity not in the envelope receipt"
+    },
+    {
+      "id": "test_envelope_reused",
+      "condition": "the envelope receipt exists or ever existed in git history, or a role's look record exists or ever existed"
+    },
+    {
+      "id": "roster_too_large",
+      "condition": "the roster receipt lists more than 80 endpoints"
+    },
+    {
+      "id": "gate_block_amended_late",
+      "condition": "an amendment changes a gate-bearing block outside what precedence allows, or any amendment after activation"
+    }
+  ],
+  "compute_unverified": {
+    "note": "Every figure here is unverified at full scale.",
+    "roster_size_at_K3": "3 seed-42 candidates + 6 replicate RL + 54 controls (6 per candidate per seed x 3 seeds) + up to 6 sftall siblings + 2 sftall* retrains + I + 5 controlled400 SFT = about 77 full-VAL endpoints, upper bound; hard cap 80 (val_look.roster).",
+    "val_per_endpoint": "about 0.94 MPS-h (docs/aircraft-freshpool-study-v1.md section 10: 2.81 h for three identities) or about 4.7 CPU-lane-h (68 min per 800 images on iccad7, campaign arms.json facts).",
+    "where": "Heavy prediction work runs on UW hosts (D31) on the one validated device class; the Mac does not host the look unless MPS fp32 is chosen and Ryan's machine is free.",
+    "hard_cap": "Roster <= 80 endpoints; replicate arms <= 1.25 x seed-42 active seconds with one re-run each; K <= 3. No other compute is authorized by this plan."
+  },
+  "activation_prerequisites": [
+    "GATE 0 receipt committed on main with go (candidate_intake.admission_requires_all[0]).",
+    "docs/aircraft-exploratory-sweep-v2/splits.json on main with SHA256 761d79f1...",
+    "At least one full-VAL named baseline committed on main (named_baseline_prerequisite).",
+    "A validator script implementing every refusal_conditions id, with tests that force each to fire (the pattern of scripts/validate_freshpool_confirmatory.py), reviewed and merged; its SHA256 added to pins by amendment before activation.",
+    "Intake receipt committed (K <= 3 candidates frozen by sha256).",
+    "Device class chosen; its equivalence validation (if not MPS fp32) and the I canary on that class committed and passed (evaluator.canary).",
+    "Root commits docs/aircraft-rl-from-I-confirmatory-v1-activated.json whose activation.activates pins this file's SHA256; only status, activated and activation may differ."
+  ],
+  "amendments": []
+}
