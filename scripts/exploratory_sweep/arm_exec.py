@@ -25,6 +25,7 @@ import base64
 import collections
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -113,7 +114,14 @@ class Arm:
             transfer = self.precision_transfer(self.init_adapter())
             if transfer:  # repeated on resume so the run's settings identity is unchanged
                 args += ["--initial-adapter-precision-transfer", transfer]
-        save = stop if stop else max_steps
+        # save_steps is part of the trainer's resume identity (settings), so it must be the
+        # same in every stage of one run: the gcd of the declared stops (and a promoted run's
+        # resume_stop). A stage boundary always saves its own checkpoint regardless. (It was
+        # `stop`, which changed between stages and made every multi-stop arm refuse to resume:
+        # "resume must preserve exact model/data/profile/settings", GPU lane 2026-10-18.)
+        marks = [int(x) for x in s.get("stops", [])] + (
+            [int(s["resume_stop"])] if s.get("resume_stop") else [])
+        save = math.gcd(*marks) if marks else max_steps
         args += ["--save-steps", str(save)]
         if stop and stop < max_steps:
             args += ["--stop-after-steps", str(stop)]
