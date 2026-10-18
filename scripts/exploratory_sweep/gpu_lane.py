@@ -206,6 +206,34 @@ def arm_results() -> dict:
     return found
 
 
+RAW_FILES = ("arm.json", "summary.json", "worker.json", "stages.json", "endpoint_receipt.json",
+             "optimizer_audit.jsonl", "reward_groups.jsonl", "screen_journal.jsonl",
+             "gpu-trace.csv", "nvsmi-before.txt", "local_training.json")
+
+
+def cmd_raw(a) -> int:
+    """Copy each fetched arm's small raw files to docs/<study>/raw/<arm>/ (to be committed
+    before any interpretation). Copies only the allowlisted names and assays/*.json."""
+    import shutil
+
+    n = 0
+    for arm_id, d in sorted(arm_results().items()):
+        dest = DOCS / "raw" / arm_id.replace("~", "_")
+        for name in RAW_FILES:
+            if (d / name).is_file():
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(d / name, dest / name)
+                n += 1
+        for f in sorted((d / "assays").glob("*.json")):
+            (dest / "assays").mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest / "assays" / f.name)
+            n += 1
+    if n == 0:
+        raise SystemExit("REFUSE: no fetched arm results to copy")
+    print(f"copied {n} files under {DOCS / 'raw'}")
+    return 0
+
+
 def cmd_control(a) -> int:
     """SFT from W on the RL arm's committed prompt sequence: E = same examples, T = same
     active seconds (CPU-sweep control rule, same host/device as the RL arm)."""
@@ -259,6 +287,25 @@ def cmd_report(a) -> int:
     for (cls, init), (arm_id, doc) in sorted(base.items(), key=str):
         out["baselines"][f"{cls}/{init}"] = {"arm": arm_id, **{k: doc["metrics"][k] for k in (
             "accuracy", "valid_fraction", "equal_class_accuracy")}}
+    # Device control: the same W/I adapters assayed on CPU fp32 by the CPU sweep (read only).
+    cpu = {}
+    cpu_dir = Path("/Users/idide/RyanLinEnv/runs/aircraft-exploratory-sweep-v2/results")
+    for init in ("W", "I"):
+        found = sorted(cpu_dir.glob(f"eval-{init}-*/assays/init.json"))
+        if found:
+            cpu[init] = (str(found[-1]), json.loads(found[-1].read_text()))
+    out["device_control"] = []
+    for (key, init), (arm_id, doc) in sorted(base.items(), key=str):
+        if key not in DEVICE_CLASS or init not in cpu:
+            continue  # host-keyed rows only, each against the CPU fp32 assay
+        cp = cpu[init][1]["predictions"]
+        gp = doc["predictions"]
+        out["device_control"].append({
+            "init": init, "host": key, "gpu_arm": arm_id, "cpu_source": cpu[init][0],
+            "gpu_accuracy": doc["metrics"]["accuracy"],
+            "cpu_accuracy": cpu[init][1]["metrics"]["accuracy"],
+            "same_prediction_fraction": sum(cp[i] == gp[i] for i in gold) / len(gold),
+            "gpu_minus_cpu": run.paired_bootstrap(gp, cp, gold, a.resamples, seed=20261018)})
     for spec, label, doc in rows:
         if spec["mode"] == "eval":
             continue
@@ -281,6 +328,11 @@ def cmd_report(a) -> int:
     out["arms"].sort(key=lambda e: (e["device_class"], e["arm"], e["steps"] or 10**9))
     path = STUDY_DIR / "report.json"
     path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+    for c in out["device_control"]:
+        d = c["gpu_minus_cpu"]
+        print(f"DEVICE {c['init']} {c['host']}: gpu {c['gpu_accuracy']:.4f} cpu "
+              f"{c['cpu_accuracy']:.4f} same-pred {c['same_prediction_fraction']:.4f} "
+              f"delta {d['delta']:+.4f} [{d['ci95'][0]:+.4f},{d['ci95'][1]:+.4f}]")
     for k, v in out["baselines"].items():
         print(f"BASELINE {k}: acc {v['accuracy']:.4f} valid {v['valid_fraction']:.4f}")
     for e in out["arms"]:
@@ -306,6 +358,7 @@ def main(argv=None) -> int:
     q = sub.add_parser("queue")
     q.add_argument("--host", required=True, choices=sorted(DEVICE_CLASS))
     sub.add_parser("fetch")
+    sub.add_parser("raw")
     c = sub.add_parser("control")
     c.add_argument("--of", required=True)
     c.add_argument("--host", required=True, choices=sorted(DEVICE_CLASS))
@@ -315,7 +368,7 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     return {"specs": cmd_specs, "enqueue": cmd_enqueue, "worker": cmd_worker,
             "queue": cmd_queue, "fetch": cmd_fetch, "control": cmd_control,
-            "report": cmd_report}[a.cmd](a)
+            "report": cmd_report, "raw": cmd_raw}[a.cmd](a)
 
 
 if __name__ == "__main__":
