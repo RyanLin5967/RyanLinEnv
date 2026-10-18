@@ -87,6 +87,16 @@ matches.
 Identical at 16 and 32 threads on every host. Unpinned, the fingerprint differs per ISA, so the
 check fires on a real kernel difference.
 
+## The documented invocation, end to end
+
+`nbv2-clismoke-iccad3c/` (committed tree 879ab74, `smoke.sh`): a venv built only from the lock
+(no project install, no PYTHONPATH or kernel variables set), then
+`<venv>/bin/python -I scripts/aircraft_named_baseline_v2.py smoke …` on TRAIN 0447760 with the
+real `/dev/shm` snapshot, including its `.cache/huggingface` bookkeeping. It passed the runtime
+lock and the snapshot check. The engine reported the plan's kernel path (DEFAULT, `MKL_CBWR=AVX`,
+oneDNN on, `ONEDNN_MAX_CPU_ISA=AVX`) and `kernel_fingerprint` 9d149dab…, the same as
+`fingerprint/`. It answered Fokker 50 in 223.5 s.
+
 ## uwrun names
 
 `nbv2-pinprobe-iccad3`, `nbv2-pinprobe-iccad5` (stopped after its pinned config),
