@@ -128,3 +128,21 @@ def test_draws_follow_the_filtered_distribution():
         counts[sampler.drawn[0]] += 1
     assert counts[3] == counts[4] == 0  # outside top-p
     assert (counts / 4000 - expected).abs().max() < 0.03
+
+
+def test_kernel_fingerprint_is_stable_and_fires_on_a_changed_kernel(monkeypatch):
+    threads = torch.get_num_threads()
+    try:
+        first = local_hf.kernel_fingerprint(2)
+        assert len(first) == 64 and local_hf.kernel_fingerprint(2) == first
+        original = torch.nn.functional.linear
+
+        def nudged(x, weight, bias=None):  # one ulp-scale change in a single kernel
+            return original(x, weight, bias) * (1 + 2.0 ** -20)
+
+        monkeypatch.setattr(torch.nn.functional, "linear", nudged)
+        assert local_hf.kernel_fingerprint(2) != first
+        monkeypatch.undo()
+        assert local_hf.kernel_fingerprint(2) == first
+    finally:
+        torch.set_num_threads(threads)

@@ -84,11 +84,20 @@ def runner(monkeypatch, clock):
     monkeypatch.setattr(module, "time", fake_time)
     monkeypatch.setattr(local_vlm, "time", fake_time)
     monkeypatch.setattr(module.v1, "NATIVE_IMAGES", 100 * PER_CLASS)
-    monkeypatch.setattr(module.local_hf, "runtime_versions", lambda pins: dict(pins))
+    monkeypatch.setattr(module.local_hf, "runtime_versions", lambda pins, lock=None: dict(pins))
     # The kernel pin imports torch; the fake backend never computes, so record a fixed path.
     monkeypatch.setattr(module.local_hf, "pin_cpu_numerics",
                         lambda numerics: {"aten_cpu_capability": "FIXTURE"})
+    monkeypatch.setattr(module.local_hf, "kernel_fingerprint", lambda threads: "FIXTURE-FP")
+    # Tests move the runner between allowlisted fixture hosts by editing fixture_host.
+    module.fixture_host = dict(HOSTS[0])
+    monkeypatch.setattr(module.local_hf, "host_identity", lambda: dict(module.fixture_host))
     return module
+
+
+HOSTS = [{"hostname": "fixture-a", "cpu_model": "Fixture CPU A"},
+         {"hostname": "fixture-b", "cpu_model": "Fixture CPU B"},
+         {"hostname": "fixture-c", "cpu_model": "Fixture CPU C"}]
 
 
 def write_snapshot(root):
@@ -180,7 +189,11 @@ def world(tmp_path):
         "max_calendar_seconds": 604800, "max_output_bytes": 1 << 30}
     plan["stages"]["full"]["gate"]["max_projected_shard_active_seconds"] = 172800
     plan["stages"]["full"]["gate"]["max_shard_active_seconds"] = 345600
-    plan["sharding"]["shards"] = 3
+    plan["sharding"]["shards"] = {"discovery": 3, "full": 3}
+    plan["sharding"]["hosts"] = {host["hostname"]: host["cpu_model"] for host in HOSTS}
+    freeze = repo / plan["model"]["runtime_lock"]["freeze"]
+    freeze.write_text("fixture-package==1.0\n")
+    plan["model"]["runtime_lock"]["freeze_sha256"] = sha(freeze)
     plan["sources_pinned"] = {name: sha(REPOSITORY / name) for name in plan["sources_pinned"]}
     gold = {row["image_id"]: row["variant"] for row in author}
     return {"repo": repo, "plan": plan, "gold": gold, "author": author, "labels": labels,
@@ -194,7 +207,7 @@ def write_plan(world, plan=None):
     return path, sha(path)
 
 
-def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None, seen=None):
+def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None, seen=None, scale=1):
     class Backend:
         load_info = {"load_seconds": LOAD_SECONDS, "device": {"fake": True}}
 
@@ -209,7 +222,7 @@ def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None, seen=N
         def infer(self, row, seed):
             calls.append(row["id"])
             if clock is not None:
-                clock.now += latency_of(row["id"])
+                clock.now += scale * latency_of(row["id"])
             if fail is not None and row["id"] == fail[0]:
                 raise fail[1]
             return {"native_response": {
@@ -224,19 +237,33 @@ def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None, seen=N
     return Backend
 
 
+EVALUATOR_ARMS = {"W": "common", "RL400": "rl-exposure", "strongest_SFT": "sft-1e5-time"}
+
+
+def exported_arm(world, name, predictions, **override):
+    """An export-arm file, written by hand from the arm schema."""
+    return {"schema": "named-baseline-v2-arm-predictions-v1", "plan_arm": name,
+            "evaluator_arm": EVALUATOR_ARMS[name],
+            "comparison_json_sha256":
+                world["plan"]["comparison"]["arm_source"]["comparison_json_sha256"],
+            "prediction_journal_sha256": "0" * 64, "predictions": predictions, **override}
+
+
 def answers_for(world, wrong=()):
     labels = world["labels"]
     return {i: (labels[(labels.index(g) + 1) % 100] if i in wrong else g)
             for i, g in world["gold"].items()}
 
 
-def run_all(runner, world, stage, answers, calls, clock, path, digest, *, shards=range(3)):
+def run_all(runner, world, stage, answers, calls, clock, path, digest, *, shards=range(3),
+            scale=1):
     report = None
     for shard in shards:
         for _ in range(4):
             report = runner.run_shard(path, digest, stage, shard, world["repo"], world["out"],
                                       world["weights"],
-                                      backend_factory=fake_backend(answers, calls, clock=clock))
+                                      backend_factory=fake_backend(answers, calls, clock=clock,
+                                                                   scale=scale))
             journal = world["out"] / f"stage-{stage}/shard-{shard}-of-3/run/attempts.jsonl"
             done = sum('"completed"' in line for line in journal.read_text().splitlines())
             assigned = len(world["discovery" if stage == "discovery" else "gold"]) // 3
@@ -292,7 +319,7 @@ def test_committed_plan_pins_match_this_tree_and_v1(runner):
     assert plan["stages"]["full"]["ids_sha256"] == v1["stages"]["full"]["ids_sha256"]
     assert plan["generation"]["sampling"] == local_vlm.INSTRUCT_GENERATION
     assert plan["prompt_and_parser"]["prompt_sha256"] == v1["prompt_and_parser"]["prompt_sha256"]
-    assert plan["sharding"]["shards"] == 6
+    assert plan["sharding"]["shards"] == {"discovery": 10, "full": 30}
     assert plan["comparison"]["resamples"] == 20000 and plan["comparison"]["seed"] == 2718
     assert [a["name"] for a in plan["comparison"]["arms"]] == ["W", "RL400", "strongest_SFT"]
 
@@ -403,7 +430,7 @@ def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world
     arms = {}
     for name in ("W", "RL400", "strongest_SFT"):
         arms[name] = world["tmp"] / f"{name}.json"
-        arms[name].write_text(json.dumps(perfect))
+        arms[name].write_text(json.dumps(exported_arm(world, name, perfect)))
     result = runner.compare(world["plan"], world["repo"], world["out"],
                             {k: str(v) for k, v in arms.items()}, digest)
     image = result["against"]["W"]["image"]
@@ -420,7 +447,7 @@ def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world
         runner.compare(world["plan"], world["repo"], world["out"], {"W": str(arms["W"])},
                        digest)
     short = world["tmp"] / "short.json"
-    short.write_text(json.dumps(dict(list(perfect.items())[:-1])))
+    short.write_text(json.dumps(exported_arm(world, "W", dict(list(perfect.items())[:-1]))))
     with pytest.raises(ValueError, match="does not cover"):
         runner.compare(world["plan"], world["repo"], world["out"],
                        {**{k: str(v) for k, v in arms.items()}, "W": str(short)}, digest)
@@ -676,3 +703,298 @@ def test_budget_semantics_match_the_stage_budgets():
     assert f"discovery {walls[0]} s, full {walls[1]} s" in text
     assert walls == [1486000, 1608200]
     assert plan["engine"]["threads"] == 32
+
+
+# --- Guards added after the third review; each is made to fire on purpose. ---------------
+
+
+def test_gate_projects_full_shards_at_the_slowest_discovery_host(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    # Shards 0 and 1 run on host A at the fixture latency, shard 2 on host B at 3x.
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[0, 1])
+    runner.fixture_host = dict(HOSTS[1])
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[2],
+            scale=3)
+    report = runner.merged_report(world["plan"], "discovery", world["repo"], world["out"])
+    discovery = world["discovery"]
+    slow = discovery[2::3]
+    slow_mean = 3 * sum(latency_of(i) for i in slow) / len(slow)
+    pooled = (sum(latency_of(i) for i in discovery) + 2 * sum(latency_of(i) for i in slow)) / 100
+    assert [s["host"]["hostname"] for s in report["per_shard"]] == [
+        "fixture-a", "fixture-a", "fixture-b"]
+    assert report["per_host"]["fixture-b"]["mean_image_latency_seconds"] == pytest.approx(
+        slow_mean)
+    assert report["mean_image_latency_seconds"] == pytest.approx(pooled)
+    assert pooled < slow_mean
+    decision = runner.discovery_decision(world["plan"], report)
+    assert decision["decision"] == "proceed"
+    assert decision["slowest_host"]["hostname"] == "fixture-b"
+    # A full shard is 300 / 3 = 100 images in 2 chunks of 50; overhead is the 2 s fake load.
+    projection = 100 * slow_mean + 2 * LOAD_SECONDS
+    assert decision["projected_shard_active_seconds"] == pytest.approx(projection)
+    assert decision["shard_max_active_seconds"] == pytest.approx(2 * projection + 520)
+    budget = runner.stage_budget(world["plan"], "full", world["repo"], world["out"], digest,
+                                 HOSTS[1])
+    assert budget["max_active_seconds"] == pytest.approx(2 * projection + 520)
+    # Host C is allowlisted but ran no discovery image: the cap does not cover it.
+    runner.fixture_host = dict(HOSTS[2])
+    with pytest.raises(ValueError, match="this host ran no discovery images"):
+        runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    assert not (world["out"] / "stage-full").exists()
+    runner.fixture_host = dict(HOSTS[1])
+    report = runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
+                              world["weights"],
+                              backend_factory=fake_backend(answers, calls, clock=clock))
+    assert report["per_shard"][0]["completed"] == 50
+
+
+def test_host_off_the_allowlist_is_refused_before_any_output(runner, world):
+    path, digest = write_plan(world)
+    for host in ({"hostname": "fixture-z", "cpu_model": "Fixture CPU A"},
+                 {"hostname": "fixture-a", "cpu_model": "Fixture CPU B"}):
+        runner.fixture_host = host
+        with pytest.raises(ValueError, match="not on the plan's shard-host allowlist"):
+            runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend({}, []))
+    assert not world["out"].exists()
+
+
+def test_a_shard_never_changes_host(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
+    run_json = world["out"] / "stage-discovery/shard-0-of-3/run/run.json"
+    assert json.loads(run_json.read_text())["identity"]["config"]["host"] == HOSTS[0]
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match="resume identity differs"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    assert len(calls) == 20  # nothing ran on the second host
+
+
+def test_merge_refuses_a_shard_whose_kernels_computed_differently(runner, world, clock,
+                                                                   monkeypatch):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[0, 1])
+    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "OTHER-FP")
+    # The shard runs (its own identity is consistent), but its post-run summary already
+    # reads the stage's other shards and refuses; so does the merge.
+    with pytest.raises(ValueError, match="Shard 2 ran under a different run identity"):
+        runner.run_shard(path, digest, "discovery", 2, world["repo"], world["out"],
+                         world["weights"],
+                         backend_factory=fake_backend(answers, calls, clock=clock))
+    assert '"completed"' in (world["out"] / "stage-discovery/shard-2-of-3/run/attempts.jsonl"
+                             ).read_text()
+    with pytest.raises(ValueError, match="Shard 2 ran under a different run identity"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_merge_refuses_a_shard_without_its_ledger_or_identity(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    shard = world["out"] / "stage-discovery/shard-1-of-3"
+    ledger = (shard / "ledger.jsonl").read_text()
+    (shard / "ledger.jsonl").unlink()  # as if only run/ had been fetched from its host
+    with pytest.raises(ValueError, match="Shard 1 has journaled images but no budget ledger"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    with pytest.raises(ValueError, match="no budget ledger"):
+        runner.merged_report(world["plan"], "discovery", world["repo"], world["out"])
+    (shard / "ledger.jsonl").write_text(ledger)
+    identity = (shard / "run/run.json").read_text()
+    (shard / "run/run.json").unlink()
+    with pytest.raises(ValueError, match="no budget ledger or run identity"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    (shard / "run/run.json").write_text(identity)
+    assert runner.merge(world["plan"], "discovery", world["repo"], world["out"],
+                        digest)["status"] == "completed"
+
+
+def test_compare_refuses_arms_without_pinned_provenance_or_outside_the_vocabulary(
+        runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    run_all(runner, world, "full", answers, calls, clock, path, digest)
+    perfect = dict(world["gold"])
+    good = {}
+    for name in EVALUATOR_ARMS:
+        good[name] = world["tmp"] / f"good-{name}.json"
+        good[name].write_text(json.dumps(exported_arm(world, name, perfect)))
+    runner.compare(world["plan"], world["repo"], world["out"],
+                   {k: str(v) for k, v in good.items()}, digest)
+    unknown_label = dict(perfect, **{next(iter(perfect)): "Not A Variant"})
+    cases = [
+        ("strongest_SFT", exported_arm(world, "strongest_SFT", perfect,
+                                       evaluator_arm="sft-1e4-time"), "not export-arm output"),
+        ("W", exported_arm(world, "W", perfect, comparison_json_sha256="f" * 64),
+         "not export-arm output"),
+        ("RL400", exported_arm(world, "W", perfect), "not export-arm output"),
+        ("W", perfect, "not export-arm output"),
+        ("RL400", exported_arm(world, "RL400", unknown_label), "outside the label vocabulary"),
+    ]
+    for name, content, message in cases:
+        bad = world["tmp"] / "bad.json"
+        bad.write_text(json.dumps(content))
+        with pytest.raises(ValueError, match=message):
+            runner.compare(world["plan"], world["repo"], world["out"],
+                           {**{k: str(v) for k, v in good.items()}, name: str(bad)}, digest)
+
+
+def write_bundle(world):
+    """Minimal evaluator bundle: plan.json, one arm journal file and comparison.json."""
+    bundle = world["tmp"] / "bundle"
+    journal = bundle / "arms/sft-1e5-time/predictions.jsonl"
+    journal.parent.mkdir(parents=True)
+    journal.write_text('{"fixture": 1}\n')
+    (bundle / "arms/common").mkdir()
+    (bundle / "arms/common/predictions.jsonl").write_text('{"fixture": 0}\n')
+    (bundle / "plan.json").write_text(json.dumps(
+        {"labels": world["labels"],
+         "study": {"arms": [{"id": "common"}, {"id": "sft-1e5-time"}]}}))
+    comparison = {"plan_sha256": sha(bundle / "plan.json"),
+                  "strongest_declared_sft": "sft-1e5-time",
+                  "prediction_journal_sha256": {"common": "0" * 64,
+                                                "sft-1e5-time": sha(journal)}}
+    return bundle, comparison
+
+
+def pin_comparison(world, bundle, comparison):
+    (bundle / "comparison.json").write_text(json.dumps(comparison))
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["comparison"]["arm_source"]["comparison_json_sha256"] = sha(bundle / "comparison.json")
+    return plan
+
+
+def test_export_arm_refuses_an_unpinned_comparison_or_a_different_arm(runner, world):
+    bundle, comparison = write_bundle(world)
+    plan = pin_comparison(world, bundle, comparison)
+    with pytest.raises(ValueError, match="not one of the declared arms"):
+        runner.export_arm(plan, bundle, "sft-1e5-time")
+    with pytest.raises(ValueError, match="comparison.json differs from the plan's pinned"):
+        runner.export_arm(world["plan"], bundle, "strongest_SFT")
+    other = pin_comparison(world, bundle,
+                           dict(comparison, strongest_declared_sft="sft-1e4-time"))
+    with pytest.raises(ValueError, match="strongest declared SFT is sft-1e4-time"):
+        runner.export_arm(other, bundle, "strongest_SFT")
+    other = pin_comparison(world, bundle, dict(comparison, plan_sha256="e" * 64))
+    with pytest.raises(ValueError, match="plan.json is not the plan"):
+        runner.export_arm(other, bundle, "strongest_SFT")
+    plan = pin_comparison(world, bundle, comparison)
+    with pytest.raises(ValueError, match="common journal differs"):
+        runner.export_arm(plan, bundle, "W")
+    (bundle / "arms/sft-1e5-time/predictions.jsonl").write_text('{"fixture": 2}\n')
+    with pytest.raises(ValueError, match="sft-1e5-time journal differs"):
+        runner.export_arm(plan, bundle, "strongest_SFT")
+
+
+def test_plan_consistency_rules_refuse_a_bad_plan(runner, world):
+    runner.load_plan(PLAN, require_activated=False)  # the committed plan satisfies them
+    full = world["plan"]["stages"]["full"]
+    wall = runner.invocation_wall_seconds(full["budget"])
+    cases = []
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["stages"]["full"]["gate"]["max_shard_active_seconds"] = (
+        full["gate"]["max_projected_shard_active_seconds"] + wall - 1)
+    cases.append((plan, "gate is inconsistent"))
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["comparison"]["arms"][2]["evaluator_arm"] = "sft-1e4-time"
+    cases.append((plan, "comparison arms must be exactly"))
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["sharding"]["hosts"] = {}
+    cases.append((plan, "allowlist shard hosts"))
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["sharding"]["shards"] = {"discovery": 3}
+    cases.append((plan, "shard count for full"))
+    for plan, message in cases:
+        path, digest = write_plan(world, plan)
+        with pytest.raises(ValueError, match=message):
+            runner.load_plan(path, digest)
+
+
+def test_report_command_never_scores(runner, world, clock, capsys):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    assert runner.merge(world["plan"], "discovery", world["repo"], world["out"],
+                        digest)["metric"] is not None
+    capsys.readouterr()
+    assert runner.main(["report", "--plan", str(path), "--stage", "discovery",
+                        "--output", str(world["out"]), "--repository", str(world["repo"])]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["status"] == "completed" and printed["metric"] is None
+    assert "predictions" not in printed and printed["decision"]["decision"] == "proceed"
+
+
+def test_snapshot_refuses_files_the_record_does_not_list(world):
+    weights, integrity = world["weights"], world["integrity"]
+    hub = weights / ".cache/huggingface"
+    (hub / "download").mkdir(parents=True)
+    (hub / "trees").mkdir()
+    for name in ("CACHEDIR.TAG", ".gitignore", "download/config.json.metadata",
+                 "download/model-00001-of-00002.safetensors.lock",
+                 "trees/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0.json"):
+        (hub / name).write_text("bookkeeping")
+    local_hf.verify_snapshot(weights, integrity)  # hf download's own bookkeeping only
+    for extra, message in (
+            ("processor_config.json", "does not list: processor_config.json"),
+            ("sub/added_tokens.json", "does not list: sub/added_tokens.json"),
+            (".cache/huggingface/download/evil.json.metadata", "does not list"),
+            (".cache/huggingface/trees/" + "0" * 40 + ".json", "does not list"),
+            (".cache/huggingface/other.txt", "does not list")):
+        path = weights / extra
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+        with pytest.raises(ValueError, match=message):
+            local_hf.verify_snapshot(weights, integrity)
+        path.unlink()
+    os.symlink(weights / "config.json", weights / "linked.json")
+    with pytest.raises(ValueError, match="escapes the pinned snapshot: linked.json"):
+        local_hf.verify_snapshot(weights, integrity)
+
+
+def test_runtime_lock_refuses_any_other_environment(monkeypatch):
+    import importlib.metadata as metadata
+
+    pins = {name: "1.0" for name in local_hf.PACKAGES}
+    monkeypatch.setattr(metadata, "version", lambda name: pins[name])
+    installed = {"torch": "1.0", "huggingface-hub": "2.2.0"}
+    monkeypatch.setattr(local_hf, "installed_distributions", lambda: dict(installed))
+    monkeypatch.setattr(local_hf.platform, "python_version", lambda: "3.12.15")
+    lock = {"freeze": "torch==1.0\nhuggingface_hub==2.2.0\n", "python": "3.12.15"}
+    assert local_hf.runtime_versions(pins, lock) == pins
+    with pytest.raises(ValueError, match="runtime lock .* is required"):
+        local_hf.runtime_versions(pins, None)
+    for freeze in ("torch==1.0\nhuggingface_hub==2.3.0\n", "torch==1.0\n",
+                   "torch==1.0\nhuggingface_hub==2.2.0\nextra==1\n"):
+        with pytest.raises(ValueError, match="differs from the runtime lock"):
+            local_hf.runtime_versions(pins, dict(lock, freeze=freeze))
+    with pytest.raises(ValueError, match="not the locked 3.12.14"):
+        local_hf.runtime_versions(pins, dict(lock, python="3.12.14"))
+    for freeze in ("torch>=1.0\n", "torch==1.0\nTorch==1.0\n", ""):
+        with pytest.raises(ValueError, match="Runtime lock"):
+            local_hf.parse_freeze(freeze)
+
+
+def test_changed_runtime_lock_file_is_refused_before_any_output(runner, world):
+    path, digest = write_plan(world)
+    freeze = world["repo"] / world["plan"]["model"]["runtime_lock"]["freeze"]
+    freeze.write_text("fixture-package==2.0\n")
+    with pytest.raises(ValueError, match="Runtime lock differs from the plan's pinned"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend({}, []))
+    assert not world["out"].exists()
+
+
+def test_committed_runtime_lock_is_the_pinned_freeze():
+    plan = json.loads(PLAN.read_text())
+    lock = plan["model"]["runtime_lock"]
+    assert sha(REPOSITORY / lock["freeze"]) == lock["freeze_sha256"]
+    pins = local_hf.parse_freeze((REPOSITORY / lock["freeze"]).read_text())
+    for name, version in plan["model"]["runtime_pins"].items():
+        assert pins[name] == version, name
+    assert pins["huggingface-hub"] == "2.2.0" and lock["python"] == "3.12.15"

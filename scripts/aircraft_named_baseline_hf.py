@@ -13,8 +13,9 @@ hands over to ``local_vlm._run_locked``, the same reservation/completion journal
 the same ``final_answer`` rule and the same ``classification_response`` field.
 
 Sampling replicates mlx-vlm 0.6.8 (``mlx_vlm.sample_utils``) instead of Hugging Face's
-warpers, whose order differs: presence penalty over the last 20 generated tokens, then
-log-softmax, then top-p on the untempered distribution, then top-k, then a categorical draw
+warpers, whose order differs: presence penalty over the unique tokens among the last 20
+entries of mlx-vlm's token history (the prompt, or only its last token when the prompt is
+prefilled in 2048-token chunks, followed by the generated tokens), then log-softmax, then top-p on the untempered distribution, then top-k, then a categorical draw
 at the declared temperature. The draw happens inside the logits processor with a per-image
 ``torch.Generator``; it hands generate() a one-hot score row and generate() runs greedy
 (``do_sample=False``), so no Hugging Face warper or model generation default can change the
@@ -25,7 +26,10 @@ same definition, the individual draws are not.
 Blind spots, stated on purpose: integrity is checked against the Hub's published LFS sha256
 and git blob ids fetched once into a committed record, so a record edited together with the
 files is not detected; the engine does not detect other processes competing for the CPU,
-which only changes latency.
+which only changes latency; MKL's chosen code path cannot be read back (torch links MKL
+statically), so the kernel pin is enforced by setting it before MKL can initialise and is
+checked only through kernel_fingerprint, which detects a difference on its own fixed
+operations, not every possible difference inside the model.
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import platform
+import re
 import resource
 import time
 from pathlib import Path
@@ -120,6 +126,50 @@ def cpu_model():
     return os.uname().machine
 
 
+def host_identity():
+    """The machine a shard runs on; part of its run identity, so a shard never changes host."""
+    return {"hostname": os.uname().nodename, "cpu_model": cpu_model()}
+
+
+def kernel_fingerprint(threads):
+    """SHA256 of fixed float32 computations through the kernels the model uses.
+
+    Covers a matrix product (prefill), a one-row linear (decode), softmax, layer norm,
+    scaled-dot-product attention and the vision tower's strided 3-D convolution, on
+    seeded inputs at the shard's thread count. It is recorded in the run identity, so the
+    merge refuses shards whose kernels computed these differently. Blind spot: equal
+    fingerprints do not prove equal model outputs; they rule out a difference these
+    operations expose.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    torch.set_num_threads(threads)
+    generator = torch.Generator().manual_seed(20261018)
+
+    def draw(*shape):
+        return torch.randn(*shape, generator=generator, dtype=torch.float32)
+
+    a, w, x = draw(64, 2048), draw(2048, 2048), draw(1, 2048)
+    q, k, v = draw(1, 8, 96, 128), draw(1, 8, 96, 128), draw(1, 8, 96, 128)
+    video, kernel = draw(1, 3, 2, 64, 64), draw(32, 3, 2, 16, 16)
+    with torch.inference_mode():
+        outputs = [a @ w, F.linear(x, w), torch.softmax(a, dim=-1),
+                   F.layer_norm(a, (2048,)), F.scaled_dot_product_attention(q, k, v),
+                   F.conv3d(video, kernel, stride=(2, 16, 16))]
+    digest = hashlib.sha256()
+    for output in outputs:
+        digest.update(output.contiguous().numpy().tobytes())
+    return digest.hexdigest()
+
+
+# hf download --local-dir keeps its own bookkeeping under .cache/huggingface; transformers
+# never reads it. Exactly these names, and only for files the record lists, are tolerated.
+HUB_BOOKKEEPING = re.compile(
+    r"\.cache/huggingface/(?:CACHEDIR\.TAG|\.gitignore|trees/(?P<tree>[0-9a-f]{40})\.json"
+    r"|download/(?P<file>.+)\.(?:lock|metadata))")
+
+
 def git_blob_sha1(path):
     data = Path(path).read_bytes()
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
@@ -149,15 +199,64 @@ def verify_snapshot(directory, integrity):
     index = json.loads((directory / "model.safetensors.index.json").read_text())
     if not REQUIRED_FILES.issubset(files) or set(index["weight_map"].values()) != set(shards):
         raise ValueError("Incomplete model, tokenizer, or processor snapshot")
+    # transformers loads optional files it finds (processor_config.json, added_tokens.json,
+    # a custom chat template, ...), and the directory sits in shared /dev/shm: anything the
+    # record does not list is refused, not ignored.
+    for parent, directories, names in os.walk(directory):
+        for name in directories + names:
+            path = Path(parent) / name
+            relative = path.relative_to(directory).as_posix()
+            if path.is_symlink():
+                raise ValueError(f"Model file escapes the pinned snapshot: {relative}")
+            if path.is_dir() or relative in files:
+                continue
+            match = HUB_BOOKKEEPING.fullmatch(relative)
+            if (match is None or (match["tree"] is not None and match["tree"] != REVISION)
+                    or (match["file"] is not None and match["file"] not in files)):
+                raise ValueError(f"Snapshot holds a file the integrity record does not list: "
+                                 f"{relative}")
     return {"repository": REPOSITORY, "revision": REVISION, "quantization": None,
             "files": files}
 
 
-def runtime_versions(expected):
-    """Installed versions of every package the engine imports; must equal the plan pins."""
+def _distribution_name(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_freeze(text):
+    """``uv pip freeze`` output as {normalised name: version}; anything else is refused."""
+    pins = {}
+    for line in text.splitlines():
+        name, separator, version = line.strip().partition("==")
+        if not separator or not name or not version or _distribution_name(name) in pins:
+            raise ValueError(f"Runtime lock line is not a unique name==version: {line!r}")
+        pins[_distribution_name(name)] = version
+    if not pins:
+        raise ValueError("Runtime lock is empty")
+    return pins
+
+
+def installed_distributions():
+    return {_distribution_name(d.metadata["Name"]): d.version
+            for d in importlib.metadata.distributions()}
+
+
+def runtime_versions(expected, lock=None):
+    """Installed versions of every package the engine imports must equal the plan pins, and
+    the whole environment must equal the committed ``uv pip freeze`` lock (transitive
+    dependencies such as huggingface_hub included) on the locked Python version."""
     versions = {name: importlib.metadata.version(name) for name in PACKAGES}
     if versions != expected:
         raise ValueError(f"Runtime differs from the pinned versions: {versions}")
+    if lock is None:
+        raise ValueError("A runtime lock (freeze text and Python version) is required")
+    wanted, installed = parse_freeze(lock["freeze"]), installed_distributions()
+    if installed != wanted:
+        differ = sorted(set(wanted.items()) ^ set(installed.items()))
+        raise ValueError(f"Environment differs from the runtime lock: {differ[:10]}")
+    if platform.python_version() != lock["python"]:
+        raise ValueError(f"Python {platform.python_version()} is not the locked "
+                         f"{lock['python']}")
     return versions
 
 
@@ -386,6 +485,7 @@ def _max_rss():
 
 def run_local_hf(
     rows, output, *, model_directory, integrity, engine, runtime_pins, phase, seed=1729,
+    runtime_lock=None,
     resume=False, backend_factory=None, image_root, task_contract, preprocessing_id,
     stop_after_completions=None, stream_progress=False, profile="instruct",
 ):
@@ -419,11 +519,17 @@ def run_local_hf(
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
     model = verify_snapshot(model_directory, integrity)
+    versions = runtime_versions(runtime_pins, runtime_lock)
     observed_numerics = pin_cpu_numerics(engine["cpu_numerics"])
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,
+        # observed_cpu_numerics equals the plan's or the pin raised; it is a record. The
+        # fingerprint is the check that can differ between hosts.
         "observed_cpu_numerics": observed_numerics,
-        "runtime_versions": runtime_versions(runtime_pins),
+        "kernel_fingerprint": kernel_fingerprint(engine["threads"]),
+        "host": host_identity(),
+        "runtime_versions": versions,
+        "runtime_lock_sha256": _digest(runtime_lock), "python": platform.python_version(),
         "coordinate_format": task_contract.get("coordinate_format"),
         "concurrency": 1, "fewshot_training_images": 0, "resize_shape": None,
         "source_orientation": "encoded_pixel_order_without_exif_transposition",

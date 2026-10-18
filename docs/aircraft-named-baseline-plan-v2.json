@@ -38,7 +38,14 @@
       "safetensors": "0.8.0"
     },
     "runtime_pins_source": "uv pip freeze of the iccad3 setup run qwen38hf-setup-iccad3 (2026-10-18); transformers/tokenizers/pillow/numpy/safetensors equal v1's runtime pins; torch from download.pytorch.org/whl/cpu, the same torch/torchvision pair CI's local-vlm job installs; torchvision is required by the Qwen3-VL processor in transformers 5.20.0 (the first smoke launch failed without it); httpx is imported by vision_rl.evaluation and is not a runtime pin",
-    "install": "uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1 && uv pip install httpx==0.28.1 transformers==5.20.0 tokenizers==0.23.3 pillow==12.3.0 numpy==2.5.4 safetensors==0.8.0 huggingface_hub"
+    "install": "uv venv -p 3.12.15 <venv>; uv pip install --no-deps --index-url https://download.pytorch.org/whl/cpu torch==2.14.1+cpu torchvision==0.29.1+cpu; uv pip install --no-deps -r <the lock without its torch and torchvision lines>; uv pip freeze must then equal the lock byte for byte",
+    "runtime_lock": {
+      "freeze": "docs/qwen3.8-27b-hf-cpu-freeze.txt",
+      "freeze_sha256": "f3107ead9e5a6d4e55c48374cab5334c115de3b1d591042ca899bbd4fcd1c3ac",
+      "python": "3.12.15",
+      "rule": "run and smoke refuse unless the lock file has this SHA256, every installed distribution (importlib.metadata, names normalised) equals the lock exactly (no extra, missing or different package, transitive dependencies such as huggingface_hub included), and platform.python_version() is this version. The lock SHA256 and Python version are in each shard's run identity.",
+      "source": "uv pip freeze of the iccad5 venv that ran qwen38hf-smoke-pinned-iccad5 (2026-10-18); every nbv2-* probe venv was built from it with --no-deps and its freeze diffed equal (run.log FREEZE_MATCH)"
+    }
   },
   "engine": {
     "name": "transformers-cpu",
@@ -56,7 +63,7 @@
     "threads": 32,
     "threads_rule": "Fixed and part of the run identity: float32 reductions (ATen parallel loops, MKL without CBWR STRICT) can depend on the thread count, so every shard uses torch.set_num_threads(32) and uwrun --threads 32 (OMP/MKL/OPENBLAS = 32). The canary and the pinned smoke ran at 32 threads on iccad3 (32 logical CPUs) and iccad5 (40).",
     "implementation": "scripts/aircraft_named_baseline_hf.py (TransformersBackend, run_local_hf; kept out of src/vision_rl because pre-registered plans hash every module there); journal loop is local_vlm._run_locked unchanged",
-    "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on unique tokens among the last 20 generated tokens, log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
+    "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on the unique tokens among the last 20 entries of mlx-vlm's token history (the whole prompt, or only its last token when the prompt exceeds the 2048-token prefill step and is prefilled in chunks, followed by the generated tokens; generate/ar.py and sample_utils.py), log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
     "stop_rule": "finish_reason stop iff the last generated token is one of the author generation_config eos_token_id; the eos token is not part of the text (as mlx-vlm); otherwise length at max_tokens"
   },
   "generation": {
@@ -124,9 +131,15 @@
   },
   "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). Every source the runner hashes is listed (the runner refuses an activated plan whose keys differ from its hashed set). The null pins (the two v2 scripts and the four shared vision_rl modules other work keeps changing on main) are filled at activation with the activated commit's file hashes; an activated plan with any null pin is refused, so activation pins every hashed source. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
   "sharding": {
-    "shards": 6,
-    "assignment": "author-order position i of the stage manifest belongs to shard i mod 6 (metadata only): discovery 17/17/17/17/16/16, full VAL 556/556/556/555/555/555",
-    "hosts": "Shards are host-independent (one pinned kernel path, identical identity), so hosts pull the next unstarted shard: by the measured per-image rates (iccad3 367.9 s, iccad1 533.7 s unpinned, iccad5 1020.4 s) iccad3 takes 3 shards, iccad1 2 and iccad5 1. Each host keeps its own copy of the snapshot in /dev/shm and its own run directory per shard; which host ran which shard is operational and recorded by uwrun and in each shard ledger/load_info.",
+    "shards": {
+      "discovery": 10,
+      "full": 30
+    },
+    "hosts": {
+      "ICCAD1": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+      "ICCAD3": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+      "iccad5": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz"
+    },
     "merge": "scripts/aircraft_named_baseline_v2.py merge (writes <output>/merged-<stage>-predictions.json): union of the shard journals; refuses an image journaled outside its shard or reserved/completed twice within one, a shard directory outside shard-k-of-6, shards whose run identities differ in anything but their rows/shard index (the identity includes dtype, the observed CPU kernel path, runtime versions and the formatted-prompt hash), shard ledgers that started under different plan SHA256s or runner sources, and any missing or unknown image",
     "shared_state": "Shards share no lock. Shard results are fetched to one output directory before merge; the merge refuses duplicates, so running one shard twice cannot be double-counted."
   },
