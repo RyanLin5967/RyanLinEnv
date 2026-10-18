@@ -132,12 +132,13 @@
     "discovery": {
       "order": 1,
       "images": 100,
-      "ids_source": {
-        "path": "docs/aircraft-named-baseline-plan-v1.json",
-        "sha256": "832a9088567ff82fdd9b045f62c02a15d4a13de52484db6f75c6e41e71b242da"
+      "ids": {
+        "path": "docs/aircraft-named-baseline-ci-v1/inputs/discovery-ids.json",
+        "sha256": "77b28b4486098f327efbf1e27c06a92b8c418214fc5b3ea03f7dbf93895cb903"
       },
+      "ids_provenance": "Copied on 2026-10-18 from stages.discovery.ids of docs/aircraft-named-baseline-plan-v1.json (sha256 832a9088567ff82fdd9b045f62c02a15d4a13de52484db6f75c6e41e71b242da, the same bytes on main at 5cc4b08). Held here as this plan's own pinned input so amendments to that live, append-only plan cannot change or block this sample. Both the copy's compact-JSON ids_sha256 and the source plan's equal c8d73a4c...",
       "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
-      "definition": "The same protocol-defined 100-image, one-per-class discovery sample as the 27B named-baseline plan (strong_baseline.validation_discovery, salt pinned by D13), read from that plan and checked against its ids_sha256.",
+      "definition": "The same protocol-defined 100-image, one-per-class discovery sample as the 27B named-baseline plan (strong_baseline.validation_discovery, salt pinned by D13), held as this plan's pinned input discovery-ids.json and checked against ids_sha256.",
       "uncertainty": {
         "method": "Hoeffding, 100 bounded outcomes, clipped to [0,1]",
         "confidence_level": 0.95,
@@ -152,16 +153,19 @@
       "ids_sha256": "c33a8794a287122d2237f0906996fd1988f7f16604ecf887786229b398cef0cd",
       "regenerates_discovery_images": "Yes: full VAL is its own run; discovery outputs are never copied into it.",
       "gate": {
-        "requires": "A committed discovery receipt (discovery-receipt.json from a merged discovery run) passed as the dispatch input discovery_receipt; it must carry this activated plan's SHA256, status completed and all 100 images completed.",
+        "requires": "A committed discovery receipt (discovery-receipt.json from a merged discovery run) passed as the dispatch input discovery_receipt. It must carry this activated plan's SHA256, status completed, the pre-registered discovery ids_sha256, all 100 images completed of 100, one first-attempt run on refs/heads/main, an identity whose plan_sha256, stage, run_id and sha match the receipt, and the same runner_sha256 and workflow_sha256 as the checkout dispatching full VAL.",
         "minimum_valid_answer_fraction": 0.9,
-        "latency_safety_factor": 1.5,
-        "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_fixed_setup_seconds) / (1.5 x (discovery mean_image_latency_seconds + discovery mean_image_fetch_seconds)))). fixed setup = a shard's setup seconds minus its image-fetch seconds (frozen import, model download and rehash, load); fetch seconds are charged per image because a full shard fetches all its images during setup. The matrix command refuses a smaller N.",
-        "on_stop": "Report the named comparator as incomplete. Do not change prompt, decoding, model, sample or comparators to rescue it."
+        "latency_safety_factor": 3.0,
+        "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_fixed_setup_seconds) / (3.0 x (discovery max_shard_mean_image_latency_seconds + discovery mean_image_fetch_seconds)))). max_shard_mean_image_latency_seconds is the largest of the four discovery shards' mean generation latencies. fixed setup = a shard's setup seconds minus its image-fetch seconds (frozen import, model download and rehash, load); fetch seconds are charged per image because a full shard fetches all its images during setup. The matrix command refuses a smaller N, and refuses a receipt whose timing values are not positive numbers.",
+        "on_stop": "Report the named comparator as incomplete. Do not change prompt, decoding, model, sample or comparators to rescue it.",
+        "latency_safety_factor_basis": "Measured runner-to-runner spread on identical free ubuntu-24.04 runners (4 vCPU, 16 GB): plumbing means 113.07 s (run 39105775526) and 297.80 / 297.87 s (runs 39106885360, 39106233184) per image, a 2.63x ratio, with identical responses. 3.0 is above that ratio, so shards sized from an all-fast discovery still fit a slow host: 55 images x (297.8 + 1.1) s + 65 s = 16,503 s, inside the 18,900 s start limit.",
+        "on_slow_host": "A host slower than 3.0x the slowest discovery shard stops its shard as partial at the start rule; the merge refuses the run, which is reported under runs_policy and never patched. Each shard records host cpu_model and cpu_flags, and the receipt lists each shard's cpu_model and mean latency, so the spread can be attributed. CPU model is deliberately not part of the merge identity: shards of one run land on mixed hosts."
       }
     }
   },
   "sharding": {
     "assignment": "Stage image i in author order belongs to shard i mod N; each shard runs its images in author order.",
+    "dispatch_ref": "refs/heads/main only. The workflow's setup job and the runner's shard and merge commands refuse any other ref, because a branch could edit the plan and the runner together and pass the activated-copy lock. Each shard identity records runner_sha256 and workflow_sha256.",
     "shards": {
       "discovery": {
         "min": 4,
@@ -187,7 +191,7 @@
       "any shard whose model, runtime, profile, generation config, prompt or frozen-source identity differs from the others",
       "any canonical label that differs from the frozen parser applied to the raw response"
     ],
-    "runs_policy": "Every dispatched VAL run is reported, failed or not. A failed run is never patched by re-running shards; a new dispatch is a new run and the report lists it next to the failed one. The first run that merges is the result for its stage."
+    "runs_policy": "Every dispatched VAL run is reported, failed or not. A failed run is never patched by re-running shards; a new dispatch is a new run and the report lists it next to the failed one. The first run that merges is the result for its stage. Dispatched runs never cancel each other: the workflow's concurrency group is per run for workflow_dispatch."
   },
   "analysis": {
     "metric": "mean(diag(row_normalized_confusion)) via the frozen classification_comparison; micro accuracy supplemental",
@@ -225,21 +229,61 @@
   "runner": "scripts/aircraft_named_baseline_ci.py (tests: tests/test_aircraft_named_baseline_ci.py, CPU only, no model)",
   "workflow": ".github/workflows/aircraft-named-baseline-ci.yml",
   "measured_cost": {
-    "instrument": "PR plumbing job, GitHub Actions run 39105775526 (commit e3c1fbd), artifact named-baseline-plumbing/shard.json: three pinned TRAIN images on one free ubuntu-24.04 runner (4 vCPU, 16,765,374,464 bytes MemTotal, 90 GB free disk)",
-    "setup_seconds_including_model_download_and_load": 66.6,
-    "load_seconds": 18.7,
-    "per_image_latency_seconds": [
-      115.0,
-      112.0,
-      112.2
+    "instrument": "PR plumbing job, artifact named-baseline-plumbing/shard.json, fetched with `gh run download <run> -n named-baseline-plumbing` on 2026-10-18. Three pinned TRAIN images per run, each run on one free ubuntu-24.04 runner (4 vCPU, 16.77 GB MemTotal, ~90 GB free disk); same model, threads (4), generation config (repetition_penalty 1.0) and identical responses in all three runs.",
+    "runs": [
+      {
+        "run_id": "39105775526",
+        "head_commit": "e3c1fbd346cbef5da876074fb221a55b69e2f090",
+        "artifact_run_sha": "539c87c288ed1f2320767246d9bb506ca8cd115c",
+        "per_image_latency_seconds": [
+          115.0,
+          112.0,
+          112.2
+        ],
+        "setup_seconds": 66.6,
+        "load_seconds": 18.7,
+        "elapsed_seconds": 405.9
+      },
+      {
+        "run_id": "39106233184",
+        "head_commit": "b59e234b2b1a733c9c87f1cef603aba110dbb9be",
+        "artifact_run_sha": "d5021f8b801d9778765eadb5fbfa842d9635b7ad",
+        "per_image_latency_seconds": [
+          302.4,
+          295.5,
+          295.7
+        ],
+        "setup_seconds": 41.7,
+        "load_seconds": 18.1,
+        "fixed_setup_seconds": 40.2,
+        "image_fetch_seconds": 1.5,
+        "elapsed_seconds": 935.3
+      },
+      {
+        "run_id": "39106885360",
+        "head_commit": "e8f25fdc55960f5d5cf6ccdfe0ace84194486f24",
+        "artifact_run_sha": "7f54ec84523af1c914ea14f5cc9a4048589d0985",
+        "per_image_latency_seconds": [
+          302.5,
+          295.3,
+          295.6
+        ],
+        "setup_seconds": 68.7,
+        "load_seconds": 18.1,
+        "fixed_setup_seconds": 65.4,
+        "image_fetch_seconds": 3.2,
+        "elapsed_seconds": 962.0
+      }
     ],
+    "run_sha_note": "artifact_run_sha is GITHUB_SHA of the pull_request run, i.e. GitHub's merge commit of the head into main at that time, not the head commit; both are given so the instrument can be re-located.",
     "prompt_tokens": [
       996,
       983,
       983
     ],
     "all_terminated": true,
-    "endpoint_export_check": "verify-endpoints in the same job: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
-    "projection_unverified": "Three images are not a forecast. If discovery measures ~113 s per image, full VAL is ~376,600 runner-seconds (~105 runner-hours, free on a public repository), and the shard rule gives N = ceil(3333 / floor((19800 - 900 - ~70) / (1.5 x ~113))) = 31 shards, i.e. two waves at max-parallel 20. The binding numbers come from the committed discovery receipt, not from this record."
+    "spread": "Mean per-image latency 113.07 s on one runner and 297.80 / 297.87 s on two others: 2.63x. The CPU model was not recorded by these runs (added to host facts afterwards), so the cause is unattributed.",
+    "endpoint_export_check": "verify-endpoints in each of these jobs: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
+    "projection_unverified": "Three images per run are not a forecast. Full VAL generation is 3333 x 113 s = ~105 runner-hours on fast hosts and 3333 x 298 s = ~276 runner-hours on slow hosts, free on a public repository. The shard rule (factor 3.0, fixed setup ~65 s, fetch ~1.1 s per image) gives N = ceil(3333 / floor(18835 / (3.0 x 114.1))) = 61 shards if every discovery shard is fast, and ceil(3333 / floor(18835 / (3.0 x 298.9))) = 159 if any is slow; both are within the 256 maximum. The binding numbers come from the committed discovery receipt, not from this record."
   }
 }
