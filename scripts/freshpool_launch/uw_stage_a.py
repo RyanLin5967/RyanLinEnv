@@ -33,7 +33,8 @@ so hosts outside uwrun's pools, ecetesla0/1, work), at most ``uw.per_host`` uwru
 host (anyone's ``uw-`` tmux sessions: the remote analogue of the second-owner refusal), with
 at least ``uw.min_free_ram_gb`` free RAM (the RSS analogue), ``uw.min_local_gb`` (>= 5, the
 disk reserve) free in /var/tmp, and the plan's ``uw.python`` and ``uw.model_directory``
-present on the host. Both must be absolute host-local paths under /var/tmp.
+present on the host, and AVX2 in its CPU flags. Both paths must be absolute host-local
+paths under /var/tmp.
 
 Blind spots, stated: the remote stage's RSS and the remote disk are checked only at launch
 (the phase worker's peak RSS is journalled after); an owner on the remote host that is not a
@@ -71,14 +72,17 @@ NOT_PATHS = ("python", "stage_dir", "arm_dir", "fragment", "model_directory", "d
              "stage_id", "arm", "seed", "run_id", "lr", "split", "a_floor", "init_role",
              "label_trie_sha256", "training_group", "arm_label", "active_cap", "arm_cap",
              "t_rl", "group")
-# One line per host: load1 nproc availGB uwruns localGB provisioned (uwrun's own probe, plus
-# whether the plan's remote python and model directory exist there).
+# One line per host: load1 nproc availGB uwruns localGB provisioned avx2 (uwrun's own probe,
+# plus whether the plan's remote python and model directory exist there, plus AVX2: the torch
+# CPU wheel dies with SIGILL rc=132 on hosts without it, iccad1/2/3, measured 2026-10-18 in
+# ~/uwaterloo-access/FINDINGS.md [rlenv-sweep-v2]).
 PROBE = (r'l=$(cut -d" " -f1 /proc/loadavg); n=$(nproc); '
          r'm=$(awk "/MemAvailable/{print int(\$2/1048576)}" /proc/meminfo); '
          r'r=$(tmux ls 2>/dev/null | grep -c "^uw-"); '
          r'd=$(df -Pk /var/tmp | awk "NR==2{print int(\$4/1048576)}"); '
          r'p=0; [ -x {python} ] && [ -d {model} ] && p=1; '
-         r'echo "uwprobe $l $n $m $r $d $p"')
+         r'v=0; grep -q -w avx2 /proc/cpuinfo && v=1; '
+         r'echo "uwprobe $l $n $m $r $d $p $v"')
 IMPORTABLE_SKIP = ("__pycache__",)
 
 
@@ -169,8 +173,9 @@ class UWRunner:
         return result.returncode, result.stdout, result.stderr
 
     def hosts(self):
-        """{host: (load1, nproc, avail_gb, uwruns, local_gb, provisioned)} for every reachable
-        allowlisted host, each probed directly and in parallel."""
+        """{host: (load1, nproc, avail_gb, uwruns, local_gb, ready)} for every reachable
+        allowlisted host, each probed directly and in parallel; ready = the plan's python and
+        model directory exist there and the CPU has AVX2."""
         probe = PROBE.replace("{python}", shlex.quote(self.uw["python"])).replace(
             "{model}", shlex.quote(self.uw["model_directory"]))
         running = {host: subprocess.Popen([self.uw["uwrun"], "ssh", host, probe],
@@ -187,10 +192,11 @@ class UWRunner:
                 continue
             for line in out.splitlines():
                 parts = line.split()
-                if len(parts) == 7 and parts[0] == "uwprobe":
+                if len(parts) == 8 and parts[0] == "uwprobe":
                     try:
                         found[host] = (float(parts[1]), int(parts[2]), int(parts[3]),
-                                       int(parts[4]), int(parts[5]), parts[6] == "1")
+                                       int(parts[4]), int(parts[5]),
+                                       parts[6] == "1" and parts[7] == "1")
                     except ValueError:
                         pass
         return found
@@ -346,6 +352,10 @@ class UWRunner:
         shipped, _ = self.remote_pythonpath()
         lines = [
             "set -u",
+            # uwrun's cwd is ~/runs/NAME/work, a symlink to /var/tmp: O_NOFOLLOW path opens
+            # fail under it (FINDINGS.md 2026-10-18 [sweep-feat-format]), so run from the real
+            # path, which is also what remote_root.txt records.
+            'cd "$(pwd -P)" || exit 97',
             "mkdir -p out/stage out/arm out/guards",
             "pwd -P > out/remote_root.txt",
             f"export {exports}" if exports else ":",

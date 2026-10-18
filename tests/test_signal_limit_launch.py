@@ -530,9 +530,10 @@ def main(argv):
         host = argv[1]
         if HOSTS.get(host) is None:
             return 255
-        load, nproc, avail, uwruns, local, ready = HOSTS[host]
+        load, nproc, avail, uwruns, local, ready, *rest = HOSTS[host]
+        avx2 = rest[0] if rest else 1
         busy = uwruns + running_on(host)
-        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{busy}} {{local}} {{ready}}")
+        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{busy}} {{local}} {{ready}} {{avx2}}")
         return 0
     if command == "run":
         options, rest = argv[1:argv.index("--")], argv[argv.index("--") + 1:]
@@ -561,6 +562,12 @@ def main(argv):
     if command == "_exec":
         name = argv[1]
         run, info = ROOT / name, meta(argv[1])
+        # Overlap barrier: the first run waits (up to 60 s) until a second one exists, so the
+        # concurrency the test asserts is observed however fast the fake stages are.
+        deadline = time.monotonic() + 60
+        while (sum(1 for d in ROOT.iterdir() if (d / "meta.json").is_file()) < 2
+               and time.monotonic() < deadline):
+            time.sleep(0.05)
         env = {{**os.environ, "UWRUN_THREADS": info["threads"], "UWRUN_NAME": name}}
         with (run / "run.log").open("w") as out:
             child = subprocess.Popen(json.loads((run / "cmd.json").read_text()),
@@ -689,6 +696,9 @@ class Fixture:
             split: [{"id": i, "label": label} for i, label in items]
             for split, items in H_ROWS.items()}}))
         self.base = {"path": str(base), "sha256": sha_file(base)}
+        for role, text in (("i", "I adapter"), ("w", "W adapter")):
+            (self.tmp / f"init-{role}").mkdir()
+            (self.tmp / f"init-{role}" / "adapter_model.safetensors").write_text(text)
         trie = self.tmp / "label-trie.json"
         trie.write_text(TRIE_TEXT)
         self.trie = {"path": str(trie), "sha256": TRIE_SHA}
@@ -1122,6 +1132,7 @@ def test_uw_launch_failure_pauses_resumably(make):
 
 @pytest.mark.parametrize("hosts", [
     {"hosta": [0.1, 28, 100, 0, 100, 0]},  # python / model not provisioned
+    {"hosta": [0.1, 28, 100, 0, 100, 1, 0]},  # no AVX2: torch CPU dies with SIGILL
     {"hosta": [0.1, 28, 8, 0, 100, 1]},  # 8 GB free RAM < 16
     {"hosta": [0.1, 28, 100, 0, 4, 1]},  # 4 GB free in /var/tmp < 5
     {"hosta": [0.1, 28, 100, 1, 100, 1]},  # another uwrun run already there (per_host 1)
