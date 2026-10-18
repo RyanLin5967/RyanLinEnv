@@ -14,10 +14,11 @@ Outputs, committed:
   scripts/freshpool_launch/signal_limit_production/evidence-base.json   labels + H rows
   scripts/freshpool_launch/signal_limit_production/plan.json            the launcher plan
   scripts/freshpool_launch/signal_limit_production/plan.sha256          its SHA256
-Outputs in DATA_ROOT (ignored data, pinned by SHA256 in the plan), written only when absent
-and otherwise required to be byte-identical:
-  runs/aircraft-signal-limit-g0-v1/manifests/{s_a,s_b_scan_seed42,h_select,h_gate}.jsonl
-  runs/aircraft-signal-limit-g0-v1/manifests/images -> data/fgvc-aircraft-2013b/development/images
+  scripts/freshpool_launch/signal_limit_production/g0/{s_a,s_b_scan_seed42,h_select,h_gate}.jsonl
+  scripts/freshpool_launch/signal_limit_production/g0/images -> DATA_ROOT's
+      data/fgvc-aircraft-2013b/development/images (a committed symlink: the rows name
+      images/train/<id>.jpg, as the freshpool G0 rows do; every row must)
+The G0 files are written only when absent and otherwise must be byte-identical.
 
 Activated copies (study and protocol) differ from the unactivated files ONLY in ``status``,
 ``activated`` and ``activation``; ``check_activated_copy`` refuses anything else, and the
@@ -58,7 +59,8 @@ W_ADAPTER = DATA_ROOT / "runs" / "aircraft-warmstart-v1" / "final_adapter"
 I_ADAPTER = (DATA_ROOT / "runs" / "aircraft-controlled400-v1" / "setup" / "sft-1e5-time"
              / "published" / "final_adapter")
 FRESHPOOL_G0 = DATA_ROOT / "runs" / "aircraft-freshpool-g0-v1" / "manifests"
-G0_DIR = DATA_ROOT / "runs" / "aircraft-signal-limit-g0-v1" / "manifests"
+G0 = "scripts/freshpool_launch/signal_limit_production/g0"  # committed; images: a link
+G0_DIR = REPO / G0
 DEVELOPMENT_IMAGES = DATA_ROOT / "data" / "fgvc-aircraft-2013b" / "development" / "images"
 CONTROLLED400_PLAN = DATA_ROOT / "runs" / "aircraft-controlled400-launch-v1" / "launch-plan.json"
 UWRUN = Path("/Users/idide/.claude/bin/uwrun")
@@ -180,6 +182,13 @@ def g0_manifests():
         out[name] = jsonl(by_id[i] for i in order)
     for name in ("h_select.jsonl", "h_gate.jsonl"):
         out[name] = (FRESHPOOL_G0 / name).read_text()
+    for name, text in out.items():
+        for line in text.splitlines():
+            row = json.loads(line)
+            # TRAIN images only: the bundle ships exactly what the rows name.
+            if row.get("split") != "train" or not str(row.get("image", "")).startswith(
+                    "images/train/") or ".." in row["image"].split("/"):
+                raise SystemExit(f"G0 row outside native TRAIN images: {name} {row.get('id')}")
     ids = [set(json.loads(line)["id"] for line in text.splitlines()) for text in out.values()]
     if any(a & b for n, a in enumerate(ids) for b in ids[n + 1:]):
         raise SystemExit("G0 manifests overlap")
@@ -353,7 +362,7 @@ def evidence_base():
             for split in ("h_select", "h_gate")}
     return {"labels": spec["labels"], "rows": rows,
             "sources": {"labels": str(DATA_SPEC.relative_to(DATA_ROOT)),
-                        "rows": str(G0_DIR.relative_to(DATA_ROOT))}}
+                        "rows": G0}}
 
 
 def templates():
@@ -519,7 +528,7 @@ def launch_plan():
         "data_spec": str(DATA_SPEC),
         "model_directory": str(MODEL),
         "owner_patterns": OWNER_PATTERNS,
-        "g0": {"manifest_dir": str(G0_DIR),
+        "g0": {"manifest_dir": G0,
                "files_sha256": {name: sha(G0_DIR / name) for name in G0_MANIFESTS},
                "images_sha256": launcher["images_digest"](G0_DIR, G0_MANIFESTS)},
         "uw": {"uwrun": str(UWRUN), "hosts": EXECUTION["hosts"],
