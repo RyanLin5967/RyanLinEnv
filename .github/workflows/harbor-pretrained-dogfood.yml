@@ -1,0 +1,51 @@
+name: Harbor pretrained dogfood reproduction
+# Manual only. Reproduces reports/2026-10-16-harbor-pretrained-dogfood (plan 62fe9ff1) on a free
+# public ubuntu-24.04 runner: Harbor 0.24, Qwen2-VL-2B-Instruct at revision 895c3a49 (every file
+# sha256-pinned), warm adapter f05840be, one guarded GRPO update plus SFT exposure/time controls in
+# the agent container, then a separate verifier. Integration only: native TRAIN fixtures, never
+# held-out, never a benchmark. Memory: the agent and verifier containers get a 13 GiB cgroup with
+# zero swap on a 16 GiB runner (see the report README for the measured margins and risk).
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: harbor-pretrained-dogfood
+  cancel-in-progress: false
+jobs:
+  dogfood:
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The pinned pyproject.toml and other host files are read at the plan's source commit.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Free runner disk taken by unused preinstalled toolchains
+        run: |
+          df -B1 /
+          timeout 600 sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -B1 /
+      - name: Install the pinned Harbor host environment
+        run: timeout 900 uv sync --extra harbor --locked
+      - name: Run the probe, the main trial and the separate verifier (exit 0 only on C1-C4 pass)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: timeout 19800 python3 -I scripts/harbor_dogfood_ci.py run --root runs/harbor-dogfood-ci
+      - name: Re-check C1-C4 from the retained tree in a fresh process
+        if: always()
+        run: timeout 300 python3 -I scripts/harbor_dogfood_ci.py criteria --root runs/harbor-dogfood-ci
+      - name: Copy allowlisted text receipts only (no base weights, images or checkpoints)
+        if: always()
+        run: timeout 300 python3 -I scripts/harbor_dogfood_ci.py collect-evidence --root runs/harbor-dogfood-ci
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: harbor-pretrained-dogfood-evidence
+          path: runs/harbor-dogfood-ci/evidence/
+          retention-days: 14
+          if-no-files-found: error

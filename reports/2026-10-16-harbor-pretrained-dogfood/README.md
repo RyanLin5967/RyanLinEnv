@@ -62,3 +62,49 @@ Throughput is about 530–750 s per GRPO update on 2 container CPUs, so CPU Harb
 dogfooding and CI, not the study itself.
 
 Reproduce: `plan/README.md` inside `plan-source.tar.gz` (steps 3–9). Decision log: `docs/decision-log-2026-10-16-claude.md` D4–D9. Independent claim check: `runs/harbor-dogfood-report-verification/verification.json` (local).
+
+## GitHub-hosted reproduction (prepared, not yet dispatched)
+`.github/workflows/harbor-pretrained-dogfood.yml` (manual `workflow_dispatch`, free public
+`ubuntu-24.04` runner, 355 min job cap) re-runs this exact plan (`62fe9ff1`) off the Mac.
+`scripts/harbor_dogfood_ci.py run` extracts `plan/` from `plan-source.tar.gz` (checked against the
+tarball sha and `plan-SHA256SUMS`) and drives it with the plan's own `local_run.py` functions:
+`verify_pins`, `build_context`, `verify_bundle`, `harbor_command`, `run_harbor`, `assert_probe`,
+`assert_complete` and the C1–C4 `evaluate`. The only replaced piece is the Colima-only launch gate,
+which becomes a GitHub gate: Linux, this repository, `workflow_dispatch`, run attempt 1,
+`RUNNER_ENVIRONMENT=github-hosted`, the runner's local Docker daemon, and a public repository.
+A second step, `criteria`, re-derives C1–C4 from the retained tree in a fresh process and exits
+non-zero on any failure. `tests/test_harbor_dogfood_ci.py` plants failing evidence (mmap loader,
+uniform-reward zero gradient, unchanged adapter, verifier hash mismatch, shared verifier env,
+cgroup swap in one resource row, RSS over 12 GiB, short SFT-time control, missing receipts, empty
+tree) and requires each one to fail.
+
+Inputs, all public and pinned (the same sources the first-four CPU workflow already uses):
+- frozen 37 sources, data spec and model manifest: release `aircraft-cpu7946-inputs-v1`,
+  `aircraft-cpu7946-inputs-v1.tar` (sha `1ceb1384…`);
+- warm adapter `f05840be…`: the same release, `aircraft-common-warm-f05840be.tar.gz` (sha
+  `c790b6f1…`, ships the Apache-2.0 LICENSE, NOTICE and MODEL_CARD of the Qwen2-VL base);
+- Qwen2-VL-2B-Instruct at revision `895c3a49…` from Hugging Face, every file size- and
+  sha256-pinned by `docs/aircraft-cpu-experiment-plan.json`;
+- the 7 TRAIN JPEGs from the pinned Hugging Face mirror revision `16c63682…` listed in the same
+  descriptor, checked against this plan's encoded hashes. FGVC-Aircraft images are for
+  non-commercial research; they are downloaded per run and never uploaded.
+- host and build files (`pyproject.toml` changed on main after the plan) are read with
+  `git show <plan source_commit>:<file>` and hash-checked.
+
+The uploaded artifact is an allowlist: `.json/.jsonl/.log/.txt/.toml/.md` receipts under 16 MiB
+each, no `checkpoint-*` directories, no symlinks, no base tokenizer files, never images or weights.
+
+### Memory on a 16 GB runner, and the risk
+Sizing is unchanged from the local PASS: each container gets a 13 GiB cgroup (`13958643712` B)
+with zero swap, a 12 GiB tree-RSS guard and a 1 GiB host-available floor; the driver refuses to
+launch either Harbor run below 13 GiB `MemAvailable`, and a kernel preflight must read
+`13958643712 0 0` from the runtime image's cgroup files first. Measured on the same runner class
+(first-four run 38889151068, `ci-state.json` and its audit): `MemTotal` 16,766,410,752 B,
+prelaunch `MemAvailable` 15,313,494,016 B, minimum host available 3.90e9 B, peak tree RSS
+11,795,185,664 B, and about 525 s per GRPO update (local: 530 s).
+
+Risk: the local peak tree RSS here was 12,235,571,200 B, only about 0.65 GB under the 12 GiB guard,
+and the cgroup `memory.peak` reached 13 GiB in every stage (page cache included). x86 RSS has not
+been measured for the SFT and verifier stages, so a few percent more RSS on x86 stops a stage on
+its guard. That is a recorded fail-closed stop, not an OOM kill or swap, and nothing retries. The
+host keeps about 2.8 GB outside the cgroup for the runner agent, dockerd and Harbor.
