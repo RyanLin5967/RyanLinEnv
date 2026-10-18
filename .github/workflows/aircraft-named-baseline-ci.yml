@@ -39,18 +39,21 @@ on:
       - tests/test_aircraft_named_baseline_ci.py
       - docs/aircraft-named-baseline-ci-plan-v1*
       - docs/aircraft-named-baseline-ci-v1/**
-      - docs/aircraft-named-baseline-plan-v1.json
       - reports/2026-10-17-controlled400-native-val/plan.json
       - reports/2026-10-17-controlled400-native-val/comparison.json
       - requirements-vlm-local.lock
       - pyproject.toml
       - uv.lock
+      - requirements-torch-cpu.lock
       - .python-version
 permissions:
   contents: read
+# A dispatched VAL run is never cancelled or replaced by another dispatch (each is its own
+# group, and the plan requires every dispatched run to be reported); a newer push to a pull
+# request supersedes its older plumbing run.
 concurrency:
-  group: aircraft-named-baseline-ci-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: aircraft-named-baseline-ci-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   TOKENIZERS_PARALLELISM: "false"
   HF_HUB_OFFLINE: "1"
@@ -68,6 +71,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Refuse any ref but main (a branch could edit the plan and the runner together)
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "VAL stages are dispatched only from refs/heads/main, not $REF" >&2
+            exit 1
+          fi
       - name: Refuse an unactivated plan, a bad shard count or a failed discovery gate
         id: matrix
         env:
@@ -98,8 +109,8 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync --extra dev --locked
-      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
       - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip install --no-deps --require-hashes --index-url https://download.pytorch.org/whl/cpu -r requirements-torch-cpu.lock
       - run: uv pip check
       - name: Score one shard with the frozen evaluator
         env:
@@ -184,8 +195,8 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - run: uv sync --extra dev --locked
-      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
       - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip install --no-deps --require-hashes --index-url https://download.pytorch.org/whl/cpu -r requirements-torch-cpu.lock
       - run: uv pip check
       - name: Frozen comparison reproduces the committed endpoint report from the export
         run: >-

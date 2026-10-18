@@ -1,12 +1,15 @@
 """Fail-closed boundaries of the sharded named-baseline CI runner. CPU only, no model."""
 
+import contextlib
 import copy
 import hashlib
 import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,7 +27,10 @@ ci = _load("aircraft_named_baseline_ci", "scripts/aircraft_named_baseline_ci.py"
 export = _load("export_native_val_endpoints", "scripts/export_native_val_endpoint_predictions.py")
 PLAN = ROOT / "docs/aircraft-named-baseline-ci-plan-v1.json"
 RUN = {"GITHUB_RUN_ID": "77", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_SHA": "abc",
-       "GITHUB_REPOSITORY": "RyanLin5967/RyanLinEnv"}
+       "GITHUB_REPOSITORY": "RyanLin5967/RyanLinEnv", "GITHUB_REF": "refs/heads/main"}
+RUNNER = ROOT / "scripts/aircraft_named_baseline_ci.py"
+WORKFLOW = ROOT / ".github/workflows/aircraft-named-baseline-ci.yml"
+FROZEN_COMMIT = "85f0865920015fd7e637d2b997bd9d7597dc1e83"
 
 
 def sha(path):
@@ -271,11 +277,23 @@ def test_plumbing_refuses_any_plan_but_the_committed_one(activated):
         ci.require_stage_plan(path, digest, "plumbing")
 
 
+# The discovery sample's compact-JSON ID hash, as pre-registered (c8d73a4c...).
+DISCOVERY_IDS_SHA256 = "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865"
+
+
 def receipt(digest, **changes):
+    run = {"run_id": "90", "run_attempt": "1", "sha": "def", "ref": "refs/heads/main",
+           "repository": "RyanLin5967/RyanLinEnv"}
     value = {"plan_id": ci.PLAN_ID, "plan_sha256": digest, "stage": "discovery",
-             "status": "completed", "counts": {"completed": 100}, "valid_fraction": 0.95,
-             "timing": {"mean_image_latency_seconds": 55.0, "mean_image_fetch_seconds": 5.0,
-                        "max_fixed_setup_seconds": 900.0}}
+             "status": "completed", "ids_sha256": DISCOVERY_IDS_SHA256,
+             "counts": {"completed": 100, "denominator": 100}, "valid_fraction": 0.95,
+             "run": run,
+             "identity": {"plan_sha256": digest, "stage": "discovery", "run_id": "90",
+                          "sha": "def", "runner_sha256": sha(RUNNER),
+                          "workflow_sha256": sha(WORKFLOW)},
+             "timing": {"mean_image_latency_seconds": 40.0,
+                        "max_shard_mean_image_latency_seconds": 55.0,
+                        "mean_image_fetch_seconds": 5.0, "max_fixed_setup_seconds": 900.0}}
     value.update(changes)
     return value
 
@@ -283,27 +301,76 @@ def receipt(digest, **changes):
 def test_full_shard_rule_matches_hand_arithmetic(activated):
     path, digest = activated
     plan = json.loads(path.read_text())
-    # usable = 19800 - 900 - 900 = 18000 s; 1.5 x (55 + 5) s = 90 s per image; 200 per shard.
-    assert ci.required_full_shards(plan, receipt(digest)) == 17  # ceil(3333 / 200)
+    # usable = 19800 - 900 - 900 = 18000 s; the SLOWEST shard's mean (55 s, not the 40 s
+    # overall mean) + 5 s fetch, x 3.0 = 180 s per image; 100 per shard.
+    assert ci.required_full_shards(plan, receipt(digest)) == 34  # ceil(3333 / 100)
+
+
+def test_shard_rule_survives_the_measured_runner_spread(activated):
+    """Plumbing measured 113.07 s and 297.80 s per image on two free runners. Shards sized
+    from an all-fast discovery must still fit the start limit on the slow host."""
+    path, digest = activated
+    plan = json.loads(path.read_text())
+    fast = receipt(digest)
+    fast["timing"].update(max_shard_mean_image_latency_seconds=113.07,
+                          mean_image_fetch_seconds=1.07, max_fixed_setup_seconds=65.4)
+    shards = ci.required_full_shards(plan, fast)
+    assert shards == 61  # 18834.6 / (3.0 x 114.14) = 55.0 -> 55 per shard
+    per_shard = -(-3333 // shards)  # busiest shard: 55 images
+    assert 65.4 + per_shard * (297.80 + 1.07) <= 19800 - 900
+
+
+def gate_cases(digest):
+    other_code = receipt(digest)
+    other_code["identity"]["runner_sha256"] = "0" * 64
+    other_identity = receipt(digest)
+    other_identity["identity"]["run_id"] = "91"
+    rerun = receipt(digest)
+    rerun["run"]["run_attempt"] = "2"
+    branch = receipt(digest)
+    branch["run"]["ref"] = "refs/heads/feature"
+    no_timing = receipt(digest)
+    del no_timing["timing"]["max_shard_mean_image_latency_seconds"]
+    return {
+        "another plan": receipt("0" * 64),
+        "not a completed": receipt(digest, status="partial"),
+        "other images": receipt(digest, ids_sha256="0" * 64),
+        "every image": receipt(digest, counts={"completed": 99, "denominator": 100}),
+        "first-attempt run on main": rerun,
+        "run on main": branch,
+        "identity does not match": other_identity,
+        "other runner or workflow code": other_code,
+        "valid-answer": receipt(digest, valid_fraction=0.5),
+        "not a number": receipt(digest, valid_fraction=None),
+        "timing": no_timing,
+        "at least 34 shards": receipt(digest),
+    }
 
 
 def test_discovery_gate_refuses_failures(activated, tmp_path, monkeypatch):
     path, digest = activated
     plan = json.loads(path.read_text())
     monkeypatch.setattr(ci, "ROOT", tmp_path)
-    cases = {
-        "another plan": receipt("0" * 64),
-        "not a completed": receipt(digest, status="partial"),
-        "every image": receipt(digest, counts={"completed": 99}),
-        "valid-answer": receipt(digest, valid_fraction=0.5),
-        "at least 17 shards": receipt(digest),
-    }
-    for reason, value in cases.items():
+    for reason, value in gate_cases(digest).items():
         (tmp_path / "receipt.json").write_text(json.dumps(value))
         with pytest.raises(ValueError, match=reason):
-            ci.discovery_gate(plan, digest, "receipt.json", 16)
+            ci.discovery_gate(plan, digest, "receipt.json", 33)
     (tmp_path / "receipt.json").write_text(json.dumps(receipt(digest)))
-    ci.discovery_gate(plan, digest, "receipt.json", 17)
+    ci.discovery_gate(plan, digest, "receipt.json", 34)
+
+
+def test_matrix_command_refuses_a_malformed_receipt_with_code_2(
+    activated, tmp_path, monkeypatch, capsys
+):
+    path, digest = activated
+    monkeypatch.setattr(ci, "ROOT", tmp_path)
+    for value in (receipt(digest, valid_fraction=None), ["not", "an", "object"],
+                  receipt(digest, counts=None, run="x", identity=7)):
+        (tmp_path / "receipt.json").write_text(json.dumps(value))
+        code = ci.main(["matrix", "--stage", "full", "--shards", "40", "--plan", str(path),
+                        "--plan-sha256", digest, "--discovery-receipt", "receipt.json"])
+        assert code == 2
+        assert "discovery gate" in capsys.readouterr().err
 
 
 def test_endpoint_export_reproduces_the_committed_report():
@@ -346,3 +413,297 @@ def test_frozen_evaluator_materialises_byte_for_byte(tmp_path):
     assert len(written) == 41
     with pytest.raises(ValueError, match="Never reuse"):
         ci.materialize_evaluator(plan, tmp_path / "frozen")
+
+
+# ------------------------------------------------------------ run identity and host facts
+
+
+def test_val_stages_refuse_any_ref_but_main(monkeypatch):
+    for key, value in RUN.items():
+        monkeypatch.setenv(key, value)
+    assert ci.run_identity("discovery")["ref"] == "refs/heads/main"
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/edited-plan-and-runner")
+    for stage in ("discovery", "full"):
+        with pytest.raises(ValueError, match="only from refs/heads/main"):
+            ci.run_identity(stage)
+    monkeypatch.setenv("GITHUB_REF", "refs/pull/27/merge")
+    assert ci.run_identity("plumbing")["ref"] == "refs/pull/27/merge"
+    monkeypatch.delenv("GITHUB_REF")
+    with pytest.raises(ValueError, match="inside a GitHub Actions run"):
+        ci.run_identity("plumbing")
+
+
+def test_host_facts_record_the_cpu_model_and_flags(tmp_path):
+    cpuinfo = tmp_path / "cpuinfo"
+    cpuinfo.write_text("processor\t: 0\nmodel name\t: AMD EPYC 7763 64-Core Processor\n"
+                       "flags\t\t: sse avx2 fma\n\nprocessor\t: 1\nmodel name\t: other\n")
+    assert ci.cpu_facts(cpuinfo) == {"cpu_model": "AMD EPYC 7763 64-Core Processor",
+                                     "cpu_flags": ["avx2", "fma", "sse"]}
+    assert ci.cpu_facts(tmp_path / "absent") == {"cpu_model": None, "cpu_flags": None}
+
+
+# ------------------------------------------------- run_shard fail-closed, no model, no net
+
+
+LABELS = ["A320", "DC-8", "Global Express"]
+
+
+class FakeBackend:
+    def __init__(self, behaviour, clock):
+        self.spec = {"labels": LABELS}
+        self.behaviour, self.clock, self.calls = behaviour, clock, 0
+
+    def predict(self, row):
+        self.calls += 1
+        return self.behaviour(self.calls, self.clock)
+
+
+def answer(text="DC-8", ids=2):
+    return {"response": text, "raw_response": text, "terminated": True,
+            "completion_ids": list(range(ids)), "prompt_tokens": 5}
+
+
+def run_fake_shard(tmp_path, monkeypatch, behaviour, *, pixels="px"):
+    for key, value in RUN.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("GITHUB_REF", "refs/pull/27/merge")
+    clock = {"t": 0.0}
+    backend = FakeBackend(behaviour, clock)
+
+    def fetch_images(images, root):
+        for row in images:
+            image = Path(root) / f"{row['id']}.jpg"
+            image.parent.mkdir(parents=True, exist_ok=True)
+            image.write_bytes(row["id"].encode())
+            row.update(image=str(image), encoded_sha256=sha(image), model_rgb_sha256="px")
+
+    frozen = {
+        "aircraft_data": SimpleNamespace(aircraft_pixel_sha256=lambda path: pixels),
+        "vlm_local_training": SimpleNamespace(
+            parse_label=lambda text, labels, allow_reasoning: text if text in labels else None),
+        "vlm_local_evaluation": SimpleNamespace(_deadline=lambda s: contextlib.nullcontext()),
+    }
+    monkeypatch.setattr(ci, "materialize_evaluator", lambda plan, where: where)
+    monkeypatch.setattr(ci, "load_frozen", lambda plan, root: frozen)
+    monkeypatch.setattr(ci, "fetch_images", fetch_images)
+    monkeypatch.setattr(ci, "fetch_model", lambda plan, where: None)
+    monkeypatch.setattr(ci, "load_backend", lambda plan, fz, where: (backend, {"model": "m"}))
+    output = tmp_path / "out"
+    try:
+        result = ci.run_shard(PLAN, sha(PLAN), "plumbing", 1, 0, tmp_path / "work", output,
+                              clock=lambda: clock["t"])
+    except (ValueError, RuntimeError) as exc:
+        result = exc
+    return result, json.loads((output / "shard.json").read_text()), backend
+
+
+def test_run_shard_completes_three_images(tmp_path, monkeypatch):
+    result, record, backend = run_fake_shard(tmp_path, monkeypatch, lambda n, c: answer())
+    assert isinstance(result, dict) and record["status"] == "completed"
+    assert list(record["results"]) == ["0450014", "0056978", "2223757"]
+    assert {r["canonical_label"] for r in record["results"].values()} == {"DC-8"}
+    assert record["host"]["cpu_count"] == os.cpu_count() and "cpu_model" in record["host"]
+    assert record["identity"]["runner_sha256"] == sha(RUNNER)
+    assert record["identity"]["workflow_sha256"] == sha(WORKFLOW)
+
+
+def test_run_shard_generation_error_stops_and_fails(tmp_path, monkeypatch):
+    def behaviour(n, clock):
+        if n == 2:
+            raise RuntimeError("out of memory")
+        return answer()
+    result, record, backend = run_fake_shard(tmp_path, monkeypatch, behaviour)
+    assert isinstance(result, ValueError) and "ended generation_error" in str(result)
+    assert record["status"] == "generation_error" and backend.calls == 2
+    assert record["results"]["0056978"]["error"] == "RuntimeError: out of memory"
+
+
+@pytest.mark.parametrize("bad", [
+    {"response": 7}, {"terminated": 1}, {"completion_ids": list(range(257))},
+    {"response": "x" * 65537},
+])
+def test_run_shard_malformed_output_is_a_generation_error(tmp_path, monkeypatch, bad):
+    result, record, _ = run_fake_shard(tmp_path, monkeypatch, lambda n, c: {**answer(), **bad})
+    assert record["status"] == "generation_error"
+    assert "Malformed or oversized" in record["results"]["0450014"]["error"]
+    assert isinstance(result, ValueError)
+
+
+def test_run_shard_interruption_is_unknown_and_never_regenerated(tmp_path, monkeypatch):
+    def behaviour(n, clock):
+        raise KeyboardInterrupt  # what the frozen _deadline raises on its SIGALRM
+    result, record, backend = run_fake_shard(tmp_path, monkeypatch, behaviour)
+    assert record["status"] == "unknown_after_interruption" and backend.calls == 1
+    assert record["results"] == {"0450014": {"status": "unknown_after_interruption",
+                                             "canonical_label": None}}
+    assert isinstance(result, ValueError)
+
+
+def test_run_shard_budget_stop_is_partial(tmp_path, monkeypatch):
+    def behaviour(n, clock):
+        clock["t"] += 18_901.0  # 18,901 + 900 > 19,800: the next image may not start
+        return answer()
+    result, record, backend = run_fake_shard(tmp_path, monkeypatch, behaviour)
+    assert record["status"] == "partial" and backend.calls == 1
+    assert list(record["results"]) == ["0450014"]
+    assert isinstance(result, ValueError) and "ended partial" in str(result)
+
+
+def test_run_shard_escaped_exception_leaves_failed(tmp_path, monkeypatch):
+    result, record, backend = run_fake_shard(tmp_path, monkeypatch, lambda n, c: answer(),
+                                             pixels="changed")
+    assert isinstance(result, ValueError) and "Model-visible image changed" in str(result)
+    assert record["status"] == "failed" and backend.calls == 0 and record["results"] == {}
+
+
+# --------------------------------------- frozen-code paths (tests job only: full history)
+
+
+def _require_frozen():
+    if os.environ.get("REQUIRE_FROZEN_COMMIT") != "1":
+        pytest.skip("imports the frozen evaluator; runs in the named-baseline workflow's "
+                    "tests job (REQUIRE_FROZEN_COMMIT=1), never on the study Mac")
+    if not _has_commit(FROZEN_COMMIT):
+        pytest.fail("The frozen evaluator commit is required here but absent")
+
+
+def _merge_in_subprocess(tmp_path, plan_path, digest, stage, records):
+    """Each merge imports the frozen package once, so each runs in its own interpreter."""
+    write_artifacts(tmp_path / "artifacts", stage, records)
+    env = {**os.environ, **RUN}
+    completed = subprocess.run(
+        [sys.executable, "-B", str(RUNNER), "merge", "--stage", stage, "--shards",
+         str(len(records)), "--plan", str(plan_path), "--plan-sha256", digest,
+         "--artifacts", str(tmp_path / "artifacts"), "--work", str(tmp_path / "work"),
+         "--output", str(tmp_path / "out")],
+        env=env, capture_output=True, text=True, timeout=600, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    out = tmp_path / "out"
+    return (json.loads((out / f"{stage}-receipt.json").read_text()),
+            json.loads((out / f"{stage}-predictions.json").read_text()))
+
+
+def _shard_records(ids, shards, digest, stage, outcome):
+    records = {}
+    for index in range(shards):
+        value = record(ids, shards, index)
+        value.update(plan_sha256=digest, stage=stage, host={"cpu_model": f"cpu-{index}"})
+        value["timing"] = {"setup_seconds": 60.0 + index, "fixed_setup_seconds": 50.0 + index,
+                           "image_fetch_seconds": 0.5 * len(value["ids"]),
+                           "elapsed_seconds": 1000.0}
+        value["results"] = {i: {"status": "completed", "latency_seconds": 10.0 * (index + 1),
+                                **outcome(i)} for i in value["ids"]}
+        records[index] = value
+    return records
+
+
+def test_discovery_merge_success_path_with_the_frozen_code(activated, tmp_path):
+    _require_frozen()
+    path, digest = activated
+    plan = json.loads(path.read_text())
+    ids = [row["id"] for row in ci.stage_images(plan, "discovery")]
+    gold = {r["id"]: r["label"] for r in ci.gold_rows(plan)}
+    labels = json.loads(ci.pinned(plan["evaluator_identity"]["plan"]).read_text())["labels"]
+    wrong = {label: labels[(n + 1) % len(labels)] for n, label in enumerate(labels)}
+
+    def outcome(identifier):
+        position = ids.index(identifier)
+        if position < 37:  # correct
+            text = gold[identifier]
+        elif position < 50:  # valid but wrong
+            text = wrong[gold[identifier]]
+        else:  # unterminated: never parsed
+            return {"response": "...", "raw_response": "...", "terminated": False,
+                    "canonical_label": None}
+        return {"response": text, "raw_response": text + "<|im_end|>", "terminated": True,
+                "canonical_label": text}
+
+    receipt_value, predictions = _merge_in_subprocess(
+        tmp_path, path, digest, "discovery", _shard_records(ids, 4, digest, "discovery", outcome))
+    assert receipt_value["status"] == "completed"
+    assert receipt_value["ids_sha256"] == DISCOVERY_IDS_SHA256
+    assert receipt_value["counts"] == {"completed": 100, "denominator": 100}
+    assert receipt_value["valid_fraction"] == 0.5 and receipt_value["unterminated"] == 50
+    assert receipt_value["metric"]["correct"] == 37
+    assert receipt_value["metric"]["mean_class_accuracy"] == pytest.approx(0.37)
+    timing = receipt_value["timing"]
+    assert timing["mean_image_latency_seconds"] == pytest.approx(25.0)  # 25 each at 10..40
+    assert timing["max_shard_mean_image_latency_seconds"] == 40.0
+    assert timing["min_shard_mean_image_latency_seconds"] == 10.0
+    assert timing["max_fixed_setup_seconds"] == 53.0 and timing["max_setup_seconds"] == 63.0
+    assert timing["mean_image_fetch_seconds"] == pytest.approx(0.5)
+    assert receipt_value["hosts"]["3"] == {"cpu_model": "cpu-3",
+                                           "mean_image_latency_seconds": 40.0}
+    assert receipt_value["hoeffding"]["half_width"] == pytest.approx(0.13581015157406195)
+    assert receipt_value["run"]["ref"] == "refs/heads/main"
+    assert sum(v is not None for v in predictions["predictions"].values()) == 50
+    first = ids[0]
+    assert predictions["raw"][first]["raw_response"] == gold[first] + "<|im_end|>"
+
+
+def test_full_merge_success_path_compares_against_the_endpoints(activated, tmp_path):
+    _require_frozen()
+    path, digest = activated
+    plan = json.loads(path.read_text())
+    ids = [row["id"] for row in ci.stage_images(plan, "full")]
+    arms = json.loads(ci.pinned(plan["analysis"]["endpoint_predictions"]).read_text())["arms"]
+    report = json.loads(ci.pinned(plan["analysis"]["endpoint_report"]).read_text())
+
+    def outcome(identifier):  # the candidate replays W's canonical outcomes
+        label = arms["common"][identifier]
+        if label is None:
+            return {"response": "", "raw_response": "", "terminated": False,
+                    "canonical_label": None}
+        return {"response": label, "raw_response": label, "terminated": True,
+                "canonical_label": label}
+
+    receipt_value, _ = _merge_in_subprocess(
+        tmp_path, path, digest, "full", _shard_records(ids, 4, digest, "full", outcome))
+    comparisons = receipt_value["comparisons"]
+    assert set(comparisons) == {"W", "RL400", "strongest_sft"}
+    assert comparisons["W"]["mean_class_accuracy_difference"] == 0.0
+    for role, arm in (("RL400", "rl-exposure"), ("strongest_sft", "sft-1e5-time")):
+        committed = report["versus_common_initialization"][arm]
+        assert (comparisons[role]["mean_class_accuracy_difference"]
+                == -committed["mean_class_accuracy_difference"])
+        assert (comparisons[role]["candidate"]["mean_class_accuracy"]
+                == committed["comparator"]["mean_class_accuracy"])
+
+
+EXPORT_CHECK = """
+import importlib.util, json, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("ci", sys.argv[1])
+ci = importlib.util.module_from_spec(spec); spec.loader.exec_module(ci)
+plan = json.loads(ci.PLAN.read_text())
+frozen = ci.load_frozen(plan, ci.materialize_evaluator(plan, Path(sys.argv[2])))
+cases = json.loads(Path(sys.argv[3]).read_text())
+out = [frozen["classification_comparison"].compare_classification(
+    cases["gold"], case, cases["common"], cases["labels"], resamples=100, seed=1)["input_sha256"]
+    for case in cases["candidates"]]
+print(json.dumps(out))
+"""
+
+
+def test_exporter_hash_equals_the_frozen_input_sha256(tmp_path):
+    """The stdlib exporter hash must equal the frozen code's, on the export and a flip."""
+    _require_frozen()
+    plan = json.loads(PLAN.read_text())
+    arms = json.loads(ci.pinned(plan["analysis"]["endpoint_predictions"]).read_text())["arms"]
+    labels = json.loads(ci.pinned(plan["evaluator_identity"]["plan"]).read_text())["labels"]
+    gold = ci.gold_rows(plan)
+    planted = copy.deepcopy(arms["rl-exposure"])
+    planted[gold[0]["id"]] = None if planted[gold[0]["id"]] else gold[0]["label"]
+    candidates = [arms["rl-exposure"], arms["sft-1e5-time"], planted]
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"gold": gold, "labels": labels, "common": arms["common"],
+                                 "candidates": candidates}))
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", EXPORT_CHECK, str(RUNNER), str(tmp_path / "frozen"),
+         str(cases)], capture_output=True, text=True, timeout=300, check=False)
+    assert completed.returncode == 0, completed.stderr
+    frozen_hashes = json.loads(completed.stdout)
+    mine = [export.canonical_input_sha256(labels, gold, c, arms["common"]) for c in candidates]
+    assert frozen_hashes == mine
+    assert frozen_hashes[2] != frozen_hashes[0]

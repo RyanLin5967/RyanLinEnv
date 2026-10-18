@@ -24,11 +24,22 @@ Commands:
   plumbing  the PR check: same shard path on three pinned TRAIN images, never scored
   verify-endpoints  the PR check that the committed endpoint export reproduces the report
 
-Blind spots, stated on purpose: a shard's journal and record are runner-local files carried
-by a GitHub artifact, not a tamper-proof witness; the run-attempt check proves that no shard
-of the merged run was re-run, not that no earlier run was dispatched (the plan requires every
-dispatched run to be reported); latency on shared runners is noisy, so a too-small shard count
-fails closed as a gap rather than being predicted exactly.
+Blind spots, stated on purpose:
+- A shard's journal and record are runner-local files carried by a GitHub artifact, not a
+  tamper-proof witness.
+- The run-attempt check proves that no shard of the merged run was re-run, not that no earlier
+  run was dispatched (the plan requires every dispatched run to be reported).
+- The activated-copy lock compares against the plan in the dispatched checkout, so a branch that
+  edits both the plan and this runner would pass it. VAL shards and merges therefore refuse any
+  ref but refs/heads/main, and every shard identity carries the SHA256 of this runner and the
+  workflow, which the discovery gate requires full VAL to repeat. Someone who can push to main
+  can still change both; that is what branch protection and review are for, not this file.
+- Free runners differ: plumbing measured ~113 s and ~298 s per image on hosts with the same
+  vCPU count and memory. The shard rule sizes against the slowest discovery shard times a
+  pre-registered factor above that spread; a host slower still stops its shard as partial and
+  the merge refuses the run (fail closed, reported, never patched). Each shard records the CPU
+  model and flags so the spread can be attributed. They are not part of the merge identity,
+  because a full run's shards land on mixed hosts and would always be refused.
 """
 
 from __future__ import annotations
@@ -61,6 +72,8 @@ MODEL_NAME = "Qwen/Qwen2.5-VL-3B-Instruct"
 ATTEMPTS = 3
 # The only fields an activated copy may differ in from the committed pre-registration.
 ACTIVATION_FIELDS = ("activated", "activation", "status")
+WORKFLOW = ROOT / ".github/workflows/aircraft-named-baseline-ci.yml"
+MAIN_REF = "refs/heads/main"
 
 
 def compact(value):
@@ -165,8 +178,7 @@ def stage_images(plan, stage):
     by_id = {row["image_id"]: row for row in author}
     declared = plan["stages"][stage]
     if stage == "discovery":
-        source = declared["ids_source"]
-        identifiers = read_json(pinned(source))["stages"]["discovery"]["ids"]
+        identifiers = read_json(pinned(declared["ids"]))
     else:
         identifiers = [row["image_id"] for row in author]
     if len(identifiers) != declared["images"] or ids_sha256(identifiers) != declared["ids_sha256"]:
@@ -205,18 +217,31 @@ def shard_bounds(plan, stage, shards):
         raise ValueError(f"{stage} shard count is pre-registered as {declared['declared']}")
 
 
+TIMING_KEYS = ("max_shard_mean_image_latency_seconds", "mean_image_fetch_seconds",
+               "max_fixed_setup_seconds")
+
+
+def _positive_number(value):
+    return (type(value) in (int, float) and math.isfinite(value) and value > 0)
+
+
 def required_full_shards(plan, receipt):
     """Pre-registered rule: the smallest N whose busiest shard fits the shard wall budget.
 
-    Per image: 1.5 x (discovery mean generation latency + mean per-image fetch seconds), since
-    a shard fetches all its images during setup. Fixed: the largest discovery setup excluding
-    image fetches (install-free: model download, rehash, load), plus one per-image deadline.
+    Per image: factor x (the SLOWEST discovery shard's mean generation latency + mean per-image
+    fetch seconds), since a shard fetches all its images during setup. The factor (3.0) is
+    above the measured 2.63x runner-to-runner spread, so a fast discovery cannot size shards
+    that a slow host overruns. Fixed: the largest discovery setup excluding image fetches
+    (model download, rehash, load), plus one per-image deadline.
     """
     rule = plan["stages"]["full"]["gate"]
-    sharding, timing = plan["sharding"], receipt["timing"]
+    sharding, timing = plan["sharding"], receipt.get("timing")
+    if not isinstance(timing, dict) or not all(_positive_number(timing.get(k))
+                                               for k in TIMING_KEYS):
+        raise ValueError("Discovery receipt timing is missing or not positive numbers")
     usable = (sharding["shard_wall_seconds"] - sharding["image_seconds"]
               - timing["max_fixed_setup_seconds"])
-    per_image = rule["latency_safety_factor"] * (timing["mean_image_latency_seconds"]
+    per_image = rule["latency_safety_factor"] * (timing["max_shard_mean_image_latency_seconds"]
                                                  + timing["mean_image_fetch_seconds"])
     capacity = math.floor(usable / per_image) if usable > 0 and per_image > 0 else 0
     if capacity < 1:
@@ -224,19 +249,48 @@ def required_full_shards(plan, receipt):
     return math.ceil(NATIVE_IMAGES / capacity)
 
 
+def code_identity():
+    """SHA256 of the code that ran: this runner and the workflow file in the checkout."""
+    return {"runner_sha256": sha_file(Path(__file__).resolve()),
+            "workflow_sha256": sha_file(WORKFLOW)}
+
+
 def discovery_gate(plan, plan_sha256, receipt_path, shards):
-    """Full VAL starts only from a committed, completed discovery receipt of this plan."""
+    """Full VAL starts only from a committed, completed discovery receipt of this plan, made
+    on main by this runner and workflow, over exactly the pre-registered discovery IDs."""
     receipt = read_json(repo_path(receipt_path))
-    rule = plan["stages"]["full"]["gate"]
+    if not isinstance(receipt, dict):
+        raise ValueError("Full VAL refused by the discovery gate: receipt is not an object")
+    rule, declared = plan["stages"]["full"]["gate"], plan["stages"]["discovery"]
     reasons = []
     if receipt.get("plan_id") != PLAN_ID or receipt.get("plan_sha256") != plan_sha256:
         reasons.append("discovery receipt belongs to another plan or plan copy")
     if receipt.get("stage") != "discovery" or receipt.get("status") != "completed":
         reasons.append("discovery receipt is not a completed discovery merge")
-    counts = receipt.get("counts", {})
-    if counts.get("completed") != plan["stages"]["discovery"]["images"]:
+    if receipt.get("ids_sha256") != declared["ids_sha256"]:
+        reasons.append("discovery receipt covers other images than the pre-registered sample")
+    counts = receipt.get("counts")
+    counts = counts if isinstance(counts, dict) else {}
+    if (counts.get("completed") != declared["images"]
+            or counts.get("denominator") != declared["images"]):
         reasons.append("discovery did not complete every image")
-    if receipt.get("valid_fraction", 0) < rule["minimum_valid_answer_fraction"]:
+    run = receipt.get("run")
+    run = run if isinstance(run, dict) else {}
+    if (run.get("run_attempt") != "1" or run.get("ref") != MAIN_REF
+            or not run.get("run_id") or not run.get("sha")):
+        reasons.append("discovery receipt does not name one first-attempt run on main")
+    identity = receipt.get("identity")
+    identity = identity if isinstance(identity, dict) else {}
+    if (identity.get("plan_sha256") != plan_sha256 or identity.get("stage") != "discovery"
+            or identity.get("run_id") != run.get("run_id")
+            or identity.get("sha") != run.get("sha")):
+        reasons.append("discovery receipt identity does not match its own run and plan")
+    if any(identity.get(k) != v for k, v in code_identity().items()):
+        reasons.append("discovery ran other runner or workflow code than this checkout")
+    valid = receipt.get("valid_fraction")
+    if type(valid) not in (int, float) or not 0 <= valid <= 1:
+        reasons.append("discovery receipt valid_fraction is not a number in [0, 1]")
+    elif valid < rule["minimum_valid_answer_fraction"]:
         reasons.append("valid-answer fraction below the pre-registered floor")
     if not reasons:
         needed = required_full_shards(plan, receipt)
@@ -394,13 +448,35 @@ def _append(path, value):
         os.fsync(handle.fileno())
 
 
-def run_identity():
-    names = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_REPOSITORY")
+def run_identity(stage):
+    """The GitHub run this process belongs to. VAL stages run only from main: a dispatch on
+    any other branch could carry an edited plan and runner that agree with each other."""
+    names = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_REPOSITORY",
+             "GITHUB_REF")
     values = {name: os.environ.get(name) for name in names}
     if not all(values.values()):
         raise ValueError("Shards run only inside a GitHub Actions run")
+    if stage in VAL_STAGES and values["GITHUB_REF"] != MAIN_REF:
+        raise ValueError(f"VAL stages run only from {MAIN_REF}, not {values['GITHUB_REF']}")
     return {"run_id": values["GITHUB_RUN_ID"], "run_attempt": values["GITHUB_RUN_ATTEMPT"],
-            "sha": values["GITHUB_SHA"], "repository": values["GITHUB_REPOSITORY"]}
+            "sha": values["GITHUB_SHA"], "repository": values["GITHUB_REPOSITORY"],
+            "ref": values["GITHUB_REF"]}
+
+
+def cpu_facts(cpuinfo="/proc/cpuinfo"):
+    """CPU model and flags of the first processor; None when unreadable (recorded, not refused)."""
+    model, flags = None, None
+    with contextlib.suppress(OSError):
+        for line in Path(cpuinfo).read_text().splitlines():
+            key, _, value = line.partition(":")
+            key = key.strip()
+            if key == "model name" and model is None:
+                model = value.strip()
+            elif key == "flags" and flags is None:
+                flags = sorted(value.split())
+            if model is not None and flags is not None:
+                break
+    return {"cpu_model": model, "cpu_flags": flags}
 
 
 def host_facts():
@@ -409,7 +485,7 @@ def host_facts():
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemTotal:"):
                 memory = int(line.split()[1]) * 1024
-    return {"cpu_count": os.cpu_count(), "mem_total_bytes": memory,
+    return {"cpu_count": os.cpu_count(), **cpu_facts(), "mem_total_bytes": memory,
             "disk_free_bytes": shutil.disk_usage(Path.cwd()).free}
 
 
@@ -468,7 +544,7 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
             raise ValueError("Plumbing is a single shard")
     else:
         shard_bounds(plan, stage, shards)
-    run = run_identity()
+    run = run_identity(stage)
     images = partition(stage_images(plan, stage), shards, index)
     work, output = Path(work).resolve(), Path(output).resolve()
     if output.exists() and any(output.iterdir()):
@@ -493,7 +569,7 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
     backend, identity = load_backend(plan, frozen, work / "model")
     record["identity"] = {
         **identity, "plan_sha256": plan_sha256, "stage": stage, "shards": shards,
-        "run_id": run["run_id"], "sha": run["sha"],
+        "run_id": run["run_id"], "sha": run["sha"], **code_identity(),
         "evaluator_commit": plan["evaluator_identity"]["commit"],
         "frozen_sources_sha256": sha_bytes(compact(frozen_sources(plan)).encode()),
     }
@@ -668,7 +744,7 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
     plan = load_plan(plan_path, plan_sha256)
     shard_bounds(plan, stage, shards)
     expected = [row["id"] for row in stage_images(plan, stage)]
-    run = run_identity()
+    run = run_identity(stage)
     records = read_shard_records(artifacts, stage, shards)
     results, identity = verify_shards(
         records, expected, shards,
@@ -690,6 +766,11 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
     rows = comparison._inputs(gold, (predictions,), labels)
     score, _ = comparison._score(rows, predictions, labels)
     latencies = [r["latency_seconds"] for r in results.values()]
+    shard_means = {
+        index: sum(record["results"][i]["latency_seconds"] for i in record["ids"])
+        / len(record["ids"])
+        for index, record in records.items()
+    }
     receipt = {
         "schema_version": 1, "plan_id": PLAN_ID, "plan_sha256": plan_sha256, "stage": stage,
         "status": "completed", "shards": shards, "run": run, "identity": identity,
@@ -699,6 +780,8 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
         "unterminated": sum(not r["terminated"] for r in results.values()),
         "timing": {
             "mean_image_latency_seconds": sum(latencies) / len(latencies),
+            "max_shard_mean_image_latency_seconds": max(shard_means.values()),
+            "min_shard_mean_image_latency_seconds": min(shard_means.values()),
             "max_image_latency_seconds": max(latencies),
             "max_setup_seconds": max(r["timing"]["setup_seconds"] for r in records.values()),
             "max_fixed_setup_seconds": max(r["timing"]["fixed_setup_seconds"]
@@ -707,6 +790,11 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
                                             for r in records.values()) / len(expected),
             "max_shard_elapsed_seconds": max(r["timing"]["elapsed_seconds"]
                                              for r in records.values()),
+        },
+        "hosts": {
+            str(index): {"cpu_model": record.get("host", {}).get("cpu_model"),
+                         "mean_image_latency_seconds": shard_means[index]}
+            for index, record in records.items()
         },
         "metric": score,
         "test_consumed": False,
@@ -781,7 +869,7 @@ def main(argv=None):
         summary.update(timing=result.get("timing"), metric=result.get("metric"))
         print(json.dumps(summary, indent=2, allow_nan=False))
         return 0
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         print(f"named baseline CI: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 

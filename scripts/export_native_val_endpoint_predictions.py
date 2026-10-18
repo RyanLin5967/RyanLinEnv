@@ -11,8 +11,14 @@ The export is accepted only if it reproduces the committed comparison exactly: f
 exported arm other than the warm initialization, the canonical-input SHA256 of
 (gold, arm, common) must equal ``versus_common_initialization[arm].input_sha256`` in that
 report. That hash covers the gold labels and both arms' canonical outcomes for all 3,333
-images, so a wrong, reordered or partial export cannot pass. The CI merge job repeats the
-check with the frozen ``compare_classification`` itself.
+images, so a wrong, reordered or partial export cannot pass.
+
+``canonical_input_sha256`` is a standard-library re-statement of the frozen
+``compare_classification`` input hash, because this script must not import the evaluator
+on the Mac. It is not trusted on its own: the PR ``tests`` job checks it against the frozen
+code on the committed export and on a planted flip, the PR ``plumbing`` job's
+``verify-endpoints`` step reruns the full frozen comparison, and the full-VAL merge (not the
+discovery merge) repeats that before any baseline comparison.
 """
 
 from __future__ import annotations
