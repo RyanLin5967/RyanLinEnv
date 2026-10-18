@@ -1,7 +1,7 @@
 """Write (or check) the signal-limit v1 production package: activated copies, G0, plan.
 
   python scripts/freshpool_launch/signal_limit_production/prepare.py --write   # regenerate
-  python scripts/freshpool_launch/signal_limit_production/prepare.py --check   # refuse unless identical
+  python scripts/freshpool_launch/signal_limit_production/prepare.py --check   # refuse if stale
 
 Light work only (JSON, SHA256 of files, the S_a / S_b split of 2,027 ids): no model, no image
 decoding, no accelerator. Every compute stage of the study runs on the UWaterloo hosts
@@ -110,16 +110,28 @@ UW_PYTHON = "/var/tmp/r226lin-slenv-v1/bin/python"
 UW_MODEL = "/var/tmp/r226lin-slmodel-v1/Qwen2-VL-2B-Instruct-895c3a49"
 
 # Seconds per unit on the chosen device. Filled from COST_REPORT; caps are 1.25 x forecast.
+# Instrument: measure_units.sh on ecetesla4 (Ryzen 9 5900X, 16 threads, run
+# slunits-ecetesla4-1; raw: reports/2026-10-18-signal-limit-uw-cost/ecetesla4-ryzen5900x/).
+# Per-update units are the MAX of updates 2..N of the trainer's optimizer_audit.jsonl
+# committed active seconds (the slowest observed, not the typical); the scorer is the max of 8
+# p forwards; greedy and one G4 group per image are (wall(24 images) - wall(8)) / 16.
+# Shared host, so every number is labelled with it.
 UNIT = {
-    "sft_update": None,  # A1/A4/A5/SFT-E per update
-    "egsft_update": None,  # A2: SFT + one no-grad p forward
-    "hn_sft_update": None,  # A3: SFT + eval-mode confuser scoring
-    "scorer": None,  # one teacher-forced p forward (P0, screen)
-    "greedy_image": None,  # assay: greedy decode, one image
-    "g4_image": None,  # assay / P0: one G4 sampled group, one image
-    "grpo_g8_update": None,  # screened dr_grpo beta 0, per accepted update, scorer incl.
-    "grpo_g16_update": None,
+    "sft_update": 23.51,  # A1, SFT-E
+    "egsft_update": 37.97,  # A2: SFT + one no-grad p forward (out-of-band: p only)
+    "hn_sft_update": 113.35,  # A3: SFT + eval-mode confuser scoring
+    "hls_sft_update": 668.76,  # A4: hierarchical label smoothing (28x SFT)
+    "cce_sft_update": 30.87,  # A5: trie-constrained CE
+    "scorer": 16.86,  # one teacher-forced p forward (P0, screen); median 8.1
+    "greedy_image": 9.71,  # assay: greedy decode, one image
+    "g4_image": 42.58,  # assay / P0: one G4 sampled group, one image
+    "grpo_g8_update": 338.45,  # screened dr_grpo beta 0, per accepted update, scorer incl.
+    "grpo_g16_update": 673.67,
 }
+# Per trainer process outside committed active time (model load, the trainer's before/after
+# TRAIN diagnostic predictions, checkpoint IO): wall minus summed active seconds was 331-431 s
+# per process in the same run. The caps are on launcher wall time, so it is forecast.
+PROCESS_OVERHEAD = 450.0
 
 PROFILE = ["--response-format", "answer_only", "--dtype", "float32", "--min-pixels", "50176",
            "--max-pixels", "200704", "--max-prompt-tokens", "2048",
@@ -445,18 +457,25 @@ def forecasts():
     u = UNIT
     if any(v is None for v in u.values()):
         raise SystemExit(f"measured unit costs missing: {[k for k, v in u.items() if v is None]}")
-    h = 200  # images per H split
+    h, o = 200, PROCESS_OVERHEAD  # images per H split; per-process overhead
+
+    def arm(units, unit):
+        return round(units * u[unit] + o, 1)
+
     return {
-        "p0": round(400 * u["scorer"] + 128 * u["g4_image"], 1),
-        "stage0": round(sum((8 + 4 + 4 + 4) * u[f"grpo_g{g}_update"] for g in (8, 16)), 1),
-        "assay_h_select": round(h * (u["greedy_image"] + u["g4_image"]) * 2, 1),
-        "assay_h_gate": round(h * (u["greedy_image"] + 2 * u["g4_image"]) * 2, 1),
-        "sft_e": round(300 * u["sft_update"], 1),
-        "stage_a_sft": round(600 * u["sft_update"], 1),
-        "stage_a_egsft": round(600 * u["egsft_update"], 1),
-        "stage_a_hn_sft": round(600 * u["hn_sft_update"], 1),
-        "stage_a_hls_sft": round(600 * u["sft_update"], 1),
-        "stage_a_cce_sft": round(600 * u["sft_update"], 1),
+        # 400 scored candidates + 64 images x seeds 42, 314 of G4 rollouts; two model loads.
+        "p0": round(400 * u["scorer"] + 128 * u["g4_image"] + 2 * o, 1),
+        # Per G: probe 8 + E0 4 + (2+2) + (1+3) accepted updates in 6 trainer processes.
+        "stage0": round(sum(20 * u[f"grpo_g{g}_update"] + 6 * o for g in (8, 16)), 1),
+        # Assays are not budget-matched; the cap only stops a hang, so x2.
+        "assay_h_select": round(2 * (h * (u["greedy_image"] + u["g4_image"]) + 2 * o), 1),
+        "assay_h_gate": round(2 * (h * (u["greedy_image"] + 2 * u["g4_image"]) + 3 * o), 1),
+        "sft_e": arm(300, "sft_update"),
+        "stage_a_sft": arm(600, "sft_update"),
+        "stage_a_egsft": arm(600, "egsft_update"),
+        "stage_a_hn_sft": arm(600, "hn_sft_update"),
+        "stage_a_hls_sft": arm(600, "hls_sft_update"),
+        "stage_a_cce_sft": arm(600, "cce_sft_update"),
     }
 
 
@@ -510,7 +529,8 @@ def launch_plan():
                    # plus its bundle; 4 of them for headroom.
                    "stage_headroom_bytes": 4 * 2 * 107084 * 1024},
         "forecast_seconds": forecasts(),
-        "forecast_sources": {"unit_seconds": UNIT, "receipts": COST_REPORT,
+        "forecast_sources": {"unit_seconds": UNIT, "process_overhead_seconds": PROCESS_OVERHEAD,
+                             "receipts": COST_REPORT,
                              "rule": "forecast = measured unit cost x planned units on the "
                                      "chosen device; cap = 1.25 x forecast (launch.py "
                                      "CAP_FACTOR); RL = c(G) from Stage 0 x 300; SFT-T and "
