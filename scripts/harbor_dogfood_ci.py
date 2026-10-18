@@ -18,6 +18,7 @@ Importing performs no work. Only `criteria` and `collect` run off a GitHub runne
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import importlib.util
 import json
@@ -50,7 +51,36 @@ CRITERIA = (
 GIB = 1024**3
 # Evidence allowlist: text receipts only. Base weights, adapters, tokenizer copies, pickles,
 # generated code and images are never uploaded; anything not allowlisted here is skipped.
-EVIDENCE_SUFFIXES = (".json", ".jsonl", ".log", ".txt")
+EVIDENCE_NAMES = (
+    "*.log",
+    "*_diagnostic_predictions.json",
+    "ci-criteria.json",
+    "ci-stage.json",
+    "config.json",
+    "dogfood-local-result.json",
+    "endpoint_receipt.json",
+    "guard.json",
+    "invocation-*.json",
+    "loader.json",
+    "local_training.json",
+    "lock.json",
+    "manifest.json",
+    "optimizer_audit.jsonl",
+    "physical_prompt_events.jsonl",
+    "predictions.json",
+    "preparation.json",
+    "receipt.json",
+    "report.json",
+    "resources.jsonl",
+    "result.json",
+    "reward.txt",
+    "reward_groups.jsonl",
+    "sft-resource-probe.json",
+    "test-stdout.txt",
+    "trainer_state.json",
+    "training-evidence.json",
+)
+MODEL_DIRECTORIES = ("final_adapter", "checkpoint-*", "ref")
 EVIDENCE_FILE_CAP = 64 * 1024**2
 EVIDENCE_TOTAL_CAP = 512 * 1024**2
 
@@ -183,12 +213,25 @@ def materialize_host_files(plan, destination):
     return names
 
 
+def require_plan_constants(plan):
+    """The literals this script uses must be the plan's own pins, or nothing runs."""
+    observed = (
+        plan["source_commit"],
+        plan["local"]["image"],
+        plan["resource"]["prospective_override_memory_mib"] * 1024**2,
+        plan["resource"]["container_memory_bytes"],
+    )
+    if observed != (SOURCE_COMMIT, IMAGE, 13 * GIB, 13 * GIB):
+        raise ValueError(f"Plan pins differ from this driver's constants: {observed}")
+
+
 def kernel_preflight(plan):
     """Plan README step 3 against the built image: exact cgroup bounds, then host memory/disk."""
+    memory_flag = f"{plan['resource']['prospective_override_memory_mib']}m"
     output = subprocess.check_output(
         [
-            "docker", "run", "--rm", "--network", "none",
-            "--memory", "13312m", "--memory-swap", "13312m", "--entrypoint", "sh", IMAGE, "-c",
+            "docker", "run", "--rm", "--network", "none", "--memory", memory_flag,
+            "--memory-swap", memory_flag, "--entrypoint", "sh", IMAGE, "-c",
             "cat /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max "
             "/sys/fs/cgroup/memory.swap.current",
         ],
@@ -203,7 +246,7 @@ def kernel_preflight(plan):
     if memory["MemAvailable"] < resource["prelaunch_available_bytes"]:
         raise RuntimeError("Host MemAvailable below the runtime's 13 GiB prelaunch gate")
     free = shutil.disk_usage(ROOT).free
-    if free < 4 * GIB:
+    if free < 4 * GIB:  # README step 3: root free >= 4 GiB.
         raise RuntimeError("Less than 4 GiB free disk after staging")
     return {"cgroup": observed, "meminfo": memory, "disk_free_bytes": free}
 
@@ -216,6 +259,7 @@ def stage():
     repository = Path.cwd()
     plan_copy = extract_plan(HOST / "plan")
     plan = json.loads((plan_copy / "plan.json").read_text())
+    require_plan_constants(plan)
     host_files = materialize_host_files(plan, HOST)
     os.chdir(HOST)  # setup_runtime checks the build files relative to the working directory.
     spec = importlib.util.spec_from_file_location(
@@ -318,13 +362,22 @@ def criteria(root, plan_dir, result_path):
     except Exception as exc:  # Same as local_run's read-only `criteria` path.
         error = error or f"{type(exc).__name__}: {exc}"
     result = local_run.evaluate(root, plan, contract, plan_sha=PLAN_SHA, driver_error=error)
+    try:  # The plan's own read-only checker must agree; a later fix to it reaches CI too.
+        plan_exit = local_run.main(["criteria", "--root", str(root)])
+    except Exception as exc:
+        plan_exit = f"{type(exc).__name__}: {exc}"
     missing = [name for name in CRITERIA if name not in result["criteria"]]
     passed = (
         not missing
+        and plan_exit == 0
         and result["pass"] is True
         and all(result["criteria"][name]["pass"] is True for name in CRITERIA)
     )
-    result["ci_checker"] = {"missing_criteria": missing, "pass": passed}
+    result["ci_checker"] = {
+        "missing_criteria": missing,
+        "local_run_criteria_exit": plan_exit,
+        "pass": passed,
+    }
     write_json(result_path, result)
     for name in CRITERIA:
         row = result["criteria"].get(name, {"pass": False, "reason": "criterion missing"})
@@ -349,29 +402,32 @@ def collect(root, destination):
     if (root / "output").is_dir():
         sources += sorted(p for p in (root / "output").rglob("*") if not p.is_dir())
     for path in sources:
-        if not path.exists() and not path.is_symlink():
-            continue
-        relative = str(path.relative_to(root))
-        mode = path.lstat().st_mode
-        size = path.lstat().st_size
+        relative = path.relative_to(root)
+        try:
+            status = path.lstat()
+        except FileNotFoundError:
+            continue  # Optional top-level receipt, or rotated away after the listing.
         reason = None
-        if not stat.S_ISREG(mode):
+        if not stat.S_ISREG(status.st_mode):
             reason = "not a regular file"
-        elif any(part == "final_adapter" or part.startswith("checkpoint-") for part in
-                 path.relative_to(root).parts):
+        elif any(fnmatch.fnmatch(part, d) for part in relative.parts for d in MODEL_DIRECTORIES):
             reason = "model artifact directory (adapter/tokenizer copies; hashes are in receipts)"
-        elif path.suffix not in EVIDENCE_SUFFIXES:
-            reason = "suffix not allowlisted"
-        elif size > EVIDENCE_FILE_CAP or total + size > EVIDENCE_TOTAL_CAP:
+        elif not any(fnmatch.fnmatch(relative.name, name) for name in EVIDENCE_NAMES):
+            reason = "name not allowlisted"
+        elif status.st_size > EVIDENCE_FILE_CAP or total + status.st_size > EVIDENCE_TOTAL_CAP:
             reason = "size cap"
         if reason:
-            skipped.append({"path": relative, "bytes": size, "reason": reason})
+            skipped.append({"path": str(relative), "bytes": status.st_size, "reason": reason})
             continue
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
-        copied[relative] = sha(target)
-        total += size
+        try:
+            shutil.copyfile(path, target)
+        except FileNotFoundError:
+            skipped.append({"path": str(relative), "bytes": status.st_size, "reason": "vanished"})
+            continue
+        copied[str(relative)] = sha(target)
+        total += target.stat().st_size
     write_json(
         destination / "evidence-manifest.json",
         {"copied_sha256": copied, "skipped": skipped, "copied_bytes": total},

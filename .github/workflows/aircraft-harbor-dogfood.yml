@@ -32,7 +32,16 @@ jobs:
       - name: Stage pinned inputs, build runtime image, preflight cgroup, package task
         run: timeout 3000 python3 -I scripts/harbor_dogfood_ci.py stage
       - name: SFT probe, then Harbor RL + SFT controls and separate verifier
-        run: timeout 14600 python3 -I scripts/harbor_dogfood_ci.py execute
+        # SIGINT (not TERM) so run_harbor's finally still stops Harbor and its owned containers;
+        # 15300 s covers the driver's own caps (probe 2300 + main 12000) plus pre/post work.
+        run: timeout -s INT -k 120 15300 python3 -I scripts/harbor_dogfood_ci.py execute
+      - name: Stop anything this plan still owns before reading evidence
+        if: always()
+        run: |
+          timeout 30 pkill -INT -f "/Users/idide/RyanLinEnv/.venv/bin/harbor run" || true
+          ids=$(timeout 30 docker ps -q --filter \
+            label=vision-rl.harbor-plan=62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901)
+          if [ -n "$ids" ]; then timeout 120 docker stop --time 20 $ids; fi
       - name: Check C1-C4 from the evidence on disk (non-zero on any failure)
         if: always()
         run: >-

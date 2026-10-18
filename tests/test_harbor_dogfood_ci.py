@@ -309,6 +309,7 @@ def test_collect_uploads_text_receipts_only(plan_dir, tmp_path):
         "adapter_model.safetensors",
         "rl/adapter-source.py",
         "image-0.jpg",
+        "sft/merged/tokenizer.json",
     ):
         (artifacts / name).parent.mkdir(parents=True, exist_ok=True)
         (artifacts / name).write_bytes(b"x")
@@ -317,16 +318,29 @@ def test_collect_uploads_text_receipts_only(plan_dir, tmp_path):
     uploaded = {str(p.relative_to(destination)) for p in destination.rglob("*") if p.is_file()}
     assert not [p for p in uploaded if p.endswith((".safetensors", ".jpg", ".py"))]
     assert not [p for p in uploaded if "final_adapter" in p or "checkpoint-" in p]
+    assert not [p for p in uploaded if p.endswith("tokenizer.json")]
     assert f"{ARTIFACTS}/training/training-evidence.json" in uploaded
     manifest = json.loads((destination / "evidence-manifest.json").read_text())
-    assert len(manifest["skipped"]) == 6
+    assert len(manifest["skipped"]) == 7
 
 
 def test_workflow_is_manual_free_runner_and_bounded():
     text = (REPO / ".github/workflows/aircraft-harbor-dogfood.yml").read_text()
-    assert "workflow_dispatch" in text and "\n  push" not in text and "pull_request" not in text
+    lines = text.splitlines()
+    start = lines.index("on:") + 1
+    end = next(i for i in range(start, len(lines)) if lines[i] and not lines[i][0].isspace())
+    assert [line for line in lines[start:end] if line.strip()] == ["  workflow_dispatch:"]
+    assert sum(1 for line in lines if line.startswith("on")) == 1
+    assert "github.event.repository.private == false" in text
     assert "runs-on: ubuntu-24.04" in text
     minutes = [int(line.split(":")[1]) for line in text.splitlines() if "timeout-minutes" in line]
     assert minutes and max(minutes) <= 360
     assert "scripts/harbor_dogfood_ci.py criteria" in text
     assert "path: evidence/" in text
+
+
+def test_plan_constants_match_the_driver(plan_dir):
+    plan = json.loads((plan_dir / "plan.json").read_text())
+    ci.require_plan_constants(plan)
+    with pytest.raises(ValueError, match="Plan pins differ"):
+        ci.require_plan_constants(dict(plan, source_commit="0" * 40))
