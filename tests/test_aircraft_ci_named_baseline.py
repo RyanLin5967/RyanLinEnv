@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vision_rl import ci_shards
 from vision_rl.aircraft_data import aircraft_pixel_sha256
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -201,7 +200,7 @@ def test_full_shards_score_every_image_once(runner, world):
 
 def test_missing_shard_is_refused(runner, world):
     run_all(runner, world, shards=(0, 1, 3))
-    with pytest.raises(ci_shards.ShardGapError, match=r"missing shard\(s\) \[2\] of 4"):
+    with pytest.raises(runner.ci_shards.ShardGapError, match=r"missing shard\(s\) \[2\] of 4"):
         merge(runner, world)
 
 
@@ -248,7 +247,7 @@ def test_rerun_of_one_shard_in_another_attempt_is_refused(runner, world, monkeyp
     run_all(runner, world, shards=(0, 1, 2))
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
     run_all(runner, world, shards=(3,))
-    with pytest.raises(ci_shards.ShardGapError, match="run_attempt"):
+    with pytest.raises(runner.ci_shards.ShardGapError, match="run_attempt"):
         merge(runner, world)
 
 

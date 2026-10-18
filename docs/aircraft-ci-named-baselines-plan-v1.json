@@ -15,7 +15,7 @@
   "execution": {
     "workflow": ".github/workflows/aircraft-named-baseline-ci.yml (workflow_dispatch only)",
     "runner": "scripts/aircraft_ci_named_baseline.py",
-    "shard_bookkeeping": "src/vision_rl/ci_shards.py",
+    "shard_bookkeeping": "scripts/ci_shards.py",
     "runs_on": "ubuntu-24.04",
     "cpu_threads": 4,
     "device": "cpu",

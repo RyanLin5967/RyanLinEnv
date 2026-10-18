@@ -1,10 +1,16 @@
 """Shard coverage rules: every image exactly once, or no score. Standard library only."""
 
 import copy
+import importlib.util
+from pathlib import Path
 
 import pytest
 
-from vision_rl import ci_shards
+_SPEC = importlib.util.spec_from_file_location(
+    "ci_shards", Path(__file__).resolve().parents[1] / "scripts/ci_shards.py"
+)
+ci_shards = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(ci_shards)
 
 IDS = [f"{n:07d}" for n in range(10)]
 IDENTITY = {

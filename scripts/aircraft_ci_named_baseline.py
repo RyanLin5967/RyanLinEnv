@@ -9,7 +9,7 @@ Nothing here is new scoring. Rows, gold labels, prompt and parser checks come fr
 each prediction is ``vlm_local_evaluation.Backend.predict`` (the frozen evaluator's code)
 bound to a base model without an adapter, under the evaluator's greedy generation kwargs,
 per-image ``_deadline`` and output checks; the metric is ``classification_comparison``.
-This file owns only downloading pinned bytes, shard slicing (``vision_rl.ci_shards``), the
+This file owns only downloading pinned bytes, shard slicing (``scripts/ci_shards.py``), the
 per-shard journal and the merge that refuses on any gap.
 
 Commands: matrix, fetch-images, fetch-model, run-shard, merge, gate.
@@ -35,9 +35,19 @@ import time
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPOSITORY / "src"))
 
-from vision_rl import ci_shards  # noqa: E402  (standard library only)
+
+def _load_ci_shards():
+    # Standard library only. Kept in scripts/, not src/vision_rl, because the live freshpool
+    # plan pins every vision_rl module and a new module there would change that identity.
+    path = Path(__file__).with_name("ci_shards.py")
+    spec = importlib.util.spec_from_file_location("ci_shards", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ci_shards = _load_ci_shards()
 
 PLAN_ID = "aircraft-ci-named-baselines-v1"
 STAGES = ("discovery", "full")
