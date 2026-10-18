@@ -71,8 +71,9 @@ def pin_cpu_numerics(numerics):
     path from MKL_CBWR when MKL initialises and oneDNN's ISA cap from ONEDNN_MAX_CPU_ISA at
     its first dispatch, so all are set before the first torch import; oneDNN is then
     enabled or disabled as the plan says. The pool mixes Ivy Bridge (AVX only), Broadwell
-    (AVX2 + FMA) and Skylake-SP (AVX-512); without a pin their default kernels differ, and
-    so do their outputs (measured: reports/2026-10-18-named-baseline-v2-kernel-probe).
+    (AVX2 + FMA) and Skylake-SP (AVX-512); without a pin their default kernels differ
+    (kernel_fingerprint, all three), and Ivy Bridge and Broadwell outputs differ (measured:
+    reports/2026-10-18-named-baseline-v2-kernel-probe).
     """
     import sys
 
@@ -572,6 +573,9 @@ def run_local_hf(
     # function on the same process, so the snapshot is not rehashed twice.
     checked = preflight or machine_preflight(model_directory, integrity, engine, runtime_pins,
                                              runtime_lock)
+    if (checked["runtime_versions"] != runtime_pins
+            or checked["runtime_lock_sha256"] != _digest(runtime_lock)):
+        raise ValueError("The preflight was made for another runtime or lock")
     model = checked["model"]
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,

@@ -1010,7 +1010,7 @@ def test_committed_plan_runs_the_canary_checked_kernel_path_on_allowlisted_hosts
             numerics["mkldnn_enabled"], numerics["onednn_max_cpu_isa"]) == (
         "default", "AVX", True, "AVX")
     assert set(plan["sharding"]["hosts"]) == {
-        "ICCAD1", "iccad2", "ICCAD3", "iccad5", "iccad10", "iccad12", "iccad13"}
+        "ICCAD1", "ICCAD3", "iccad5", "iccad10", "iccad12", "iccad13"}
 
 
 def test_shards_staged_at_different_paths_merge_and_resume(runner, world, clock):
@@ -1072,3 +1072,53 @@ def test_unlistable_snapshot_directory_or_nameless_package_is_refused(world, mon
     monkeypatch.setattr(metadata, "distributions", lambda: [nameless])
     with pytest.raises(ValueError, match="without a name"):
         local_hf.installed_distributions()
+
+
+def test_a_charged_invocation_that_failed_before_run_json_still_binds_the_host(
+        runner, world, clock, monkeypatch):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    real = runner.local_hf.run_local_hf
+
+    def staging_error(*args, **kwargs):
+        raise ValueError("staged image missing")
+
+    monkeypatch.setattr(runner.local_hf, "run_local_hf", staging_error)
+    with pytest.raises(ValueError, match="staged image missing"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    shard = world["out"] / "stage-discovery/shard-0-of-3"
+    assert not (shard / "run/run.json").exists()
+    ledger = (shard / "ledger.jsonl").read_text()
+    monkeypatch.setattr(runner.local_hf, "run_local_hf", real)
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match="ledger started on another host"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    assert (shard / "ledger.jsonl").read_text() == ledger and calls == []
+    runner.fixture_host = dict(HOSTS[0])
+    report = runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                              world["weights"],
+                              backend_factory=fake_backend(answers, calls, clock=clock))
+    assert report["per_shard"][0]["completed"] == 20
+
+
+def test_engine_refuses_a_preflight_made_for_another_runtime(world, tmp_path):
+    identifier = world["author"][0]["image_id"]
+    root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
+    rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
+             "prompt": "x"}]
+    engine = {"name": "transformers-cpu", "dtype": "float32", "threads": 32,
+              "formatted_prompt_sha256": "a" * 64, "cpu_numerics": {}}
+    lock = {"freeze": "a==1\n", "python": "3.12.15"}
+    preflight = {"model": {}, "runtime_versions": {"torch": "0"},
+                 "runtime_lock_sha256": "0" * 64, **{key: None for key in (
+                     "observed_cpu_numerics", "kernel_fingerprint", "host", "python")}}
+    with pytest.raises(ValueError, match="preflight was made for another runtime"):
+        local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
+                              integrity=world["integrity"], engine=engine,
+                              runtime_pins={"torch": "1"}, runtime_lock=lock,
+                              preflight=preflight, phase="validation", image_root=root,
+                              task_contract={"task": "classification"},
+                              preprocessing_id=None)
+    assert not (tmp_path / "x").exists()

@@ -530,6 +530,11 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
     # Every machine-side refusal (snapshot, runtime lock, kernel pin) and every identity
     # difference on resume (host, kernel fingerprint, versions) is decided here, before the
     # ledger charges an invocation; run_local_hf reuses this preflight.
+    if any(event.get("host") != host for event in ledger["started"]):
+        # An invocation can be charged and fail before run.json exists (a staging error,
+        # a kill while hashing images); the ledger, not only run.json, binds the host.
+        raise ValueError("This shard's ledger started on another host; a shard resumes only "
+                         "where it started (refused before any invocation is charged)")
     checked = local_hf.machine_preflight(Path(weights), integrity, engine_identity(plan),
                                          model["runtime_pins"], lock)
     if (run_directory / "run.json").exists():

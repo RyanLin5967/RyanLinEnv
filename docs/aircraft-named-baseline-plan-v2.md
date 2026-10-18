@@ -24,7 +24,7 @@ hosts cannot run v1.
 | sampling definition | mlx-vlm chain | the same chain, reimplemented in `local_hf.mlx_filter` |
 | prompt, parser, scorer | eight-endpoint evaluator | the same; v1's `stage_inputs`, `canonical` and the evaluator scorer are called directly |
 | templated prompt | sha `c4409cac…` | must equal `c4409cac…`, or the image is refused |
-| hosts | Mac | 7 allowlisted UW hosts that pull 10 discovery and 60 full-VAL shards |
+| hosts | Mac | 6 allowlisted UW hosts that pull 10 discovery and 60 full-VAL shards |
 
 So v2 runs the same base model at different numerics. A v2 number is never labelled as the 8-bit
 model. **No v1 run-2 result is merged with v2.** v2 never reads, resumes, copies or pools the v1
@@ -105,18 +105,24 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   `stage-<stage>/shard-<k>-of-<N>/`.
 - **Hosts.** `sharding.hosts` is an allowlist of hostname and CPU model, and `run_shard` refuses any
   other machine before writing anything. It lists the hosts whose canary reproduced the score rows
-  and that have the RAM for the process: iccad1, iccad2, iccad3, iccad5, iccad10, iccad12 and
-  iccad13. The 164.7 GB peak RSS includes the mapped `/dev/shm` snapshot pages (iccad2, 188 GB,
-  ran with about 27 GB free), so the footprint is about 165 GB. ecetesla0/1, iccad4 and iccad6
-  have too little RAM. iccad0/7/8 fit, but beside the exploratory sweep they had only 180-222 GB
-  free. iccad9/11 fit, but the sweep saturated them and their canary did not finish.
-- **A shard never changes host.** The host is in the run identity. A resume on another host, or
-  under another kernel fingerprint, runtime or snapshot, is refused before the ledger charges an
-  invocation. A shard whose host is lost needs a new plan version.
+  and that can take a launch with `uwrun --mem 170`: iccad1, iccad3, iccad5, iccad10, iccad12 and
+  iccad13. The peak RSS was 153.4 GiB (164.7 GB) including the mapped `/dev/shm` snapshot pages;
+  `--mem 170` is that plus about 10%, and uwrun then needs 178 GiB available at placement.
+  iccad2's canary matched, but with the snapshot loaded it has about 130 GB available, so it
+  cannot take `--mem 170` (and it ran the canary with 27 GB left, near uwrun's oom-guard line).
+  ecetesla0/1, iccad4 and iccad6 have too little RAM. iccad0/7/8 had only 180-222 GB free beside
+  the exploratory sweep. iccad9/11 have the RAM, but the sweep saturated them and their canary
+  did not finish.
+- **A shard never changes host.** The host is in the run identity and in every ledger start
+  event. A resume on another host (even after a charged invocation that failed before `run.json`
+  existed), or under another kernel fingerprint, runtime or snapshot, is refused before the ledger
+  charges an invocation. A shard whose host is lost needs a new plan version.
 - **Paths, memory and sync.** Each host keeps the staged tree, the venv and `--output` at fixed
   paths under `/var/tmp/r226lin-nbv2/`, outside uwrun's per-run directory, because the ledger and
   budget clock live in `--output`. The staging path is not in the run identity. Launch with
-  `--threads 32 --mem 180` (and `--need none` on iccad1/2/3). A run stopped by uwrun's
+  `--threads 32 --mem 170 --timeout <wall cap + 3600>` (and `--need none` on iccad1/3). The
+  preflight (snapshot rehash, measured 158.7 s on idle iccad3, plus lock, pin and fingerprint)
+  runs before the charge, inside the extra 3,600 s. A run stopped by uwrun's
   `oom-guard` or `--mem` is a killed invocation: charged its full wall cap, its reserved image
   unknown and never quoted, and the shard halted for review. Fetch each whole finished shard
   directory (never only `run/`) to one collector. Before a host's first full-VAL invocation, copy
@@ -176,17 +182,18 @@ per-host figures, not dedicated-hardware numbers.
 | host | CPU | s/image (mean) | decode s/token |
 | --- | --- | --- | --- |
 | iccad1 | E5-2667 v2 | 258.0 | 2.20 |
-| iccad2 | E5-2667 v2 | 281.9 | 1.96 |
+| iccad2 (canary only; not allowlisted) | E5-2667 v2 | 281.9 | 1.96 |
 | iccad3 | E5-2667 v2 | 265.0 | 2.08 |
 | iccad5 | E5-2640 v4 | 503.5 | 6.99 |
 | iccad10 | Gold 6154 | 558.1 | 12.14 |
 | iccad12 | Gold 6154 | 973.0 | 18.64 |
 | iccad13 | Gold 6154 | 546.6 | 7.96 |
 
-- **Full-VAL projection.** With the 7 hosts pulling 60 shards: 0.01783 images/s, so about
-  186,900 s = 51.9 h of generation. With per-invocation loads and the end of the run, that is about
-  52-60 h (2.2-2.5 days). The three Ivy Bridge hosts alone would take 82.7 h. The previous plan's
-  figure was about 170 h. Discovery takes 0.7-2.7 h per 10-image shard.
+- **Full-VAL projection.** With the 6 allowlisted hosts pulling 60 shards: 0.014285 images/s, so
+  about 233,300 s = 64.8 h of generation. With the per-invocation preflight, loads and the end of
+  the run, that is about 65-73 h (2.7-3.0 days). With iccad2 as well it would be 51.9 h. The two
+  Ivy Bridge hosts alone would take 121.0 h. The previous plan's figure was about 170 h.
+  Discovery takes 0.7-2.7 h per 10-image shard.
 - **Budgets per shard.**
   - Discovery: wall cap 1,338,520 s, 3 invocations.
   - Full: wall cap 1,478,920 s, 4 invocations, 60 calendar days.
