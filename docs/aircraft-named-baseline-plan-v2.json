@@ -27,7 +27,7 @@
     "integrity": "docs/qwen3.8-27b-hf-integrity-1d4bf0f2.json",
     "integrity_sha256": "c5450e81de7ca7969a5db9c28210cf2d9749682ff4a0b26b9680c706e390697f",
     "verification": "run and smoke refuse an integrity record whose SHA256 differs from integrity_sha256; verify_snapshot then rehashes all 32 files before each load: sha256 of each LFS file (18 safetensors + tokenizer.json) and the git blob SHA-1 of every other file, as published by the Hub API; strict loader, trust_remote_code false, offline",
-    "python": "uv venv -p 3.12 on each host, then <venv>/bin/python -I",
+    "python": "uv venv -p 3.12.15 /var/tmp/r226lin-nbv2/venv on each host (the lock, not the project, is installed: do not pip install this repository, the runtime lock refuses it), then /var/tmp/r226lin-nbv2/venv/bin/python -I; the runner puts the staged tree's src/ on sys.path itself",
     "runtime_pins": {
       "torch": "2.14.1+cpu",
       "torchvision": "0.29.1+cpu",
@@ -59,7 +59,7 @@
       "mkl_cbwr": "AVX",
       "onednn_max_cpu_isa": "AVX",
       "mkl_available": true,
-      "reason": "The pool mixes Ivy Bridge (iccad1/2/3: AVX only), Broadwell (iccad5: AVX2+FMA) and Skylake-SP (iccad9-13: AVX-512). Unpinned kernels differ per family: measured first-step logits of the canary images differ between iccad3, iccad5 and the Skylake hosts unpinned (reports/2026-10-18-named-baseline-v2-kernel-probe). The engine sets ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX and ONEDNN_MAX_CPU_ISA=AVX (DNNL_MAX_CPU_ISA unset) before torch is imported, keeps oneDNN on, refuses unless torch reports this path (or if torch/MKL was loaded before with a different environment), and records kernel_fingerprint in every shard's run identity, so the merge refuses shards whose kernels computed its fixed operations differently.",
+      "reason": "The pool mixes Ivy Bridge (iccad1/2/3: AVX only), Broadwell (iccad5: AVX2+FMA) and Skylake-SP (iccad9-13: AVX-512). Unpinned kernels differ per family: the first-step score rows of the canary images differ between iccad3 and iccad5 unpinned (no unpinned model run finished on a Skylake host; there, only the unpinned kernel_fingerprint was measured, and it differs from both) (reports/2026-10-18-named-baseline-v2-kernel-probe). The engine sets ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX and ONEDNN_MAX_CPU_ISA=AVX (DNNL_MAX_CPU_ISA unset) before torch is imported, keeps oneDNN on, refuses unless torch reports this path (or if torch/MKL was loaded before with a different environment), and records kernel_fingerprint in every shard's run identity, so the merge refuses shards whose kernels computed its fixed operations differently.",
       "change_from_previous_pin": "The previous pin turned oneDNN off. Measured back to back on iccad3 (kernel probe, 1 TRAIN image + 16 forced decode tokens, 32 threads): oneDNN off + MKL_CBWR=AVX decoded at 61.7 s/token and 462 s/image; oneDNN off alone 13.7 s/token, 361 s/image; oneDNN on (with or without MKL_CBWR) 2.1 s/token, 243-255 s/image; CPU cores busy 25-32 in every config, so host load does not explain it. oneDNN off was the cost. Capping oneDNN at the AVX ISA keeps its speed (iccad3 2.08 s/token) and keeps one numerics path: the first-step logits of all four canary images are bit-identical on iccad1, iccad2, iccad3 (Ivy Bridge) and iccad5 (Broadwell), see measured_cost.canary.",
       "evidence_limits": "Equality is measured on the first-step score rows (SHA256 of the float32 bytes) and the full answers of 4 TRAIN images, plus kernel_fingerprint on 5 hosts of 3 CPU families. It is strong evidence that the hosts compute the same function, not a proof for every VAL image; the fingerprint in each shard's identity is the runtime check."
     },
@@ -147,7 +147,7 @@
       "iccad12": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
       "iccad13": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz"
     },
-    "hosts_rule": "Allowlist (run_shard refuses any other hostname, or this hostname with another CPU model): exactly the hosts whose dnnavx TRAIN canary reproduced the first-step score rows (SHA256 of the float32 bytes) of all four canary images and the four answers, and that have >= 188 GB RAM for the 164.7 GB process plus the 52 GB /dev/shm snapshot. Keys are os.uname().nodename as each host reports it. Not allowlisted: ecetesla0 (92 GB) and ecetesla1 (125 GB), iccad4 (125 GB), iccad6 (156 GB): too little RAM for fp32 27B plus the snapshot; iccad0, iccad7 and iccad8 (250 GB) fit but had only 180-222 GB free beside the exploratory sweep, so a 220 GB footprint would endanger the sweep's runs (uwrun hosts / free -g, 2026-10-18); iccad9 and iccad11 (Gold 6136, 48 threads) have the RAM, but the sweep kept them at load 47-60 on 48 threads, their dnnavx canary had not finished 4 images after 73 min, and it was stopped to leave the sweep its cores, so they have no canary evidence and are not listed (their kernel_fingerprint under dnnavx does match: iccad9 9d149dab...). Adding a host later needs its canary and a new plan version.",
+    "hosts_rule": "Allowlist (run_shard refuses any other hostname, or this hostname with another CPU model): exactly the hosts whose dnnavx TRAIN canary reproduced the first-step score rows (SHA256 of the float32 bytes) of all four canary images and the four answers, and that have >= 188 GB RAM (the 164.7 GB peak RSS evidently includes the mapped /dev/shm snapshot pages: iccad2, 188 GB, ran the canary with about 27 GB still free, so the measured footprint is about 165 GB, not 165 + 52). Keys are os.uname().nodename as each host reports it. Not allowlisted: ecetesla0 (92 GB) and ecetesla1 (125 GB), iccad4 (125 GB), iccad6 (156 GB): too little RAM for fp32 27B plus the snapshot; iccad0, iccad7 and iccad8 (250 GB) fit but had only 180-222 GB free beside the exploratory sweep, so the about 165 GB footprint (plus --mem headroom to 180 GB) would leave the sweep 0-42 GB (uwrun hosts / free -g, 2026-10-18); iccad9 and iccad11 (Gold 6136, 48 threads) have the RAM, but the sweep kept them at load 47-60 on 48 threads, their dnnavx canary had not finished 4 images after 73 min, and it was stopped to leave the sweep its cores, so they have no canary evidence and are not listed (iccad9's kernel_fingerprint under dnnavx matches, 9d149dab...; iccad11 was not fingerprinted). Adding a host later needs its canary and a new plan version.",
     "assignment": "author-order position i of a stage manifest belongs to shard i mod N: discovery N = 10 (10 images each), full N = 60 (56 or 55 images each). Hosts pull the next unstarted shard; a full shard may only go to a host that ran a discovery shard (the gate refuses others), so every pool host takes at least one discovery shard first. Small full shards keep the end of the run short: the last shard on the slowest measured host is about 56 x 973 s = 15 h, so near the end shards go to the fastest idle host.",
     "merge": "scripts/aircraft_named_baseline_v2.py merge (writes <output>/merged-<stage>-predictions.json): union of the shard journals; refuses an image journaled outside its shard or reserved/completed twice within one, a shard directory outside shard-k-of-N (N per stage), a shard with journaled images but no budget ledger or run.json, shards whose run identities differ in anything but their rows, shard index and host (the identity includes dtype, threads, kernel_fingerprint, the observed CPU kernel settings, runtime versions, the runtime lock SHA256, the Python version and the formatted-prompt hash), shard ledgers that started under different plan SHA256s or runner sources, and any missing, unknown or hard-stop image. Its per_shard output names each shard's host and CPU model, and per_host gives each host's mean latency. The observed kernel settings can only equal the plan's (the pin raises otherwise), so they are a record; kernel_fingerprint is the part that can differ between hosts and is what makes the merge catch a numerics difference on its fixed operations.",
     "shared_state": "Shards share no lock. Shard results are fetched to one output directory before merge; the merge refuses duplicates, so running one shard twice cannot be double-counted."
@@ -321,13 +321,15 @@
     "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation)."
   },
   "supervision": {
-    "command": "uwrun run --host <a host in sharding.hosts> --sync <staged tree> --threads 32 --timeout <invocation_wall_seconds + 900> --name <name> -- <venv>/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --output <host output>",
-    "outputs_and_sync": "Run directories are host-local (uwrun's /var/tmp/r226lin-runs), so each host has its own --output. (1) After every discovery shard finishes, fetch each WHOLE shard directory (ledger.jsonl, run/, summary.json; never only run/: merge refuses a shard with journaled images but no ledger or run.json) to one collector directory on the Mac with uwrun fetch. (2) Run merge --stage discovery on the collector. (3) Before the first full-VAL invocation on a host, copy the collector's complete stage-discovery/ (all shard directories) into that host's --output (uwrun run --sync <collector> ... or rsync): full-stage run_shard reads every discovery ledger, journal and run identity from its own --output and refuses ('discovery shard k never ran') until they are there. (4) Fetch each finished full shard directory into the collector and run merge --stage full and compare there.",
+    "command": "uwrun run --host <a host in sharding.hosts> [--need none on iccad1/2/3] --threads 32 --mem 180 --timeout <invocation_wall_seconds + 900> --name <new name> -- bash -c 'cd /var/tmp/r226lin-nbv2/repo && /var/tmp/r226lin-nbv2/venv/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --repository /var/tmp/r226lin-nbv2/repo --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --output /var/tmp/r226lin-nbv2/out'",
+    "outputs_and_sync": "Each host has its own --output at the fixed host-local path /var/tmp/r226lin-nbv2/out (see fixed_paths; never inside uwrun's per-run directory). (1) After every discovery shard finishes, fetch each WHOLE shard directory (ledger.jsonl, run/, summary.json; never only run/: merge refuses a shard with journaled images but no ledger or run.json) to one collector directory on the Mac with uwrun fetch. (2) Run merge --stage discovery on the collector. (3) Before the first full-VAL invocation on a host, copy the collector's complete stage-discovery/ (all shard directories) into that host's --output (uwrun run --sync <collector> ... or rsync): full-stage run_shard reads every discovery ledger, journal and run identity from its own --output and refuses ('discovery shard k never ran') until they are there. (4) Fetch each finished full shard directory into the collector and run merge --stage full and compare there.",
     "host_binding": "A shard's host (hostname + CPU model) is in its run identity: a shard started on one host can only be resumed on that host (a resume elsewhere is refused before model load). If a host is lost mid-shard, that shard cannot be moved; it needs a new plan version.",
     "wall_limit": "uwrun --timeout TERMs then KILLs the process group at the bound; a killed invocation has no finish record and is charged its full wall cap",
     "memory": "No MLX/Metal limit applies. A float32 shard process peaked at 164.7 GB RSS (smoke), plus the 52 GB /dev/shm snapshot; check `free -g` (or uwpick ram) before each launch and keep one shard per host. uwrun v5: pass --threads 32 truthfully and --need none for iccad1/2/3 (no AVX2).",
     "one_invocation_at_a_time": "run_local_hf holds an exclusive lock on its shard run directory; no automatic retries",
-    "staged_tree": "src/, scripts/, docs/ (plan + integrity), data/fgvc-aircraft-2013b/{audit/val-images.json, development/validation.jsonl, development/images/validation/, candidates/fourshot-seed791/data_spec.json} only; never data/fgvc-aircraft-2013b/sealed"
+    "staged_tree": "src/, scripts/, docs/ (plan + integrity), data/fgvc-aircraft-2013b/{audit/val-images.json, development/validation.jsonl, development/images/validation/, candidates/fourshot-seed791/data_spec.json} only; never data/fgvc-aircraft-2013b/sealed",
+    "fixed_paths": "The staged tree (/var/tmp/r226lin-nbv2/repo), venv and --output (/var/tmp/r226lin-nbv2/out) live at fixed host-local paths OUTSIDE uwrun's per-run directory, staged once per host (rsync or a uwrun --sync run that copies into them). --output must persist across invocations: a shard's ledger, journal and budget clock live there, and an --output inside a new uwrun run directory would start an empty ledger and silently reset the invocation, active-seconds and calendar budgets. The run identity holds no staging path (only the split directory's last four components and every image's hashes), so the same shard may resume from a re-staged tree.",
+    "memory_guard": "uwrun v5.4: --mem 180 caps the run's resident memory at the measured 164.7 GB peak plus headroom and makes placement require that much free RAM. A run stopped by uwrun's oom-guard (status oom-guard: host free RAM below max(4 GB, 3% of RAM)) or by --mem is killed like a timeout: the ledger has no finish record, so the invocation is charged its full wall cap; the image it had reserved is unknown_after_interruption and is never regenerated or quoted; the shard halts for human review (no automatic retry), and its stage cannot merge, so the named comparator is reported incomplete under on_stop."
   },
   "measured_cost": {
     "instrument": "Two instruments. (1) reports/2026-10-18-named-baseline-v2-kernel-probe: scripts/aircraft_named_baseline_v2.py smoke driven by probe/kernel_probe.py, one process per kernel configuration, recording per image the answer, drawn tokens, latency, prefill and the SHA256 of the first-step score row, then a 16-token forced greedy text decode for s/token with CPU-seconds/wall (cores busy) and loadavg; plus fingerprint/fp_probe.py (kernel_fingerprint, no model). This is the configuration the plan runs (dnnavx). (2) The earlier reports/2026-10-18-named-baseline-v2-smoke under the PREVIOUS pin (oneDNN off), kept below as pinned_* history.",
@@ -353,13 +355,34 @@
     },
     "kernel_pin_cost": {
       "question": "Did the previous pin (oneDNN off, MKL_CBWR=AVX) cause the 4-5x decode slowdown, or host load? Measured back to back on one host (iccad3, uwrun nbv2-pinprobe-iccad3, image 0447760 + 16 forced decode tokens, 32 threads, run order as listed).",
-      "previous_pin_onednn_off_cbwr": {"seconds_per_image": 462.1, "decode_seconds_per_token": 61.74, "cores_busy": 25.4},
-      "unpinned": {"seconds_per_image": 255.0, "decode_seconds_per_token": 2.12, "cores_busy": 31.5},
-      "onednn_off_only": {"seconds_per_image": 360.7, "decode_seconds_per_token": 13.72, "cores_busy": 31.5},
-      "cbwr_only_onednn_on": {"seconds_per_image": 243.3, "decode_seconds_per_token": 2.09, "cores_busy": 31.6},
-      "this_plan_dnnavx": {"seconds_per_image_4_images": 265.0, "decode_seconds_per_token": 2.08, "cores_busy": 31.6, "source": "nbv2-dnnavx-iccad3"},
+      "previous_pin_onednn_off_cbwr": {
+        "seconds_per_image": 462.1,
+        "decode_seconds_per_token": 61.74,
+        "cores_busy": 25.4
+      },
+      "unpinned": {
+        "seconds_per_image": 255.0,
+        "decode_seconds_per_token": 2.12,
+        "cores_busy": 31.5
+      },
+      "onednn_off_only": {
+        "seconds_per_image": 360.7,
+        "decode_seconds_per_token": 13.72,
+        "cores_busy": 31.5
+      },
+      "cbwr_only_onednn_on": {
+        "seconds_per_image": 243.3,
+        "decode_seconds_per_token": 2.09,
+        "cores_busy": 31.6
+      },
+      "this_plan_dnnavx": {
+        "seconds_per_image_4_images": 265.0,
+        "decode_seconds_per_token": 2.08,
+        "cores_busy": 31.6,
+        "source": "nbv2-dnnavx-iccad3"
+      },
       "conclusion": "The pin, not load: oneDNN off costs 6.5x in decode on its own and about 29x together with MKL_CBWR, with the process using 25-32 cores throughout. With oneDNN on, MKL_CBWR=AVX costs nothing on iccad3. Run-to-run spread of the previous pin is large (iccad2 decoded at 13.5 s/token under it), so the 61.7 is one draw; the ordering held on every host measured.",
-      "avx_cap_cost_on_newer_cpus": "Capping at AVX is free on Ivy Bridge but not on newer hosts: iccad5 ran 503.5 s/image dnnavx vs 230.1 s/image unpinned (AVX2) back to back (nbv2-dnnavx-iccad5). Unpinned, however, iccad5's first-step logits differ from iccad3's, so the AVX cap is the price of one numerics path across the pool."
+      "avx_cap_cost_on_newer_cpus": "The pin is free on Ivy Bridge but not on newer hosts: iccad5 ran 503.5 s/image under dnnavx vs 230.1 s/image fully unpinned, back to back (nbv2-dnnavx-iccad5). That compares all three settings at once (ATen capability, MKL_CBWR and the oneDNN ISA cap); no cbwr-only config ran on iccad5, so how the 2.2x splits between them is unmeasured. Unpinned, however, iccad5's first-step logits differ from iccad3's, so the AVX cap is the price of one numerics path across the pool."
     },
     "pinned_float32_seconds_per_image": {
       "iccad3": [
@@ -433,7 +456,12 @@
         "0090868": "DC-9-30",
         "0489934": "ATR-42"
       },
-      "first_step_score_sha256_prefixes_this_plan": ["4d8a20fdc6f8", "9ca6fadda004", "aa4bde630a55", "1b223ace61a3"],
+      "first_step_score_sha256_prefixes_this_plan": [
+        "4d8a20fdc6f8",
+        "9ca6fadda004",
+        "aa4bde630a55",
+        "1b223ace61a3"
+      ],
       "observed": "Under this plan's kernel path (dnnavx) all four answers AND all four first-step score-row SHA256s are identical on iccad1, iccad2, iccad3 (Ivy Bridge E5-2667 v2), iccad5 (Broadwell E5-2640 v4), iccad10, iccad12 and iccad13 (Skylake Gold 6154), and at 16 threads on iccad3. Unpinned, iccad5's score rows differ from iccad3's (34b56fcb... vs 43f80dae... on 0447760). The previous pin also gave one score row everywhere it ran (1941b42d... on iccad1/2/3/5/10/12). kernel_fingerprint (integer-valued inputs, current code) is 9d149dab... under dnnavx on iccad3, iccad5, iccad6, iccad9 and iccad12, identical at 16 and 32 threads, and differs per ISA unpinned (DEFAULT 34d1388d, AVX2 a9270444, AVX512 3ff3c85f), so it fires on a real kernel difference. (The fingerprints inside the probe JSONs came from an earlier version that drew inputs with torch.randn; they differed between Ivy Bridge and AVX2 hosts while the model's score rows matched, because ATen's normal sampler picks an AVX2 fill by CPUID. That version is replaced.)"
     },
     "host_conditions": "All hosts were shared with other users' jobs; the Skylake hosts carried the exploratory sweep (load 45-97 on 72 logical CPUs) and our probes ran at nice 10-19 there, so their rates are pessimistic and will move with the sweep; per-host numbers only, not dedicated-hardware figures",
@@ -468,7 +496,7 @@
     "arm_source": {
       "bundle": "runs/aircraft-native-val-activation-v1/bundle (main checkout; not git-tracked)",
       "comparison_json_sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5",
-      "export": "scripts/aircraft_named_baseline_v2.py export-arm --bundle <bundle> --arm <evaluator_arm> --out <arm>.json: reads the arm's hash-chained journal through the evaluator's own Journal, re-parses every completed terminated response with parse_label and refuses any disagreement with the recorded canonical label"
+      "export": "scripts/aircraft_named_baseline_v2.py export-arm --plan <plan> --bundle <bundle> --arm W|RL400|strongest_SFT --out <arm>.json: refuses unless the bundle's comparison.json has comparison_json_sha256, its plan.json is the one that comparison ran under, the arm's predictions.jsonl has the SHA256 that comparison recorded, and (strongest_SFT) strongest_declared_sft is sft-1e5-time; then reads the arm's hash-chained journal through the evaluator's own Journal, re-parses every completed terminated response with parse_label and refuses any disagreement with the recorded canonical label. The output carries plan_arm, evaluator_arm, comparison_json_sha256 and prediction_journal_sha256, which compare checks."
     },
     "candidate": "the merged v2 baseline"
   },

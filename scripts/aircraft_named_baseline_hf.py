@@ -67,11 +67,12 @@ REQUIRED_FILES = {
 def pin_cpu_numerics(numerics):
     """Hold every shard host to one CPU kernel path; returns the observed path.
 
-    ATen's capability is read from ATEN_CPU_CAPABILITY when torch is imported and MKL's
-    code path from MKL_CBWR when MKL initialises, so both are set before the first torch
-    import; oneDNN is switched off after it. The ram pool mixes Ivy Bridge (AVX only,
-    iccad1/3) and Broadwell (AVX2 + FMA, iccad5); without a pin their default kernels
-    differ, and so may their outputs (the CI named baseline measured that on bf16).
+    ATen's capability is read from ATEN_CPU_CAPABILITY when torch is imported, MKL's code
+    path from MKL_CBWR when MKL initialises and oneDNN's ISA cap from ONEDNN_MAX_CPU_ISA at
+    its first dispatch, so all are set before the first torch import; oneDNN is then
+    enabled or disabled as the plan says. The pool mixes Ivy Bridge (AVX only), Broadwell
+    (AVX2 + FMA) and Skylake-SP (AVX-512); without a pin their default kernels differ, and
+    so do their outputs (measured: reports/2026-10-18-named-baseline-v2-kernel-probe).
     """
     import sys
 
@@ -222,7 +223,10 @@ def verify_snapshot(directory, integrity):
     # transformers loads optional files it finds (processor_config.json, added_tokens.json,
     # a custom chat template, ...), and the directory sits in shared /dev/shm: anything the
     # record does not list is refused, not ignored.
-    for parent, directories, names in os.walk(directory):
+    def unreadable(error):
+        raise ValueError(f"Snapshot directory cannot be listed completely: {error}")
+
+    for parent, directories, names in os.walk(directory, onerror=unreadable):
         for name in directories + names:
             path = Path(parent) / name
             relative = path.relative_to(directory).as_posix()
@@ -257,8 +261,15 @@ def parse_freeze(text):
 
 
 def installed_distributions():
-    return {_distribution_name(d.metadata["Name"]): d.version
-            for d in importlib.metadata.distributions()}
+    installed = {}
+    for distribution in importlib.metadata.distributions():
+        name = distribution.metadata["Name"]
+        if not name:
+            # A broken install cannot be compared with the lock; refuse it, never skip it.
+            raise ValueError(f"Installed distribution without a name at "
+                             f"{getattr(distribution, '_path', 'an unknown path')}")
+        installed[_distribution_name(name)] = distribution.version
+    return installed
 
 
 def runtime_versions(expected, lock=None):
@@ -503,9 +514,28 @@ def _max_rss():
     return value if os.uname().sysname == "Darwin" else value * 1024
 
 
+MACHINE_KEYS = ("observed_cpu_numerics", "kernel_fingerprint", "host", "runtime_versions",
+                "runtime_lock_sha256", "python")
+
+
+def machine_preflight(model_directory, integrity, engine, runtime_pins, runtime_lock):
+    """Everything about this machine that enters a run identity, checked before any charge.
+
+    Rehashes and checks the snapshot (no unlisted file), the runtime lock, the kernel pin,
+    and computes the kernel fingerprint and host. Raises on any refusal.
+    """
+    model = verify_snapshot(model_directory, integrity)
+    versions = runtime_versions(runtime_pins, runtime_lock)
+    observed = pin_cpu_numerics(engine["cpu_numerics"])
+    return {"model": model, "observed_cpu_numerics": observed,
+            "kernel_fingerprint": kernel_fingerprint(engine["threads"]),
+            "host": host_identity(), "runtime_versions": versions,
+            "runtime_lock_sha256": _digest(runtime_lock), "python": platform.python_version()}
+
+
 def run_local_hf(
     rows, output, *, model_directory, integrity, engine, runtime_pins, phase, seed=1729,
-    runtime_lock=None,
+    runtime_lock=None, preflight=None,
     resume=False, backend_factory=None, image_root, task_contract, preprocessing_id,
     stop_after_completions=None, stream_progress=False, profile="instruct",
 ):
@@ -538,25 +568,25 @@ def run_local_hf(
     prepared = [local_vlm.prepare_local(row, preprocessing_id) for row in rows]
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
-    model = verify_snapshot(model_directory, integrity)
-    versions = runtime_versions(runtime_pins, runtime_lock)
-    observed_numerics = pin_cpu_numerics(engine["cpu_numerics"])
+    # run_shard passes the preflight it made before charging the invocation; it is the same
+    # function on the same process, so the snapshot is not rehashed twice.
+    checked = preflight or machine_preflight(model_directory, integrity, engine, runtime_pins,
+                                             runtime_lock)
+    model = checked["model"]
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,
         # observed_cpu_numerics equals the plan's or the pin raised; it is a record. The
         # fingerprint is the check that can differ between hosts.
-        "observed_cpu_numerics": observed_numerics,
-        "kernel_fingerprint": kernel_fingerprint(engine["threads"]),
-        "host": host_identity(),
-        "runtime_versions": versions,
-        "runtime_lock_sha256": _digest(runtime_lock), "python": platform.python_version(),
+        **{key: checked[key] for key in MACHINE_KEYS},
         "coordinate_format": task_contract.get("coordinate_format"),
         "concurrency": 1, "fewshot_training_images": 0, "resize_shape": None,
         "source_orientation": "encoded_pixel_order_without_exif_transposition",
         "execution_protocol": "sequential-completion-boundary-v1",
         "execution_source_sha256": local_vlm.sha_file(local_vlm_execution.__file__),
         "journal_source_sha256": local_vlm.sha_file(local_vlm.__file__),
-        "stream_progress": stream_progress, "image_root": str(root),
+        # Where the tree was staged is not identity (each uwrun run syncs to a new directory,
+        # and hosts differ); which split directory it is, and every image's hashes, are.
+        "stream_progress": stream_progress, "image_root_suffix": "/".join(root.parts[-4:]),
         "declared_split": "validation", "task_contract": task_contract,
         "preprocessing_id": preprocessing_id,
         "preprocessing_source_sha256": local_vlm.sha_file(aircraft_data.__file__),

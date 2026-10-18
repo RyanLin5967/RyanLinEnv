@@ -64,7 +64,9 @@ it, `nbv2-canary-iccad2/`), but it was the slowest configuration on every host.
 
 Answers everywhere: Fokker 50, Fokker 70, DC-9-30, ATR-42. Unpinned, iccad5's score rows differ
 from iccad3's (0447760: `34b56fcb…` vs `43f80dae…`), so the pin is needed across CPU families.
-Unpinned iccad5 ran 230.1 s/image: the AVX cap costs about 2.2x on Broadwell.
+Fully unpinned, iccad5 ran 230.1 s/image, 2.2x faster than under dnnavx. That compares all three
+settings at once; no `cbwr`-only config ran on iccad5, so how the cost splits between them is
+unmeasured. No unpinned model run finished on a Skylake host.
 
 The previous pin also gave a single score row on every host it ran on (0447760: `1941b42d…` on
 iccad1, 2, 3, 5, 10 and 12).

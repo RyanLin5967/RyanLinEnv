@@ -51,10 +51,19 @@ from pathlib import Path
 
 import numpy as np
 
-from vision_rl import local_vlm
-from vision_rl.aircraft_data import PREPROCESSING_ID
-from vision_rl.classification_comparison import _inputs, _score, compare_classification
-from vision_rl.vlm_local_training import load_spec, parse_label, prompt_text
+# The plan runs `<venv>/bin/python -I scripts/aircraft_named_baseline_v2.py`: -I drops the
+# script directory and PYTHONPATH, and the runtime lock forbids installing this project into
+# the venv, so the staged tree's src/ is put first on the path here.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from vision_rl import local_vlm  # noqa: E402
+from vision_rl.aircraft_data import PREPROCESSING_ID  # noqa: E402
+from vision_rl.classification_comparison import (  # noqa: E402
+    _inputs,
+    _score,
+    compare_classification,
+)
+from vision_rl.vlm_local_training import load_spec, parse_label, prompt_text  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("aircraft_named_baseline",
@@ -280,6 +289,10 @@ def merged_report(plan, stage, repository, output, *, plan_sha256=None, score=Tr
             elif identity != shared:
                 raise ValueError(f"Shard {shard} ran under a different run identity")
         for event in ledger["started"]:
+            if (event.get("stage"), event.get("shard"), event.get("shards")) != (
+                    stage, shard, shards) or (host is not None and event.get("host") != host):
+                # e.g. a sibling shard's ledger copied in to satisfy the ledger requirement
+                raise ValueError(f"Shard {shard} ledger belongs to another stage, shard or host")
             if plan_sha256 is not None and event["plan_sha256"] != plan_sha256:
                 raise ValueError(f"Shard {shard} ran under a plan other than the one given")
             governed = (event["plan_sha256"], json.dumps(event["sources"], sort_keys=True))
@@ -512,6 +525,22 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
         halts.append("output-bytes budget exhausted")
     if halts:
         raise ValueError("Shard halted: " + "; ".join(halts))
+    model = plan["model"]
+    integrity = integrity_path(plan, repository)
+    # Every machine-side refusal (snapshot, runtime lock, kernel pin) and every identity
+    # difference on resume (host, kernel fingerprint, versions) is decided here, before the
+    # ledger charges an invocation; run_local_hf reuses this preflight.
+    checked = local_hf.machine_preflight(Path(weights), integrity, engine_identity(plan),
+                                         model["runtime_pins"], lock)
+    if (run_directory / "run.json").exists():
+        recorded = json.loads((run_directory / "run.json").read_text())["identity"]
+        differ = [key for key in local_hf.MACHINE_KEYS
+                  if recorded["config"].get(key) != checked[key]]
+        differ += ["model"] if recorded["model"] != checked["model"] else []
+        if differ:
+            raise ValueError(f"This machine differs from this shard's recorded run identity in "
+                             f"{differ}; a shard resumes only where and as it started "
+                             "(refused before any invocation is charged)")
     number = ledger["invocations"] + 1
     v1._append(ledger_path, {
         "event": "started", "invocation": number, "time": clock(), "stage": stage,
@@ -519,13 +548,12 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
         "host": host, "wall_cap_seconds": budget["invocation_wall_seconds"],
         "completed_before": len(journal["completed"]),
     })
-    model = plan["model"]
     factory = backend_factory or local_hf.TransformersBackend
     started = time.monotonic()
     try:
         local_hf.run_local_hf(
             inputs["rows"], run_directory, model_directory=Path(weights),
-            integrity=integrity_path(plan, repository), engine=engine_identity(plan),
+            integrity=integrity, engine=engine_identity(plan), preflight=checked,
             runtime_pins=model["runtime_pins"], runtime_lock=lock, phase="validation",
             # run.json is written exclusively right after the directory is created, so it,
             # not the directory, marks a run that exists.

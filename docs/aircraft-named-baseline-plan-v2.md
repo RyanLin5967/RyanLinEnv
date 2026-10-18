@@ -87,10 +87,12 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   - **Same function on every host.** Under this path the first-step score rows (SHA256 of the
     float32 bytes) and the answers of all four TRAIN canary images are identical on iccad1, iccad2,
     iccad3 (Ivy Bridge), iccad5 (Broadwell) and iccad10/12/13 (Skylake), and at 16 threads on
-    iccad3. Unpinned, iccad5's score rows differ from iccad3's. This is strong evidence, not a
+    iccad3. Unpinned, iccad5's score rows differ from iccad3's (no unpinned model run finished on
+    a Skylake host; there only the unpinned fingerprint was measured). This is strong evidence, not a
     proof for every VAL image; the fingerprint is the runtime check.
-  - **Cost.** Capping at AVX is free on Ivy Bridge but not on newer CPUs: iccad5 ran 503.5 s/image
-    under this path against 230.1 s/image unpinned. It is the price of a single numerics path.
+  - **Cost.** The pin is free on Ivy Bridge but not on newer CPUs: iccad5 ran 503.5 s/image
+    under this path against 230.1 s/image fully unpinned. It is the price of a single numerics
+    path. Which of the three settings costs what on iccad5 was not measured.
 - **Threads.** Fixed at 32 and part of the run identity. Under this path, 16 and 32 threads gave
   identical score rows and fingerprints, but the canary ran at 32.
 - **Sampling settings.** The engine refuses any setting that mlx-vlm would apply but this engine
@@ -103,14 +105,22 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   `stage-<stage>/shard-<k>-of-<N>/`.
 - **Hosts.** `sharding.hosts` is an allowlist of hostname and CPU model, and `run_shard` refuses any
   other machine before writing anything. It lists the hosts whose canary reproduced the score rows
-  and that have the RAM for the 164.7 GB process plus the 52 GB snapshot: iccad1, iccad2, iccad3,
-  iccad5, iccad10, iccad12 and iccad13. ecetesla0/1, iccad4 and iccad6 have too little RAM.
-  iccad0/7/8 fit, but beside the exploratory sweep they had only 180-222 GB free.
-- **A shard never changes host.** The host is in the run identity, so a resume on another host is
-  refused. A shard whose host is lost needs a new plan version.
-- **Outputs and sync.** Run directories are host-local. Fetch each whole finished shard directory
-  (never only `run/`) to one collector, and before a host's first full-VAL invocation copy the
-  collector's whole `stage-discovery/` into that host's `--output`. Until then the full stage
+  and that have the RAM for the process: iccad1, iccad2, iccad3, iccad5, iccad10, iccad12 and
+  iccad13. The 164.7 GB peak RSS includes the mapped `/dev/shm` snapshot pages (iccad2, 188 GB,
+  ran with about 27 GB free), so the footprint is about 165 GB. ecetesla0/1, iccad4 and iccad6
+  have too little RAM. iccad0/7/8 fit, but beside the exploratory sweep they had only 180-222 GB
+  free. iccad9/11 fit, but the sweep saturated them and their canary did not finish.
+- **A shard never changes host.** The host is in the run identity. A resume on another host, or
+  under another kernel fingerprint, runtime or snapshot, is refused before the ledger charges an
+  invocation. A shard whose host is lost needs a new plan version.
+- **Paths, memory and sync.** Each host keeps the staged tree, the venv and `--output` at fixed
+  paths under `/var/tmp/r226lin-nbv2/`, outside uwrun's per-run directory, because the ledger and
+  budget clock live in `--output`. The staging path is not in the run identity. Launch with
+  `--threads 32 --mem 180` (and `--need none` on iccad1/2/3). A run stopped by uwrun's
+  `oom-guard` or `--mem` is a killed invocation: charged its full wall cap, its reserved image
+  unknown and never quoted, and the shard halted for review. Fetch each whole finished shard
+  directory (never only `run/`) to one collector. Before a host's first full-VAL invocation, copy
+  the collector's whole `stage-discovery/` into that host's `--output`. Until then the full stage
   refuses ("discovery shard k never ran").
 - **Merge refusals.** `merge` unions the shard journals. It refuses:
   - an image journaled outside its shard, or reserved or completed twice within one;

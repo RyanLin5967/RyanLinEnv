@@ -769,10 +769,13 @@ def test_a_shard_never_changes_host(runner, world, clock):
     run_json = world["out"] / "stage-discovery/shard-0-of-3/run/run.json"
     assert json.loads(run_json.read_text())["identity"]["config"]["host"] == HOSTS[0]
     runner.fixture_host = dict(HOSTS[1])
-    with pytest.raises(ValueError, match="resume identity differs"):
+    ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
+    before = ledger.read_text()
+    with pytest.raises(ValueError, match=r"recorded run identity in \['host'\]"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"], backend_factory=fake_backend(answers, calls))
     assert len(calls) == 20  # nothing ran on the second host
+    assert ledger.read_text() == before  # and no invocation was charged
 
 
 def test_merge_refuses_a_shard_whose_kernels_computed_differently(runner, world, clock,
@@ -1008,3 +1011,64 @@ def test_committed_plan_runs_the_canary_checked_kernel_path_on_allowlisted_hosts
         "default", "AVX", True, "AVX")
     assert set(plan["sharding"]["hosts"]) == {
         "ICCAD1", "iccad2", "ICCAD3", "iccad5", "iccad10", "iccad12", "iccad13"}
+
+
+def test_shards_staged_at_different_paths_merge_and_resume(runner, world, clock):
+    # Each uwrun run syncs the tree to a new directory, and hosts differ: where the tree
+    # was staged must not enter the run identity.
+    import shutil
+
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    elsewhere = world["tmp"] / "staged-elsewhere"
+    shutil.copytree(world["repo"], elsewhere)
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
+    for repository, shards in ((elsewhere, [0, 1]), (world["repo"], [2])):
+        for shard in shards:
+            for _ in range(3):
+                runner.run_shard(path, digest, "discovery", shard, repository, world["out"],
+                                 world["weights"],
+                                 backend_factory=fake_backend(answers, calls, clock=clock))
+    merged = runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    assert merged["status"] == "completed" and len(calls) == 100
+
+
+def test_machine_refusals_are_not_charged_as_invocations(runner, world, clock):
+    path, digest = write_plan(world)
+    (world["weights"] / "processor_config.json").write_text("{}")
+    with pytest.raises(ValueError, match="does not list: processor_config.json"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend({}, []))
+    assert not (world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl").exists()
+
+
+def test_merge_refuses_a_ledger_copied_from_another_shard(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    stage = world["out"] / "stage-discovery"
+    (stage / "shard-1-of-3/ledger.jsonl").write_text(
+        (stage / "shard-0-of-3/ledger.jsonl").read_text())
+    with pytest.raises(ValueError, match="Shard 1 ledger belongs to another stage, shard"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_unlistable_snapshot_directory_or_nameless_package_is_refused(world, monkeypatch):
+    import importlib.metadata as metadata
+
+    hidden = world["weights"] / "hidden"
+    hidden.mkdir()
+    (hidden / "added_tokens.json").write_text("{}")
+    hidden.chmod(0)
+    try:
+        if os.access(hidden, os.R_OK):
+            pytest.skip("running as a user who can read mode-000 directories")
+        with pytest.raises(ValueError, match="cannot be listed completely"):
+            local_hf.verify_snapshot(world["weights"], world["integrity"])
+    finally:
+        hidden.chmod(0o700)
+    nameless = types.SimpleNamespace(metadata={"Name": None}, version="1.0")
+    monkeypatch.setattr(metadata, "distributions", lambda: [nameless])
+    with pytest.raises(ValueError, match="without a name"):
+        local_hf.installed_distributions()
