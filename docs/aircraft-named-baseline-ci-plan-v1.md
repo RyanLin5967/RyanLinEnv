@@ -151,7 +151,8 @@ kernels; run 6 used the pinned path (ATen AVX2, oneDNN off).
 Every answer terminated (about 990 prompt tokens each). The first four runs gave identical
 responses. The fifth, on an AMD EPYC 9V45 with AVX-512 bf16, answered `DC-8` instead of
 `Global Express` for image 0056978; this is why the kernel path is now pinned. The sixth, the
-first under the pinned path, landed on an AMD EPYC 7763 and reproduced the canary answers.
+first under the pinned path, landed on an AMD EPYC 7763 and reproduced the canary answers. The
+seventh, pinned, landed on an EPYC 9V45 and also reproduced them.
 
 | Run | Head commit | Run SHA (PR merge ref) | s per TRAIN image | Setup s |
 |---|---|---|---|---|
@@ -161,11 +162,13 @@ first under the pinned path, landed on an AMD EPYC 7763 and reproduced the canar
 | 39109149251 | f9168de | d4f2eec | 302.3, 295.3, 295.6 | 63.6 |
 | 39110248770 | b042dd9 | 1b748ea | 9.9, 9.3, 9.1 | 64.5 |
 | 39110959125 (pinned AVX2) | 0df4cdc | 718ef81 | 302.0, 294.8, 295.3 | 55.7 |
+| 39124326521 (pinned AVX2) | abba851 | 5f7b64b | 106.1, 101.3, 101.5 | 53.6 |
 
 Per-image latency differs 2.63× between AVX2-class runners that report the same vCPU count and
 memory: 113 s on one host whose CPU was not recorded, and 298 s on three others, one recorded as an
-AMD EPYC 7763. The 9V45 took 9.4 s under default kernels. Under the pinned AVX2 path an EPYC 7763 took 297.35 s,
-unchanged; the pinned path has not been measured on the 9V45 or the 113 s host, and the floor and factor do not depend on it. In each job,
+AMD EPYC 7763. The 9V45 took 9.4 s under default kernels. Under the pinned AVX2 path an EPYC 7763 took 297.35 s
+(unchanged) and an EPYC 9V45 102.98 s, a 2.89× spread, below the factor 3.0; the pinned path has not
+been measured on the 113 s host, and the floor and factor do not depend on it. In each job,
 `verify-endpoints` reproduced the committed RL400 and strongest-SFT comparisons exactly from the export.
 
 Three images per run are not a forecast; this projection is unverified. Full VAL generation is about
