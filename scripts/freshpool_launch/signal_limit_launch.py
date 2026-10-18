@@ -9,7 +9,20 @@ quiet mode, the 1.25x arm cap charged across voided instances, the live rolling 
 stop on RL stages, single-use state, the fsynced append-only journal, and an interrupted stage
 re-run from scratch, never resumed or quoted. Stage A may instead run its independent arms
 concurrently on the UWaterloo hosts (plan ``"stage_a_execution": "uwaterloo"``, uw_stage_a.py);
-everything else runs here, serially, on MPS.
+everything else then runs here, serially, on MPS.
+
+``"execution": "uwaterloo"`` runs EVERY stage on the UWaterloo hosts through the same runner
+(uw_stage_a.py), on the ``uw`` block's one device class (``cpu`` or ``cuda``, FP32): P0-I,
+Stage 0, Stage A, P0', every RL / SFT-E / SFT-T / LIM-T arm and every H assay. This machine
+then only sequences, gates and keeps the journal: no stage, so no model, runs here, quiet mode
+is not waited out (it governs this machine's fans, not the hosts'), the second-owner scan
+still refuses a launch next to a local accelerator owner, and the plan's environment names
+the remote device. Independent stages (Stage A's arms, their assays) run concurrently, one
+per host slot; the Stage B chain runs one stage at a time. RL stages keep the live
+useful-mixed stop: the remote reward_groups.jsonl is mirrored here every
+``uw.mixed_poll_seconds`` and read by the same MixedMonitor. Continuations (RL 100 -> 300,
+SFT-E -> SFT-T) ship the fetched parent checkpoint as an input, and the RL accepted/scanned
+manifests are translated back to this machine's image files on fetch.
 
 Order (study.json stages and gates):
   P0-I at I (G4 rollouts, predicted acceptance and mean u for G in {4,8,16})       -> PI
@@ -130,6 +143,13 @@ def verify_signal_limit_plan(plan_path, expected):
     plan = json.loads(Path(plan_path).read_text())
     if plan.get("schema") != SCHEMA:
         raise Stop("plan_schema_unknown")
+    every = plan.get("execution", "local")
+    if every not in ("local", "uwaterloo"):
+        raise Stop("execution_unknown", value=every)
+    if every == "uwaterloo" and plan.get("stage_a_execution", "uwaterloo") != "uwaterloo":
+        raise Stop("execution_uwaterloo_with_local_stage_a")
+    if every == "uwaterloo" and plan.get("dry_run") is True:
+        raise Stop("uw_execution_with_dry_run")
     if plan.get("stage_a_execution") == "uwaterloo" and plan.get("dry_run") is True:
         # The UW worker never takes --dry-run: Stage A would run for real while every other
         # stage is a dry run, and dry_run also relaxes the I/W and count checks.
@@ -143,7 +163,14 @@ def verify_signal_limit_plan(plan_path, expected):
     for name, value in (plan.get("environment") or {}).items():
         if L.os.environ.get(name) != value:
             raise Stop("frozen_environment_differs", variable=name)
-    L.verify_device(plan)
+    if every == "uwaterloo":
+        # Nothing runs on this machine's accelerator: the frozen environment names the
+        # remote device, which must be the uw block's (checked again in verify_uw_block).
+        device = (plan.get("environment") or {}).get("ACCELERATE_TORCH_DEVICE")
+        if device != (plan.get("uw") or {}).get("device", "cpu"):
+            raise Stop("plan_device_differs_from_uw_device", device=device)
+    else:
+        L.verify_device(plan)
     study_ref = plan.get("study") or {}
     study_path = L.resolve(study_ref.get("path", "/nonexistent"))
     if not study_path.is_file() or sha(study_path) != study_ref.get("sha256"):
@@ -170,6 +197,12 @@ def verify_signal_limit_plan(plan_path, expected):
             inits["I"]["adapter_sha256"] != i_sha
             or not w_prefix or not inits["W"]["adapter_sha256"].startswith(w_prefix)):
         raise Stop("init_endpoint_differs_from_study", study_i=i_sha, study_w_prefix=w_prefix)
+    if "train400" in plan:
+        # Stage 0's data (study.json Stage 0: "cost probe at W on train400 images").
+        entry = plan["train400"] or {}
+        path = L.resolve(entry.get("path", "/nonexistent"))
+        if not path.is_file() or sha(path) != entry.get("sha256"):
+            raise Stop("train400_missing_or_changed")
     for name in ("label_trie", "confusion_map", "taxonomy"):
         # The frozen label resources (G0): the trie for assays and A5, the P0 confusion map
         # for A3, taxonomy-train-only for A4. Each Stage A arm's fragment must carry the
@@ -185,7 +218,7 @@ def verify_signal_limit_plan(plan_path, expected):
     for name in ("data_spec", "model_directory"):
         if not isinstance(plan.get(name), str) or not plan[name]:
             raise Stop("plan_path_missing", field=name)
-    execution = plan.get("stage_a_execution", "local")
+    execution = plan.get("stage_a_execution", every)
     if execution not in ("local", "uwaterloo"):
         raise Stop("stage_a_execution_unknown", value=execution)
     if execution == "uwaterloo":
@@ -321,7 +354,11 @@ def verify(plan_path, expected):
     return plan, make, {"g0": g0["checks"], "a_floor": g0["a_floor"],
                         "s_b_size": g0["s_b_size"], "grid": list(T.GRID),
                         "updates": plan["updates"],
-                        "stage_a_execution": plan.get("stage_a_execution", "local")}
+                        "execution": plan.get("execution", "local"),
+                        "stage_a_execution": plan.get(
+                            "stage_a_execution", plan.get("execution", "local")),
+                        **({"uw_device": plan["uw"].get("device", "cpu"),
+                            "uw_hosts": plan["uw"]["hosts"]} if "uw" in plan else {})}
 
 
 # ---------------------------------------------------------------- the launcher
@@ -356,7 +393,9 @@ class SignalLimitLauncher(L.Launcher):
                 "label_trie_sha256": self.plan["label_trie"]["sha256"],
                 "confusion_map": str(L.resolve(self.plan["confusion_map"]["path"])),
                 "taxonomy": str(L.resolve(self.plan["taxonomy"]["path"])),
-                "a_floor": repr(self.g0["a_floor"]), **values}
+                "a_floor": repr(self.g0["a_floor"]),
+                **({"train400_manifest": str(L.resolve(self.plan["train400"]["path"]))}
+                   if "train400" in self.plan else {}), **values}
 
     def device(self):
         return self.plan["environment"]["ACCELERATE_TORCH_DEVICE"]
@@ -581,12 +620,34 @@ class SignalLimitLauncher(L.Launcher):
                 "look": (run_id, split, f["adapter_sha256"], stage)})
         return jobs
 
+    def every_stage_on_uw(self):
+        return self.plan.get("execution", "local") == "uwaterloo"
+
+    def run(self, stage_id, template_name, arm, forecast, values, validate, *,
+            inherited_seconds=0.0, watch_mixed=False, lineage=()):
+        """One stage: here (launch.Launcher.run), or, under ``"execution": "uwaterloo"``,
+        on a UW host through the same prepare / start_instance / finish."""
+        if not self.every_stage_on_uw():
+            return super().run(stage_id, template_name, arm, forecast, values, validate,
+                               inherited_seconds=inherited_seconds, watch_mixed=watch_mixed,
+                               lineage=lineage)
+        if stage_id not in self.state["completed"]:
+            import uw_stage_a
+
+            uw_stage_a.UWRunner(self).run_batch([{
+                "stage_id": stage_id, "template": template_name, "arm": arm,
+                "forecast": forecast, "values": values, "validate": validate,
+                "inherited_seconds": inherited_seconds, "watch_mixed": watch_mixed,
+                "lineage": tuple(lineage)}])
+        return self.state["completed"][stage_id]["fragment"]
+
     def run_jobs(self, jobs):
         """Independent stages: serially here, or concurrently on UWaterloo hosts. Each H
         look is recorded as soon as its assay completes (uw_stage_a records its own), so a
         later job that stops the study cannot keep a completed look off the ledger; the
         closing pass covers assays completed before a resume."""
-        if self.plan.get("stage_a_execution", "local") == "uwaterloo":
+        if (self.every_stage_on_uw()
+                or self.plan.get("stage_a_execution", "local") == "uwaterloo"):
             import uw_stage_a
 
             uw_stage_a.UWRunner(self).run_batch(jobs)

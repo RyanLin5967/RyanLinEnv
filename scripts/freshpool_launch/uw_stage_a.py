@@ -76,7 +76,15 @@ HERE = Path(__file__).resolve().parent
 NAME = re.compile(r"[^A-Za-z0-9_-]+")
 UW_KEYS = ("uwrun", "hosts", "per_host", "max_concurrent", "threads", "python",
            "model_directory", "min_local_gb", "min_free_ram_gb", "poll_seconds",
-           "unreachable_seconds", "forecast_seconds")
+           "unreachable_seconds")
+# Optional keys. ``device``: cpu (default) or cuda (one GPU per host, CUDA_VISIBLE_DEVICES=0,
+# FP32: the trainer refuses float16 training and the 2080 Ti has no bfloat16).
+# ``min_free_vram_mib``: required with cuda. ``mixed_poll_seconds``: how often a running RL
+# stage's reward_groups.jsonl is mirrored here for the live useful-mixed stop.
+# ``forecast_seconds``: required for the Stage-A-only mode, where the plan's own forecasts
+# are MPS ones; absent when every stage runs here (the plan's forecasts are then UW ones).
+UW_OPTIONAL = ("device", "min_free_vram_mib", "mixed_poll_seconds", "forecast_seconds")
+UW_DEVICES = ("cpu", "cuda")
 UW_FORECASTS = ("assay_h_select", "stage_a_sft", "stage_a_egsft", "stage_a_hn_sft",
                 "stage_a_hls_sft", "stage_a_cce_sft")
 # Substitutions that are never local paths to ship (identities, numbers, remote names).
@@ -94,12 +102,16 @@ PROBE = (r'l=$(cut -d" " -f1 /proc/loadavg); n=$(nproc); '
          r'd=$(df -Pk /var/tmp | awk "NR==2{print int(\$4/1048576)}"); '
          r'p=0; [ -x {python} ] && [ -d {model} ] && p=1; '
          r'v=0; grep -q -w avx2 /proc/cpuinfo && v=1; '
-         r'echo "uwprobe $l $n $m $r $d $p $v"')
+         r'g=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null '
+         r'| head -1 | tr -dc 0-9); '
+         r'echo "uwprobe $l $n $m $r $d $p $v ${g:--1}"')
 IMPORTABLE_SKIP = ("__pycache__",)
 # The import tree ships only these (modules and the package data next to them): an allowlist,
 # so a stray dataset, image or checkpoint under the tree never leaves the machine.
 SHIPPED_SUFFIXES = (".py", ".json")
 SAVE_SECONDS = 5  # as launch.supervise: the arm wall clock reaches state.json this often
+THREAD_VARIABLES = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+MIXED_POLL_SECONDS = 60.0  # default uw.mixed_poll_seconds
 
 
 def _launch():
@@ -124,7 +136,8 @@ def verify_uw_block(plan):
         # the checker it then runs) or after it (and could rewrite the bundle unseen).
         # Hosts are provisioned before a launch instead, and the probe checks the result.
         raise Stop("uw_setup_not_supported")
-    if not isinstance(uw, dict) or set(uw) - set(UW_KEYS) or not set(UW_KEYS) <= set(uw):
+    if (not isinstance(uw, dict) or set(uw) - {*UW_KEYS, *UW_OPTIONAL}
+            or not set(UW_KEYS) <= set(uw)):
         raise Stop("uw_block_invalid", keys=sorted(uw) if isinstance(uw, dict) else None)
     hosts = uw["hosts"]
     if (not isinstance(hosts, list) or not hosts or len(set(hosts)) != len(hosts)
@@ -154,14 +167,41 @@ def verify_uw_block(plan):
         # Its rsync excludes, remote timeout and status words decide what every guard here
         # sees, so its bytes are pinned like the launcher's own.
         raise Stop("plan_does_not_pin", file=uw["uwrun"])
-    forecasts = uw["forecast_seconds"]
-    if not isinstance(forecasts, dict) or any(
-            type(forecasts.get(k)) not in (int, float) or not forecasts[k] > 0
-            for k in UW_FORECASTS):
-        raise Stop("uw_forecast_missing_or_invalid")
+    device = uw.get("device", "cpu")
+    if device not in UW_DEVICES:
+        raise Stop("uw_device_invalid", device=device)
+    if device == "cuda" and (type(uw.get("min_free_vram_mib")) is not int
+                             or uw["min_free_vram_mib"] < 1024):
+        raise Stop("uw_cuda_without_vram_floor", min_free_vram_mib=uw.get("min_free_vram_mib"))
+    if device == "cuda" and uw["per_host"] != 1:
+        # One stage per GPU: two would share 11 GiB and each other's clock.
+        raise Stop("uw_cuda_per_host_not_1", per_host=uw["per_host"])
+    if "mixed_poll_seconds" in uw and (type(uw["mixed_poll_seconds"]) not in (int, float)
+                                       or not uw["mixed_poll_seconds"] > 0):
+        raise Stop("uw_limit_invalid", limit="mixed_poll_seconds",
+                   value=uw["mixed_poll_seconds"])
+    if every_stage(plan):
+        if "forecast_seconds" in uw:
+            # Every stage runs here, so the plan's forecasts are the UW ones; a second set
+            # would let a stage be capped against the wrong one.
+            raise Stop("uw_forecasts_duplicate_plan_forecasts")
+    else:
+        if device != "cpu":
+            raise Stop("uw_stage_a_only_mode_is_cpu", device=device)
+        forecasts = uw.get("forecast_seconds")
+        if not isinstance(forecasts, dict) or any(
+                type(forecasts.get(k)) not in (int, float) or not forecasts[k] > 0
+                for k in UW_FORECASTS):
+            raise Stop("uw_forecast_missing_or_invalid")
     if not any(launch.resolve(p) == Path(__file__).resolve() for p in plan["file_sha256"]):
         raise Stop("plan_does_not_pin", file=str(Path(__file__).resolve()))
     return uw
+
+
+def every_stage(plan):
+    """True when the plan runs EVERY stage on the UW hosts (``"execution": "uwaterloo"``),
+    not only Stage A (``"stage_a_execution": "uwaterloo"``)."""
+    return plan.get("execution") == "uwaterloo"
 
 
 def file_sha256(path):
@@ -206,6 +246,7 @@ class UWRunner:
         self.launcher, self.plan = launcher, launcher.plan
         self.launch = _launch()
         self.uw = verify_uw_block(self.plan)
+        self.device = self.uw.get("device", "cpu")
         self.ledger, self.state = launcher.ledger, launcher.state
         self.state.setdefault("uw_running", {})
         self.last_save = time.monotonic()
@@ -222,7 +263,9 @@ class UWRunner:
     def hosts(self):
         """{host: (load1, nproc, avail_gb, uwruns, local_gb, ready)} for every reachable
         allowlisted host, each probed directly and in parallel; ready = the plan's python and
-        model directory exist there and the CPU has AVX2."""
+        model directory exist there and the CPU has AVX2, and for ``device: cuda`` the first
+        GPU reports at least ``min_free_vram_mib`` free (another user's process on it is
+        tolerated only within that floor; one without nvidia-smi reports -1)."""
         probe = PROBE.replace("{python}", shlex.quote(self.uw["python"])).replace(
             "{model}", shlex.quote(self.uw["model_directory"]))
         running = {host: subprocess.Popen([self.uw["uwrun"], "ssh", host, probe],
@@ -239,11 +282,14 @@ class UWRunner:
                 continue
             for line in out.splitlines():
                 parts = line.split()
-                if len(parts) == 8 and parts[0] == "uwprobe":
+                if len(parts) in (8, 9) and parts[0] == "uwprobe":
                     try:
+                        vram = int(parts[8]) if len(parts) == 9 else -1
+                        ready = parts[6] == "1" and parts[7] == "1"
+                        if self.uw.get("device", "cpu") == "cuda":
+                            ready = ready and vram >= self.uw["min_free_vram_mib"]
                         found[host] = (float(parts[1]), int(parts[2]), int(parts[3]),
-                                       int(parts[4]), int(parts[5]),
-                                       parts[6] == "1" and parts[7] == "1")
+                                       int(parts[4]), int(parts[5]), ready)
                     except ValueError:
                         pass
         return found
@@ -317,7 +363,7 @@ class UWRunner:
         used = {field for part in context["template"]["argv"]
                 for _, field, _, _ in string.Formatter().parse(part) if field}
         remote = {"python": self.uw["python"], "stage_dir": "out/stage", "arm_dir": "out/arm",
-                  "fragment": "out/stage/fragment.json", "device": "cpu",
+                  "fragment": "out/stage/fragment.json", "device": self.device,
                   "model_directory": self.uw["model_directory"]}
         for key, value in substitutions.items():
             if (key not in used or key in NOT_PATHS or key in remote
@@ -390,12 +436,19 @@ class UWRunner:
     def script(self, context, argv, pins_sha256):
         environment = dict(self.plan.get("environment") or {})
         environment.pop("PYTHONPATH", None)
-        environment.update(ACCELERATE_TORCH_DEVICE="cpu")
+        # uwrun exports these as --threads; the plan's Mac values (2) must not shadow them.
+        for name in THREAD_VARIABLES:
+            environment.pop(name, None)
+        environment.update(ACCELERATE_TORCH_DEVICE=self.device)
+        if self.device == "cuda":
+            # The trainer refuses more than one visible device (no DataParallel split).
+            environment.update(CUDA_VISIBLE_DEVICES="0")
         exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(environment.items()))
         python = shlex.quote(self.uw["python"])
         template = context["template"]
         worker = [self.uw["python"], "-B", "repo/scripts/freshpool_launch/phase_worker.py",
-                  "--remote-cpu", "--guard-dir", "out/guards", "--stage", context["stage_id"],
+                  "--remote-" + self.device, "--guard-dir", "out/guards",
+                  "--stage", context["stage_id"],
                   "--kind", template["kind"], "--entry", template["entry"],
                   "--entry-sha256", template["entry_sha256"], "--", *argv]
         shipped, _ = self.remote_pythonpath()
@@ -422,9 +475,14 @@ class UWRunner:
 
     def launch_stage(self, job, host, running):
         launcher, launch = self.launcher, self.launch
-        forecast = self.uw["forecast_seconds"][job["forecast_key"]]
+        if every_stage(self.plan):
+            forecast = job["forecast"]  # the plan's forecasts are the UW ones
+        else:
+            forecast = self.uw["forecast_seconds"][job["forecast_key"]]
         context = launcher.prepare(job["stage_id"], job["template"], job["arm"], forecast,
-                                   job["values"], owner_scan=False)
+                                   job["values"], owner_scan=False,
+                                   inherited_seconds=job.get("inherited_seconds", 0.0),
+                                   lineage=job.get("lineage", ()))
         name = NAME.sub("-", f"rle-{launcher.plan_sha[:8]}-{job['stage_id']}"
                              f"-i{context['instance']}")
         directory = launcher.ledger.directory / "uw" / "bundles" / name
@@ -438,7 +496,9 @@ class UWRunner:
                    self.script(context, argv, file_sha256(directory / "pins.json"))]
         launcher.start_instance(context, command=[self.uw["uwrun"], *command[:-1], "<script>"],
                                 executor="uwaterloo", uw_name=name, host=host,
-                                remote_argv=argv, pythonpath_not_shipped=dropped)
+                                device=self.device, remote_argv=argv,
+                                pythonpath_not_shipped=dropped,
+                                live_useful_mixed=bool(job.get("watch_mixed")))
         self.state["uw_running"][name] = {"stage": job["stage_id"], "host": host,
                                           "instance": context["instance"]}
         self.ledger.save()
@@ -453,8 +513,11 @@ class UWRunner:
                                host=host, exit_code=code, stderr=err[-2000:])
             raise launch.Pause("uw_launch_failed", stage=job["stage_id"], uw_name=name)
         shutil.rmtree(directory / "repo", ignore_errors=True)  # synced; keep inputs + pins
-        running[name] = {"job": job, "context": context, "host": host,
-                         "started": started, "unreachable_since": None}
+        monitor = (self.launch.MixedMonitor(context["arm_dir"]) if job.get("watch_mixed")
+                   else None)
+        running[name] = {"job": job, "context": context, "host": host, "bundle": directory,
+                         "started": started, "unreachable_since": None, "monitor": monitor,
+                         "mirrored": 0.0}
 
     def uwrun_charged(self, context, started, args, timeout):
         """``uwrun ARGS`` like :meth:`uwrun`, charging the arm clock while it runs."""
@@ -513,15 +576,24 @@ class UWRunner:
                 # Every UW stage is journalled with its hardware, and its pins all held.
                 reason = "uw_hardware_record_missing_or_pins_failed"
             else:
-                reason = self.import_fragment(destination, context["fragment"])
+                reason = self.import_fragment(destination, context["fragment"],
+                                              entry.get("bundle"))
+        monitor = entry.get("monitor")
+        if reason is None and rc == 0 and monitor is not None:
+            reason = self.complete_mirror(context["arm_dir"], destination / "arm")
         self.state["uw_running"].pop(name, None)
         self.ledger.save()
         outcome = {"exit_code": rc, "reason": reason, "elapsed_seconds": elapsed,
                    "arm_wall_seconds": context["used"] + elapsed,
                    "peak_group_rss_bytes": peak, "demoted": None, "executor": "uwaterloo",
-                   "uw_name": name, "host": host}
+                   "uw_name": name, "host": host, "device": self.device,
+                   "remote_peak_cuda_allocated_bytes": max(
+                       (g.get("peak_cuda_allocated_bytes") or 0 for g in guards
+                        if isinstance(g, dict)), default=None)}
         try:
-            launcher.finish(context, outcome, entry["job"]["validate"])
+            # With a monitor, finish() reads the completed mirror once more (the late poll)
+            # and stops on a window below 0.40 or on a stage that never wrote its groups.
+            launcher.finish(context, outcome, entry["job"]["validate"], monitor)
         finally:
             # Whatever finish decided, the results are here: free the host's disk.
             self.remove(name)
@@ -533,15 +605,73 @@ class UWRunner:
         self.ledger.append("uw_run_removed", uw_name=name, exit_code=code,
                            output=(out + err)[-300:])
 
+    # -- the live useful-mixed stop for a remote RL stage
+    def mirror_reward_groups(self, name, entry):
+        """Append what the remote stage's reward_groups.jsonl gained since the last mirror to
+        the same relative path under the local arm directory, where the launcher's
+        MixedMonitor reads it. Every reward_groups.jsonl under the remote arm directory is
+        mirrored, so two of them stop the stage as ambiguous, exactly as locally. An
+        unreachable host is not judged here (status() owns host loss)."""
+        arm = entry["context"]["arm_dir"]
+        code, out, _ = self.uwrun(
+            "ssh", entry["host"],
+            f"cd ~/runs/{name}/work/out/arm 2>/dev/null || exit 0; "
+            "find . -name reward_groups.jsonl -type f | sort", timeout=300)
+        if code != 0:
+            return
+        for relative in out.split():
+            if ".." in relative.split("/") or not relative.startswith("./"):
+                continue
+            local = arm / relative
+            local.parent.mkdir(parents=True, exist_ok=True)
+            offset = local.stat().st_size if local.is_file() else 0
+            code, data, _ = self.uwrun(
+                "ssh", entry["host"],
+                f"tail -c +{offset + 1} ~/runs/{name}/work/out/arm/{shlex.quote(relative)}",
+                timeout=300)
+            if code == 0:
+                with local.open("a") as handle:
+                    handle.write(data)
+
     @staticmethod
-    def import_fragment(destination, local_fragment):
+    def complete_mirror(arm_dir, fetched_arm):
+        """After the fetch: every mirrored reward_groups.jsonl must be a prefix of its
+        fetched copy (else the mirror read something the stage never committed), and is then
+        completed from it, so the launcher's late poll reads every row."""
+        fetched = sorted(Path(fetched_arm).rglob("reward_groups.jsonl"))
+        mirrored = sorted(Path(arm_dir).rglob("reward_groups.jsonl"))
+        if {p.relative_to(arm_dir) for p in mirrored} - {
+                p.relative_to(fetched_arm) for p in fetched}:
+            return "uw_reward_groups_mirror_differs"
+        for path in fetched:
+            local = Path(arm_dir) / path.relative_to(fetched_arm)
+            data = path.read_bytes()
+            seen = local.read_bytes() if local.is_file() else b""
+            if not data.startswith(seen):
+                return "uw_reward_groups_mirror_differs"
+            local.parent.mkdir(parents=True, exist_ok=True)
+            with local.open("ab") as handle:
+                handle.write(data[len(seen):])
+        return None
+
+    @staticmethod
+    def import_fragment(destination, local_fragment, bundle=None):
         """Translate the fetched fragment's remote paths to the fetched copy; check the
-        adapter bytes survived the transfer. A reason string on failure, else None."""
+        adapter bytes survived the transfer. A reason string on failure, else None.
+
+        With ``bundle`` (the stage's local bundle directory): a manifest the stage wrote
+        (fragment key ``*_manifest``, e.g. RL's accepted and scanned manifests) names its
+        images by REMOTE absolute path, inside the run's ``inputs/``. Each such row is
+        rewritten to the same file in the local bundle (kept after launch; hard links to
+        the pinned images) and written beside the fetched manifest as ``*.local.jsonl``,
+        which the fragment then names; the fetched file stays as the stage wrote it. A row
+        naming an image outside the run's inputs, or one missing locally, is a refusal."""
         root = destination / "remote_root.txt"
         source = destination / "stage" / "fragment.json"
         if not root.is_file() or not source.is_file():
             return None  # finish() reports stage_fragment_missing
-        prefix = root.read_text().strip() + "/out"
+        remote_root = root.read_text().strip()
+        prefix = remote_root + "/out"
 
         def translate(value):
             if isinstance(value, str) and (value == prefix or value.startswith(prefix + "/")):
@@ -553,6 +683,35 @@ class UWRunner:
             return value
 
         fragment = translate(json.loads(source.read_text()))
+        if bundle is not None and isinstance(fragment, dict):
+            for key, value in list(fragment.items()):
+                if not key.endswith("_manifest") or not isinstance(value, str):
+                    continue
+                path = Path(value)
+                if not path.is_file() or not path.is_relative_to(destination):
+                    return "uw_fetched_manifest_missing"
+                rows = []
+                for line in path.read_text().splitlines():
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    image = row.get("image") if isinstance(row, dict) else None
+                    if image is not None:
+                        inputs = remote_root + "/inputs/"
+                        if not isinstance(image, str) or not image.startswith(inputs) or (
+                                ".." in image[len(inputs):].split("/")):
+                            return "uw_manifest_image_outside_run_inputs"
+                        local = Path(bundle) / "inputs" / image[len(inputs):]
+                        if not local.is_file():
+                            return "uw_manifest_image_missing_locally"
+                        row = {**row, "image": str(local)}
+                    rows.append(row)
+                translated = path.with_name(path.name[:-len(".jsonl")] + ".local.jsonl"
+                                            if path.name.endswith(".jsonl")
+                                            else path.name + ".local")
+                translated.write_text("".join(json.dumps(r, sort_keys=True) + "\n"
+                                              for r in rows))
+                fragment[key] = str(translated)
         adapter = fragment.get("adapter_path") if isinstance(fragment, dict) else None
         if adapter is not None:
             weights = Path(adapter) / "adapter_model.safetensors"
@@ -635,6 +794,27 @@ class UWRunner:
                 self.ledger.append("uw_run_lost", stage=context["stage_id"], uw_name=name,
                                    status=word, host=entry["host"])
                 raise UWInterrupted()
+            monitor = entry.get("monitor")
+            if monitor is not None and word == "RUNNING" and (
+                    time.monotonic() - entry["mirrored"]
+                    >= self.uw.get("mixed_poll_seconds", MIXED_POLL_SECONDS)):
+                entry["mirrored"] = time.monotonic()
+                self.mirror_reward_groups(name, entry)
+                mixed = monitor.poll()
+                if mixed:
+                    # The live standing stop, as launch.supervise: stop the remote run now.
+                    del running[name]
+                    if self.stop(name):
+                        self.state["uw_running"].pop(name, None)
+                        self.remove(name)
+                    self.ledger.save()
+                    self.launcher.finish(context, {
+                        "exit_code": None, "reason": mixed, "elapsed_seconds": elapsed,
+                        "arm_wall_seconds": context["used"] + elapsed,
+                        "peak_group_rss_bytes": None, "demoted": None,
+                        "executor": "uwaterloo", "uw_name": name, "host": entry["host"]},
+                        entry["job"]["validate"])
+                    continue
             if context["used"] + elapsed >= context["cap"]:
                 del running[name]
                 if self.stop(name):

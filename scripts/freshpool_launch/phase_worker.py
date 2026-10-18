@@ -21,6 +21,13 @@ gets the host's ``UWRUN_THREADS`` threads (uwrun --threads) instead of 2, and th
 allocation to guard. The trainer takes its thread count from ``VISION_RL_TORCH_THREADS``, which
 must then equal ``UWRUN_THREADS``; without ``--remote-cpu`` that variable refuses the stage.
 
+``--remote-cuda`` is the same UWaterloo path on one CUDA GPU (signal-limit plans whose ``uw``
+block says ``device: cuda``): it requires ``ACCELERATE_TORCH_DEVICE=cuda``, exactly one
+visible device and CUDA available, takes the same thread rule for the host CPU work, and
+records the peak CUDA tensor allocation (``torch.cuda.max_memory_allocated``) in the receipt.
+There is no MPS guard and no VRAM guard (the host probe checked free VRAM before launch; an
+out-of-memory error fails the stage).
+
 Blind spots, stated: the hash covers the entry module's own file, not modules it imports
 (the launcher pins those through the plan's ``file_sha256``); the driver limit is sampled,
 so an allocation spike shorter than one interval is missed; kind ``common`` gets no MPS
@@ -106,6 +113,7 @@ def main(argv=None):
     parser.add_argument("--entry-sha256", required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--remote-cpu", action="store_true")
+    parser.add_argument("--remote-cuda", action="store_true")
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--" not in argv:
         raise ValueError("forwarded entry arguments must follow a literal --")
@@ -115,16 +123,22 @@ def main(argv=None):
         if os.environ.get(name) != value:
             raise RuntimeError(f"{name} must be {value!r} before any torch import")
     device = os.environ.get("ACCELERATE_TORCH_DEVICE")
-    if args.remote_cpu and args.dry_run:
-        raise RuntimeError("--remote-cpu is a real run; it cannot also be --dry-run")
-    required = DRY_RUN_DEVICE if args.dry_run or args.remote_cpu else DEVICE
+    if args.remote_cpu and args.remote_cuda:
+        raise RuntimeError("--remote-cpu and --remote-cuda are exclusive")
+    if (args.remote_cpu or args.remote_cuda) and args.dry_run:
+        raise RuntimeError("a --remote-* run is real; it cannot also be --dry-run")
+    remote = args.remote_cpu or args.remote_cuda
+    required = ("cuda" if args.remote_cuda
+                else DRY_RUN_DEVICE if args.dry_run or args.remote_cpu else DEVICE)
     if device != required:
         raise RuntimeError(f"ACCELERATE_TORCH_DEVICE must be {required!r} before any torch "
                            f"import (dry run: {args.dry_run}), got {device!r}")
     threads = os.environ.get("VISION_RL_TORCH_THREADS")
-    if args.remote_cpu and threads != str(remote_threads()):
-        raise RuntimeError("--remote-cpu needs VISION_RL_TORCH_THREADS equal to UWRUN_THREADS")
-    if not args.remote_cpu and threads is not None:
+    if remote and threads != str(remote_threads()):
+        raise RuntimeError("--remote-* needs VISION_RL_TORCH_THREADS equal to UWRUN_THREADS")
+    if args.remote_cuda and os.environ.get("CUDA_VISIBLE_DEVICES") != "0":
+        raise RuntimeError("--remote-cuda needs CUDA_VISIBLE_DEVICES=0 (one device)")
+    if not remote and threads is not None:
         # The trainer reads it; outside the UW path a stage keeps its 2 threads. A deliberate
         # legacy refusal (study .md section 13): a freshpool stage launched from a shell that
         # happens to export it would otherwise train with other threads, silently.
@@ -143,6 +157,7 @@ def main(argv=None):
         "device": device,
         "dry_run": args.dry_run,
         **({"remote_cpu": True} if args.remote_cpu else {}),
+        **({"remote_cuda": True} if args.remote_cuda else {}),
         "entry": args.entry,
         "entry_sha256": args.entry_sha256,
         "argv": forwarded,
@@ -163,6 +178,14 @@ def main(argv=None):
 
             torch.set_num_threads(remote_threads() if args.remote_cpu else 2)
             stats["mps_driver_guard"] = "not armed: device cpu"
+        elif args.kind in MODEL_KINDS and device == "cuda":
+            import torch
+
+            torch.set_num_threads(remote_threads())
+            if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
+                raise RuntimeError("--remote-cuda needs exactly one available CUDA device")
+            stats["mps_driver_guard"] = "not armed: device cuda"
+            stats["cuda_device_name"] = torch.cuda.get_device_name(0)
         elif args.kind in MODEL_KINDS:
             import torch
 
@@ -216,6 +239,12 @@ def main(argv=None):
         if thread is not None:
             thread.join(timeout=2)
         stats["elapsed_seconds"] = time.monotonic() - started
+        if device == "cuda" and "torch" in sys.modules:
+            try:
+                cuda = sys.modules["torch"].cuda
+                stats["peak_cuda_allocated_bytes"] = cuda.max_memory_allocated()
+            except Exception as exc:  # recorded, never raised from the finally
+                stats["peak_cuda_allocated_bytes_error"] = f"{type(exc).__name__}: {exc}"
         import resource
 
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS, KiB Linux

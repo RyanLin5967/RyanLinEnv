@@ -266,7 +266,7 @@ from pathlib import Path
 
 def main(argv):
     parser = argparse.ArgumentParser(allow_abbrev=False)  # --arm is not --arm-dir
-    for name in ("--stage-id", "--fragment", "--arm-dir"):
+    for name in ("--stage-id", "--fragment", "--arm-dir", "--scan-manifest"):
         parser.add_argument(name)
     known, _ = parser.parse_known_args(argv)
     with open(os.environ["FAKE_CALLS"], "a") as handle:
@@ -274,6 +274,8 @@ def main(argv):
             "stage": known.stage_id, "argv": argv, "cwd": os.getcwd(),
             "uwrun_threads": os.environ.get("UWRUN_THREADS"),
             "torch_threads": os.environ.get("VISION_RL_TORCH_THREADS"),
+            "cuda_visible": os.environ.get("CUDA_VISIBLE_DEVICES"),
+            "omp_threads": os.environ.get("OMP_NUM_THREADS"),
             "device": os.environ.get("ACCELERATE_TORCH_DEVICE")}) + "\\n")
     spec = json.loads(Path(os.environ["FAKE_SCENARIO"]).read_text()).get(known.stage_id)
     if spec is None:
@@ -299,11 +301,31 @@ def main(argv):
                                   for n, m in enumerate(payload["useful_mixed"])))
     manifests = payload.pop("make_manifests", None)
     if manifests:
+        images = {}
+        if known.scan_manifest:
+            scan = Path(known.scan_manifest).resolve()
+            for line in scan.read_text().splitlines():
+                row = json.loads(line)
+                images[row["id"]] = str((scan.parent / row["image"]).resolve())
         for key in ("accepted", "scanned"):
             path = Path(known.fragment).resolve().parent / f"{key}_manifest.jsonl"
-            path.write_text("".join(json.dumps({"id": i}) + "\\n" for i in manifests[key]))
+            path.write_text("".join(json.dumps(
+                {"id": i, **({"image": images[i]} if images else {})}) + "\\n"
+                for i in manifests[key]))
             payload[f"{key}_manifest"] = str(path)
+    for flag in ("--train",):
+        if flag in argv and payload.get("arm") == "SFT-E":
+            # SFT-E trains on RL*'s accepted manifest: every image it names must open here.
+            manifest = Path(argv[argv.index(flag) + 1]).resolve()
+            for line in manifest.read_text().splitlines():
+                row = json.loads(line)
+                if "image" in row:
+                    image = Path(row["image"])
+                    image = image if image.is_absolute() else manifest.parent / image
+                    if image.read_text() != "jpg":
+                        return 9
     Path(known.fragment).write_text(json.dumps(payload))
+    time.sleep(behaviour.get("linger", 0))
     return 0
 '''
 
@@ -338,6 +360,23 @@ backends.mps = mps
 
 def set_num_threads(count):
     pass
+
+
+class _Cuda:
+    def is_available(self):
+        return True
+
+    def device_count(self):
+        return 1
+
+    def get_device_name(self, index):
+        return "Fake RTX 2080 Ti"
+
+    def max_memory_allocated(self):
+        return 3 * 1024**3
+
+
+cuda = _Cuda()
 '''
 
 # The evaluator contract signal_limit_launch.py relies on (its docstring), implemented
@@ -553,10 +592,19 @@ def main(argv):
         host = argv[1]
         if HOSTS.get(host) is None:
             return 255
+        if "uwprobe" not in argv[2]:
+            # Any other remote command (the useful-mixed mirror): run it with ~/runs/NAME
+            # meaning this fake host's run directory.
+            log("ssh", host=host)
+            done = subprocess.run(["bash", "-c", argv[2].replace("~/runs/", str(ROOT) + "/")],
+                                  capture_output=True, text=True)
+            sys.stdout.write(done.stdout)
+            return done.returncode
         load, nproc, avail, uwruns, local, ready, *rest = HOSTS[host]
         avx2 = rest[0] if rest else 1
+        vram = f" {{rest[1]}}" if len(rest) > 1 else ""
         busy = uwruns + running_on(host)
-        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{busy}} {{local}} {{ready}} {{avx2}}")
+        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{busy}} {{local}} {{ready}} {{avx2}}{{vram}}")
         return 0
     if command == "run":
         options, rest = argv[1:argv.index("--")], argv[argv.index("--") + 1:]
@@ -575,7 +623,7 @@ def main(argv):
         if kind == "tamper_repo":  # a pinned bundle file changed on the host
             with (run / "work" / "repo" / "scripts" / "freshpool_launch"
                   / "phase_worker.py").open("a") as handle:
-                handle.write("\n# changed on the host\n")
+                handle.write("\\n# changed on the host\\n")
         # The host's provisioned packages (here: the fake entry and torch).
         shutil.copytree(os.environ["FAKE_UW_PROVISION"], run / "work" / "repo" / "src",
                         dirs_exist_ok=True)
@@ -688,8 +736,10 @@ RL_TAIL = ["--lr", "{lr}", "--cap", "{arm_cap}", "--num-generations", "{group}"]
 
 class Fixture:
     def __init__(self, tmp, monkeypatch, *, uw=False, fail_at=None, evaluator=None,
-                 hosts=None, faults=None, **overrides):
-        self.tmp, self.overrides, self.uw = tmp, overrides, uw
+                 hosts=None, faults=None, uw_all=None, **overrides):
+        # uw_all: None (Stage A only on UW when uw), "cpu" or "cuda" (every stage on UW).
+        uw = uw or uw_all is not None
+        self.tmp, self.overrides, self.uw, self.uw_all = tmp, overrides, uw, uw_all
         pkg = tmp / "pkg"
         pkg.mkdir()
         (pkg / "fake_signal_entry.py").write_text(FAKE_ENTRY)
@@ -698,7 +748,8 @@ class Fixture:
         self.calls = tmp / "calls.jsonl"
         self.scenario_path = tmp / "scenario.json"
         self.scenario = scenario()
-        self.environment = {"PYTORCH_ENABLE_MPS_FALLBACK": "0", "ACCELERATE_TORCH_DEVICE": "mps",
+        self.environment = {"PYTORCH_ENABLE_MPS_FALLBACK": "0",
+                            "ACCELERATE_TORCH_DEVICE": uw_all or "mps",
                             "HF_HUB_OFFLINE": "1", "PYTHONPATH": str(pkg),
                             "FAKE_CALLS": str(self.calls),
                             "FAKE_SCENARIO": str(self.scenario_path)}
@@ -785,6 +836,11 @@ class Fixture:
             "forecast_seconds": {"assay_h_select": 600, "stage_a_sft": 600,
                                  "stage_a_egsft": 600, "stage_a_hn_sft": 600,
                                  "stage_a_hls_sft": 600, "stage_a_cce_sft": 600}}
+        if self.uw_all is not None:
+            del self.uw_block["forecast_seconds"]
+            self.uw_block.update(device=self.uw_all, mixed_poll_seconds=0.05)
+            if self.uw_all == "cuda":
+                self.uw_block.update(min_free_vram_mib=10000)
 
     def cleanup(self):
         if self.uw:
@@ -798,13 +854,15 @@ class Fixture:
                     "argv": argv}
 
         wrapper = ["--output", "{arm_dir}/trainer", *COMMON]
+        rl_wrapper = [*wrapper, "--scan-manifest", "{scan_manifest}"]
         found = {
             "stage0": template("train", COMMON + ["--init", "{init_adapter}", "--",
                                                   "--num-generations", "8"]),
-            "rl_screen": template("train", wrapper + ["--", *RL_TAIL,
-                                                      "--stop-after-steps", "100"]),
+            "rl_screen": template("train", rl_wrapper + ["--", *RL_TAIL,
+                                                         "--stop-after-steps", "100"]),
             "rl_final": template("train", wrapper[:2] + [
-                "--continue-output-from", "{resume_checkpoint}", *COMMON, "--", *RL_TAIL]),
+                "--continue-output-from", "{resume_checkpoint}", *COMMON,
+                "--scan-manifest", "{scan_manifest}", "--", *RL_TAIL]),
             "sft_e": template("train", wrapper + [
                 "--", "--lr", "{lr}", "--cap", "{active_cap}", "--order", "sequential",
                 "--cycle", "--train", "{accepted_manifest}", "--stop-after-steps", "300",
@@ -878,6 +936,9 @@ class Fixture:
             "owner_patterns": [self.sentinel], "g0": self.g0,
             "stage_a_execution": "uwaterloo" if self.uw else "local",
         }
+        if self.uw_all is not None:
+            del plan["stage_a_execution"]
+            plan["execution"] = "uwaterloo"
         if self.uw:
             plan["uw"] = {**self.uw_block, **o.get("uw_patch", {})}
         plan.update(o.get("plan_patch", {}))
@@ -1480,4 +1541,154 @@ def test_uw_execution_refuses_a_dry_run_plan(make, capsys):
     fixture = make(uw=True, plan_patch={"dry_run": True})
     assert signal_limit.main(fixture.argv) == 2
     assert json.loads(capsys.readouterr().out)["reason"] == "uw_execution_with_dry_run"
+    assert not (fixture.tmp / "state").exists()
+
+
+# ---------------------------------------------------------------- every stage on UWaterloo
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make, device):
+    hosts = None
+    if device == "cuda":  # (load, nproc, availGB, uwruns, localGB, ready, avx2, free VRAM MiB)
+        hosts = {"gpua": [0.1, 20, 80, 0, 300, 1, 1, 11000]}
+    fixture = make(uw_all=device, hosts=hosts)
+    assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-3:]
+    state = fixture.state()
+    assert state["status"] == "completed"
+    assert state["selections"] == EXPECTED_SELECTIONS  # same evidence, same selections
+    calls = fixture.stages_called()
+    order = first_order(calls)
+    assert sorted(order) == sorted(EXPECTED_ORDER)
+    # Stage A's independent stages may interleave across hosts; everything else is serial.
+    stage_a = set(uw_stage_a_stages())
+    assert [s for s in order if s not in stage_a] == [
+        s for s in EXPECTED_ORDER if s not in stage_a]
+    # Every stage ran in a fake host's run directory, none in this checkout.
+    assert all(c["cwd"].startswith(str(fixture.uw_root)) for c in calls)
+    for call in calls:
+        assert (call["device"], call["uwrun_threads"], call["torch_threads"]) == (
+            device, "6", "6")
+        assert argv_value(call["argv"], "--device") == device
+        assert call["cuda_visible"] == ("0" if device == "cuda" else None)
+        assert call["omp_threads"] is None  # the plan's Mac thread pins are not exported
+        assert not any(part.startswith(str(fixture.tmp)) for part in call["argv"])
+    journal = fixture.journal()
+    started = [e for e in journal if e["event"] == "stage_started"]
+    assert started and all(e["executor"] == "uwaterloo" and e["device"] == device
+                           for e in started)
+    live = {e["stage"] for e in started if e["live_useful_mixed"]}
+    assert live == {s for s in EXPECTED_ORDER if s.startswith("rl-") and "-h_" not in s}
+    monitored = {e["stage"] for e in journal if e["event"] == "useful_mixed_monitored"}
+    assert monitored == live
+    # The continuation started from the fetched parent checkpoint, shipped as an input.
+    final = [c for c in calls if c["stage"] == "rl-1e-04-s42-u300"][0]
+    assert argv_value(final["argv"], "--continue-output-from").startswith(
+        "inputs/resume_checkpoint")
+    # RL*'s accepted manifest named REMOTE image paths; SFT-E (which opens every image,
+    # fake entry rule) ran on its translated copy, re-bundled with this machine's images.
+    rl_star = state["completed"]["rl-1e-04-s42-u300"]["fragment"]
+    assert rl_star["accepted_manifest"].endswith("accepted_manifest.local.jsonl")
+    rows = [json.loads(line) for line in Path(rl_star["accepted_manifest"]).read_text()
+            .splitlines()]
+    assert [r["id"] for r in rows] == ACCEPTED_300
+    assert all(Path(r["image"]).read_text() == "jpg"
+               and str(fixture.tmp / "state" / "uw" / "bundles") in r["image"] for r in rows)
+    raw = Path(rl_star["accepted_manifest"]).with_name("accepted_manifest.jsonl")
+    assert all(str(fixture.uw_root) in json.loads(line)["image"]
+               for line in raw.read_text().splitlines())
+    if device == "cuda":
+        finished = [e for e in journal if e["event"] == "stage_finished"]
+        assert finished and all(
+            e["remote_peak_cuda_allocated_bytes"] == 3 * 1024**3 for e in finished)
+    # Quiet mode on this machine is not waited out: no stage runs here.
+    assert not [e for e in journal if e["event"] == "quiet_mode_wait"]
+
+
+def test_uw_every_stage_ignores_local_quiet_mode(make):
+    fixture = make(uw_all="cpu")
+    (fixture.tmp / "QUIET").write_text("")
+    assert signal_limit.main(fixture.argv) == 0
+    assert fixture.state()["status"] == "completed"
+
+
+def test_uw_manifest_translation_is_what_lets_sft_e_open_its_images(make, monkeypatch):
+    # Forced fire: without the translation the accepted manifest names REMOTE paths, which
+    # do not exist here, so SFT-E cannot be bundled and the study stops.
+    uw_stage_a = importlib.import_module("uw_stage_a")
+    real = uw_stage_a.UWRunner.import_fragment
+    monkeypatch.setattr(uw_stage_a.UWRunner, "import_fragment",
+                        staticmethod(lambda destination, local, bundle=None:
+                                     real(destination, local, None)))
+    fixture = make(uw_all="cpu")
+    assert signal_limit.main(fixture.argv) == 2
+    state = fixture.state()
+    assert state["status"] == "stopped"
+    assert "sft-e-1e-05-s42" not in state["completed"]
+    assert "rl-1e-04-s42-u300" in state["completed"]
+
+
+def test_uw_live_useful_mixed_stop_stops_the_remote_rl_stage(make):
+    fixture = make(uw_all="cpu")
+    run_id = "rl-1e-05-s42-u100"
+    payload = fixture.scenario[run_id]["payload"]
+    payload["useful_mixed"] = [False] * 100  # 0 of 100 mixed: below 40
+    fixture.scenario[run_id]["behaviour"] = {"linger": 30}  # alive after writing its groups
+    fixture.write()
+    assert signal_limit.main(fixture.argv) == 2
+    state = fixture.state()
+    assert state["stop_reason"] == "rolling_useful_mixed_below_0_40"
+    journal = fixture.journal()
+    (finished,) = [e for e in journal if e["event"] == "stage_finished"
+                   and e["stage"] == run_id]
+    # Stopped while it ran (no rc of its own), long before its 30 s linger ended.
+    assert finished["exit_code"] is None and finished["reason"] == (
+        "rolling_useful_mixed_below_0_40")
+    assert finished["elapsed_seconds"] < 25
+    stopped = {e["name"] for e in fixture.uw_log() if e["event"] == "stop"}
+    assert finished["uw_name"] in stopped
+    assert any(e["event"] == "ssh" for e in fixture.uw_log())  # the mirror read it there
+
+
+def test_uw_late_useful_mixed_window_stops_after_the_fetch(make):
+    # A stage that ends before any mirror poll: the fetched groups complete the mirror and
+    # the launcher's late poll still stops on them (nothing fails open).
+    fixture = make(uw_all="cpu", uw_patch={"mixed_poll_seconds": 3600})
+    run_id = "rl-1e-05-s42-u100"
+    fixture.scenario[run_id]["payload"]["useful_mixed"] = [False] * 100
+    fixture.write()
+    assert signal_limit.main(fixture.argv) == 2
+    assert fixture.state()["stop_reason"] == "rolling_useful_mixed_below_0_40"
+
+
+def test_uw_cuda_host_below_the_vram_floor_is_not_used(make):
+    # Another process holds the GPU: 4,000 MiB free < the 10,000 MiB floor.
+    fixture = make(uw_all="cuda", hosts={"gpua": [0.1, 20, 80, 0, 300, 1, 1, 4000]})
+    assert signal_limit.main(fixture.argv) == 3
+    state = fixture.state()
+    assert state["status"] == "running" and "uw_no_host_qualifies" in state["next_action"]
+    assert fixture.stages_called() == []
+
+
+@pytest.mark.parametrize("options, reason", [
+    ({"uw_all": "cpu", "plan_patch": {"execution": "cloud"}}, "execution_unknown"),
+    ({"uw_all": "cpu", "plan_patch": {"stage_a_execution": "local"}},
+     "execution_uwaterloo_with_local_stage_a"),
+    ({"uw_all": "cpu", "plan_patch": {"dry_run": True}}, "uw_execution_with_dry_run"),
+    ({"uw_all": "cpu", "uw_patch": {"forecast_seconds": {"stage_a_sft": 1}}},
+     "uw_forecasts_duplicate_plan_forecasts"),
+    ({"uw_all": "cpu", "uw_patch": {"device": "cuda", "min_free_vram_mib": 9000}},
+     "plan_device_differs_from_uw_device"),
+    ({"uw_all": "cpu", "uw_patch": {"device": "tpu"}}, "plan_device_differs_from_uw_device"),
+    ({"uw_all": "cuda", "uw_patch": {"min_free_vram_mib": None}},
+     "uw_cuda_without_vram_floor"),
+    ({"uw_all": "cuda", "uw_patch": {"per_host": 2}}, "uw_cuda_per_host_not_1"),
+    ({"uw": True, "uw_patch": {"device": "cuda", "min_free_vram_mib": 9000}},
+     "uw_stage_a_only_mode_is_cpu"),
+    ({"uw_all": "cpu", "uw_patch": {"mixed_poll_seconds": 0}}, "uw_limit_invalid"),
+])
+def test_uw_every_stage_plan_refusals(make, capsys, options, reason):
+    fixture = make(**options)
+    assert signal_limit.main(fixture.argv) == 2
+    assert json.loads(capsys.readouterr().out)["reason"] == reason
     assert not (fixture.tmp / "state").exists()

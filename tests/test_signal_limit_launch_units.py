@@ -524,6 +524,66 @@ def test_phase_worker_remote_cpu(tmp_path, device, flags, uwrun, threads, code, 
     assert stats.get("remote_cpu", False) is ("--remote-cpu" in flags)
 
 
+FAKE_CUDA_TORCH = FAKE_TORCH + '''
+
+class _Cuda:
+    def is_available(self):
+        return True
+
+    def device_count(self):
+        import os
+        return int(os.environ.get("FAKE_CUDA_DEVICES", "1"))
+
+    def get_device_name(self, index):
+        return "Fake RTX 2080 Ti"
+
+    def max_memory_allocated(self):
+        return 123
+
+
+cuda = _Cuda()
+'''
+
+
+@pytest.mark.parametrize("device, flags, visible, devices, code, message", [
+    ("cuda", ["--remote-cuda"], "0", "1", 0, None),
+    ("cuda", ["--remote-cuda"], None, "1", 1, "CUDA_VISIBLE_DEVICES=0"),
+    ("cuda", ["--remote-cuda"], "0", "2", 1, "exactly one available CUDA device"),
+    ("cpu", ["--remote-cuda"], "0", "1", 1, "ACCELERATE_TORCH_DEVICE must be 'cuda'"),
+    ("cuda", ["--remote-cpu"], "0", "1", 1, "ACCELERATE_TORCH_DEVICE must be 'cpu'"),
+    ("cuda", ["--remote-cpu", "--remote-cuda"], "0", "1", 1, "exclusive"),
+    ("cuda", ["--remote-cuda", "--dry-run"], "0", "1", 1, "cannot also be --dry-run"),
+])
+def test_phase_worker_remote_cuda(tmp_path, device, flags, visible, devices, code, message):
+    """--remote-cuda (the UW GPU path) needs ACCELERATE_TORCH_DEVICE=cuda, one visible
+    device, the UW thread rule, never --dry-run; it records the peak CUDA allocation."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "phase_entry.py").write_text(PHASE_ENTRY)
+    (pkg / "torch.py").write_text(FAKE_CUDA_TORCH)
+    env = {**os.environ, "PYTHONPATH": str(pkg), "PYTORCH_ENABLE_MPS_FALLBACK": "0",
+           "HF_HUB_OFFLINE": "1", "ACCELERATE_TORCH_DEVICE": device, "UWRUN_THREADS": "6",
+           "VISION_RL_TORCH_THREADS": "6", "FAKE_CUDA_DEVICES": devices}
+    env.pop("CUDA_VISIBLE_DEVICES", None)
+    if visible is not None:
+        env["CUDA_VISIBLE_DEVICES"] = visible
+    guards = tmp_path / "guards"
+    result = subprocess.run(
+        [sys.executable, "-B", str(PACKAGE / "phase_worker.py"), "--guard-dir", str(guards),
+         "--stage", "s", "--kind", "train", "--entry", "phase_entry:main", "--entry-sha256",
+         hashlib.sha256(PHASE_ENTRY.encode()).hexdigest(), *flags, "--", "--device", device],
+        env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == code, result.stderr
+    if code:
+        assert message in result.stderr
+        return
+    (summary,) = guards.glob("s-*.json")
+    stats = json.loads(summary.read_text())
+    assert stats["status"] == "completed" and stats["remote_cuda"] is True
+    assert stats["peak_cuda_allocated_bytes"] == 123
+    assert stats["cuda_device_name"] == "Fake RTX 2080 Ti"
+
+
 # ---------------------------------------------------------------- uw_stage_a helpers
 
 
