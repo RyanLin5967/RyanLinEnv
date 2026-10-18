@@ -468,8 +468,11 @@ def cmd_promote(a, state_path: Path) -> int:
         out = json.loads(path.read_text())
         for track, us in added.items():
             for u in us:
-                out["arms"] += promoted_arms(u, entered[u], track, r, table)
                 out["promotion"][track].append(u)
+                if int(entered[u][0]["max_steps_total"]) < int(table["rung_updates"][str(r + 1)]):
+                    out.setdefault("infeasible", []).append(u)  # plan amendment 2
+                    continue
+                out["arms"] += promoted_arms(u, entered[u], track, r, table)
         path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
         with state_lock(state_path) as st:
             p = st["promotions"][key]
@@ -482,20 +485,27 @@ def cmd_promote(a, state_path: Path) -> int:
         return 0
     if path.exists() and not a.overwrite:
         raise SystemExit(f"REFUSE: {path} exists; pass --overwrite to re-derive it")
-    keep, arms = {}, []
+    keep, arms, infeasible = {}, [], []
     for track in ("sft", "rl"):
         ranked = sorted((u for u in scored if entered[u][0]["track"] == track),
                         key=lambda u: (scored[u] is not None, scored[u] or ()), reverse=True)
         n = math.ceil(len(ranked) / 3) if r == 1 else min(3, len(ranked))
         keep[track] = [u for u in ranked[:n] if scored[u] is not None]
         for u in keep[track]:
+            # plan amendment 2: a unit whose declared total is below the next rung's budget
+            # (screened arms, 600) is recorded infeasible there and not replaced
+            if int(entered[u][0]["max_steps_total"]) < int(table["rung_updates"][str(r + 1)]):
+                infeasible.append(u)
+                continue
             arms += promoted_arms(u, entered[u], track, r, table)
     out = dict(table, rung=r + 1, arms=arms, promoted_from=str(src),
-               promotion={t: list(keep[t]) for t in keep}, created_at=now())
+               promotion={t: list(keep[t]) for t in keep}, infeasible=infeasible,
+               created_at=now())
     path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     with state_lock(state_path) as st:
         st.setdefault("promotions", {})[key] = {
             "table": str(path), "kept": keep, "ranked": sorted(scored),
+            "infeasible": infeasible,
             "scores": {u: list(m) for u, m in scored.items() if m is not None},
             "not_entered": sorted(set(units) - set(entered)), "at": now()}
     print(json.dumps({"rung": r + 1, "kept": keep, "arms": len(arms), "table": str(path)},

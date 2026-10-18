@@ -161,6 +161,33 @@ def test_promote_keeps_top_third_per_track_and_continues_seed42(tmp_path, monkey
     assert "w2-never@r2-s2718" in [a["id"] for a in out["arms"]]
 
 
+def test_promote_records_screened_unit_infeasible_at_rung3(tmp_path, monkeypatch):
+    # plan amendment 2: a screened unit declares 600 updates, so it cannot run rung 3
+    arms = []
+    for unit, total, acc in (("scr", 600, 0.80), ("plain", 1500, 0.70)):
+        for seed in (42, 314, 2718):
+            a = dict(base_arm(f"{unit}@r2-s{seed}", "rl"), unit=unit, rung=2, seed=seed,
+                     stops=[600], max_steps_total=total)
+            arms.append(a)
+    state = {"arms": {}, "hosts": {}}
+    for a in arms:
+        finish(tmp_path, state, a["id"], 0.80 if a["unit"] == "scr" else 0.70, steps=600)
+    path = setup(tmp_path, monkeypatch, state)
+    (tmp_path / "sweep" / "arms-rung2.json").write_text(json.dumps(make_table(arms)))
+
+    class A:
+        from_rung, late, overwrite = 2, False, False
+
+    assert runner.cmd_promote(A, path) == 0
+    out = json.loads((tmp_path / "sweep" / "arms-rung3.json").read_text())
+    assert out["promotion"]["rl"] == ["scr", "plain"]
+    assert out["infeasible"] == ["scr"]
+    ids = [a["id"] for a in out["arms"]]
+    assert not [i for i in ids if i.startswith("scr")]
+    assert "plain@r3-s42" in ids and "plain@r3-s42~ctl" in ids
+    assert json.loads(path.read_text())["promotions"]["2->3"]["infeasible"] == ["scr"]
+
+
 def test_promote_refuses_while_a_launched_arm_runs(tmp_path, monkeypatch):
     arms = [base_arm("rl0", "rl"), base_arm("rl1", "rl")]
     state = {"arms": {"rl1": {"status": "RUNNING"}}, "hosts": {}}
