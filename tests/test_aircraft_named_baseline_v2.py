@@ -161,7 +161,15 @@ def world(tmp_path):
     discovery = independent_discovery(author)
     plan["stages"]["discovery"]["ids"] = discovery
     plan["stages"]["discovery"]["ids_sha256"] = id_list_sha(discovery)
-    plan["stages"]["discovery"]["budget"]["chunk_images"] = 20
+    # Fixture-scale budgets (fake latencies are 3-13 s), so the gate and the hard ceiling
+    # are exercised at this scale rather than at the plan's CPU-hour scale.
+    small = {"image_seconds": 10, "load_allowance_seconds": 10,
+             "long_generation_allowance_seconds": 10, "max_calendar_seconds": 10**7,
+             "max_output_bytes": 10**9}
+    plan["stages"]["discovery"]["budget"].update(small, chunk_images=20, max_invocations=6,
+                                                 max_active_seconds=10**6)
+    plan["stages"]["full"]["budget"].update(small, chunk_images=40, max_invocations=60)
+    plan["stages"]["full"]["gate"]["max_projected_active_seconds"] = 10**6
     plan["stages"]["full"]["ids_sha256"] = id_list_sha([row["image_id"] for row in author])
     plan["stages"]["full"]["images"] = 100 * PER_CLASS
     gold = {row["image_id"]: row["variant"] for row in author}
