@@ -274,6 +274,18 @@ def score(pred: dict, gold: dict) -> dict:
             "classes": len(by)}
 
 
+def write_summary(arm: Arm, summary: dict) -> None:
+    """summary.json plus peak resident memory so far (the source for runner.py's --mem table):
+    self = this process, which also runs the in-process assay; children = the largest
+    trainer subprocess that has exited. Linux ru_maxrss is in KiB."""
+    import resource
+    gib = lambda kib: round(kib / 1048576, 3)
+    summary["resources"] = {
+        "self_maxrss_gib": gib(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+        "children_maxrss_gib": gib(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)}
+    write_json(arm.results / "summary.json", summary)
+
+
 def run(arm: Arm, final_check: bool) -> dict:
     s = arm.spec
     arm.results.mkdir(parents=True, exist_ok=True)
@@ -288,7 +300,7 @@ def run(arm: Arm, final_check: bool) -> dict:
         adapter = arm.init_adapter()
         summary["endpoints"].append({"label": "init", "steps": 0,
                                      "metrics": arm.assay(adapter, "init", holdout)})
-        write_json(arm.results / "summary.json", summary)
+        write_summary(arm, summary)
         return summary
     manifest = arm.manifest()
     kind = s.get("kind", "train")
@@ -306,7 +318,7 @@ def run(arm: Arm, final_check: bool) -> dict:
                             "load1_start": load_start, "load1_end": os.getloadavg()[0],
                             "stage_wall_seconds": arm.log[-1]["wall_seconds"]}
         arm.copy_small()
-        write_json(arm.results / "summary.json", summary)
+        write_summary(arm, summary)
         return summary
     total = int(s["max_steps_total"])
     previous = s.get("resume_stop")  # promotion: continue this host's own boundary
@@ -322,7 +334,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "active_seconds": receipt["committed_active_seconds"],
             "metrics": arm.assay(arm.out / "final_adapter", f"step{stop}", holdout)})
         arm.copy_small()
-        write_json(arm.results / "summary.json", summary)
+        write_summary(arm, summary)
         previous = stop
         if receipt["status"] == "total_budget_exhausted":
             break
@@ -339,7 +351,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "metrics": arm.assay(arm.out / "final_adapter", "time", holdout)})
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
-    write_json(arm.results / "summary.json", summary)
+    write_summary(arm, summary)
     return summary
 
 

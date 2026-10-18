@@ -57,6 +57,18 @@ ARM_EXEC = "payload/code/scripts/exploratory_sweep/arm_exec.py"
 RECEIPTS = "~/rlesweep/receipts"
 HEADROOM = 0.75  # leave a quarter of every host's cores and memory free
 ARM_RSS_GB = 16.0  # measured max RSS of one fp32 2B LoRA trainer was ~13.6 GB (iccad1, GNU time)
+# Peak resident GiB per arm kind, MEASURED: sum of VmHWM over each live run's processes
+# (uwrun ssh, /proc/PID/status, UWRUN_NAME), 22 running rung-1 arms, 2026-10-18T20:20Z;
+# assay: rlesweep-assay-rss-probe-1 (in-process predict_train_subset, adapter W, iccad5).
+# --mem = ceil(1.2 * max(training peak of the kind, assay peak)): the assay runs in the same
+# run after training. G4 was not running; it is bounded by G8 (fewer generations), unverified.
+PEAK_RSS_GIB = {"sft": 12.97, "grpo4": 13.56, "grpo8": 13.56, "grpo16": 15.22}
+# Assay: self ru_maxrss after chunks 1-3 of 25 = 12.912, 13.720, 13.958 GiB (probe-1, 8 threads).
+# It still grows per chunk, so the 25-chunk peak is EXTRAPOLATED (unverified): last increment
+# 0.238 GiB x 22 more chunks -> 19.2 GiB. Replace with the measured value from
+# rlesweep-assay-rss-probe-full (25 chunks) when it finishes.
+ASSAY_PEAK_GIB = 19.2
+MEM_HEADROOM = 1.2
 NAME_OK = re.compile(r"[^A-Za-z0-9_-]")
 
 
@@ -253,7 +265,27 @@ def valid_receipt(state: dict, host: str, features) -> dict:
 
 
 # ---- launching ------------------------------------------------------------------------
-def capacity(state: dict, hosts: dict, host: str, threads: int) -> int:
+def mem_gb(spec: dict):
+    """uwrun --mem for this arm: measured peak of its kind (and the assay) plus 20%.
+    An unmeasured kind (e.g. egsft) gets None: no per-run cap, never a guessed one (a cap
+    too low kills the arm at its assay after hours of training); uwrun's host guard still
+    applies, and the arm's summary.json `resources` then measures it. Refuses while the
+    assay peak, which every kind includes, is unmeasured."""
+    if ASSAY_PEAK_GIB is None:
+        raise SystemExit("REFUSE: assay peak RSS is unmeasured; --mem cannot be sized")
+    if spec.get("mode") == "eval":
+        peak = ASSAY_PEAK_GIB
+    else:
+        mode = spec.get("mode")
+        kind = mode if mode != "grpo" else f"grpo{int(spec.get('num_generations', 0))}"
+        if kind not in PEAK_RSS_GIB:
+            return None
+        peak = max(PEAK_RSS_GIB[kind], ASSAY_PEAK_GIB)
+    return math.ceil(MEM_HEADROOM * peak)
+
+
+def capacity(state: dict, hosts: dict, host: str, threads: int,
+             mem: float = ARM_RSS_GB) -> int:
     """Arms of `threads` threads `host` can take now, keeping 25% of physical cores and memory."""
     t = hosts.get(host)
     if t is None:
@@ -264,9 +296,10 @@ def capacity(state: dict, hosts: dict, host: str, threads: int) -> int:
     # load1 lags a fresh launch; count our own arms at full weight until load reflects them
     busy = max(t["load1"], our_threads)
     cores = HEADROOM * t["cores"] - busy  # physical cores, as uwrun v5 places
-    recent = sum(ARM_RSS_GB for x in ours if time.time() - x.get("launched_ts", 0) < 900)
-    mem = HEADROOM * t["avail_gb"] - recent
-    return max(0, min(int(cores // threads), int(mem // ARM_RSS_GB)))
+    recent = sum(x.get("mem_gb") or ARM_RSS_GB for x in ours
+                 if time.time() - x.get("launched_ts", 0) < 900)
+    free_mem = HEADROOM * t["avail_gb"] - recent
+    return max(0, min(int(cores // threads), int(free_mem // mem)))
 
 
 def control_spec(state: dict, ctl: dict) -> dict:
@@ -288,8 +321,20 @@ def control_spec(state: dict, ctl: dict) -> dict:
     return spec
 
 
+def fresh_work_id(state: dict, spec: dict) -> dict:
+    """A from-scratch relaunch of a retired arm gets its own work dir: the trainer refuses a
+    non-empty output dir, and the old one may hold a killed run's partial checkpoints.
+    Continuations (resume_stop) and promoted arms (work_id set) keep theirs."""
+    if spec.get("resume_stop") or spec.get("work_id"):
+        return spec
+    tries = sum(1 for x in state["arms"].values() if x.get("retired_from") == spec["id"])
+    return dict(spec, work_id=f"{spec['id']}~a{tries + 1}") if tries else spec
+
+
 def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
                dry: bool) -> str:
+    mem = mem_gb(spec)
+    spec = fresh_work_id(read_state(state_path), spec)
     name = safe_name(f"rlesweep-{spec['id']}-{int(time.time() * 1000) % 10**9}")
     launch_dir = SWEEP_DIR / "launch" / name
     launch_dir.mkdir(parents=True, exist_ok=False)
@@ -297,7 +342,8 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     inner = (f"R={shlex.quote(root)}; exec \"$R/venv/bin/python\" -I \"$R/{ARM_EXEC}\" "
              f"--root \"$R\" --arm-json arm.json --results results")
     argv = ["run", "--host", host, "--threads", str(spec.get("threads", 16)), "--timeout",
-            str(timeout), "--sync", str(launch_dir), "--name", name, "--", "bash", "-c", inner]
+            str(timeout), *(["--mem", str(mem)] if mem else []), "--sync", str(launch_dir),
+            "--name", name, "--", "bash", "-c", inner]
     if dry:
         print("DRY", host, name, " ".join(shlex.quote(x) for x in argv[-3:]))
         return name
@@ -305,7 +351,7 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     with state_lock(state_path) as state:
         state["arms"][spec["id"]] = {
             "status": "LAUNCHED", "host": host, "run": name, "launched_at": now(),
-            "launched_ts": time.time(), "threads": spec.get("threads", 16),
+            "launched_ts": time.time(), "threads": spec.get("threads", 16), "mem_gb": mem,
             "spec_path": str(launch_dir / "arm.json"), "kind": spec.get("kind", "train"),
             "wave": spec.get("wave"), "rung": spec.get("rung"), "track": spec.get("track"),
             "family": spec.get("family"), "control_of": spec.get("control_of"),
@@ -347,7 +393,8 @@ def cmd_continue(a, state_path: Path) -> int:
     cont["continued_from_run"] = x["run"]
     host = x["host"]
     r = valid_receipt(state, host, cont.get("features", []))
-    if capacity(state, host_table(), host, cont.get("threads", 16)) < 1 and not a.dry_run:
+    if capacity(state, host_table(), host, cont.get("threads", 16),
+                mem_gb(cont) or ARM_RSS_GB) < 1 and not a.dry_run:
         raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
     if a.dry_run:
         launch_one(state_path, cont, host, r["root"], a.timeout, True)
@@ -429,7 +476,8 @@ def cmd_launch(a, state_path: Path) -> int:
                 # it still refuses that launch without aborting every other arm's
                 skipped.append(str(exc))
                 continue
-            free = capacity(st, hosts, host, spec.get("threads", 16))
+            free = capacity(st, hosts, host, spec.get("threads", 16),
+                            mem_gb(spec) or ARM_RSS_GB)
             if free > 0 and (best is None or free > best[1]):
                 best = (host, free, r["root"])
         if best is None:
@@ -477,17 +525,71 @@ def cmd_poll(a, state_path: Path) -> int:
             # the files land in dest/results and summary.json is never found)
             uw("fetch", x["run"], "work/results/", str(dest), timeout=900, check=False)
             summary = dest / "summary.json"
-            ok = "rc=0" in status and summary.is_file()
+            markers = ("oom-guard", "timedout", "overquota", "stopped")
+            ok = ("rc=0" in status and summary.is_file()
+                  and not any(m in status for m in markers))
             update.update(status="DONE" if ok else "FAILED", results_dir=str(dest),
                           finished_at=now())
             if not ok:
-                update["log_tail"] = uw("logs", x["run"], timeout=180, check=False)[-1500:]
+                log = uw("logs", x["run"], timeout=180, check=False)
+                update["log_tail"] = log[-1500:]
+                update["failure_reason"] = failure_reason(status, log)
         elif "LOST" in status or "UNREACH" in status:
             update["status"] = "LOST" if "LOST" in status else x["status"]
         with state_lock(state_path) as st:
             st["arms"][arm_id].update(update)
-        print(f"{arm_id}: {status}")
+            retired = retire_if_host_oom(st, arm_id)
+        print(f"{arm_id}: {status}" + (f" {update['failure_reason']}"
+                                        if update.get("failure_reason") else "")
+              + (f" -> retired as {retired}, relaunches from scratch" if retired else ""))
     return 0
+
+
+GUARD_LINE = re.compile(r"memory guard: the run holds (\d+) MB \(--mem (\d+) GB\), "
+                        r"host RAM free (\d+) MB \(floor (\d+) MB\)")
+OOM_RETRIES = 2
+
+
+def failure_reason(status: str, log: str) -> str:
+    """oom-guard:host-ram (the host ran short: infrastructure), oom-guard:mem-cap (the arm
+    outgrew its --mem: our sizing, never auto-relaunched), oom-guard:unparsed, timedout,
+    overquota, stopped, or code (anything else, e.g. a trainer refusal)."""
+    if "oom-guard" in status:
+        m = GUARD_LINE.search(log or "")
+        if m is None:
+            return "oom-guard:unparsed"
+        rss, cap = int(m.group(1)), int(m.group(2))
+        return "oom-guard:mem-cap" if cap > 0 and rss > cap * 1024 else "oom-guard:host-ram"
+    for marker in ("timedout", "overquota", "stopped"):
+        if marker in status:
+            return marker
+    return "code"
+
+
+def retire_if_host_oom(st: dict, arm_id: str):
+    """A host-RAM oom-guard kill is infrastructure: retire the record (ARM#failN) so the
+    launch loop relaunches the arm from scratch in a fresh work dir, at most OOM_RETRIES
+    times. An arm that already completed a proper prefix of its stops stays FAILED for
+    `runner.py continue` instead (its kept checkpoint is worth resuming)."""
+    x = st["arms"][arm_id]
+    if x.get("status") != "FAILED" or x.get("failure_reason") != "oom-guard:host-ram":
+        return None
+    if sum(1 for y in st["arms"].values() if y.get("retired_from") == arm_id
+           and str(y.get("failure_reason", "")).startswith("oom-guard")) >= OOM_RETRIES:
+        return None
+    try:
+        summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+        if any(str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+            return None
+    except (OSError, ValueError, KeyError):
+        pass
+    n = 1
+    while f"{arm_id}#fail{n}" in st["arms"]:
+        n += 1
+    x.update(retired_reason="oom-guard:host-ram (infrastructure); relaunch from scratch",
+             retired_at=now(), retired_from=arm_id, kind="retired")
+    st["arms"][f"{arm_id}#fail{n}"] = st["arms"].pop(arm_id)
+    return f"{arm_id}#fail{n}"
 
 
 # ---- promotion (successive halving; the rule is pre-registered in the plan) ------------

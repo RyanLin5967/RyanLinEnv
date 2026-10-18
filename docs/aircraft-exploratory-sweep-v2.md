@@ -283,3 +283,15 @@ checkpoint-2329 under the fixed payload, on the same host.
   `ARM#failN` and relaunches the remaining stops in place on the same host: same id and work
   dir, `resume_stop` set to the last completed stop, and the earlier endpoints carried into the
   new summary.
+- **Memory guard (uwrun v5.4).** Each launch passes `--mem`: 1.2 × the larger of its kind's
+  measured training peak and the assay peak. The training peaks come from 22 live arms
+  (VmHWM per process, summed): SFT 12.97 GiB, GRPO G8 13.56, GRPO G16 15.22. The assay peak
+  is still an extrapolation: it grew to 13.96 GiB over 3 of 25 chunks, giving an estimated
+  19.2 GiB until the full probe replaces it. A kind with no measurement (egsft) gets no
+  per-run cap. `poll` records `failure_reason`:
+  - `oom-guard:host-ram` (infrastructure): the record is retired and the arm relaunches from
+    scratch in a fresh work dir, at most twice. If it already finished a stop, it resumes via
+    `continue` instead.
+  - `oom-guard:mem-cap`: our sizing was wrong; the arm is never relaunched automatically.
+  - Other reasons: `timedout`, `overquota`, `stopped`, `code`.
+  `summary.json` now records `resources` (peak RSS) for every arm.
