@@ -345,7 +345,9 @@ def cmd_poll(a, state_path: Path) -> int:
             dest = SWEEP_DIR / "results" / safe_name(arm_id)
             if dest.exists():
                 dest = dest.with_name(dest.name + f"-{int(time.time())}")
-            uw("fetch", x["run"], "work/results", str(dest), timeout=900, check=False)
+            # trailing slash: rsync copies the CONTENTS of work/results into dest (without it
+            # the files land in dest/results and summary.json is never found)
+            uw("fetch", x["run"], "work/results/", str(dest), timeout=900, check=False)
             summary = dest / "summary.json"
             ok = "rc=0" in status and summary.is_file()
             update.update(status="DONE" if ok else "FAILED", results_dir=str(dest),

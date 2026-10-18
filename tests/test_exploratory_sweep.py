@@ -185,3 +185,34 @@ def test_control_spec_matches_consumed_sequence_and_time(tmp_path):
     assert spec["time_budget_seconds"] == 123.0
     with pytest.raises(SystemExit, match="needs a finished"):
         runner.control_spec({"arms": {}}, ctl)
+
+
+def test_poll_finds_summary_under_rsync_subpath_semantics(tmp_path, monkeypatch):
+    """`uwrun fetch NAME SUB DEST` is rsync: SUB without a trailing slash lands in
+    DEST/<basename>. The fake below copies the way rsync does, so a fetch of
+    `work/results` (no slash) leaves summary.json one level down and the arm FAILS."""
+    import shutil
+
+    remote = tmp_path / "remote" / "work" / "results"
+    remote.mkdir(parents=True)
+    (remote / "summary.json").write_text(json.dumps({"endpoints": []}))
+
+    def fake_uw(*args, timeout=300, check=True):
+        if args[0] == "status":
+            return "rlesweep-x iccad13 DONE rc=0\n"
+        if args[0] == "fetch":
+            sub, dest = args[2], Path(args[3])
+            src = tmp_path / "remote" / sub.rstrip("/")
+            target = dest if sub.endswith("/") else dest / src.name
+            shutil.copytree(src, target, dirs_exist_ok=True)
+            return ""
+        return "log tail"
+
+    state = {"arms": {"a1": {"status": "RUNNING", "run": "rlesweep-x", "host": "iccad13"}},
+             "hosts": {}}
+    path = setup(tmp_path, monkeypatch, state)
+    monkeypatch.setattr(runner, "uw", fake_uw)
+    assert runner.cmd_poll(None, path) == 0
+    arm = json.loads(path.read_text())["arms"]["a1"]
+    assert arm["status"] == "DONE"
+    assert (Path(arm["results_dir"]) / "summary.json").is_file()
