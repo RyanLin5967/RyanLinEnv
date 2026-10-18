@@ -30,7 +30,6 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 SWEEP = "aircraft-exploratory-sweep-v2"
@@ -112,7 +111,8 @@ class Arm:
         if stop and stop < max_steps:
             args += ["--stop-after-steps", str(stop)]
         if mode == "grpo":
-            args += ["--beta", repr(float(s["beta"])), "--temperature", repr(float(s["temperature"]))]
+            args += ["--beta", repr(float(s["beta"])),
+                     "--temperature", repr(float(s["temperature"]))]
             if s.get("screen_threshold"):
                 args += ["--screen-journal", str(self.out / "screen_journal.jsonl"),
                          "--screen-threshold", repr(float(s["screen_threshold"])),
@@ -136,7 +136,7 @@ class Arm:
         started = time.time()
         log = self.work / f"{label}.log"
         with log.open("w") as handle:
-            rc = subprocess.run([str(self.python), "-I", *args], env=self.env, stdout=handle,
+            rc = subprocess.run([str(self.python), "-s", "-P", *args], env=self.env, stdout=handle,
                                 stderr=subprocess.STDOUT).returncode
         tail = log.read_text().splitlines()[-25:]
         shutil.copy2(log, self.results / f"{label}.log.txt")
@@ -149,7 +149,8 @@ class Arm:
             raise SystemExit(f"REFUSE: stage {label} rc={rc}")
         receipt = json.loads((self.out / "endpoint_receipt.json").read_text())
         adapter = self.out / receipt["final_adapter"]["path"]
-        if sha_file(adapter / "adapter_model.safetensors") != receipt["final_adapter"]["weights_sha256"]:
+        weights = receipt["final_adapter"]["weights_sha256"]
+        if sha_file(adapter / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
@@ -164,7 +165,8 @@ class Arm:
             return self.payload / "adapters" / init / "final_adapter"
         path = self.root / "arms" / init["arm"] / "kept" / init["label"] / "final_adapter"
         receipt = json.loads((path.parent / "endpoint_receipt.json").read_text())
-        if sha_file(path / "adapter_model.safetensors") != receipt["final_adapter"]["weights_sha256"]:
+        weights = receipt["final_adapter"]["weights_sha256"]
+        if sha_file(path / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: kept init {path} differs from its endpoint receipt")
         return path
 
@@ -198,7 +200,7 @@ class Arm:
         profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS}, dtype=s.get("dtype", "float32"))
         labels = vlt.load_spec(self.spec_path)["labels"]
         manifest = self.payload / "data" / "manifests" / manifest_name
-        rows = [json.loads(l) for l in manifest.read_text().splitlines() if l.strip()]
+        rows = [json.loads(ln) for ln in manifest.read_text().splitlines() if ln.strip()]
         for r in rows:
             r["image"] = str((manifest.parent / r["image"]).resolve())
         stage = self.work / "assay" / label
@@ -272,7 +274,8 @@ def run(arm: Arm, final_check: bool) -> dict:
     if kind == "bench":
         load_start = os.getloadavg()[0]
         arm.run_stage("bench", arm.trainer_args(manifest, s["bench_steps"], None, None))
-        rows = [json.loads(l) for l in (arm.out / "optimizer_audit.jsonl").read_text().splitlines()]
+        audit = (arm.out / "optimizer_audit.jsonl").read_text().splitlines()
+        rows = [json.loads(ln) for ln in audit if ln.strip()]
         cum = [r["active_seconds"] for r in rows]
         per = [b - a for a, b in zip([0.0] + cum, cum)]
         steady = sorted(per[1:])
@@ -294,21 +297,24 @@ def run(arm: Arm, final_check: bool) -> dict:
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
-            "receipt_status": receipt["status"], "active_seconds": receipt["committed_active_seconds"],
+            "receipt_status": receipt["status"],
+            "active_seconds": receipt["committed_active_seconds"],
             "metrics": arm.assay(arm.out / "final_adapter", f"step{stop}", holdout)})
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
         previous = stop
         if receipt["status"] == "total_budget_exhausted":
             break
-    if s.get("time_budget_seconds") and summary["endpoints"][-1]["receipt_status"] != "total_budget_exhausted":
+    exhausted = summary["endpoints"][-1]["receipt_status"] == "total_budget_exhausted"
+    if s.get("time_budget_seconds") and not exhausted:
         resume = arm.out / f"checkpoint-{previous}"
         receipt = arm.run_stage("train-time", arm.trainer_args(
             manifest, total, None, resume, stop_seconds=float(s["time_budget_seconds"])))
         arm.keep_adapter("time")
         summary["endpoints"].append({
             "label": "time", "steps": receipt.get("global_step"),
-            "receipt_status": receipt["status"], "active_seconds": receipt["committed_active_seconds"],
+            "receipt_status": receipt["status"],
+            "active_seconds": receipt["committed_active_seconds"],
             "metrics": arm.assay(arm.out / "final_adapter", "time", holdout)})
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)

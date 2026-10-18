@@ -187,14 +187,14 @@ def main(argv=None) -> int:
                       capability=list(torch.cuda.get_device_capability(0)),
                       vram_bytes=torch.cuda.get_device_properties(0).total_memory)
     cpuinfo = Path("/proc/cpuinfo").read_text()
-    flags = next((l.split(":", 1)[1].split() for l in cpuinfo.splitlines()
-                  if l.startswith("flags")), [])
+    flags = next((ln.split(":", 1)[1].split() for ln in cpuinfo.splitlines()
+                  if ln.startswith("flags")), [])
     receipt = {
         "schema_version": 1, "study_id": "aircraft-exploratory-sweep-v2", "host": a.host,
         "root": str(a.root), "created_at": datetime.now(timezone.utc).isoformat(),
         "nproc": os.cpu_count(),
-        "cpu_model": next((l.split(":", 1)[1].strip() for l in cpuinfo.splitlines()
-                           if l.startswith("model name")), None),
+        "cpu_model": next((ln.split(":", 1)[1].strip() for ln in cpuinfo.splitlines()
+                           if ln.startswith("model name")), None),
         "avx2": "avx2" in flags, "avx512f": "avx512f" in flags,
         "payload": pay, "packages": pins, "model": {
             "dir": str(a.root / "model" / MODEL_DIR_NAME),

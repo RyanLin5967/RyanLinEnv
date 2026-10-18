@@ -56,8 +56,8 @@ def reference_pins(repo: Path) -> dict:
     if not {"torch", "torchvision", "transformers", "peft", "accelerate"} <= set(pins):
         raise SystemExit("refusing: reference venv lacks the core stack")
     python = (repo / REFERENCE_VENV / "pyvenv.cfg").read_text()
-    version = next(l.split("=")[1].strip() for l in python.splitlines()
-                   if l.startswith("version_info") or l.startswith("version "))
+    version = next(ln.split("=")[1].strip() for ln in python.splitlines()
+                   if ln.startswith("version_info") or ln.startswith("version "))
     return {"python": version, "packages": dict(sorted(pins.items()))}
 
 

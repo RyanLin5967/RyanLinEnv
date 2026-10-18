@@ -13,7 +13,8 @@ polls and fetches small files, so it is light enough for the Mac under quiet mod
                    [--max-launch N] [--timeout S] [--dry-run]
   runner.py bench --host H --kind grpo4|grpo8|sft [--steps N] [--threads 16]
   runner.py poll                           # status, fetch finished arms, resolve controls
-  runner.py promote --from-rung 1|2         # successive halving -> runs/.../arms-rung{2,3}.json
+  runner.py promote --from-rung 1|2 [--late] # successive halving -> runs/.../arms-rung{2,3}.json
+  runner.py derive sftall-seeds|sftall-rl  # data-scale replicas / SFT(all TRAIN) -> GRPO
   runner.py report [--resamples 20000]     # dev800 table + paired bootstrap vs matched SFT
 
 State lives in --state (default runs/aircraft-exploratory-sweep-v2/state.json in the root
@@ -34,7 +35,6 @@ import contextlib
 import fcntl
 import json
 import math
-import os
 import random
 import re
 import shlex
@@ -392,70 +392,169 @@ def control_for(rl: dict, control_lr: dict) -> dict:
 SFT_ACTIVE_CAP_SECONDS = 259200.0
 
 
+def promoted_arms(unit: str, xs: list, track: str, r: int, table: dict) -> list:
+    seeds_next = table["rung_seeds"][str(r + 1)]
+    updates_next = table["rung_updates"][str(r + 1)]
+    base = next(x for x in xs if x["seed"] == 42)
+    arms = []
+    for seed in seeds_next:
+        prev = next((x for x in xs if x["seed"] == seed), None)
+        arm = dict(base)
+        arm.update(id=f"{unit}@r{r + 1}-s{seed}", unit=unit, rung=r + 1, seed=seed,
+                   updates=updates_next, stops=[updates_next])
+        arm.pop("resume_stop", None)
+        if prev is not None:  # continue this seed's own trajectory in place
+            arm.update(work_id=prev.get("work_id", prev["id"]),
+                       resume_stop=prev["stops"][-1], same_host_as=prev["id"],
+                       train_manifest=prev["train_manifest"])
+        else:
+            arm.update(work_id=arm["id"], same_host_as=None,
+                       train_manifest=base["train_manifest"].replace("seed42", f"seed{seed}"))
+        arms.append(arm)
+        if track == "rl":
+            arms.append(control_for(arm, table["control_lr"]))
+    return arms
+
+
 def cmd_promote(a, state_path: Path) -> int:
-    """Rung r -> r+1. Within each track (sft, rl) rank units by dev800 accuracy at their
-    last step endpoint (rung 2+: mean over seeds; ties: equal-class accuracy, then valid
-    fraction); rung 1 keeps the top third (ceil), rung 2 the top 3. Every unit must have
-    finished; an arm that FAILED ranks last and is never promoted."""
+    """Rung r -> r+1 (pre-registered rule, docs/aircraft-exploratory-sweep-v2.md).
+
+    Within each track (sft, rl) rank units by dev800 accuracy at their last step endpoint
+    (rung 2+: mean over seeds; ties: equal-class accuracy, then valid fraction); rung 1 keeps
+    the top third (ceil), rung 2 the top 3. Only units that were launched take part; every
+    launched arm must have finished; a FAILED arm ranks last and is never promoted.
+    --late (after a promotion exists): units that finished since, and were not ranked then,
+    are promoted if they score >= the lowest unit promoted in their track; their arms are
+    appended to the existing rung table.
+    """
     state = read_state(state_path)
     r = a.from_rung
     src = DESIGN / "arms-rung1.json" if r == 1 else SWEEP_DIR / f"arms-rung{r}.json"
     table = json.loads(src.read_text())
-    seeds_next = table["rung_seeds"][str(r + 1)]
-    updates_next = table["rung_updates"][str(r + 1)]
     units = {}
     for x in table["arms"]:
         if x["track"] in ("sft", "rl") and x["rung"] == r:
             units.setdefault(x.get("unit", x["id"]), []).append(x)
-    pending = [x["id"] for xs in units.values() for x in xs
-               if (state["arms"].get(x["id"]) or {}).get("status") not in ("DONE", "FAILED")]
-    if pending and not a.allow_unfinished:
-        raise SystemExit(f"REFUSE: {len(pending)} rung-{r} arms unfinished, e.g. {pending[:3]}")
+    entered = {u: xs for u, xs in units.items()
+               if all(x["id"] in state["arms"] for x in xs)}
+    pending = [x["id"] for xs in entered.values() for x in xs
+               if state["arms"][x["id"]].get("status") not in ("DONE", "FAILED")]
+    if pending:
+        raise SystemExit(f"REFUSE: {len(pending)} launched rung-{r} arms unfinished, "
+                         f"e.g. {pending[:3]}")
     scored = {}
-    for unit, xs in units.items():
+    for unit, xs in entered.items():
         vals = [last_step_accuracy(state, x["id"]) for x in xs]
-        vals = [v for v in vals if v is not None]
-        mean = tuple(sum(v[i] for v in vals) / len(vals) for i in range(3)) if vals else None
-        scored[unit] = (mean if len(vals) == len(xs) else None, xs)
-    keep = {}
-    for track in ("sft", "rl"):
-        ranked = sorted((u for u, (m, xs) in scored.items() if xs[0]["track"] == track),
-                        key=lambda u: (scored[u][0] is not None, scored[u][0] or ()),
-                        reverse=True)
-        n = math.ceil(len(ranked) / 3) if r == 1 else min(3, len(ranked))
-        keep[track] = [u for u in ranked[:n] if scored[u][0] is not None]
-    arms = []
-    for track, kept in keep.items():
-        for unit in kept:
-            base = next(x for x in scored[unit][1] if x["seed"] == 42)
-            for seed in seeds_next:
-                prev = next((x for x in scored[unit][1] if x["seed"] == seed), None)
-                arm = dict(base)
-                arm.update(id=f"{unit}@r{r + 1}-s{seed}", unit=unit, rung=r + 1, seed=seed,
-                           updates=updates_next, stops=[updates_next])
-                arm.pop("resume_stop", None)
-                if prev is not None:  # continue this seed's own trajectory in place
-                    arm.update(work_id=prev.get("work_id", prev["id"]),
-                               resume_stop=prev["stops"][-1], same_host_as=prev["id"],
-                               train_manifest=prev["train_manifest"])
-                else:
-                    arm.update(work_id=arm["id"], same_host_as=None,
-                               train_manifest=base["train_manifest"].replace(
-                                   "seed42", f"seed{seed}"))
-                arms.append(arm)
-                if track == "rl":
-                    arms.append(control_for(arm, table["control_lr"]))
-    out = dict(table, rung=r + 1, arms=arms, promoted_from=str(src),
-               promotion={t: keep[t] for t in keep}, created_at=now())
+        ok = [v for v in vals if v is not None]
+        scored[unit] = (tuple(sum(v[i] for v in ok) / len(ok) for i in range(3))
+                        if ok and len(ok) == len(xs) else None)
+    key = f"{r}->{r + 1}"
     path = SWEEP_DIR / f"arms-rung{r + 1}.json"
+    previous = state.get("promotions", {}).get(key)
+    if a.late:
+        if previous is None:
+            raise SystemExit(f"REFUSE: --late needs an existing {key} promotion")
+        ranked_before = set(previous["ranked"])
+        added = {}
+        for track in ("sft", "rl"):
+            floor = min((tuple(previous["scores"][u]) for u in previous["kept"][track]),
+                        default=None)
+            added[track] = sorted(
+                u for u, m in scored.items()
+                if u not in ranked_before and entered[u][0]["track"] == track
+                and m is not None and floor is not None and m >= floor)
+        out = json.loads(path.read_text())
+        for track, us in added.items():
+            for u in us:
+                out["arms"] += promoted_arms(u, entered[u], track, r, table)
+                out["promotion"][track].append(u)
+        path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+        with state_lock(state_path) as st:
+            p = st["promotions"][key]
+            p["ranked"] = sorted(set(p["ranked"]) | set(scored))
+            p["scores"].update({u: list(m) for u, m in scored.items() if m is not None})
+            for track, us in added.items():
+                p["kept"][track] += us
+            p.setdefault("late", []).append({"at": now(), "added": added})
+        print(json.dumps({"late_added": added, "table": str(path)}, indent=1))
+        return 0
+    if path.exists() and not a.overwrite:
+        raise SystemExit(f"REFUSE: {path} exists; pass --overwrite to re-derive it")
+    keep, arms = {}, []
+    for track in ("sft", "rl"):
+        ranked = sorted((u for u in scored if entered[u][0]["track"] == track),
+                        key=lambda u: (scored[u] is not None, scored[u] or ()), reverse=True)
+        n = math.ceil(len(ranked) / 3) if r == 1 else min(3, len(ranked))
+        keep[track] = [u for u in ranked[:n] if scored[u] is not None]
+        for u in keep[track]:
+            arms += promoted_arms(u, entered[u], track, r, table)
+    out = dict(table, rung=r + 1, arms=arms, promoted_from=str(src),
+               promotion={t: list(keep[t]) for t in keep}, created_at=now())
+    path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+    with state_lock(state_path) as st:
+        st.setdefault("promotions", {})[key] = {
+            "table": str(path), "kept": keep, "ranked": sorted(scored),
+            "scores": {u: list(m) for u, m in scored.items() if m is not None},
+            "not_entered": sorted(set(units) - set(entered)), "at": now()}
+    print(json.dumps({"rung": r + 1, "kept": keep, "arms": len(arms), "table": str(path)},
+                     indent=1))
+    return 0
+
+
+# ---- data-scale derivations (pre-registered in the plan, "Data scale") ----------------
+def cmd_derive(a, state_path: Path) -> int:
+    """sftall-seeds: seeds 314 and 2718 of every sftall arm (full budget, rung 1 done).
+    sftall-rl: GRPO from the best sftall endpoint by dev800 accuracy (either epoch),
+    LR {1e-6, 5e-6, 1e-5}, G 8, beta 0.04, T 1.0 on s_train, each with a matched SFT
+    control from the same endpoint (LR 5e-6), all on the host that holds the endpoint."""
+    state = read_state(state_path)
+    table = json.loads((DESIGN / "arms-rung1.json").read_text())
+    sftall = [x for x in table["arms"] if x["track"] == "sftall"]
+    unfinished = [x["id"] for x in sftall
+                  if (state["arms"].get(x["id"]) or {}).get("status") != "DONE"]
+    if unfinished:
+        raise SystemExit(f"REFUSE: sftall rung-1 arms not DONE: {unfinished}")
+    arms = []
+    if a.what == "sftall-seeds":
+        for x in sftall:
+            for seed in (314, 2718):
+                arm = dict(x)
+                arm.update(id=f"{x['id']}-s{seed}", unit=x["id"], seed=seed,
+                           train_manifest=f"all_train_scan_seed{seed}.jsonl")
+                arms.append(arm)
+    else:
+        best = None
+        for x in sftall:
+            summary = json.loads((Path(state["arms"][x["id"]]["results_dir"])
+                                  / "summary.json").read_text())
+            for e in summary["endpoints"]:
+                m = e["metrics"]
+                score = (m["accuracy"], m["equal_class_accuracy"], m["valid_fraction"])
+                if best is None or score > best[0]:
+                    best = (score, x, e["label"])
+        score, parent, label = best
+        template = next(x for x in table["arms"] if x["family"] == "grpo-I")
+        for lr in (1e-6, 5e-6, 1e-5):
+            arm = dict(template)
+            arm.update(id=f"sftall2rl-{parent['id']}-{label}-lr{lr:.0e}-g8".replace("e-0", "e-"),
+                       family="sftall-rl", track="rl", init={"arm": parent["id"],
+                                                              "label": label},
+                       lr=lr, num_generations=8, beta=0.04, temperature=1.0,
+                       screen_threshold=None, same_host_as=parent["id"],
+                       derived_from={"arm": parent["id"], "label": label,
+                                     "dev800": list(score)})
+            arms.append(arm)
+            arms.append(control_for(arm, table["control_lr"]))
+    out = dict(table, rung=1, arms=arms, derived=a.what, created_at=now())
+    path = SWEEP_DIR / f"arms-{a.what}.json"
     if path.exists() and not a.overwrite:
         raise SystemExit(f"REFUSE: {path} exists; pass --overwrite to re-derive it")
     path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     with state_lock(state_path) as st:
-        st.setdefault("promotions", {})[f"{r}->{r + 1}"] = {
-            "table": str(path), "kept": keep, "at": now()}
-    print(json.dumps({"rung": r + 1, "kept": keep, "arms": len(arms), "table": str(path)},
-                     indent=1))
+        st.setdefault("derived", {})[a.what] = {"table": str(path), "arms": len(arms),
+                                               "at": now()}
+    print(json.dumps({"derived": a.what, "arms": [x["id"] for x in arms],
+                      "table": str(path)}, indent=1))
     return 0
 
 
@@ -546,7 +645,7 @@ def cmd_report(a, state_path: Path) -> int:
                 if cx.get("status") == "DONE":
                     s = json.loads((Path(cx["results_dir"]) / "summary.json").read_text())
                     labels = [e["label"] for e in s["endpoints"]]
-                    pick = [l for l in labels if l.startswith(label)]
+                    pick = [x for x in labels if x.startswith(label)]
                     ctl = endpoint(ctl_id, pick[-1]) if pick else None
                 if ctl is None:
                     continue
@@ -576,15 +675,15 @@ def main(argv=None) -> int:
     b.add_argument("--host", action="append", required=True)
     b.add_argument("--repin", action="store_true")
     sub.add_parser("receipts")
-    l = sub.add_parser("launch")
-    l.add_argument("--table", default=str(DESIGN / "arms-rung1.json"))
-    l.add_argument("--ids")
-    l.add_argument("--wave", type=int)
-    l.add_argument("--rung", type=int)
-    l.add_argument("--hosts")
-    l.add_argument("--max-launch", type=int, default=1000)
-    l.add_argument("--timeout", type=int, default=86400)
-    l.add_argument("--dry-run", action="store_true")
+    ln = sub.add_parser("launch")
+    ln.add_argument("--table", default=str(DESIGN / "arms-rung1.json"))
+    ln.add_argument("--ids")
+    ln.add_argument("--wave", type=int)
+    ln.add_argument("--rung", type=int)
+    ln.add_argument("--hosts")
+    ln.add_argument("--max-launch", type=int, default=1000)
+    ln.add_argument("--timeout", type=int, default=86400)
+    ln.add_argument("--dry-run", action="store_true")
     be = sub.add_parser("bench")
     be.add_argument("--host", required=True)
     be.add_argument("--kind", choices=("grpo4", "grpo8", "sft"), required=True)
@@ -593,16 +692,19 @@ def main(argv=None) -> int:
     be.add_argument("--timeout", type=int, default=14400)
     be.add_argument("--dry-run", action="store_true")
     sub.add_parser("poll")
+    dv = sub.add_parser("derive")
+    dv.add_argument("what", choices=("sftall-seeds", "sftall-rl"))
+    dv.add_argument("--overwrite", action="store_true")
     pr = sub.add_parser("promote")
     pr.add_argument("--from-rung", type=int, choices=(1, 2), required=True)
-    pr.add_argument("--allow-unfinished", action="store_true")
+    pr.add_argument("--late", action="store_true")
     pr.add_argument("--overwrite", action="store_true")
     r = sub.add_parser("report")
     r.add_argument("--resamples", type=int, default=20000)
     a = p.parse_args(argv)
     fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "launch": cmd_launch,
           "bench": cmd_bench, "poll": cmd_poll, "report": cmd_report,
-          "promote": cmd_promote}[a.cmd]
+          "promote": cmd_promote, "derive": cmd_derive}[a.cmd]
     return fn(a, a.state)
 
 

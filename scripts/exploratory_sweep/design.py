@@ -191,8 +191,10 @@ def fractional_grpo_w():
             continue
         cols = list(zip(*runs))
         def corr(x, y):
-            n = len(x); mx, my = sum(x) / n, sum(y) / n
-            vx = sum((a - mx) ** 2 for a in x); vy = sum((b - my) ** 2 for b in y)
+            n = len(x)
+            mx, my = sum(x) / n, sum(y) / n
+            vx = sum((a - mx) ** 2 for a in x)
+            vy = sum((b - my) ** 2 for b in y)
             return abs(sum((a - mx) * (b - my) for a, b in zip(x, y)) / (vx * vy) ** 0.5)
         worst = max(corr(cols[a], cols[b]) for a, b in itertools.combinations(range(5), 2))
         if best is None or worst < best[0]:
@@ -328,6 +330,7 @@ def controls_for(arms):
                    "screen_threshold")},
                 "max_pixels": a["max_pixels"], "response_format": "answer_only",
                 "max_active_seconds": SFT_ACTIVE_CAP_SECONDS,
+                "max_steps_total": a["max_steps_total"],
                 "features": [f for f in a["features"] if f == "cuda"],
             })
     return out
