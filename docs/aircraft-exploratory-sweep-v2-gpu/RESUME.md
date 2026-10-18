@@ -38,3 +38,8 @@ dev800 only; never native VAL or sealed TEST.
   04/05/06 requeued from scratch (arm dirs wiped), 03 continuation requeued as @c150r2.
 - Payload re-bootstrap: code-only via scratchpad/sh/boot_code.sh (hardlinks data from host payload; host_verify rehashes all).
 - 3070 workers (started 17:43/17:49) still run the OLD worker script (no GPU-free wait); arm_exec is re-read per arm.
+- AMENDMENT 1 (coordinator reprioritisation): SFT->RL. 24 GRPO-I arms added to gpu-arms.json (old 26 specs unchanged).
+  Queued prio 20-25: 6 bf16 GRPO-I per 3070, 3 fp32 GRPO-I on eceubuntu2. All pending GRPO-W specs renamed 6xx (behind).
+  W control queued: 59-gpu-rtx3070-grpo-W-lr2e-05-g8-b0.04-t1-n~ctl on ecetesla2.
+  NEXT on each GRPO-I arm finishing: fetch; raw; commit; `gpu_lane.py control --of ARM --host SAME --prio 0N`
+  (SFT continuation from I, LR 5e-6, E + time-matched T). Report: `gpu_lane.py report` (vs I, vs ctl E/T).
