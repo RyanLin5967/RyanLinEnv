@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scripts" / "freshpool_launch"
 EVALUATOR = ROOT / "scripts" / "evaluate_freshpool_gates.py"
 GiB = 1024**3
+PROTOCOL_ID = "fgvc-aircraft-freshpool-screened-grpo-v1"
+ACTIVATED_ID = "fgvc-aircraft-freshpool-screened-grpo-v1-activated-fixture"
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or not hasattr(os, "killpg"), reason="POSIX process groups"
@@ -138,6 +140,9 @@ class _MPS:
     def driver_allocated_memory(self):
         return int(os.environ.get("FAKE_DRIVER_BYTES", str(1024**3)))
 
+    def current_allocated_memory(self):
+        return 512 * 1024**2
+
 
 mps = _MPS()
 
@@ -180,17 +185,25 @@ def assay(run_id, split, adapter, correct):
                         "predictions": predictions(split, correct), "eos_fraction": 1.0}}
 
 
-def g1_document(p, mixed_groups):
+def g1_document(p, mixed_groups, non_canonical=0):
+    """``non_canonical``: how many of the correct completions (in rollout order) carry a
+    non-canonical tokenization [7, 7, 2] instead of the canonical [5, 2]."""
     u = 1 - p**4 - (1 - p) ** 4
     journal = [{"id": i, "p": p, "u": u, "accepted": u >= 0.5, "scorer_seconds": 1.0,
                 "adapter_sha256": W_SHA} for i in SCAN[:400]]
-    rollouts, index = [], 0
+    rollouts, index, seen = [], 0, 0
     for image in SCAN[:64]:
         for seed in (42, 314):
             correct = [True, True, False, False] if index < mixed_groups else [False] * 4
-            rollouts.append({"id": image, "seed": seed, "completions": [
-                {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True}
-                for c in correct]})
+            completions = []
+            for c in correct:
+                odd = c and seen < non_canonical
+                seen += int(odd)
+                completions.append({"correct": c, "valid": True, "eos": True,
+                                    "canonical_tokenization": not odd,
+                                    "completion_ids": [7, 7, 2] if odd else
+                                    [5, 2] if c else [3, 2]})
+            rollouts.append({"id": image, "seed": seed, "completions": completions})
             index += 1
     return {"seed": 42, "adapter_sha256": W_SHA, "scan_order": SCAN, "journal": journal,
             "rollouts": rollouts}
@@ -245,13 +258,19 @@ EXPECTED_ORDER = [
 ]
 
 
+# scripts/freshpool_launch/e0_gate.py's check set, written out.
+E0_CHECKS = (
+    "resume_2_plus_2_identical", "resume_1_plus_3_identical", "scan_follows_s_scan_seed42",
+    "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
+    "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
+    "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+)
+
+
 def scenario(p0_pass=True):
     s = {
-        "e0": {"payload": {"checks": {
-            "resume_2_plus_2_identical": True, "resume_1_plus_3_identical": True,
-            "reference_unchanged": True, "finite_nonzero_task_gradient": True,
-            "scorer_uses_sampler_transform": True},
-            "sampler_teacher_max_abs_logprob_difference": 0.0005}},
+        "e0": {"payload": {"checks": dict.fromkeys(E0_CHECKS, True),
+                           "sampler_teacher_max_abs_logprob_difference": 0.0005}},
         "W-h_select": assay("W", "h_select", W_SHA, 0),
         "W-h_gate": assay("W", "h_gate", W_SHA, 0),
         # p = 0.5: u = 0.875, every candidate accepted, 112 of 128 groups mixed.
@@ -307,6 +326,9 @@ RETIRED_RECORD = (
 
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
+TOKENIZATIONS = ["--screen-tokenizations", "{screen_tokenizations}"]
+# RL resumes its 150 checkpoint at 600, so it takes the constant {arm_cap}.
+RL_TAIL = ["--lr", "{lr}", "--cap", "{arm_cap}", *TOKENIZATIONS]
 RL_WRAPPER = ["--output", "{arm_dir}/trainer"]
 SEQUENTIAL_CYCLE = ["--order", "sequential", "--cycle"]
 SFT_E_TAIL = TRAIN_TAIL + SEQUENTIAL_CYCLE + [
@@ -352,13 +374,20 @@ class Fixture:
         manifests = self.tmp / "manifests"
         manifests.mkdir()
         h_select = list(o.get("h_select", H_SELECT))
+        # Every image a stage reads exists, relative to the manifest directory.
+        images = manifests / "img"
+        images.mkdir()
+        scan = o.get("scan", SCAN)
+        for i in [i for i, _ in h_select + H_GATE] + list(scan):
+            if i != o.get("missing_image"):
+                (images / f"{i}.jpg").write_bytes(b"jpg")
         for name, rows in (("h_select", h_select), ("h_gate", H_GATE)):
             jsonl(manifests / f"{name}.jsonl",
-                  [{"id": i, "split": "train", "image": f"{i}.jpg", "label": label}
+                  [{"id": i, "split": "train", "image": f"img/{i}.jpg", "label": label}
                    for i, label in rows])
         jsonl(manifests / "s_scan_seed42.jsonl",
-              [{"id": i, "split": "train", "image": f"{i}.jpg", "label": LABELS[n % 2]}
-               for n, i in enumerate(o.get("scan", SCAN))])
+              [{"id": i, "split": "train", "image": f"img/{i}.jpg", "label": LABELS[n % 2]}
+               for n, i in enumerate(scan)])
         # Pool: 2,919 before the audit, 3 pHash drops, so 2,916 = H (8) + S scan (1,300)
         # + 1,608 others (S drops and the unscanned remainder, written out here).
         drops = o.get("pool_drops", ["drop0", "drop1", "drop2"])
@@ -378,6 +407,7 @@ class Fixture:
             "phash_audit.json")}
         manifest = {"g0_audit_complete": o.get("audit_complete", True),
                     "forced_fire_passed": True, "files_sha256": files,
+                    "hash_protocol_id": o.get("manifest_salt", PROTOCOL_ID),
                     "counts": {"h_select": len(h_select), "h_gate": len(H_GATE),
                                "pool_drops": len(drops), "pool_after_audit": len(pool)}}
         (manifests / "manifest.json").write_text(json.dumps(manifest))
@@ -388,10 +418,21 @@ class Fixture:
         frozen = {"substantial_gain_gates": {"accuracy": 0.8}, "strong_baseline": {"m": "27B"}}
         candidate = receipts_dir / "candidate.json"
         candidate.write_text(json.dumps({"protocol_id": "candidate", **frozen}))
-        protocol = {"protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1",
-                    "activated": o.get("activated", True),
-                    "revises": {"path": str(candidate), "sha256": sha_file(candidate)},
+        salt = o.get("salt", PROTOCOL_ID)
+        revision = {"protocol_id": o.get("revision_id", PROTOCOL_ID),
+                    "activated": o.get("revision_activated", False),
+                    "data": {"train_holdout": {"hash_protocol_id": salt}},
+                    "revises": {"path": str(candidate), "sha256": sha_file(candidate),
+                                "baseline_discovery_salt": {"literal": salt}},
                     **frozen, **o.get("protocol_patch", {})}
+        revision_path = receipts_dir / "revision.json"
+        revision_path.write_text(json.dumps(revision))
+        protocol = {**revision, "protocol_id": o.get("activated_id", ACTIVATED_ID),
+                    "activated": o.get("activated", True), "status": "ACTIVATED",
+                    "activation": {"activates": {
+                        "path": str(revision_path),
+                        "sha256": o.get("revision_sha", sha_file(revision_path))}},
+                    **o.get("copy_patch", {})}
         branch = {"a_star": 0.75, "b4_edge_extension": False, "w_valid_eos": 0.99,
                   "w_evaluator_refused": o.get("w_evaluator_refused", False),
                   "w_val_accuracy": o.get("w_val_accuracy", 0.5), "d_req": 0.05,
@@ -402,7 +443,8 @@ class Fixture:
         paths = {name: receipts_dir / f"{name}.json" for name in contents}
         for name, content in contents.items():
             paths[name].write_text(content)
-        git(receipts_dir, "add", "candidate.json", *[p.name for p in paths.values()])
+        git(receipts_dir, "add", "candidate.json", "revision.json",
+            *[p.name for p in paths.values()])
         git(receipts_dir, "commit", "-q", "-m", "receipts")
         if o.get("uncommitted_protocol"):
             paths["protocol_revision"].write_text(contents["protocol_revision"] + "\n")
@@ -434,15 +476,16 @@ class Fixture:
                                         "--manifest", "{split_manifest}"]),
             "p0": template("assay", ["--scan", "{manifest_s_scan_seed42}",
                                      "--adapter", "{w_adapter}"]),
-            "rl150": template("train", RL_WRAPPER + ["--"] + TRAIN_TAIL
+            "rl150": template("train", RL_WRAPPER + ["--"] + RL_TAIL
                               + ["--stop-after-steps", "150"]),
             "rl600": template("train", RL_WRAPPER + ["--continue-output-from",
-                                                     "{resume_checkpoint}", "--"] + TRAIN_TAIL),
+                                                     "{resume_checkpoint}", "--"] + RL_TAIL),
             "sft_e": template("train", ["--output", "{arm_dir}/trainer", "--"] + SFT_E_TAIL),
             "sft_t": template("train", TRAIN_TAIL + [
                 "--train", "{scanned_manifest}", "--continue-from", "{parent_checkpoint}",
                 "--stop-after-active-seconds", "{t_rl}"]),
-            "egsft": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"]),
+            "egsft": template("train", TRAIN_TAIL + TOKENIZATIONS
+                              + ["--train", "{accepted_manifest}"]),
         }
         for name, patch in self.overrides.get("template_patch", {}).items():
             templates[name] = {**templates[name], **patch}
@@ -659,7 +702,8 @@ def test_stage_template_equals_form_is_accepted(tmp_path, monkeypatch, capsys):
     """Control for the refusals above: the flag=value spelling passes plan load."""
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch, template_patch={
-        "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + TRAIN_TAIL},
+        "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + RL_TAIL
+                  + ["--stop-after-steps=150"]},
         "sft_e": {"argv": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
                   + ["--stop-after-steps=600", "--max-steps=601", "--order=sequential",
                      "--cycle"]}})
@@ -1093,6 +1137,20 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
     ({"pool": [i for i, _ in H_SELECT[1:] + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1609)]},
      "g0_holdout_outside_pool"),
     ({"pool_drops": "drop0"}, "g0_pool_drop_list_invalid"),
+    # The activated copy: separately identified, otherwise the revision, salts unchanged.
+    ({"activated_id": PROTOCOL_ID}, "g0_activated_copy_not_separately_identified"),
+    ({"copy_patch": {"data": {"train_holdout": {"hash_protocol_id": ACTIVATED_ID}}}},
+     "g0_activated_copy_differs_from_revision"),
+    ({"copy_patch": {"exposure_and_staging": {"N_accepted_updates": 400}}},
+     "g0_activated_copy_differs_from_revision"),
+    ({"salt": ACTIVATED_ID}, "g0_protocol_salt_changed"),
+    ({"manifest_salt": ACTIVATED_ID}, "g0_manifest_salt_differs"),
+    ({"revision_activated": True}, "g0_protocol_revision_wrong_id"),
+    ({"revision_id": ACTIVATED_ID}, "g0_protocol_revision_wrong_id"),
+    ({"revision_sha": "0" * 64}, "g0_protocol_revision_missing_or_changed"),
+    # Every image a stage reads must exist where the trainer resolves it.
+    ({"missing_image": SCAN[700]}, "g0_manifest_image_missing"),
+    ({"missing_image": "c2"}, "g0_manifest_image_missing"),
 ])
 def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, reason):
     launch = load_launch()
@@ -1102,6 +1160,179 @@ def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, rea
     assert (printed["status"], printed["reason"]) == ("refused", reason)
     assert not (tmp_path / "state").exists()
     assert fixture.stages_called() == []
+
+
+def test_uncommitted_revision_is_refused(tmp_path, monkeypatch, capsys):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    revision = tmp_path / "receipts" / "revision.json"
+    protocol = Path(fixture.g0["receipts"]["protocol_revision"]["path"])
+    # Same bytes on disk, but the revision is no longer tracked: refuse.
+    git(tmp_path / "receipts", "rm", "-q", "--cached", "revision.json")
+    git(tmp_path / "receipts", "commit", "-q", "-m", "untrack the revision")
+    assert revision.is_file() and protocol.is_file()
+    assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert printed["reason"] == "g0_protocol_not_committed"
+
+
+@pytest.mark.parametrize("patch, reason", [
+    # rl600 resumes the rl150 checkpoint: its trainer arguments must be rl150's minus the
+    # 150 boundary, or the trainer refuses the resume after G2.
+    ({"rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + RL_TAIL + ["--beta", "0.0"]}, "rl600_template_differs_from_rl150"),
+    ({"rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + RL_TAIL + ["--stop-after-steps", "600"]}, "rl600_template_declares_stop_after_steps"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + RL_TAIL + ["--stop-after-steps", "100"]},
+     "rl150_template_stop_after_steps_not_150"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + RL_TAIL},
+     "rl150_template_stop_after_steps_not_150"),
+    # {active_cap} shrinks after a voided instance; the resume would then differ.
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + TRAIN_TAIL + TOKENIZATIONS
+      + ["--stop-after-steps", "150"],
+      "rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + TRAIN_TAIL + TOKENIZATIONS}, "rl_template_uses_active_cap_not_arm_cap"),
+    # The alt-tokenization switch reaches RL and EG-SFT only through this placeholder.
+    ({"egsft": COMMON + TRAIN_TAIL + ["--train", "{accepted_manifest}"]},
+     "template_screen_tokenizations_missing"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--", "--lr", "{lr}", "--cap", "{arm_cap}",
+                                      "--stop-after-steps", "150"],
+      "rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--",
+                                      "--lr", "{lr}", "--cap", "{arm_cap}"]},
+     "template_screen_tokenizations_missing"),
+])
+def test_rl_continuation_and_tokenization_templates_refused_at_plan_load(
+        tmp_path, monkeypatch, capsys, patch, reason):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, template_patch={
+        name: {"argv": argv} for name, argv in patch.items()})
+    assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
+    assert not (tmp_path / "state").exists()
+
+
+@pytest.mark.parametrize("patch", [
+    {"resume_2_plus_2_identical": False},
+    {"altered_reference_checkpoint_refused": False},
+    {"active_time_ledger_cumulative": None},
+])
+def test_e0_needs_every_check_true(tmp_path, monkeypatch, patch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["e0"]["payload"]["checks"].update(patch)
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "e0_failed"
+    assert first_order(fixture.stages_called()) == ["e0"]
+
+
+def test_e0_with_a_missing_or_extra_check_fails(tmp_path, monkeypatch):
+    for n, change in enumerate(("drop", "extra")):
+        launch = load_launch()
+        directory = tmp_path / str(n)
+        directory.mkdir()
+        fixture = Fixture(directory, monkeypatch)
+        checks = fixture.scenario["e0"]["payload"]["checks"]
+        if change == "drop":
+            del checks["useful_mixed_group"]
+        else:
+            checks["unreviewed_extra_check"] = True
+        fixture.write()
+        assert run_until_stop(launch, fixture)["stop_reason"] == "e0_failed"
+
+
+def test_non_python_process_naming_the_pattern_is_not_an_owner(tmp_path, monkeypatch):
+    """A shell (or grep, or an editor) whose command line names an owner pattern does not own
+    the accelerator; the control for test_second_owner_refuses."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, p0_pass=False)
+    shell = subprocess.Popen(["/bin/sh", "-c", f"sleep 60; : {fixture.sentinel}"])
+    try:
+        time.sleep(0.3)
+        assert [r for r in launch.processes() if fixture.sentinel in r[5]]
+        state = run_until_stop(launch, fixture)
+    finally:
+        shell.kill()
+        shell.wait()
+    assert state["stop_reason"] == "gate_failed"  # reached G1: no owner stop
+
+
+def test_python_program_reads_argv0_only():
+    launch = load_launch()
+    assert launch.python_program("/opt/homebrew/Cellar/python@3.12/Frameworks/Python x.py")
+    assert launch.python_program("/Users/x/.venv/bin/python -m vision_rl.vlm_local_training")
+    assert launch.python_program("python3.12 -B phase_worker.py")
+    assert not launch.python_program("rg vision_rl.vlm_local_training src")
+    assert not launch.python_program("/bin/zsh -c python -m vision_rl.vlm_local_training")
+    assert not launch.python_program("")
+
+
+def run_to_g2_stop(launch, fixture):
+    """Stop at the first RL stage's H-select assay, after the tokenization freeze."""
+    fixture.scenario["rl-1e-05-s42-u150-h_select"]["behaviour"] = {"exit": 9}
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "stage_failed"
+    return state
+
+
+def test_alt_tokenization_switch_off_freezes_an_empty_file(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    state = run_to_g2_stop(launch, fixture)
+    frozen = state["screen_tokenizations"]
+    document = json.loads(Path(frozen["path"]).read_text())
+    assert (document["switch"], document["sequences"], document["schema_version"]) == (
+        False, {}, 1)
+    assert document["non_canonical_share_of_correct"] == 0.0
+    rl = [c["argv"] for c in fixture.stages_called() if c["stage"] == "rl-1e-05-s42-u150"]
+    assert argv_value(rl[0], "--screen-tokenizations") == frozen["path"]
+
+
+def test_alt_tokenization_switch_fires_above_2_percent(tmp_path, monkeypatch):
+    # 112 mixed groups x 2 correct = 224 correct completions; 5 non-canonical = 2.23% > 2%.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["p0"]["payload"] = g1_document(0.5, 112, non_canonical=5)
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert document["switch"] is True
+    assert document["non_canonical_share_of_correct"] == 5 / 224
+    # SCAN[:64] alternate labels A/B by scan index; every correct completion is [5, 2] or
+    # [7, 7, 2], and the first 5 correct ones (images SCAN[0..2]) are the odd ones.
+    labels = {i: LABELS[n % 2] for n, i in enumerate(SCAN)}
+    odd_labels = {labels[SCAN[0]], labels[SCAN[1]], labels[SCAN[2]]}
+    expected = {label: ([[5, 2], [7, 7, 2]] if label in odd_labels else [[5, 2]])
+                for label in LABELS}
+    assert document["sequences"] == expected
+
+
+def test_alt_tokenization_at_exactly_2_percent_stays_off(tmp_path, monkeypatch):
+    # 100 mixed groups x 2 = 200 correct completions; 4 non-canonical = exactly 2%: not > 2%.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["p0"]["payload"] = g1_document(0.5, 100, non_canonical=4)
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert (document["switch"], document["sequences"]) == (False, {})
+
+
+def test_changed_tokenization_file_stops_the_next_stage(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    real_run = launch.Launcher.run
+
+    def tamper_then_run(self, stage_id, *args, **kwargs):
+        entry = self.state.get("screen_tokenizations")
+        if stage_id == "rl-5e-05-s42-u150" and entry:
+            Path(entry["path"]).write_text("{}")
+        return real_run(self, stage_id, *args, **kwargs)
+
+    monkeypatch.setattr(launch.Launcher, "run", tamper_then_run)
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "screen_tokenizations_changed"
+    assert "rl-5e-05-s42-u150" not in first_order(fixture.stages_called())
 
 
 def test_g0_fixture_passes_verify_only(tmp_path, monkeypatch, capsys):

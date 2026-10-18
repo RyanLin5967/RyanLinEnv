@@ -1,6 +1,6 @@
 """Sequence the aircraft-freshpool-screened-grpo-v1 seed-42 development stages, gate by gate.
 
-Study: runs/rl-next-study-design-v1/study.json (wins over study.md). Modelled on
+Study: docs/aircraft-freshpool-study-v1.json (wins over study.md). Modelled on
 runs/aircraft-controlled400-launch-v1/{launch.py,phase_worker.py} and
 runs/aircraft-controlled400-continuation-v1/continue.py, which stay frozen records.
 
@@ -43,7 +43,9 @@ directory (a stage writing it elsewhere stops as unmonitored) and sees rows at t
 interval; the owner scan matches command-line substrings, so an owner whose command line names
 none of the plan's patterns is invisible; the lock trusts that a dead lock pid was not
 reused; the per-arm cap is measured on launcher wall time (an upper bound on active time) and
-the trainer receives the same cap as its cumulative active-seconds limit; the fragment
+the trainer receives the same cap as its cumulative active-seconds limit; the owner scan reads
+only processes whose program is a Python interpreter, so a non-Python accelerator owner is not
+seen (a grep or editor whose command line names a pattern is not an owner); the fragment
 contents (predictions, adapter hashes, active seconds) are trusted as the stage wrote them,
 apart from the lineage checks below (cumulative seconds through the parent, accepted-prefix
 continuation, SFT-T stopping at the first step at or above T_RL).
@@ -81,6 +83,13 @@ G1_CANDIDATES, G1_ROLLOUTS = 400, 128  # 64 images x seeds 42, 314
 HAMMING_MAX, FORCED_FIRE_PAIRS = 6, 50  # study.json phash_audit forced_fire
 PROTOCOL_ID = "fgvc-aircraft-freshpool-screened-grpo-v1"
 FROZEN_PROTOCOL_KEYS = ("substantial_gain_gates", "strong_baseline")
+# The only top-level keys an activated copy may change relative to the revision it activates
+# (protocol activation_prerequisites: "freezes a separately identified activated protocol").
+ACTIVATION_KEYS = ("protocol_id", "status", "activated", "activation")
+# study.json fixed_profile.screening.alt_tokenization_switch: "if >2% of correct P0 samples
+# are non-canonical tokenizations, sum p over P0-observed tokenizations; frozen before G2".
+ALT_TOKENIZATION_SHARE = 0.02
+TOKENIZED_TEMPLATES = ("rl150", "rl600", "egsft")
 TRAIN_TEMPLATES = ("e0", "rl150", "rl600", "sft_e", "sft_t", "egsft")
 TEMPLATES = (*TRAIN_TEMPLATES, "assay", "p0")
 FORECASTS = ("e0", "p0", "assay_h_select", "assay_h_gate", "rl", "sft_e", "egsft")
@@ -101,6 +110,13 @@ RETIRED_HEDGE = re.compile(
 RECEIPTS = ("protocol_revision", "decision_record", "branch")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 GATE_ORDER = ("G1", "G2", "G3a", "G3b")
+# scripts/freshpool_launch/e0_gate.py CHECKS, written out (the launcher does not import it).
+E0_CHECKS = (
+    "resume_2_plus_2_identical", "resume_1_plus_3_identical", "scan_follows_s_scan_seed42",
+    "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
+    "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
+    "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+)
 
 
 class Stop(Exception):
@@ -239,8 +255,17 @@ def second_owners(patterns, own_groups=()):
     mine |= stage
     return [{"pid": pid, "command": command[:200]}
             for pid, _, _, stat, _, command in rows
-            if pid not in mine and not stat.startswith("Z")
+            if pid not in mine and not stat.startswith("Z") and python_program(command)
             and any(p in command for p in patterns)]
+
+
+def python_program(command):
+    """True when the command's program (argv[0]) is a Python interpreter: python, python3.12,
+    or the framework binary Python. A shell, grep or editor whose arguments merely name an
+    owner pattern is not an accelerator owner (a substring match on every command line would
+    let `rg vision_rl.vlm_local_training` stop a 30-hour study)."""
+    program = command.split(None, 1)[0] if command.strip() else ""
+    return re.fullmatch(r"python[0-9.]*", Path(program).name, re.I) is not None
 
 
 def git_committed(path):
@@ -371,6 +396,13 @@ def verify_stage_templates(templates):
     - rl150/rl600 give the wrapper exactly one ``--output`` under ``{arm_dir}``, so the live
       useful-mixed tail can see the trainer's reward_groups.jsonl (otherwise the stage would
       run to completion and only then stop as live_useful_mixed_unmonitored);
+    - rl600's trainer arguments equal rl150's without its single ``--stop-after-steps 150``,
+      and neither names ``{active_cap}``: the 600 continuation resumes the 150 checkpoint,
+      and the trainer refuses a resume whose settings differ (max_active_seconds included).
+      ``{active_cap}`` shrinks after a voided instance, so RL passes the constant
+      ``{arm_cap}``; the launcher's wall cap still charges the voided seconds;
+    - rl150, rl600 and egsft pass ``--screen-tokenizations {screen_tokenizations}``, the
+      alt-tokenization file the launcher freezes after G1 (empty unless the switch fires);
     - sft_e gives the trainer exactly ``--stop-after-steps 600`` and one integer
       ``--max-steps`` above 600, so SFT-E ends boundary_reached and SFT-T can continue it
       (otherwise every SFT-E arm would run and stop only at its fragment check), and
@@ -388,6 +420,11 @@ def verify_stage_templates(templates):
                 or not (target == "{arm_dir}" or target.startswith("{arm_dir}/"))
                 or ".." in target.split("/")):
             raise Stop("template_output_not_under_arm_dir", template=name, output=outputs)
+    verify_rl_continuation_templates(templates)
+    for name in TOKENIZED_TEMPLATES:
+        if flag_values(templates[name]["argv"], "--screen-tokenizations") != [
+                "{screen_tokenizations}"]:
+            raise Stop("template_screen_tokenizations_missing", template=name)
     _, trainer = wrapper_and_trainer(templates["sft_e"]["argv"])
     stops, maxes = flag_values(trainer, "--stop-after-steps"), flag_values(trainer, "--max-steps")
     if stops != [str(FINAL_UPDATES)]:
@@ -401,6 +438,33 @@ def verify_stage_templates(templates):
     if flag_values(trainer, "--order") != ["sequential"] or trainer.count("--cycle") != 1:
         raise Stop("sft_e_template_not_sequential_cycle",
                    order=flag_values(trainer, "--order"), cycle=trainer.count("--cycle"))
+
+
+def without_flag(argv, flag):
+    """``argv`` without every ``flag value`` pair and ``flag=value`` item."""
+    result, skip = [], False
+    for part in argv:
+        if skip:
+            skip = False
+        elif part == flag:
+            skip = True
+        elif not part.startswith(flag + "="):
+            result.append(part)
+    return result
+
+
+def verify_rl_continuation_templates(templates):
+    _, first = wrapper_and_trainer(templates["rl150"]["argv"])
+    _, second = wrapper_and_trainer(templates["rl600"]["argv"])
+    if flag_values(first, "--stop-after-steps") != [str(RL_SCREEN_UPDATES)]:
+        raise Stop("rl150_template_stop_after_steps_not_150",
+                   stop_after_steps=flag_values(first, "--stop-after-steps"))
+    if flag_values(second, "--stop-after-steps"):
+        raise Stop("rl600_template_declares_stop_after_steps")
+    if without_flag(first, "--stop-after-steps") != second:
+        raise Stop("rl600_template_differs_from_rl150")
+    if any("{active_cap}" in part for part in first):
+        raise Stop("rl_template_uses_active_cap_not_arm_cap")
 
 
 def verify_pins(plan):
@@ -443,6 +507,7 @@ def verify_manifest_content(directory, manifest, base, evaluator):
         raise Stop("g0_scan_invalid_or_overlaps_holdout")
     if scan != evaluator["scan_order"](scan, SEED):
         raise Stop("g0_scan_not_seed42_order")
+    verify_manifest_images(directory)
     audit = read_json(directory / "phash_audit.json")
     verify_pool(directory, manifest, audit, holdout, scan)
     fire = (audit or {}).get("forced_fire") if isinstance(audit, dict) else None
@@ -458,6 +523,21 @@ def verify_manifest_content(directory, manifest, base, evaluator):
     ):
         raise Stop("g0_forced_fire_not_demonstrated")
     return {"split_ids": splits, "scan_ids": scan}
+
+
+def verify_manifest_images(directory):
+    """Every row a stage reads (H-select, H-gate, S_scan_seed42) names an image file that
+    exists, resolved the way the trainer and the assays resolve it: against the manifest's
+    own directory. The G0 manifests carry paths relative to the development directory, so
+    without this check a launch would pass G0 and die at E0's first image."""
+    missing = []
+    for name in ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl"):
+        for row in read_jsonl(directory / name):
+            image = row.get("image") if isinstance(row, dict) else None
+            if not isinstance(image, str) or not (directory / image).resolve().is_file():
+                missing.append(f"{name}:{row.get('id') if isinstance(row, dict) else row}")
+    if missing:
+        raise Stop("g0_manifest_image_missing", count=len(missing), first=missing[:5])
 
 
 def verify_pool(directory, manifest, audit, holdout, scan):
@@ -487,13 +567,40 @@ def verify_pool(directory, manifest, audit, holdout, scan):
 
 
 def verify_protocol(path):
-    """G0 'protocol revision committed': the activated freshpool revision, committed, whose
-    frozen gates equal those of the committed candidate it names."""
+    """G0 'protocol revision committed': a separately identified ACTIVATED copy of the
+    committed, unactivated freshpool revision (protocol activation_prerequisites: root
+    "freezes a separately identified activated protocol ...; this JSON remains historical
+    candidate evidence"). The copy carries a new protocol_id and an ``activation`` block
+    naming the revision by path and SHA256; every other top-level field equals the
+    revision's, so the holdout salt (data.train_holdout.hash_protocol_id) and the
+    baseline-discovery salt stay the revision's literal id. Its frozen gates equal those of
+    the committed candidate the revision names, and all three files are committed."""
     protocol = read_json(path)
-    if not isinstance(protocol, dict) or protocol.get("protocol_id") != PROTOCOL_ID:
+    if not isinstance(protocol, dict):
         raise Stop("g0_protocol_revision_wrong_id")
     if protocol.get("activated") is not True:
         raise Stop("g0_protocol_revision_not_activated")
+    source = (protocol.get("activation") or {}).get("activates") or {}
+    revision_path = resolve(source.get("path", "/nonexistent"))
+    if not revision_path.is_file() or sha(revision_path) != source.get("sha256"):
+        raise Stop("g0_protocol_revision_missing_or_changed")
+    revision = read_json(revision_path)
+    if (not isinstance(revision, dict) or revision.get("protocol_id") != PROTOCOL_ID
+            or revision.get("activated") is not False):
+        raise Stop("g0_protocol_revision_wrong_id")
+    identifier = protocol.get("protocol_id")
+    if not isinstance(identifier, str) or not identifier.strip() or identifier == PROTOCOL_ID:
+        raise Stop("g0_activated_copy_not_separately_identified", protocol_id=identifier)
+    changed = sorted(key for key in set(protocol) | set(revision)
+                     if key not in ACTIVATION_KEYS and protocol.get(key) != revision.get(key))
+    if changed:
+        raise Stop("g0_activated_copy_differs_from_revision", fields=changed)
+    holdout = ((protocol.get("data") or {}).get("train_holdout") or {}).get("hash_protocol_id")
+    discovery = ((protocol.get("revises") or {}).get("baseline_discovery_salt") or {}).get(
+        "literal")
+    if holdout != PROTOCOL_ID or discovery != PROTOCOL_ID:
+        raise Stop("g0_protocol_salt_changed", hash_protocol_id=holdout,
+                   baseline_discovery_salt=discovery)
     revises = protocol.get("revises") or {}
     candidate_path = resolve(revises.get("path", "/nonexistent"))
     if not candidate_path.is_file() or sha(candidate_path) != revises.get("sha256"):
@@ -503,7 +610,7 @@ def verify_protocol(path):
             key not in protocol or protocol[key] != candidate.get(key)
             for key in FROZEN_PROTOCOL_KEYS):
         raise Stop("g0_protocol_frozen_gates_changed")
-    if not git_committed(path) or not git_committed(candidate_path):
+    if not all(git_committed(p) for p in (path, revision_path, candidate_path)):
         raise Stop("g0_protocol_not_committed")
 
 
@@ -562,6 +669,8 @@ def verify_g0(plan, evaluator):
     if manifest.get("g0_audit_complete") is not True or manifest.get(
             "forced_fire_passed") is not True:
         raise Stop("g0_audit_incomplete")
+    if manifest.get("hash_protocol_id") != PROTOCOL_ID:
+        raise Stop("g0_manifest_salt_differs", hash_protocol_id=manifest.get("hash_protocol_id"))
     files = manifest.get("files_sha256") or {}
     for name in REQUIRED_MANIFESTS:
         if name not in files:
@@ -747,6 +856,7 @@ class Launcher:
             return self.state["completed"][stage_id]["fragment"]
         template = self.plan["templates"][template_name]
         verify_pins(self.plan)
+        self.verify_screen_tokenizations()
         free = self.check_disk()
         self.check_owners()
         cap = CAP_FACTOR * forecast
@@ -782,10 +892,12 @@ class Launcher:
         substitutions = {
             "python": self.plan["python"], "stage_id": stage_id, "arm": arm,
             "stage_dir": str(stage_dir), "arm_dir": str(arm_dir), "fragment": str(fragment),
-            "seed": str(SEED), "active_cap": repr(cap - voided),
+            "seed": str(SEED), "active_cap": repr(cap - voided), "arm_cap": repr(cap),
             "w_adapter": self.plan["w_endpoint"][
                 "adapter_path"], **self.g0["manifests"], **values,
         }
+        if "screen_tokenizations" in self.state:
+            substitutions["screen_tokenizations"] = self.state["screen_tokenizations"]["path"]
         try:
             forwarded = [part.format_map(substitutions) for part in template["argv"]]
         except (KeyError, ValueError, IndexError) as exc:
@@ -986,11 +1098,11 @@ class Launcher:
 
     @staticmethod
     def e0_validator(f, cap):
+        """Exactly e0_gate.py's check set, every one true (protocol
+        real_learning_and_resume_gate), and sampler-teacher agreement <= 0.001."""
         checks = f.get("checks")
-        required = ("resume_2_plus_2_identical", "resume_1_plus_3_identical",
-                    "reference_unchanged", "finite_nonzero_task_gradient",
-                    "scorer_uses_sampler_transform")
-        if not isinstance(checks, dict) or any(checks.get(k) is not True for k in required):
+        if (not isinstance(checks, dict) or set(checks) != set(E0_CHECKS)
+                or any(checks[k] is not True for k in E0_CHECKS)):
             return "e0_failed"
         agreement = f.get("sampler_teacher_max_abs_logprob_difference")
         if not is_number(agreement) or not 0 <= agreement <= 0.001:
@@ -1161,7 +1273,7 @@ class Launcher:
         for split in SPLITS:
             self.assay("W", split, w["adapter_path"], w["adapter_sha256"])
         self.run("p0", "p0", "p0", forecast["p0"], {}, self.p0_validator)
-        self.gate("G1")
+        self.freeze_screen_tokenizations(self.gate("G1"))
 
         rl = {}
         for lr in self.grid:
@@ -1247,6 +1359,53 @@ class Launcher:
                       self.train_validator(run_id, "EG-SFT", lr, FINAL_UPDATES))
         self.assay_fragment(eg, "h_gate")
         self.final_check()
+
+    def freeze_screen_tokenizations(self, g1):
+        """study.json alt_tokenization_switch, frozen before any RL stage (so before G2):
+        when more than 2% of P0's correct samples are non-canonical tokenizations, the
+        screen sums p over every tokenization P0 observed for a label; otherwise over the
+        canonical one only. Either way one file is written and handed to every RL and
+        EG-SFT stage as ``{screen_tokenizations}``: empty ``sequences`` is the trainer's
+        canonical-only score."""
+        if "screen_tokenizations" in self.state:
+            return self.state["screen_tokenizations"]
+        share = (g1.get("values") or {}).get("non_canonical_share_of_correct")
+        if share is not None and (not is_number(share) or not 0 <= share <= 1):
+            raise Stop("g1_non_canonical_share_invalid", share=share)
+        switch = share is not None and share > ALT_TOKENIZATION_SHARE
+        sequences = {}
+        if switch:
+            labels = {}
+            for row in read_jsonl(self.g0["manifests"]["manifest_s_scan_seed42"]):
+                labels[row["id"]] = row["label"]
+            for group in self.state["completed"]["p0"]["fragment"]["rollouts"]:
+                for completion in group["completions"]:
+                    if completion.get("correct") is not True:
+                        continue
+                    ids = completion.get("completion_ids")
+                    if (not isinstance(ids, list) or not ids
+                            or any(type(t) is not int or t < 0 for t in ids)):
+                        raise Stop("p0_correct_completion_ids_missing", id=group.get("id"))
+                    sequences.setdefault(labels[group["id"]], set()).add(tuple(ids))
+            sequences = {label: [list(seq) for seq in sorted(found)]
+                         for label, found in sorted(sequences.items())}
+        path = self.ledger.directory / "screen_tokenizations.json"
+        write(path, {"schema_version": 1, "sequences": sequences, "switch": switch,
+                     "non_canonical_share_of_correct": share,
+                     "threshold_exclusive": ALT_TOKENIZATION_SHARE,
+                     "rule": "study.json fixed_profile.screening.alt_tokenization_switch"})
+        entry = {"path": str(path), "sha256": sha(path), "switch": switch, "share": share,
+                 "labels": len(sequences)}
+        self.state["screen_tokenizations"] = entry
+        self.ledger.save()
+        self.ledger.append("screen_tokenizations_frozen", **entry)
+        return entry
+
+    def verify_screen_tokenizations(self):
+        entry = self.state.get("screen_tokenizations")
+        if entry is not None and (not Path(entry["path"]).is_file()
+                                  or sha(entry["path"]) != entry["sha256"]):
+            raise Stop("screen_tokenizations_changed", path=entry["path"])
 
     def fragment(self, run_id):
         entry = self.state["completed"].get(run_id)
