@@ -269,10 +269,17 @@ class Arm:
         if type(ppu) is not int or not 1 <= ppu <= 32 or type(skip) is not bool:
             raise SystemExit("REFUSE: prompts_per_update must be an int in 1..32 and "
                              "skip_zero_advantage_steps a bool")
-        extra = [str(x) for x in s.get("extra_trainer_args", [])]
-        if {"--prompts-per-update", "--skip-zero-advantage-steps"} & set(extra):
-            raise SystemExit("REFUSE: pass prompts_per_update/skip_zero_advantage_steps as arm "
-                             "keys, not extra_trainer_args")
+        flags = ("--prompts-per-update", "--skip-zero-advantage-steps")
+        for token in (str(x).split("=", 1)[0] for x in s.get("extra_trainer_args", [])):
+            # argparse also accepts `--flag=value` and unique prefixes (`--skip`).
+            if len(token) > 2 and any(flag.startswith(token) for flag in flags):
+                raise SystemExit("REFUSE: pass prompts_per_update/skip_zero_advantage_steps "
+                                 f"as arm keys, not extra_trainer_args ({token})")
+        # The runner's host gate reads `features`: a P>1 arm must declare the feature, and an
+        # arm that declares it must set P>1 (else a "ppu" arm would silently run P=1).
+        if ("prompts_per_update" in s.get("features", [])) != (ppu != 1):
+            raise SystemExit("REFUSE: feature prompts_per_update and prompts_per_update > 1 "
+                             "must come together")
         if (ppu != 1 or skip) and mode != "grpo":
             raise SystemExit(f"REFUSE: prompts_per_update/skip_zero_advantage_steps are GRPO "
                              f"only, not {mode}")

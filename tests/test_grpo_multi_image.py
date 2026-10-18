@@ -522,23 +522,68 @@ def test_arm_exec_passes_the_multi_image_keys_to_the_trainer(tmp_path, monkeypat
         assert local.main(argv[2:]) == 0
         return seen[-1]
 
-    kw = trainer_kwargs_for(_arm(prompts_per_update=8, skip_zero_advantage_steps=True))
+    kw = trainer_kwargs_for(_arm(prompts_per_update=8, skip_zero_advantage_steps=True,
+                                 features=["prompts_per_update"]))
     assert kw["grpo_overrides"] == {"prompts_per_update": 8, "skip_zero_advantage_steps": True}
     assert kw["beta"] == 0.0 and kw["profile"].num_generations == 8
     # Legacy-valued keys are not passed, so the settings identity stays legacy.
     kw = trainer_kwargs_for(_arm(prompts_per_update=1, skip_zero_advantage_steps=False))
     assert "grpo_overrides" not in kw
     assert "grpo_overrides" not in trainer_kwargs_for(_arm())
+    kw = trainer_kwargs_for(_arm(skip_zero_advantage_steps=True))  # P 1 needs no feature
+    assert kw["grpo_overrides"] == {"skip_zero_advantage_steps": True}
+    feature = {"features": ["prompts_per_update"]}
     for bad, match in (
-        (_arm(mode="sft", prompts_per_update=8), "GRPO only"),
+        (_arm(mode="sft", prompts_per_update=8, **feature), "GRPO only"),
         (_arm(mode="rft", skip_zero_advantage_steps=True), "GRPO only"),
         (_arm(beta=0.04, skip_zero_advantage_steps=True), "beta 0"),
         (_arm(prompts_per_update=0), "1..32"),
         (_arm(prompts_per_update=True), "1..32"),
         (_arm(skip_zero_advantage_steps="true"), "bool"),
-        (_arm(prompts_per_update=8, extra_trainer_args=["--prompts-per-update", "4"]),
-         "arm keys"),
+        (_arm(prompts_per_update=8, extra_trainer_args=["--prompts-per-update", "4"],
+              **feature), "arm keys"),
+        (_arm(extra_trainer_args=["--prompts-per-update=4"]), "arm keys"),
+        (_arm(extra_trainer_args=["--skip", "true"]), "arm keys"),  # argparse prefix
+        (_arm(prompts_per_update=8), "must come together"),  # the host gate would miss it
+        (_arm(**feature), "must come together"),  # a "ppu" arm that would run P 1
     ):
         with pytest.raises(SystemExit, match=match):
             arm_exec.Arm(root, bad, tmp_path / "r").trainer_args(
                 tmp_path / "m.jsonl", 1500, 150, None)
+
+
+def test_stale_table_ppu_arms_refuse_instead_of_running_one_prompt(tmp_path):
+    """docs/.../arms-rung1.json's w2-ppu4 arms name the feature but set no P. Once a host
+    receipt lists prompts_per_update they become launchable, and must not train P=1."""
+    arm_exec = _load_script("arm_exec")
+    root = _arm_root(tmp_path)
+    table = json.loads((ROOT / "docs/aircraft-exploratory-sweep-v2/arms-rung1.json").read_text())
+    stale = [a for a in table["arms"] if "prompts_per_update" in a.get("features", [])]
+    assert [a["id"] for a in stale] == ["w2-ppu4-grpo-W-5e-6-g8", "w2-ppu4-grpo-W-1e-5-g8"]
+    for a in stale:
+        with pytest.raises(SystemExit, match="must come together"):
+            arm_exec.Arm(root, dict(a, init="I"), tmp_path / "r").trainer_args(
+                tmp_path / "m.jsonl", 1500, 150, None)
+
+
+def test_control_of_a_multi_image_arm_replays_every_committed_image(tmp_path):
+    runner = _load_script("runner")
+    res = tmp_path / "rl"
+    res.mkdir()
+    ids = [f"p{k}" for k in range(8)]  # hand value: 4 steps x P 2
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step4", "steps": 4, "active_seconds": 50.0}]}))
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": 4, "committed_prompt_ids": ids}))
+    state = {"arms": {"rl": {"status": "DONE", "results_dir": str(res)}}}
+    ctl = {"id": "rl~ctl", "control_of": "rl", "max_steps_total": 6}
+    spec = runner.control_spec(state, ctl)
+    assert spec["train_ids"] == ids and spec["stops"] == [8]
+    assert spec["max_steps_total"] == 12  # images: 6 RL steps x P 2
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": 4, "committed_prompt_ids": ids[:7]}))  # not P per step
+    with pytest.raises(SystemExit, match="does not match"):
+        runner.control_spec(state, ctl)
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": 4, "committed_prompt_ids": ids[:4]}))  # legacy P 1: unchanged
+    assert runner.control_spec(state, ctl)["max_steps_total"] == 6
