@@ -27,9 +27,11 @@ Deviations, pre-registered in dryrun_scale.py and here:
     That puts p in the screening band for three classes and near 0 for the fourth, so the
     screen both accepts and rejects. LoRA learning on it is negligible by construction;
   * W: a 2-step SFT of that model on the 16-image train400 stand-in;
-  * receipts: an activated COPY of docs/aircraft-rl-protocol-freshpool-v1.json and a branch
-    receipt, committed in a throwaway git repository; the decision record is the real one;
-  * E0: dryrun_e0.py, a dry-run entry (the production E0 entry does not exist yet).
+  * receipts: a byte copy of docs/aircraft-rl-protocol-freshpool-v1.json, a separately
+    identified activated copy of it (the form launch.py requires) and a branch receipt,
+    committed in a throwaway git repository; the decision record is the real one;
+  * E0: the production entry scripts/freshpool_launch/e0_gate.py, unchanged (4 vs 2+2 vs 1+3
+    plus the altered-reference resume), each trainer part through phase_worker.py --dry-run.
 
 Two launches, each from its own plan and fresh state directory:
   drive  - a gate the evaluator fails is journalled (dryrun_gate_forced) and then passed with
@@ -369,14 +371,18 @@ def build_fixture(root):
     receipts = root / "receipts"
     receipts.mkdir()
     git(receipts, "init", "-q")
-    activated = {**protocol, "activated": True,
-                 "status": "DRY-RUN FIXTURE: an activated copy for the CPU dry run only"}
+    revision = receipts / "revision.json"
+    revision.write_bytes((ROOT / "docs" / "aircraft-rl-protocol-freshpool-v1.json").read_bytes())
+    activated = {**protocol, "protocol_id": protocol["protocol_id"] + "-dryrun-activated",
+                 "activated": True,
+                 "status": "DRY-RUN FIXTURE: an activated copy for the CPU dry run only",
+                 "activation": {"activates": {"path": str(revision), "sha256": sha(revision)}}}
     write_json(receipts / "protocol_revision.json", activated)
     write_json(receipts / "branch.json", {
         "a_star": 0.75, "b4_edge_extension": False, "w_valid_eos": 0.99,
         "w_evaluator_refused": False, "w_val_accuracy": 0.5, "d_req": 0.05, "mode": "full",
         "fixture": "freshpool CPU dry run only"})
-    git(receipts, "add", "protocol_revision.json", "branch.json")
+    git(receipts, "add", "revision.json", "protocol_revision.json", "branch.json")
     git(receipts, "commit", "-q", "-m", "dry-run receipts")
     decision = ROOT / "docs" / "decision-log-2026-10-16-claude.md"
     evidence = root / "evidence-base.json"
@@ -405,16 +411,20 @@ def build_fixture(root):
 
 
 def templates(fixture):
-    trainer = ["--data-spec", str(fixture["spec"]), "--model-directory", str(fixture["model"]),
-               "--device", "cpu", "--train-only", "--save-steps", "1", *PROFILE_ARGS]
+    # The E0 entry owns --save-steps (it checkpoints every update), so it takes the rest.
+    unsaved = ["--data-spec", str(fixture["spec"]), "--model-directory", str(fixture["model"]),
+               "--device", "cpu", "--train-only", *PROFILE_ARGS]
+    trainer = [*unsaved, "--save-steps", "1"]
     inference = ["--data-spec", str(fixture["spec"]), "--model-directory",
                  str(fixture["model"]), "--device", "cpu", *PROFILE_ARGS]
     identity = ["--init-adapter", "{w_adapter}", "--learning-rate", "{lr}", "--seed", "{seed}",
                 "--stage-id", "{stage_id}"]
+    tokenizations = ["--screen-tokenizations", "{screen_tokenizations}"]
+    # {arm_cap}, not {active_cap}: rl600 resumes rl150's checkpoint with identical settings.
     rl = ["--mode", "grpo", "--train", "{manifest_s_scan_seed42}", *trainer, *identity,
           "--max-steps", str(scale.FINAL_UPDATES), "--target-accepted",
           str(scale.FINAL_UPDATES), "--screen-journal", "{arm_dir}/trainer/screen.jsonl",
-          "--max-active-seconds", "{active_cap}"]
+          "--max-active-seconds", "{arm_cap}", *tokenizations]
 
     def wrapper(arm, *extra):
         return ["--run-id", "{run_id}", "--arm", arm, "--lr", "{lr}", "--seed", "{seed}",
@@ -424,10 +434,10 @@ def templates(fixture):
            "--max-steps", str(scale.SFT_MAX_STEPS), "--max-active-seconds", "{active_cap}"]
     scan = ["--scan-manifest", "{manifest_s_scan_seed42}"]
     argv = {
-        "e0": ["--fragment", "{fragment}", "--stage-dir", "{stage_dir}", "--steps",
-               str(scale.E0_STEPS), "--", "--mode", "grpo", "--train",
-               "{manifest_s_scan_seed42}", *trainer, "--init-adapter", "{w_adapter}",
-               "--learning-rate", "0.0001", "--seed", "{seed}"],
+        "e0": ["--fragment", "{fragment}", "--stage-dir", "{stage_dir}", "--trainer-sha256",
+               sha(TRAINER_SOURCE), "--", "--mode", "grpo", "--train",
+               "{manifest_s_scan_seed42}", *unsaved, "--init-adapter", "{w_adapter}",
+               "--learning-rate", "0.0001", "--seed", "{seed}", "--beta", "0.04"],
         "assay": ["--run-id", "{run_id}", "--split", "{split}", "--manifest",
                   "{split_manifest}", "--adapter", "{adapter}", "--fragment", "{fragment}",
                   "--stage-dir", "{stage_dir}", *inference],
@@ -443,9 +453,10 @@ def templates(fixture):
                   "--stop-after-active-seconds", "{t_rl}"],
         "egsft": [*wrapper("EG-SFT"), "--mode", "egsft", "--order", "sequential", "--train",
                   "{accepted_manifest}", *trainer, *identity, "--max-steps",
-                  str(scale.FINAL_UPDATES), "--max-active-seconds", "{active_cap}"],
+                  str(scale.FINAL_UPDATES), "--max-active-seconds", "{active_cap}",
+                  *tokenizations],
     }
-    entries = {"e0": (HERE / "dryrun_e0.py", "dryrun_e0:main", "train"),
+    entries = {"e0": (LAUNCH_DIR / "e0_gate.py", "e0_gate:main", "train"),
                "assay": (LAUNCH_DIR / "h_assay.py", "h_assay:main", "assay"),
                "p0": (LAUNCH_DIR / "p0_screen.py", "p0_screen:main", "assay")}
     fragment = (LAUNCH_DIR / "trainer_fragment.py", "trainer_fragment:main", "train")
@@ -458,7 +469,7 @@ def templates(fixture):
 
 def write_plan(fixture, directory, sentinel):
     directory.mkdir(parents=True)
-    pinned = [EVALUATOR, REAL_EVALUATOR, HERE / "dryrun_scale.py", HERE / "dryrun_e0.py",
+    pinned = [EVALUATOR, REAL_EVALUATOR, HERE / "dryrun_scale.py", LAUNCH_DIR / "e0_gate.py",
               LAUNCH_DIR / "phase_worker.py", LAUNCH_DIR / "trainer_fragment.py",
               LAUNCH_DIR / "h_assay.py", LAUNCH_DIR / "p0_screen.py", TRAINER_SOURCE]
     manifest = fixture["manifest_dir"] / "manifest.json"
@@ -775,7 +786,7 @@ def main(argv=None):
         "fixture": fixture["summary"],
         "scaled": {"rl_screen_updates": scale.RL_SCREEN_UPDATES,
                    "final_updates": scale.FINAL_UPDATES, "cap_factor": scale.CAP_FACTOR,
-                   "pool_before_audit": POOL_BEFORE_AUDIT, "e0_steps": scale.E0_STEPS},
+                   "pool_before_audit": POOL_BEFORE_AUDIT, "e0_steps": 4},
     }
     write_json(work / "summary.json", summary)
     print(json.dumps(summary, indent=2, default=str), flush=True)

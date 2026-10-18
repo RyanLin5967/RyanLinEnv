@@ -187,3 +187,45 @@ diagnostics, never held-out results.
 - SFT-T's probe `gold_nll_improved` is None (not measured): a continuation takes no pre-score, and the parent's `after_train_gold_nll` is not comparable because the 8 diagnostic rows come from each run's own TRAIN (accepted vs scanned manifest). The docstring and comment that said the parent endpoint "is scored there" were corrected; nothing compares the two.
 - `run.py` `judge_strict` reports a gate_failed stop with no `gate_finished` event, or an unreadable report, as a problem instead of raising TypeError.
 - Not handled, stated in the launch README: SFT-T refuses if RL* accepted every scanned candidate (scanned == accepted manifest); the dry-run E0 entry is not the production E0 entry.
+
+## D19 — Freshpool production launch package; protocol activated; branch and D_req published (2026-10-17)
+- Activation: `docs/aircraft-rl-protocol-freshpool-v1-activated.json`, protocol id
+  `fgvc-aircraft-freshpool-screened-grpo-v1-activated-2026-10-17`, is a separately identified copy of
+  the unactivated revision `docs/aircraft-rl-protocol-freshpool-v1.json` (pinned by sha256 in its
+  `activation.activates`). Only `protocol_id`, `status`, `activated` and `activation` differ; both salts
+  (`data.train_holdout.hash_protocol_id`, `revises.baseline_discovery_salt.literal`) stay the literal
+  `fgvc-aircraft-freshpool-screened-grpo-v1`, equal to the G0 manifests' `hash_protocol_id`, so H and the
+  VAL discovery sample cannot reshuffle. `launch.py` now requires exactly this form. Frozen in the copy:
+  actor model revision and manifest, W (`f05840be…`), data spec, answer-only prompt text sha256, parser
+  grammar, trainer source sha256, processor file hashes, 27B baseline revision and manifest. The 27B
+  native profile is not frozen; it is selected on the VAL discovery sample before any full comparison and
+  is needed only at G6. Scope: seed-42 development through G3b and EG-SFT; VAL/TEST only via the
+  native-VAL package.
+- Branch (`docs/aircraft-freshpool-branch-receipt-v1.json`, from `reports/2026-10-17-controlled400-native-val/comparison.json`):
+  B0 pass (W valid+EOS 0.9727 ≥ 0.95, 0 evaluator failures); B1 pass (W 0.6784 in [0.15, 0.85]);
+  B2 a* = 0.7539 (sft-1e5-time), **D_req = 0.05, full mode** (G3a/G3b margin +0.02); an RL arm needs VAL
+  ≥ 0.8039 against an unchanged a*; B3 all six controlled400 SFT endpoints enter the pool; B4 best LR 1e-5
+  (best exposure-matched 5e-5), no 2e-4 arm; B5 W weights and config hashes equal controlled400's common
+  adapter, W VAL reused; B6 RL400 VAL 0.6982 is a stale-pool reference only.
+- Launch package: `scripts/freshpool_launch/production/` (`prepare.py` writes the receipts, evidence base
+  and `plan.json`; `start.py` is the single command; `chain.py` runs the launcher detached; `status.py`
+  monitors). The launch runs from a detached worktree at the merge commit
+  (`/Users/idide/wt/RyanLinEnv-freshpool-launch-v1.noindex`), so later edits to main cannot change a
+  running study's pinned files or receipts.
+- Production E0 entry `scripts/freshpool_launch/e0_gate.py` replaces the dry-run-only `dryrun_e0.py`:
+  4 vs 2+2 vs 1+3 updates, each trainer part in its own guarded process, plus an altered-reference resume
+  that must be refused; 11 checks, all required by the launcher. E0 learning rate 1e-4 (grid maximum).
+- Defects found while building it, fixed in the same PR: (1) the G0 manifests' image paths are relative to
+  `data/fgvc-aircraft-2013b/development/`, not to the manifest directory, so E0 would have died on its
+  first image; G0 now checks every H and scan image resolves, and `start.py` links
+  `manifests/images` to the development images; (2) RL passed `{active_cap}`, which shrinks after a voided
+  instance, so a 600 continuation after any interruption would have been refused by the trainer's resume
+  identity check; RL now passes the constant `{arm_cap}` and plan load requires rl600 = rl150 minus its
+  150 boundary; (3) the study's alt-tokenization switch (>2% non-canonical correct P0 samples) was not
+  implemented; the launcher now freezes the tokenization file after G1 and passes it to RL and EG-SFT;
+  (4) the study's EG-SFT estimate omitted EG-SFT's extra no-grad forward per update, so its 1.25x cap would
+  likely have tripped; the forecast is 600 x (5.64 + 0.97) s; (5) the owner scan matched any command line,
+  so a `grep` naming a pattern would stop the study; it now reads only Python programs.
+- Forecasts (caps are 1.25x): E0 7,200 s; P0 3,564 s; RL 13,338 s (study T_RL); SFT-E 3,384 s; EG-SFT
+  3,966 s; H-select/H-gate assays 2,513/4,608.8 s from the slowest measured 32-image chunk (controlled400
+  RL400 assay), since an assay cap only guards a hang.
