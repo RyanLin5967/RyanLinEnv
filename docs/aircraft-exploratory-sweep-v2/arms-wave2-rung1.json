@@ -167,7 +167,7 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--label-hierarchy",
-    "@payload/code/src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json",
+    "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json",
     "--family-credit",
     "0.5",
     "--manufacturer-credit",
@@ -208,7 +208,7 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--label-hierarchy",
-    "@payload/code/src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json",
+    "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json",
     "--family-credit",
     "0.5",
     "--manufacturer-credit",
@@ -249,7 +249,7 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--label-hierarchy",
-    "@payload/code/src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json",
+    "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json",
     "--family-credit",
     "0",
     "--manufacturer-credit",
@@ -293,7 +293,7 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--label-hierarchy",
-    "@payload/code/src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json",
+    "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json",
     "--family-credit",
     "0",
     "--manufacturer-credit",

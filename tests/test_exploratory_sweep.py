@@ -452,7 +452,7 @@ def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, mon
 
 # ---- wave 2 (plan amendment 3): concrete arms reach the trainer with their features ------
 wave2 = load("wave2_arms")
-HIERARCHY_ASSET = ROOT / "src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json"
+HIERARCHY_ASSET = ROOT / "scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json"
 
 
 def _fake_root(tmp_path):
@@ -461,7 +461,7 @@ def _fake_root(tmp_path):
     adapter.mkdir(parents=True)
     (adapter.parent / "local_training.json").write_text(
         json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
-    asset = root / "payload/code/src/vision_rl/aircraft_assets" / HIERARCHY_ASSET.name
+    asset = root / "payload/code/scripts/exploratory_sweep/assets" / HIERARCHY_ASSET.name
     asset.parent.mkdir(parents=True)
     asset.write_bytes(HIERARCHY_ASSET.read_bytes())
     return root, asset

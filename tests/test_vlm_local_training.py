@@ -4207,7 +4207,7 @@ def test_released_grpo_update_consumes_p_distinct_prompt_groups(tmp_path):
 
 
 def test_released_grpo_zero_advantage_updates_skip_only_when_opted_in(tmp_path):
-    import torch
+    torch = pytest.importorskip("torch")
 
     # Constant reward: every advantage of every update is exactly zero.
     trainer, _, calls, rows, initial = _ppu_grpo_run(
