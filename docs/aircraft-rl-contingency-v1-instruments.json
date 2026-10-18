@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "purpose": "Read-only snapshot of the gitignored local instruments cited in docs/aircraft-rl-contingency-v1.md section 1. runs/ is gitignored and aircraft-freshpool-v1 is live, so its files can change after this snapshot; the sha256 values are of the files at snapshot time.",
+  "snapshot_utc": "2026-10-18T06:46:46Z",
+  "screened_update_seconds": {
+    "source": "runs/aircraft-freshpool-v1/stages/e0/instance-1/fragment.json",
+    "source_sha256": "c1af4011517ab27094c4431265b1c0adcfe7cb45d7d17cf7f7ded605e0cd07a6",
+    "field": "measurements.update_seconds",
+    "values": [
+      29.007843459025025,
+      29.975236999976914,
+      32.09171100001549,
+      31.372300085029565
+    ],
+    "mean": 30.61177288601175,
+    "n": 4
+  },
+  "freshpool_journal": {
+    "source": "runs/aircraft-freshpool-v1/journal.jsonl",
+    "source_sha256_at_snapshot": "8f673ed3a6b7b5c915f51ced421457dc7f8c36287451bd0c063aec460b29143c",
+    "lines_at_snapshot": 16,
+    "note": "live append-only file; events copied verbatim",
+    "e0_stage_finished": {
+      "event": "stage_finished",
+      "time": 1792300281.5896902,
+      "stage": "e0",
+      "exit_code": 0,
+      "reason": null,
+      "elapsed_seconds": 2165.8269794999796,
+      "arm_wall_seconds": 2165.8269794999796,
+      "peak_group_rss_bytes": 9610051584,
+      "demoted": null
+    },
+    "w_h_select_stage_finished": {
+      "event": "stage_finished",
+      "time": 1792302097.991572,
+      "stage": "W-h_select",
+      "exit_code": 0,
+      "reason": null,
+      "elapsed_seconds": 1815.5610183749814,
+      "arm_wall_seconds": 1815.5610183749814,
+      "peak_group_rss_bytes": 12261195776,
+      "demoted": null
+    }
+  },
+  "mechanism32_gate_result": {
+    "source": "runs/aircraft-mechanism32-warm-v1/gate-result.json",
+    "source_sha256": "a3cca0f50266eb01d489f79e6ea8365b83ff4e03bf9012c8fe4eee54cc623372",
+    "plan_sha256": "9db91c2c04b1eed4571befdaa17c5d04e9c00390b07e12fb26c0dcc16bd04e02",
+    "answer_only": {
+      "completions": 256,
+      "correct": 181.0,
+      "canonical_valid": 243,
+      "complete_think_blocks": 0,
+      "generated_tokens": 1746,
+      "seeds": {
+        "314": {
+          "correct": 88.0,
+          "elapsed_seconds": 122.03306875000999
+        },
+        "42": {
+          "correct": 93.0,
+          "elapsed_seconds": 121.59811991600145
+        }
+      }
+    },
+    "think_then_answer": {
+      "completions": 256,
+      "correct": 142.0,
+      "canonical_valid": 212,
+      "complete_think_blocks": 4,
+      "generated_tokens": 1838,
+      "seeds": {
+        "314": {
+          "correct": 72.0,
+          "elapsed_seconds": 122.89628662499308
+        },
+        "42": {
+          "correct": 70.0,
+          "elapsed_seconds": 121.98952604099759
+        }
+      }
+    }
+  }
+}
