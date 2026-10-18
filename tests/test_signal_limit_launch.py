@@ -251,7 +251,7 @@ from pathlib import Path
 
 
 def main(argv):
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(allow_abbrev=False)  # --arm is not --arm-dir
     for name in ("--stage-id", "--fragment", "--arm-dir"):
         parser.add_argument(name)
     known, _ = parser.parse_known_args(argv)
@@ -531,7 +531,8 @@ def main(argv):
         if HOSTS.get(host) is None:
             return 255
         load, nproc, avail, uwruns, local, ready = HOSTS[host]
-        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{uwruns + running_on(host)}} {{local}} {{ready}}")
+        busy = uwruns + running_on(host)
+        print(f"uwprobe {{load}} {{nproc}} {{avail}} {{busy}} {{local}} {{ready}}")
         return 0
     if command == "run":
         options, rest = argv[1:argv.index("--")], argv[argv.index("--") + 1:]
@@ -975,7 +976,9 @@ def test_assay_without_constrained_greedy_stops(make):
                     reason="scripts/evaluate_signal_limit_gates.py is not in this tree")
 def test_local_sequence_passes_the_real_gates_evaluator(make):
     fixture = make(evaluator=REAL_EVALUATOR)
-    assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-1]
+    code = signal_limit.main(fixture.argv)
+    gates = [e for e in fixture.journal() if e["event"] == "gate_finished"]
+    assert code == 0, gates[-1:]
     state = fixture.state()
     assert state["status"] == "completed"
     assert state["selections"] == EXPECTED_SELECTIONS
