@@ -395,9 +395,35 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 - Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
 - Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
 
-## D35 — Signal-limit v1 production package on UW hosts; activation awaits root (PR #34)
+## D35 — RL-from-I corrections adopted; confirmatory pre-registration written, unactivated (2026-10-18)
+- Adopted as binding for every RL-from-I lane: `docs/aircraft-rl-lessons-audit-2026-10-18/CORRECTIONS.md` (sha256 cc392fa0…1dcf), a byte copy of the gitignored `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`. Its evidence, `audit.md` bfc3dd1b… (C1–C19) and `critic.md` ed9c3845… (M1–M12), is copied beside it. It has two parts:
+  - **GATE 0.** No new GRPO-I arm launches until four things are measured: P0-I, the SFT-from-I curve on the same labels, the dev800 calibration against native VAL, and the placebo pairs. P0-I is a no-go below about 5% pass@8 headroom.
+  - **Arm design rules.** These cover:
+    - fp32 GRPO unless a bf16 waiver is earned, and one device class per trajectory;
+    - the LR grid, β, dynamic sampling, the screened target and multi-image updates;
+    - controls with the same LR count and best-of-k, full label access, and time matching at each checkpoint;
+    - dropped families;
+    - pool rules that exclude the 477 near-duplicates and train400, and a rebuilt confusion map;
+    - the RL-from-sftall\* family;
+    - co-tenancy, the CUDA resume E0, a fixed rung schedule, and one shared look ledger.
+- Pre-registered before any dev800 winner exists, status UNACTIVATED: `docs/aircraft-rl-from-I-confirmatory-v1.{json,md}`. It fixes:
+  - **Intake.** At most K = 3 dev800-screened arms. Each must have passed GATE 0 and the arm rules, beaten a placebo-adjusted bar B = max(0.03, placebo max), and passed an h_gate sign check. Each is frozen by adapter sha256 before replicates or VAL.
+  - **Comparator pool.** One global pool: I re-scored, every SFT-from-I control LR with E and T endpoints, and sftall\* with its LR siblings, all scored in one look.
+  - **VAL gates.** Inherited from `substantial_rl`: ≥ 0.80, +0.05 over I, +0.05 over the strongest SFT, RER ≥ 0.20, and a lower bound > 0 on a Bonferroni 98.33% interval across K.
+  - **Replicates.** Seeds 314 and 2718, run from the same frozen I. I is never retrained.
+  - **One native-VAL scoring event**, with an append-only look ledger that discloses that VAL already selected I.
+  - **Evaluator.** The frozen 85f0865 evaluator on MPS fp32, or one validated fp32 equivalent.
+  - **Disclosures.** The 477 near-duplicates; the relabel from 4-shot to about 23 labelled images per class; the confusion-map/dev600 overlap.
+  - **Prerequisite.** A full-VAL named baseline: 3B CI run 39144098450 or 27B v2.
+  - **TEST.** A once-only sealed TEST for an allowlist of roles, opened only after a VAL pass.
+- Not activated. Activation needs, among other things, a committed GATE 0 go, `splits.json` on main, a completed full-VAL named baseline, and a reviewed validator with fire tests for every refusal id.
+
+## D36 — Signal-limit v1 production package on UW hosts; activation awaits root (PR #34)
 - Package `scripts/freshpool_launch/signal_limit_production/` (prepare, start with `--dry-run`, provision, unit-cost and smoke scripts). Plan `plan.json`, sha256 in `plan.sha256`; every stage runs on UWaterloo hosts through uwrun (`execution: uwaterloo`); the Mac only sequences, gates and journals.
-- Activated copies `docs/aircraft-rl-next-study-v1-activated.json` and `docs/aircraft-rl-protocol-signal-limit-v1-activated.json` differ from their sources only in status, activated and activation; `approved_by: root` is a placeholder. **Root activates by appending a line here naming both copies' sha256**; `start.py` refuses without it. protocol_id is unchanged (the split salt is a pinned literal).
+- Activated copies `docs/aircraft-rl-next-study-v1-activated.json` and `docs/aircraft-rl-protocol-signal-limit-v1-activated.json` differ from their sources only in status, activated and activation; `approved_by: root` is a placeholder. protocol_id is unchanged (the split salt is a pinned literal).
+- **Root activates by appending one line here of the form `- Root activation: <study sha256> <protocol sha256>`** (no hedge words); `start.py` refuses without it, and a sha256 mentioned anywhere else does not count.
+- **Before activating, root must resolve the conflicts with D35's binding CORRECTIONS**, listed row by row in `docs/aircraft-rl-next-study-v1-corrections-conflicts.md`: GATE 0 (P0-I spec, SFT-from-I curve, dev800 calibration, placebo), the LR grid ({1e-5, 5e-5, 1e-4} vs {1e-5, 2e-5, 5e-5} + 3e-6, Dr-GRPO 3e-5), control LR values and per-checkpoint time matching, dynamic sampling, the screened target rule, the multi-image family, canonical-only p, the old confusion map, sftall* start, co-tenancy, and H-gate margins vs sign-only. Consistent: FP32 on one device class (no bf16 parity needed), beta 0, controls on all scanned rows, no partial-credit reward or CoT, and the 477 VAL/TEST near-duplicates (0 in S_a, S_b, H; prepare.py refuses otherwise).
+- The launch runs a frozen, pinned copy of uwrun v5 (`signal_limit_production/uwrun.frozen`), because the shared tool keeps changing and a changed pin stops a running study.
 - Device (declared in each activation record): CPU FP32, Ryzen 9 5900X hosts ecetesla1/2/4, 16 threads. The 2080 Ti ran out of memory at GRPO G16 FP32, which Stage 0 must run; costs and the choice in `reports/2026-10-18-signal-limit-uw-cost/README.md`. Disclosed: W, I and the controlled400 pool were trained on MPS.
 - Smoke (not a look; TRAIN rows only): Stage 0 entry at G8, 2 steps, on ecetesla1: all 13 checks true, sampler-teacher difference 4.5e-6 (`reports/2026-10-18-signal-limit-uw-smoke/`).
 - Cost finding for root: A4 (HLS-SFT) measured 669 s/update here, 28x SFT; the study's plan assumed the SFT rate. A4 alone is about 111 h before Gate A.
