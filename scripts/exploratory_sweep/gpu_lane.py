@@ -159,7 +159,8 @@ def cmd_enqueue(a) -> int:
 def cmd_worker(a) -> int:
     state = load_state()
     name = f"rlegpu-worker-{a.host}-{int(time.time())}"
-    inner = (f"R={ROOT}; exec bash \"$R/payload/code/scripts/exploratory_sweep/gpu_worker.sh\" "
+    need = {"eceubuntu2": 10500}.get(a.host, 6500)  # MiB free before an arm starts
+    inner = (f"R={ROOT}; NEED_MIB={need} exec bash \"$R/payload/code/scripts/exploratory_sweep/gpu_worker.sh\" "
              f"\"$R\" \"$PWD/results\"")
     uw("run", "--host", a.host, "--threads", "4", "--timeout", str(a.timeout), "--name", name,
        "--", "bash", "-c", inner, timeout=600)
