@@ -524,3 +524,56 @@ def test_committed_freshpool_protocol_pins_the_holdout_salt():
         (SCRIPT.parents[1] / "docs/aircraft-rl-protocol-freshpool-v1.json").read_text()
     )
     assert FRESH.holdout_salt(protocol) == "fgvc-aircraft-freshpool-screened-grpo-v1"
+
+
+def hand_signal_limit(salt, rows):
+    """Independent re-statement of the S_a / S_b rule (aircraft-rl-next-study-v1), hashlib only."""
+    by_label = {}
+    for image_id, label in rows:
+        key = hashlib.sha256(
+            json.dumps([salt, "signal-limit-split", 791, label, image_id],
+                       separators=(",", ":")).encode()
+        ).hexdigest()
+        by_label.setdefault(label, []).append((key, image_id))
+    s_a, s_b = [], []
+    for label in sorted(by_label):
+        ranked = [image_id for _, image_id in sorted(by_label[label])]
+        s_a += [image_id for rank, image_id in enumerate(ranked, start=1) if rank % 2 == 1]
+        s_b += [image_id for rank, image_id in enumerate(ranked, start=1) if rank % 2 == 0]
+    return s_a, s_b
+
+
+def test_signal_limit_split_follows_the_registered_rule():
+    # Class A has 5 images (S_a 3, S_b 2), class B 2 (1 and 1), class C 4 (2 and 2).
+    rows = [(f"a{i}", "A") for i in range(5)] + [("b0", "B"), ("b1", "B")] + [
+        (f"c{i}", "C") for i in range(4)]
+    s_a, s_b = FRESH.split_signal_limit([row(i, label) for i, label in rows], PROTOCOL)
+    expected_a, expected_b = hand_signal_limit(PROTOCOL, rows)
+    assert ids(s_a) == expected_a and ids(s_b) == expected_b
+    assert [len([r for r in s_a if r["label"] == c]) for c in "ABC"] == [3, 1, 2]
+    assert [len([r for r in s_b if r["label"] == c]) for c in "ABC"] == [2, 1, 2]
+    assert sorted(ids(s_a) + ids(s_b)) == sorted(i for i, _ in rows)
+    other = hand_signal_limit(DECOY_PROTOCOL_ID, rows)
+    assert other != (expected_a, expected_b)  # fixture sanity: the salt matters here
+    assert ids(FRESH.split_signal_limit([row(i, label) for i, label in rows],
+                                        DECOY_PROTOCOL_ID)[0]) == other[0]
+
+
+def test_signal_limit_split_refuses_thin_classes_duplicates_and_empty_salt():
+    with pytest.raises(ValueError, match="fewer than 2"):
+        FRESH.split_signal_limit([row("a0", "A"), row("a1", "A"), row("b0", "B")], PROTOCOL)
+    with pytest.raises(ValueError, match="unique"):
+        FRESH.split_signal_limit([row("a0", "A"), row("a0", "A")], PROTOCOL)
+    with pytest.raises(ValueError, match="protocol_id"):
+        FRESH.split_signal_limit([row("a0", "A"), row("a1", "A")], "")
+
+
+@pytest.mark.parametrize("protocol", [
+    {"protocol_id": PROTOCOL},
+    {"protocol_id": PROTOCOL, "data": {"pool_split": {}}},
+    {"protocol_id": PROTOCOL, "data": {"pool_split": {"hash_protocol_id": " "}}},
+    {"protocol_id": PROTOCOL, "data": []},
+])
+def test_pool_split_salt_has_no_fallback_to_protocol_id(protocol):
+    with pytest.raises(ValueError, match="pool_split.hash_protocol_id"):
+        FRESH.pool_split_salt(protocol)
