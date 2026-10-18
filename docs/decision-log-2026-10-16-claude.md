@@ -390,3 +390,7 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 ## D33 — Qwen2.5-VL-3B free-CI named baseline activated (discovery first)
 - Activated copy docs/aircraft-named-baseline-ci-plan-v1-activated.json, sha256 8ae93e9969f636084329a875801e50c73f6cb149b1603dcf78bd0addd71e0901, from source plan 6914b1ad... (PR #27). Differs only in activated, status and activation. Plumbing passed on PR #27 head fca62ef, and every pipeline file is byte-identical on main.
 - Next: dispatch discovery (exactly 4 shards) from main with this copy. Commit the merged discovery-receipt.json before full VAL. Native VAL only; sealed TEST untouched.
+
+## D34 — Qwen2.5-VL-3B CI discovery receipt (run 39133341093)
+- Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
+- Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
