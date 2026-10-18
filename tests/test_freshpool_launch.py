@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scripts" / "freshpool_launch"
 EVALUATOR = ROOT / "scripts" / "evaluate_freshpool_gates.py"
 GiB = 1024**3
+PROTOCOL_ID = "fgvc-aircraft-freshpool-screened-grpo-v1"
+ACTIVATED_ID = "fgvc-aircraft-freshpool-screened-grpo-v1-activated-fixture"
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32" or not hasattr(os, "killpg"), reason="POSIX process groups"
@@ -55,6 +57,7 @@ SPLIT_ROWS = {"h_select": H_SELECT, "h_gate": H_GATE}
 # The S_scan_seed42 manifest: random.Random(42).shuffle(sorted(ids)), written out here.
 SCAN = sorted(f"x{i:04d}" for i in range(1300))
 random.Random(42).shuffle(SCAN)
+PYTHON_SHA = hashlib.sha256(Path(os.path.realpath(sys.executable)).read_bytes()).hexdigest()
 
 FAKE_TRAINER = '''
 import argparse, json, os, signal, subprocess, sys, time
@@ -138,6 +141,9 @@ class _MPS:
     def driver_allocated_memory(self):
         return int(os.environ.get("FAKE_DRIVER_BYTES", str(1024**3)))
 
+    def current_allocated_memory(self):
+        return 512 * 1024**2
+
 
 mps = _MPS()
 
@@ -180,17 +186,25 @@ def assay(run_id, split, adapter, correct):
                         "predictions": predictions(split, correct), "eos_fraction": 1.0}}
 
 
-def g1_document(p, mixed_groups):
+def g1_document(p, mixed_groups, non_canonical=0):
+    """``non_canonical``: how many of the correct completions (in rollout order) carry a
+    non-canonical tokenization [7, 7, 2] instead of the canonical [5, 2]."""
     u = 1 - p**4 - (1 - p) ** 4
     journal = [{"id": i, "p": p, "u": u, "accepted": u >= 0.5, "scorer_seconds": 1.0,
                 "adapter_sha256": W_SHA} for i in SCAN[:400]]
-    rollouts, index = [], 0
+    rollouts, index, seen = [], 0, 0
     for image in SCAN[:64]:
         for seed in (42, 314):
             correct = [True, True, False, False] if index < mixed_groups else [False] * 4
-            rollouts.append({"id": image, "seed": seed, "completions": [
-                {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True}
-                for c in correct]})
+            completions = []
+            for c in correct:
+                odd = c and seen < non_canonical
+                seen += int(odd)
+                completions.append({"correct": c, "valid": True, "eos": True,
+                                    "canonical_tokenization": not odd, "label_only": True,
+                                    "completion_ids": [7, 7, 2] if odd else
+                                    [5, 2] if c else [3, 2]})
+            rollouts.append({"id": image, "seed": seed, "completions": completions})
             index += 1
     return {"seed": 42, "adapter_sha256": W_SHA, "scan_order": SCAN, "journal": journal,
             "rollouts": rollouts}
@@ -208,12 +222,25 @@ def series(*pieces):
     return steps
 
 
-def train(run_id, arm, lr, updates, seconds, steps, manifests=None):
+# RL* (rl-1e-04-s42-u600) accepted SCAN[:600] and scanned SCAN[:1200]: SFT-E and EG-SFT
+# present exactly the accepted sequence; SFT-T presents SFT-E's, then the scanned sequence
+# from row 0, cycling (the trainer's continuation rule).
+RL_STAR_ACCEPTED, RL_STAR_SCANNED = SCAN[:600], SCAN[:1200]
+
+
+def sft_t_exposure(updates):
+    return RL_STAR_ACCEPTED + [RL_STAR_SCANNED[n % len(RL_STAR_SCANNED)]
+                               for n in range(updates - 600)]
+
+
+def train(run_id, arm, lr, updates, seconds, steps, manifests=None, exposure=None):
     payload = {"status": "completed", "run_id": run_id, "arm": arm, "lr": lr, "seed": 42,
                "updates": updates, "committed_active_seconds": seconds,
                "step_committed_active_seconds": steps,
                "adapter_sha256": sha_text(run_id), "reference_sha256": W_SHA,
-               "useful_mixed": [True] * updates if manifests else [], "make_checkpoint": True}
+               "useful_mixed": [True] * updates if manifests else [], "make_checkpoint": True,
+               "committed_prompt_ids": exposure if exposure is not None else (
+                   manifests["accepted"] if manifests else RL_STAR_ACCEPTED)}
     if manifests:
         payload["make_manifests"] = manifests
     return {"payload": payload}
@@ -245,13 +272,20 @@ EXPECTED_ORDER = [
 ]
 
 
+# scripts/freshpool_launch/e0_gate.py's check set, written out.
+E0_CHECKS = (
+    "resume_2_plus_2_identical", "resume_1_plus_3_identical", "scan_follows_s_scan_seed42",
+    "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
+    "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
+    "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+    "scorer_seconds_within_active_time",
+)
+
+
 def scenario(p0_pass=True):
     s = {
-        "e0": {"payload": {"checks": {
-            "resume_2_plus_2_identical": True, "resume_1_plus_3_identical": True,
-            "reference_unchanged": True, "finite_nonzero_task_gradient": True,
-            "scorer_uses_sampler_transform": True},
-            "sampler_teacher_max_abs_logprob_difference": 0.0005}},
+        "e0": {"payload": {"checks": dict.fromkeys(E0_CHECKS, True),
+                           "sampler_teacher_max_abs_logprob_difference": 0.0005}},
         "W-h_select": assay("W", "h_select", W_SHA, 0),
         "W-h_gate": assay("W", "h_gate", W_SHA, 0),
         # p = 0.5: u = 0.875, every candidate accepted, 112 of 128 groups mixed.
@@ -288,7 +322,8 @@ def scenario(p0_pass=True):
         # Continues SFT-E's clock at step 601 and stops at the first step >= T_RL.
         s[run_id] = train(run_id, "SFT-T", lr, SFT_T_UPDATES, T_RL,
                           series((601, SFT_T_UPDATES - 1, parent + 0.5, T_RL - 0.3),
-                                 (SFT_T_UPDATES, SFT_T_UPDATES, T_RL, T_RL)))
+                                 (SFT_T_UPDATES, SFT_T_UPDATES, T_RL, T_RL)),
+                          exposure=sft_t_exposure(SFT_T_UPDATES))
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["sft-t-5e-05-s42-h_gate"] = assay("sft-t-5e-05-s42", "h_gate",
                                         sha_text("sft-t-5e-05-s42"), 6)
@@ -307,6 +342,9 @@ RETIRED_RECORD = (
 
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
+TOKENIZATIONS = ["--screen-tokenizations", "{screen_tokenizations}"]
+# RL resumes its 150 checkpoint at 600, so it takes the constant {arm_cap}.
+RL_TAIL = ["--lr", "{lr}", "--cap", "{arm_cap}", *TOKENIZATIONS]
 RL_WRAPPER = ["--output", "{arm_dir}/trainer"]
 SEQUENTIAL_CYCLE = ["--order", "sequential", "--cycle"]
 SFT_E_TAIL = TRAIN_TAIL + SEQUENTIAL_CYCLE + [
@@ -352,13 +390,20 @@ class Fixture:
         manifests = self.tmp / "manifests"
         manifests.mkdir()
         h_select = list(o.get("h_select", H_SELECT))
+        # Every image a stage reads exists, relative to the manifest directory.
+        images = manifests / "img"
+        images.mkdir()
+        scan = o.get("scan", SCAN)
+        for i in [i for i, _ in h_select + H_GATE] + list(scan):
+            if i != o.get("missing_image"):
+                (images / f"{i}.jpg").write_bytes(b"jpg")
         for name, rows in (("h_select", h_select), ("h_gate", H_GATE)):
             jsonl(manifests / f"{name}.jsonl",
-                  [{"id": i, "split": "train", "image": f"{i}.jpg", "label": label}
+                  [{"id": i, "split": "train", "image": f"img/{i}.jpg", "label": label}
                    for i, label in rows])
         jsonl(manifests / "s_scan_seed42.jsonl",
-              [{"id": i, "split": "train", "image": f"{i}.jpg", "label": LABELS[n % 2]}
-               for n, i in enumerate(o.get("scan", SCAN))])
+              [{"id": i, "split": "train", "image": f"img/{i}.jpg", "label": LABELS[n % 2]}
+               for n, i in enumerate(scan)])
         # Pool: 2,919 before the audit, 3 pHash drops, so 2,916 = H (8) + S scan (1,300)
         # + 1,608 others (S drops and the unscanned remainder, written out here).
         drops = o.get("pool_drops", ["drop0", "drop1", "drop2"])
@@ -378,6 +423,7 @@ class Fixture:
             "phash_audit.json")}
         manifest = {"g0_audit_complete": o.get("audit_complete", True),
                     "forced_fire_passed": True, "files_sha256": files,
+                    "hash_protocol_id": o.get("manifest_salt", PROTOCOL_ID),
                     "counts": {"h_select": len(h_select), "h_gate": len(H_GATE),
                                "pool_drops": len(drops), "pool_after_audit": len(pool)}}
         (manifests / "manifest.json").write_text(json.dumps(manifest))
@@ -388,10 +434,21 @@ class Fixture:
         frozen = {"substantial_gain_gates": {"accuracy": 0.8}, "strong_baseline": {"m": "27B"}}
         candidate = receipts_dir / "candidate.json"
         candidate.write_text(json.dumps({"protocol_id": "candidate", **frozen}))
-        protocol = {"protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1",
-                    "activated": o.get("activated", True),
-                    "revises": {"path": str(candidate), "sha256": sha_file(candidate)},
+        salt = o.get("salt", PROTOCOL_ID)
+        revision = {"protocol_id": o.get("revision_id", PROTOCOL_ID),
+                    "activated": o.get("revision_activated", False),
+                    "data": {"train_holdout": {"hash_protocol_id": salt}},
+                    "revises": {"path": str(candidate), "sha256": sha_file(candidate),
+                                "baseline_discovery_salt": {"literal": salt}},
                     **frozen, **o.get("protocol_patch", {})}
+        revision_path = receipts_dir / "revision.json"
+        revision_path.write_text(json.dumps(revision))
+        protocol = {**revision, "protocol_id": o.get("activated_id", ACTIVATED_ID),
+                    "activated": o.get("activated", True), "status": "ACTIVATED",
+                    "activation": {"activates": {
+                        "path": str(revision_path),
+                        "sha256": o.get("revision_sha", sha_file(revision_path))}},
+                    **o.get("copy_patch", {})}
         branch = {"a_star": 0.75, "b4_edge_extension": False, "w_valid_eos": 0.99,
                   "w_evaluator_refused": o.get("w_evaluator_refused", False),
                   "w_val_accuracy": o.get("w_val_accuracy", 0.5), "d_req": 0.05,
@@ -402,7 +459,8 @@ class Fixture:
         paths = {name: receipts_dir / f"{name}.json" for name in contents}
         for name, content in contents.items():
             paths[name].write_text(content)
-        git(receipts_dir, "add", "candidate.json", *[p.name for p in paths.values()])
+        git(receipts_dir, "add", "candidate.json", "revision.json",
+            *[p.name for p in paths.values()])
         git(receipts_dir, "commit", "-q", "-m", "receipts")
         if o.get("uncommitted_protocol"):
             paths["protocol_revision"].write_text(contents["protocol_revision"] + "\n")
@@ -415,9 +473,18 @@ class Fixture:
             evidence_rows["h_gate"] = o["evidence_h_gate"]
         base.write_text(json.dumps({"labels": LABELS, "a_star": 0.75,
                                     "b4_edge_extension": False, "rows": evidence_rows}))
+        # The image-content pin, written out from its definition (manifest, id, file sha256
+        # per row, in manifest order); every fixture image holds b"jpg".
+        jpg = sha_text("jpg")
+        listing = "".join(f"{name}\t{i}\t{jpg}\n" for name, ids in (
+            ("h_select.jsonl", [i for i, _ in h_select]), ("h_gate.jsonl", [i for i, _ in H_GATE]),
+            ("s_scan_seed42.jsonl", list(scan))) for i in ids)
         self.g0 = {"manifest_dir": str(manifests),
                    "manifest_sha256": sha_file(manifests / "manifest.json"),
-                   "receipts": receipts}
+                   "receipts": receipts,
+                   "images_sha256": o.get("images_sha256", sha_text(listing))}
+        if "replaced_image" in o:
+            (images / f"{o['replaced_image']}.jpg").write_bytes(b"another jpg")
         self.base = {"path": str(base), "sha256": sha_file(base)}
 
     def write(self):
@@ -434,15 +501,16 @@ class Fixture:
                                         "--manifest", "{split_manifest}"]),
             "p0": template("assay", ["--scan", "{manifest_s_scan_seed42}",
                                      "--adapter", "{w_adapter}"]),
-            "rl150": template("train", RL_WRAPPER + ["--"] + TRAIN_TAIL
+            "rl150": template("train", RL_WRAPPER + ["--"] + RL_TAIL
                               + ["--stop-after-steps", "150"]),
             "rl600": template("train", RL_WRAPPER + ["--continue-output-from",
-                                                     "{resume_checkpoint}", "--"] + TRAIN_TAIL),
+                                                     "{resume_checkpoint}", "--"] + RL_TAIL),
             "sft_e": template("train", ["--output", "{arm_dir}/trainer", "--"] + SFT_E_TAIL),
             "sft_t": template("train", TRAIN_TAIL + [
                 "--train", "{scanned_manifest}", "--continue-from", "{parent_checkpoint}",
                 "--stop-after-active-seconds", "{t_rl}"]),
-            "egsft": template("train", TRAIN_TAIL + ["--train", "{accepted_manifest}"]),
+            "egsft": template("train", TRAIN_TAIL + TOKENIZATIONS
+                              + ["--train", "{accepted_manifest}"]),
         }
         for name, patch in self.overrides.get("template_patch", {}).items():
             templates[name] = {**templates[name], **patch}
@@ -454,15 +522,24 @@ class Fixture:
             "file_sha256": {str(self.evaluator): sha_file(self.evaluator),
                             str(PACKAGE / "phase_worker.py"): sha_file(
                                 PACKAGE / "phase_worker.py"),
-                            str(self.entry): entry_sha},
+                            str(self.entry): entry_sha,
+                            os.path.realpath(sys.executable): PYTHON_SHA},
             "environment": self.environment,
+            "python_resolved": os.path.realpath(sys.executable),
+            "import_root": None,
+            "quiet_file": str(self.overrides.get("quiet_file", self.tmp / "QUIET")),
             "limits": {"minimum_free_bytes": self.overrides.get("reserve", 5 * GiB),
                        "rss_limit_bytes": self.overrides.get("rss", 64 * GiB),
                        "survivor_grace_seconds": self.overrides.get("grace", 3),
-                       "poll_seconds": 0.05},
+                       "poll_seconds": 0.05,
+                       "stage_headroom_bytes": self.overrides.get("headroom", 0)},
             "forecast_seconds": {"e0": self.overrides.get("e0_forecast", 600), "p0": 600,
                                  "assay_h_select": 600, "assay_h_gate": 600, "rl": 2000,
                                  "sft_e": 600, "egsft": 600},
+            # Measured RL / EG-SFT forecasts are frozen after G1 from these and P0's own
+            # timing: G1 here has acceptance 1.0 and scorer 1.0 s, so RL = 600 x 2 s.
+            "forecast_sources": {"grpo_seconds_per_update": self.overrides.get("grpo_s", 1.0),
+                                 "sft_seconds_per_update": 1.0},
             "templates": templates,
             "b4_edge_extension": False,
             "w_endpoint": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "w")},
@@ -561,9 +638,15 @@ def test_interrupted_arm_is_rerun_from_scratch_never_resumed(tmp_path, monkeypat
     # The assays read the endpoint's final adapter, not its optimizer checkpoint.
     assert argv_value(by_stage["sft-t-5e-05-s42-h_gate"], "--adapter").endswith(
         "arms/sft-t-5e-05-s42/instance-1/final_adapter")
-    # 1.25x caps: RL 1.25 * 2000, SFT-T 1.25 * T_RL.
-    assert argv_value(by_stage["rl-5e-05-s42-u150"], "--cap") == "2500.0"
+    # 1.25x caps. RL's forecast is frozen after G1 from P0's measured timing, not the
+    # plan's assumed 2000 s: 600 x (grpo 1.0 s + scorer 1.0 s x 1 sequence / acceptance
+    # 1.0) = 1200 s, cap 1500 s. SFT-T 1.25 * T_RL.
+    assert state["measured_forecasts"]["rl"] == 1200.0
+    assert state["measured_forecasts"]["egsft"] == 1200.0  # 600 x (1.0 + 1.0 x 1)
+    assert argv_value(by_stage["rl-5e-05-s42-u150"], "--cap") == "1500.0"
     assert argv_value(sft_t, "--cap") == "1250.0"
+    frozen = [e for e in fixture.journal() if e["event"] == "forecasts_frozen_from_measured_pilot"]
+    assert len(frozen) == 1 and frozen[0]["plan_assumed"]["rl"] == 2000
     # Continuations count the parent's committed seconds against the arm cap: no reset.
     started = {e["stage"]: e for e in fixture.journal() if e["event"] == "stage_started"}
     assert started["rl-1e-04-s42-u600"]["inherited_seconds"] == 250.0
@@ -659,7 +742,8 @@ def test_stage_template_equals_form_is_accepted(tmp_path, monkeypatch, capsys):
     """Control for the refusals above: the flag=value spelling passes plan load."""
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch, template_patch={
-        "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + TRAIN_TAIL},
+        "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + RL_TAIL
+                  + ["--stop-after-steps=150"]},
         "sft_e": {"argv": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
                   + ["--stop-after-steps=600", "--max-steps=601", "--order=sequential",
                      "--cycle"]}})
@@ -863,7 +947,8 @@ def test_rss_guard_fires(tmp_path, monkeypatch):
     assert fixture.state()["stop_reason"] == "process_group_rss_limit"
 
 
-def test_second_owner_refuses(tmp_path, monkeypatch):
+def test_second_owner_present_before_launch_refuses_without_state(tmp_path, monkeypatch,
+                                                                  capsys):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch)
     owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
@@ -874,8 +959,32 @@ def test_second_owner_refuses(tmp_path, monkeypatch):
     finally:
         owner.kill()
         owner.wait()
-    assert fixture.state()["stop_reason"] == "second_accelerator_owner"
+    # Nothing started, so nothing is consumed: a refusal, not a single-use stop.
+    assert "second_accelerator_owner_present" in capsys.readouterr().out
+    assert not (tmp_path / "state").exists()
     assert fixture.stages_called() == []
+
+
+def test_second_owner_at_resume_refuses_and_keeps_the_study_running(tmp_path, monkeypatch,
+                                                                    capsys):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["e0"]["behaviour"] = {"interrupt_once": str(tmp_path / "once")}
+    fixture.write()
+    assert launch.main(fixture.argv) == 3
+    owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                              fixture.sentinel])
+    try:
+        time.sleep(0.3)
+        assert launch.main([*fixture.argv, "--resume"]) == 2
+    finally:
+        owner.kill()
+        owner.wait()
+    assert "second_accelerator_owner_present" in capsys.readouterr().out
+    state = fixture.state()
+    assert state["status"] == "running"
+    assert [e["event"] for e in fixture.journal()][-1] == "resume_refused_second_owner"
+    assert not (tmp_path / "state" / "lock").exists()
 
 
 def test_second_owner_appearing_mid_stage_stops_it(tmp_path, monkeypatch):
@@ -1093,6 +1202,24 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
     ({"pool": [i for i, _ in H_SELECT[1:] + H_GATE] + SCAN + [f"y{i:04d}" for i in range(1609)]},
      "g0_holdout_outside_pool"),
     ({"pool_drops": "drop0"}, "g0_pool_drop_list_invalid"),
+    # The activated copy: separately identified, otherwise the revision, salts unchanged.
+    ({"activated_id": PROTOCOL_ID}, "g0_activated_copy_not_separately_identified"),
+    ({"copy_patch": {"data": {"train_holdout": {"hash_protocol_id": ACTIVATED_ID}}}},
+     "g0_activated_copy_differs_from_revision"),
+    ({"copy_patch": {"exposure_and_staging": {"N_accepted_updates": 400}}},
+     "g0_activated_copy_differs_from_revision"),
+    ({"salt": ACTIVATED_ID}, "g0_protocol_salt_changed"),
+    ({"manifest_salt": ACTIVATED_ID}, "g0_manifest_salt_differs"),
+    ({"revision_activated": True}, "g0_protocol_revision_wrong_id"),
+    ({"revision_id": ACTIVATED_ID}, "g0_protocol_revision_wrong_id"),
+    ({"revision_sha": "0" * 64}, "g0_protocol_revision_missing_or_changed"),
+    # Every image a stage reads must exist where the trainer resolves it.
+    ({"missing_image": SCAN[700]}, "g0_manifest_image_missing"),
+    ({"missing_image": "c2"}, "g0_manifest_image_missing"),
+    # ... with the bytes G0 pinned.
+    ({"replaced_image": SCAN[5]}, "g0_image_content_differs"),
+    ({"replaced_image": "a1"}, "g0_image_content_differs"),
+    ({"images_sha256": None}, "g0_images_not_pinned"),
 ])
 def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, reason):
     launch = load_launch()
@@ -1102,6 +1229,238 @@ def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, rea
     assert (printed["status"], printed["reason"]) == ("refused", reason)
     assert not (tmp_path / "state").exists()
     assert fixture.stages_called() == []
+
+
+def test_uncommitted_revision_is_refused(tmp_path, monkeypatch, capsys):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    revision = tmp_path / "receipts" / "revision.json"
+    protocol = Path(fixture.g0["receipts"]["protocol_revision"]["path"])
+    # Same bytes on disk, but the revision is no longer tracked: refuse.
+    git(tmp_path / "receipts", "rm", "-q", "--cached", "revision.json")
+    git(tmp_path / "receipts", "commit", "-q", "-m", "untrack the revision")
+    assert revision.is_file() and protocol.is_file()
+    assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert printed["reason"] == "g0_protocol_not_committed"
+
+
+@pytest.mark.parametrize("patch, reason", [
+    # rl600 resumes the rl150 checkpoint: its trainer arguments must be rl150's minus the
+    # 150 boundary, or the trainer refuses the resume after G2.
+    ({"rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + RL_TAIL + ["--beta", "0.0"]}, "rl600_template_differs_from_rl150"),
+    ({"rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + RL_TAIL + ["--stop-after-steps", "600"]}, "rl600_template_declares_stop_after_steps"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + RL_TAIL + ["--stop-after-steps", "100"]},
+     "rl150_template_stop_after_steps_not_150"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + RL_TAIL},
+     "rl150_template_stop_after_steps_not_150"),
+    # {active_cap} shrinks after a voided instance; the resume would then differ.
+    ({"rl150": COMMON + RL_WRAPPER + ["--"] + TRAIN_TAIL + TOKENIZATIONS
+      + ["--stop-after-steps", "150"],
+      "rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--"]
+      + TRAIN_TAIL + TOKENIZATIONS}, "rl_template_uses_active_cap_not_arm_cap"),
+    # The alt-tokenization switch reaches RL and EG-SFT only through this placeholder.
+    ({"egsft": COMMON + TRAIN_TAIL + ["--train", "{accepted_manifest}"]},
+     "template_screen_tokenizations_missing"),
+    ({"rl150": COMMON + RL_WRAPPER + ["--", "--lr", "{lr}", "--cap", "{arm_cap}",
+                                      "--stop-after-steps", "150"],
+      "rl600": COMMON + RL_WRAPPER + ["--continue-output-from", "{resume_checkpoint}", "--",
+                                      "--lr", "{lr}", "--cap", "{arm_cap}"]},
+     "template_screen_tokenizations_missing"),
+])
+def test_rl_continuation_and_tokenization_templates_refused_at_plan_load(
+        tmp_path, monkeypatch, capsys, patch, reason):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, template_patch={
+        name: {"argv": argv} for name, argv in patch.items()})
+    assert launch.main(fixture.argv) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
+    assert not (tmp_path / "state").exists()
+
+
+@pytest.mark.parametrize("patch", [
+    {"resume_2_plus_2_identical": False},
+    {"altered_reference_checkpoint_refused": False},
+    {"active_time_ledger_cumulative": None},
+])
+def test_e0_needs_every_check_true(tmp_path, monkeypatch, patch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["e0"]["payload"]["checks"].update(patch)
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "e0_failed"
+    assert first_order(fixture.stages_called()) == ["e0"]
+
+
+def test_e0_with_a_missing_or_extra_check_fails(tmp_path, monkeypatch):
+    for n, change in enumerate(("drop", "extra")):
+        launch = load_launch()
+        directory = tmp_path / str(n)
+        directory.mkdir()
+        fixture = Fixture(directory, monkeypatch)
+        checks = fixture.scenario["e0"]["payload"]["checks"]
+        if change == "drop":
+            del checks["useful_mixed_group"]
+        else:
+            checks["unreviewed_extra_check"] = True
+        fixture.write()
+        assert run_until_stop(launch, fixture)["stop_reason"] == "e0_failed"
+
+
+def test_non_python_process_naming_the_pattern_is_not_an_owner(tmp_path, monkeypatch):
+    """A shell (or grep, or an editor) whose command line names an owner pattern does not own
+    the accelerator; the control for test_second_owner_refuses."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, p0_pass=False)
+    shell = subprocess.Popen(["/bin/sh", "-c", f"sleep 60; : {fixture.sentinel}"])
+    try:
+        time.sleep(0.3)
+        assert [r for r in launch.processes() if fixture.sentinel in r[5]]
+        state = run_until_stop(launch, fixture)
+    finally:
+        shell.kill()
+        shell.wait()
+    assert state["stop_reason"] == "gate_failed"  # reached G1: no owner stop
+
+
+def test_python_program_reads_argv0_only():
+    launch = load_launch()
+    assert launch.python_program("/opt/homebrew/Cellar/python@3.12/Frameworks/Python x.py")
+    assert launch.python_program("/Users/x/.venv/bin/python -m vision_rl.vlm_local_training")
+    assert launch.python_program("python3.12 -B phase_worker.py")
+    assert not launch.python_program("rg vision_rl.vlm_local_training src")
+    assert not launch.python_program("/bin/zsh -c python -m vision_rl.vlm_local_training")
+    assert not launch.python_program("")
+    # argv[0] with a space in its path is still the interpreter.
+    assert launch.python_program("/Users/x/Application Support/bin/python3 -m vision_rl.x")
+    assert launch.python_program("/usr/local/bin/python3.12-intel64 x.py")
+    assert launch.python_program("/usr/bin/pythonw x.py")
+
+
+def test_switch_ignores_correct_completions_that_are_not_the_bare_label(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    document = g1_document(0.5, 112, non_canonical=5)
+    for group in document["rollouts"]:
+        for completion in group["completions"]:
+            if completion["completion_ids"] == [7, 7, 2]:
+                completion["label_only"] = False  # e.g. a think block before the label
+    fixture.scenario["p0"]["payload"] = document
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    # 5 of 224 correct completions carry other token IDs, but none is a bare label, so none
+    # is a tokenization of gold+EOS: the share is 0 and the switch stays off (study: ">2%
+    # of correct P0 samples are non-canonical tokenizations").
+    assert document["non_canonical_share_of_correct"] == 0.0
+    assert (document["switch"], document["sequences"]) == (False, {})
+    assert state["measured_forecasts"]["inputs"]["mean_scored_sequences_per_row"] == 1.0
+
+
+def test_bare_label_alternates_below_2_percent_with_tagged_answers_stay_off(tmp_path,
+                                                                           monkeypatch):
+    # Reviewer's case: 4 bare-label alternates (4 / 224 = 1.79%) plus 3 tagged answers with
+    # other token IDs. Counting the tagged ones would make 7 / 224 = 3.1% and fire.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    document = g1_document(0.5, 112, non_canonical=7)
+    odd = [c for g in document["rollouts"] for c in g["completions"]
+           if c["completion_ids"] == [7, 7, 2]]
+    for completion in odd[4:]:
+        completion["label_only"] = False
+    fixture.scenario["p0"]["payload"] = document
+    state = run_to_g2_stop(launch, fixture)
+    frozen = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert frozen["non_canonical_share_of_correct"] == 4 / 224
+    assert (frozen["switch"], frozen["sequences"]) == (False, {})
+
+
+def test_undefined_non_canonical_share_stops(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    launcher = launch.Launcher.__new__(launch.Launcher)
+    launcher.state = {}
+    with pytest.raises(launch.Stop) as caught:
+        launcher.freeze_screen_tokenizations({"values": {"non_canonical_share_of_correct": None}})
+    assert caught.value.reason == "g1_non_canonical_share_undefined"
+    del fixture
+
+
+def run_to_g2_stop(launch, fixture):
+    """Stop at the first RL stage's H-select assay, after the tokenization freeze."""
+    fixture.scenario["rl-1e-05-s42-u150-h_select"]["behaviour"] = {"exit": 9}
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "stage_failed"
+    return state
+
+
+def test_alt_tokenization_switch_off_freezes_an_empty_file(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    state = run_to_g2_stop(launch, fixture)
+    frozen = state["screen_tokenizations"]
+    document = json.loads(Path(frozen["path"]).read_text())
+    assert (document["switch"], document["sequences"], document["schema_version"]) == (
+        False, {}, 1)
+    assert document["non_canonical_share_of_correct"] == 0.0
+    rl = [c["argv"] for c in fixture.stages_called() if c["stage"] == "rl-1e-05-s42-u150"]
+    assert argv_value(rl[0], "--screen-tokenizations") == frozen["path"]
+
+
+def test_alt_tokenization_switch_fires_above_2_percent(tmp_path, monkeypatch):
+    # 112 mixed groups x 2 correct = 224 correct completions; 5 non-canonical = 2.23% > 2%.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["p0"]["payload"] = g1_document(0.5, 112, non_canonical=5)
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert document["switch"] is True
+    assert document["non_canonical_share_of_correct"] == 5 / 224
+    # SCAN[:64] alternate labels A/B by scan index; every correct completion is [5, 2] or
+    # [7, 7, 2], and the first 5 correct ones (images SCAN[0..2]) are the odd ones.
+    labels = {i: LABELS[n % 2] for n, i in enumerate(SCAN)}
+    odd_labels = {labels[SCAN[0]], labels[SCAN[1]], labels[SCAN[2]]}
+    expected = {label: ([[5, 2], [7, 7, 2]] if label in odd_labels else [[5, 2]])
+                for label in LABELS}
+    assert document["sequences"] == expected
+    # Both labels carry one alternate besides the canonical sequence, and the trainer runs
+    # one forward per sequence: k = 2 for every S_scan row. Acceptance 1.0, scorer 1.0 s:
+    # RL = 600 x (1.0 + 1.0 x 2 / 1.0) = 1800 s, EG-SFT = 600 x (1.0 + 1.0 x 2) = 1800 s.
+    assert odd_labels >= set(LABELS)
+    measured = state["measured_forecasts"]
+    assert measured["inputs"]["mean_scored_sequences_per_row"] == 2.0
+    assert (measured["rl"], measured["egsft"]) == (1800.0, 1800.0)
+
+
+def test_alt_tokenization_at_exactly_2_percent_stays_off(tmp_path, monkeypatch):
+    # 100 mixed groups x 2 = 200 correct completions; 4 non-canonical = exactly 2%: not > 2%.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["p0"]["payload"] = g1_document(0.5, 100, non_canonical=4)
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert (document["switch"], document["sequences"]) == (False, {})
+
+
+def test_changed_tokenization_file_stops_the_next_stage(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    real_run = launch.Launcher.run
+
+    def tamper_then_run(self, stage_id, *args, **kwargs):
+        entry = self.state.get("screen_tokenizations")
+        if stage_id == "rl-5e-05-s42-u150" and entry:
+            Path(entry["path"]).write_text("{}")
+        return real_run(self, stage_id, *args, **kwargs)
+
+    monkeypatch.setattr(launch.Launcher, "run", tamper_then_run)
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "screen_tokenizations_changed"
+    assert "rl-5e-05-s42-u150" not in first_order(fixture.stages_called())
 
 
 def test_g0_fixture_passes_verify_only(tmp_path, monkeypatch, capsys):
@@ -1279,3 +1638,227 @@ def test_voided_instance_time_is_charged_to_the_arm_cap(tmp_path, monkeypatch):
     # The re-run was stopped well before its own 3 s: only the remainder was available.
     assert finished[-1]["elapsed_seconds"] < 2.5
     assert finished[-1]["arm_wall_seconds"] >= 5.0
+
+
+# ---------------------------------------------------------------- PR #17 review fixes
+
+
+@pytest.mark.parametrize("command, owner", [
+    # Ordinary test runs name owner scripts only inside a test file's name: not owners.
+    ("/v/bin/python -m pytest tests/test_local_vision.py", False),
+    ("/v/bin/python -m pytest -q tests/test_aircraft_named_baseline.py", False),
+    ("/v/bin/python -m pytest tests/test_vlm_local_training.py", False),
+    # The programs themselves are.
+    ("/v/bin/python scripts/local_vision.py --x", True),
+    ("/v/bin/python /r/scripts/aircraft_named_baseline.py run", True),
+    ("/v/bin/python -m vision_rl.vlm_local_training --mode grpo", True),
+    ("/v/bin/python -m mlx_vlm.generate --model m", True),
+    ("/v/bin/python /s/site-packages/mlx_vlm/server.py", True),
+    ("/v/bin/python -c import mlx_vlm; mlx_vlm.load()", True),
+    ("/v/bin/python -B /r/scripts/freshpool_launch/phase_worker.py --stage e0 -- x", True),
+])
+def test_owner_patterns_match_whole_words_not_substrings(command, owner):
+    launch = load_launch()
+    patterns = json.loads((PACKAGE / "production" / "plan.json").read_text())["owner_patterns"]
+    assert any(launch.names_pattern(command, p) for p in patterns) is owner
+
+
+def test_dry_run_phase_worker_and_its_descendants_are_not_owners(monkeypatch):
+    launch = load_launch()
+    me = os.getpid()
+    rows = [
+        # pid, ppid, pgid, stat, rss, command, nice
+        (101, 1, 101, "S", 0, "/v/python -B /r/phase_worker.py --stage s --dry-run -- x", 0),
+        (102, 101, 101, "S", 0, "/v/python -m vision_rl.vlm_local_training --device cpu", 0),
+        (201, 1, 201, "S", 0, "/v/python -B /r/phase_worker.py --stage s -- --dry-run", 0),
+        (301, 1, 301, "S", 0, "/v/python -m vision_rl.vlm_local_training --device mps", 0),
+        (me, 1, me, "S", 0, "/v/python launch.py", 0),
+    ]
+    monkeypatch.setattr(launch, "processes", lambda: rows)
+    found = launch.second_owners(["phase_worker.py", "vision_rl.vlm_local_training"])
+    # 201's --dry-run is forwarded to the entry (after --), so it is a real-device worker.
+    assert [p["pid"] for p in found] == [201, 301]
+
+
+def wait_for(condition, seconds=20):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_orphan_stage_group_is_reaped_only_when_it_is_ours(tmp_path):
+    launch = load_launch()
+    stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+                             start_new_session=True)
+    try:
+        assert wait_for(lambda: launch.process_started(stage.pid))
+        state = {"running_stage": {"stage": "e0", "instance": 1, "pgid": stage.pid,
+                                   "leader_started": "Thu Jan  1 00:00:00 1970"}}
+        # A reused pgid (other start time) is left alone.
+        record = launch.reap_orphan_stage(state, tmp_path)
+        assert record["outcome"] == "group_not_ours_left_alone" and stage.poll() is None
+        state["running_stage"]["leader_started"] = launch.process_started(stage.pid)
+        assert launch.reap_orphan_stage(state, tmp_path)["outcome"] == "stopped"
+        assert stage.wait(timeout=30) is not None
+    finally:
+        if stage.poll() is None:
+            stage.kill()
+            stage.wait()
+    assert launch.reap_orphan_stage(state, tmp_path)["outcome"] == "already_gone"
+    assert launch.reap_orphan_stage({}, tmp_path) is None
+
+
+def test_lock_with_a_reused_pid_is_stale(tmp_path):
+    launch = load_launch()
+    ledger = launch.Ledger(tmp_path)
+    ledger.state = {"journal_bytes": 0}
+    # This test's own pid is alive, but with another start time: a pid reused after a reboot.
+    (tmp_path / "lock").write_text(f"{os.getpid()}\nThu Jan  1 00:00:00 1970\n")
+    lock = launch.acquire_lock(ledger)
+    pid, started = launch.read_lock(lock)
+    assert pid == os.getpid() and started == launch.process_started(os.getpid())
+    assert [e["event"] for e in map(json.loads, (tmp_path / "journal.jsonl").read_text()
+                                    .splitlines())] == ["stale_lock_removed"]
+    with pytest.raises(launch.Stop, match="another_launcher_holds_the_lock"):
+        launch.acquire_lock(ledger)  # the real holder: refused
+    (tmp_path / "lock").write_text(str(os.getpid()))  # old one-line format: ask
+    with pytest.raises(launch.Stop, match="lock_unreadable"):
+        launch.acquire_lock(ledger)
+
+
+def test_a_second_signal_cannot_interrupt_the_cleanup():
+    launch = load_launch()
+    previous = {s: signal.getsignal(s) for s in launch.INTERRUPTS}
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            launch.interrupt_once(signal.SIGTERM, None)
+        assert all(signal.getsignal(s) is signal.SIG_IGN for s in launch.INTERRUPTS)
+    finally:
+        for s, handler in previous.items():
+            signal.signal(s, handler)
+
+
+def test_all_zombie_group_is_stopped_not_crashed():
+    """macOS answers killpg with EPERM for a group whose members are all zombies; that
+    used to escape stop_group as an unexpected_exception study stop."""
+    launch = load_launch()
+    child = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    assert wait_for(lambda: all(r[3].startswith("Z") for r in launch.processes()
+                                if r[0] == child.pid))
+    assert launch.group_alive(child.pid) is False
+    launch.stop_group(child, child.pid, grace=1)
+    assert child.returncode == 0
+
+
+def pins_plan(tmp_path, **patch):
+    tree = tmp_path / "src"
+    (tree / "vision_rl").mkdir(parents=True)
+    module = tree / "vision_rl" / "x.py"
+    module.write_text("X = 1\n")
+    python = tmp_path / "python"
+    python.symlink_to(os.path.realpath(sys.executable))
+    real = os.path.realpath(sys.executable)
+    plan = {"python": str(python), "python_resolved": real, "import_root": str(tree),
+            "environment": {"PYTHONPATH": f"{tree}{os.pathsep}{tmp_path / 'other'}"},
+            "file_sha256": {str(module): sha_file(module), real: PYTHON_SHA}}
+    plan.update(patch)
+    return plan, tree, python
+
+
+def test_pins_follow_the_interpreter_link_and_the_import_tree(tmp_path):
+    launch = load_launch()
+    plan, tree, python = pins_plan(tmp_path)
+    launch.verify_pins(plan)
+    # A brew upgrade moves the venv's link: refused before the next stage.
+    python.unlink()
+    python.symlink_to("/bin/sh")
+    with pytest.raises(launch.Stop, match="interpreter_link_changed"):
+        launch.verify_pins(plan)
+    python.unlink()
+    python.symlink_to(os.path.realpath(sys.executable))
+    # An untracked sitecustomize.py would run unpinned in every stage.
+    (tree / "sitecustomize.py").write_text("")
+    with pytest.raises(launch.Stop, match="unpinned_importable_file"):
+        launch.verify_pins(plan)
+    (tree / "sitecustomize.py").unlink()
+    (tree / "vision_rl" / "__pycache__").mkdir()
+    (tree / "vision_rl" / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"")
+    launch.verify_pins(plan)  # cached bytecode is only used next to its pinned source
+    # The stages must import the tree the pins were checked against, first on the path.
+    plan["environment"]["PYTHONPATH"] = f"{tmp_path / 'other'}{os.pathsep}{tree}"
+    with pytest.raises(launch.Stop, match="import_root_not_first_on_pythonpath"):
+        launch.verify_pins(plan)
+    plan["import_root"] = None
+    with pytest.raises(launch.Stop, match="unpinned_import_tree_on_pythonpath"):
+        launch.verify_pins(plan)
+    del plan["import_root"]
+    with pytest.raises(launch.Stop, match="import_root_not_stated"):
+        launch.verify_pins(plan)
+
+
+def test_quiet_mode_is_waited_out_before_a_stage(tmp_path, monkeypatch):
+    launch = load_launch()
+    monkeypatch.setattr(launch, "QUIET_POLL_SECONDS", 0.05)
+    quiet = tmp_path / "QUIET"
+    quiet.write_text("")
+    fixture = Fixture(tmp_path, monkeypatch, quiet_file=quiet)
+    fixture.scenario["e0"]["behaviour"] = {"exit": 9}  # stop right after e0 starts
+    fixture.write()
+
+    def lift():
+        wait_for(lambda: (tmp_path / "state" / "journal.jsonl").exists() and any(
+            e["event"] == "quiet_mode_wait" for e in fixture.journal()))
+        assert fixture.stages_called() == []  # nothing ran while quiet
+        quiet.unlink()
+
+    thread = threading.Thread(target=lift)
+    thread.start()
+    try:
+        assert launch.main(fixture.argv) == 2
+    finally:
+        thread.join()
+    events = [e["event"] for e in fixture.journal()]
+    assert events.index("quiet_mode_cleared") < events.index("stage_started")
+
+
+def test_thin_disk_before_a_stage_pauses_resumably(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, reserve=5 * GiB, headroom=2**62)
+    assert launch.main(fixture.argv) == 3
+    state = fixture.state()
+    assert state["status"] == "running" and "disk_headroom_before_stage" in state[
+        "next_action"]
+    assert fixture.journal()[-1]["event"] == "launch_paused"
+    assert fixture.stages_called() == []
+
+
+def test_sft_t_is_charged_the_voided_seconds_of_its_sft_e_parent(tmp_path, monkeypatch):
+    # SFT-E 5e-5 (the SFT-T parent at G3a's first qualifying LR) is interrupted once after
+    # >= 1 s; its void stays charged to the SFT-T lineage, as RL 150's is to RL 600.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["sft-e-5e-05-s42"]["behaviour"] = {
+        "interrupt_once": str(tmp_path / "once"), "sleep_before_interrupt": 1.0}
+    fixture.write()
+    assert launch.main(fixture.argv) == 3
+    assert launch.main([*fixture.argv, "--resume"]) == 0
+    state = fixture.state()
+    void = state["void_seconds_by_arm"]["sft-e-5e-05-s42"]
+    assert void >= 1.0
+    started = {e["stage"]: e for e in fixture.journal() if e["event"] == "stage_started"}
+    assert started["sft-t-5e-05-s42"]["lineage"] == ["sft-e-5e-05-s42"]
+    assert started["sft-t-5e-05-s42"]["void_seconds"] == void
+    assert started["sft-t-1e-04-s42"]["void_seconds"] == 0.0
+
+
+def test_sft_exposure_must_be_rl_star_accepted_sequence(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["sft-e-1e-05-s42"]["payload"]["committed_prompt_ids"] = (
+        RL_STAR_ACCEPTED[1:] + RL_STAR_ACCEPTED[:1])
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "exposure_differs_from_rl_star_accepted_sequence"

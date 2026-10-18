@@ -321,13 +321,31 @@ def test_sft_t_through_the_wrapper_continues_sft_e_and_satisfies_sft_t_check(
     record = json.loads((tmp_path / "sft-t" / "local_training.json").read_text())
     assert record["settings"]["continuation"]["parent_global_step"] == 3
     # The launcher's own SFT-T checks accept the real wrapper's fragment...
+    scanned = tmp_path / "scanned.jsonl"
     host = SimpleNamespace(plan={"w_endpoint": {"adapter_sha256": W_SHA}}, g0={})
     validate = launch.Launcher.train_validator(
-        host, "sft-t-1e-05-s42", "SFT-T", 1e-05, check=launch.Launcher.sft_t_check(parent, 55.0))
+        host, "sft-t-1e-05-s42", "SFT-T", 1e-05,
+        check=launch.Launcher.sft_t_check(parent, 55.0, scanned))
     assert validate(fragment, 1000.0) is None
+    # Its exposure is SFT-E's three presentations, then the scanned sequence from row 0.
+    assert fragment["committed_prompt_ids"] == [*parent["committed_prompt_ids"],
+                                                *SCAN_IDS[:3]]
     # ...and fire on it when T_RL says the run went a step too far.
-    assert launch.Launcher.sft_t_check(parent, 45.0)(fragment) == (
+    assert launch.Launcher.sft_t_check(parent, 45.0, scanned)(fragment) == (
         "sft_t_overshoots_first_boundary_at_t_rl")
+    # ...or when the exposure is not the scanned sequence from row 0.
+    shifted = write_manifest(tmp_path / "shifted.jsonl", SCAN_IDS[1:] + SCAN_IDS[:1])
+    assert launch.Launcher.sft_t_check(parent, 55.0, shifted)(fragment) == (
+        "sft_t_exposure_not_sft_e_then_scanned_from_row_0")
+    # SFT-E's exposure is RL*'s accepted sequence (scaled: 3 for 600), exactly and in order.
+    launch.FINAL_UPDATES = 3
+    accepted = write_manifest(tmp_path / "rl-star-accepted.jsonl",
+                              parent["committed_prompt_ids"])
+    assert launch.Launcher.exposure_check(accepted)(parent) is None
+    reordered = write_manifest(tmp_path / "rl-star-reordered.jsonl",
+                               parent["committed_prompt_ids"][::-1])
+    assert launch.Launcher.exposure_check(reordered)(parent) == (
+        "exposure_differs_from_rl_star_accepted_sequence")
 
 
 def test_sft_e_run_to_max_steps_is_refused_by_launcher_and_trainer(tmp_path, monkeypatch):
