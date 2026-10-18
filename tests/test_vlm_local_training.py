@@ -2694,3 +2694,86 @@ def test_active_timer_synchronizes_cuda(tmp_path, monkeypatch):
     timer.end()
     assert syncs == [1, 1]
 
+
+
+def _endpoint(tmp_path, dtype):
+    identity = {
+        "model": local.DEFAULT_MODEL,
+        "model_revision": "pin",
+        "processor_model": "processor",
+        "processor_revision": "pin",
+        "profile": asdict(local.Profile(dtype=dtype)),
+        "train": "t",
+        "validation": "v",
+        "data_spec_sha256": "spec",
+    }
+    adapter = tmp_path / "final_adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text(
+        json.dumps(
+            {
+                "peft_type": "LORA",
+                "task_type": "CAUSAL_LM",
+                "r": 8,
+                "lora_alpha": 16,
+                "target_modules": ["q_proj", "v_proj"],
+            }
+        )
+    )
+    (adapter / "adapter_model.safetensors").write_bytes(b"weights")
+    (tmp_path / "local_training.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "control_identity": identity,
+                "final_adapter": str(adapter),
+                "final_adapter_sha256": hashlib.sha256(b"weights").hexdigest(),
+            }
+        )
+    )
+    return adapter, identity
+
+
+def test_inference_precision_transfer_is_explicit_and_names_both_dtypes(tmp_path):
+    adapter, identity = _endpoint(tmp_path, "float16")
+    fp32 = local.Profile()
+    target = dict(identity, profile=asdict(fp32))
+    with pytest.raises(ValueError, match="identical model/processor/profile"):
+        local._inference_adapter_identity(adapter, target, fp32)
+    got = local._inference_adapter_identity(
+        adapter, target, fp32, precision_transfer="float16-to-float32"
+    )
+    assert got["precision_transfer"]["parent_base_dtype"] == "float16"
+    assert got["precision_transfer"]["target_base_dtype"] == "float32"
+    for wrong in ("bfloat16-to-float32", "float32-to-float16", "float16-to-bfloat16"):
+        with pytest.raises(ValueError, match="inference precision transfer"):
+            local._inference_adapter_identity(adapter, target, fp32, precision_transfer=wrong)
+    # Warm-start training keeps the narrow float32-parent rule.
+    with pytest.raises(ValueError, match="only explicit"):
+        local._adapter_identity(adapter, target, fp32, precision_transfer="float16-to-float32")
+    same = local._inference_adapter_identity(adapter, identity, local.Profile(dtype="float16"))
+    assert "precision_transfer" not in same
+
+
+def test_inference_cli_forwards_precision_transfer_only_when_declared(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(local, "sample_train_groups", lambda *a, **k: seen.append(k) or {})
+    argv = ["--sample-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
+    argv += ["--model-directory", "m", "--init-adapter", "a"]
+    assert local.main(argv) == 0 and "precision_transfer" not in seen[-1]
+    assert local.main(argv + ["--initial-adapter-precision-transfer", "float16-to-float32"]) == 0
+    assert seen[-1]["precision_transfer"] == "float16-to-float32"
+    capsys.readouterr()
+
+
+def test_inference_precision_transfer_needs_adapter_before_output(diagnostic, tmp_path):
+    with pytest.raises(ValueError, match="needs a saved adapter"):
+        local.predict_train_subset(
+            diagnostic / "train.jsonl",
+            diagnostic / "data_spec.json",
+            tmp_path / "out",
+            model_directory=tmp_path / "model",
+            device="cpu",
+            precision_transfer="float16-to-float32",
+        )
+    assert not (tmp_path / "out").exists()

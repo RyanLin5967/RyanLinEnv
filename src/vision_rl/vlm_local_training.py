@@ -63,7 +63,12 @@ TRL_SOURCES = {
 
 DEVICES = ("mps", "cpu", "cuda")
 DEFAULT_THREADS = 2
-PRECISION_TRANSFERS = ("float32-to-bfloat16", "float32-to-float16")
+PRECISION_TRANSFERS = ("float32-to-bfloat16", "float32-to-float16")  # warm-start training
+BASE_DTYPES = ("float32", "bfloat16", "float16")
+# Frozen-adapter TRAIN inference may declare any parent->target base precision change.
+INFERENCE_PRECISION_TRANSFERS = tuple(
+    f"{a}-to-{b}" for a in BASE_DTYPES for b in BASE_DTYPES if a != b
+)
 DEFAULT_LOSS_SCALE_INIT = 65536.0  # torch.amp.GradScaler's own default
 LOSS_SCALE_GROWTH_INTERVAL = 2000  # torch.amp.GradScaler's own default
 # 2**16 / 2**16 = 1: past this many back-to-back overflows the scale has fallen below 1,
@@ -844,6 +849,7 @@ def predict_train_subset(
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
     threads: int = DEFAULT_THREADS,
+    precision_transfer: str | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
@@ -873,6 +879,10 @@ def predict_train_subset(
         raise ValueError("TRAIN feasibility inference is limited to 32 images")
     if type(threads) is not int or threads < 1:
         raise ValueError("threads must be a positive integer")
+    if precision_transfer is not None and (
+        not init_adapter or precision_transfer not in INFERENCE_PRECISION_TRANSFERS
+    ):
+        raise ValueError("precision_transfer needs a saved adapter and a known transfer")
     output = Path(output).resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory")
@@ -920,7 +930,11 @@ def predict_train_subset(
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
         _inference_adapter_identity(
-            Path(init_adapter).resolve(), record, profile, initial_path=expanded_initial_path
+            Path(init_adapter).resolve(),
+            record,
+            profile,
+            initial_path=expanded_initial_path,
+            **({"precision_transfer": precision_transfer} if precision_transfer else {}),
         )
         if init_adapter
         else None
@@ -2144,7 +2158,12 @@ def _audit_callback(
 
 
 def _adapter_identity(
-    path: Path, identity: dict, profile: Profile, *, precision_transfer: str | None = None
+    path: Path,
+    identity: dict,
+    profile: Profile,
+    *,
+    precision_transfer: str | None = None,
+    inference: bool = False,
 ) -> dict:
     if _expanded.is_expanded(profile):
         if precision_transfer is not None:
@@ -2156,7 +2175,16 @@ def _adapter_identity(
     profile_keys = ("dtype", "min_pixels", "max_pixels", "lora_rank")
     transfer = None
     if precision_transfer is not None:
-        if (
+        if inference:
+            if (
+                precision_transfer not in INFERENCE_PRECISION_TRANSFERS
+                or precision_transfer != f"{source['profile']['dtype']}-to-{profile.dtype}"
+            ):
+                raise ValueError(
+                    "inference precision transfer must name the parent's and this profile's "
+                    "base dtypes"
+                )
+        elif (
             precision_transfer not in PRECISION_TRANSFERS
             or source["profile"]["dtype"] != "float32"
             or profile.dtype != precision_transfer.removeprefix("float32-to-")
@@ -2167,7 +2195,7 @@ def _adapter_identity(
         profile_keys = tuple(key for key in profile_keys if key != "dtype")
         transfer = {
             "profile": precision_transfer,
-            "parent_base_dtype": "float32",
+            "parent_base_dtype": source["profile"]["dtype"],
             "target_base_dtype": profile.dtype,
             "adapter_dtype": "float32",
             "adapter_weights_changed": False,
@@ -2219,16 +2247,29 @@ def _verify_initial_adapter_tensors(policy, path: Path) -> dict:
 
 
 def _inference_adapter_identity(
-    path: Path, identity: dict, profile: Profile, *, initial_path: Path | None = None
+    path: Path,
+    identity: dict,
+    profile: Profile,
+    *,
+    initial_path: Path | None = None,
+    precision_transfer: str | None = None,
 ) -> dict:
-    """Only a hash-bound completed endpoint may be used for a TRAIN assay."""
+    """Only a hash-bound completed endpoint may be used for a TRAIN assay.
+
+    `precision_transfer` ("<parent dtype>-to-<this dtype>") explicitly runs the frozen
+    adapter on a different base precision than it was trained with; it is recorded.
+    """
     if _expanded.is_expanded(profile):
+        if precision_transfer is not None:
+            raise ValueError("expanded FP32 profile does not permit precision transfer")
         return _expanded.artifact_identity(
             path, identity, profile, inference=True, initial_path=initial_path
         )
     if initial_path is not None:
         raise ValueError("initial_path applies only to the expanded profile")
-    initial = _adapter_identity(path, identity, profile)
+    initial = _adapter_identity(
+        path, identity, profile, precision_transfer=precision_transfer, inference=True
+    )
     parent = json.loads((path.parent / "local_training.json").read_text())
     if initial["parent_data_identity"]["data_spec_sha256"] != identity["data_spec_sha256"]:
         raise ValueError("saved-adapter TRAIN inference requires the same pinned task data spec")
@@ -3599,7 +3640,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop-after-active-seconds", type=float)
     parser.add_argument("--stage-id")
     parser.add_argument("--finalize-only", action="store_true")
-    parser.add_argument("--initial-adapter-precision-transfer", choices=PRECISION_TRANSFERS)
+    parser.add_argument(
+        "--initial-adapter-precision-transfer",
+        choices=INFERENCE_PRECISION_TRANSFERS,
+        help="training: float32-to-bfloat16|float16; TRAIN inference: <parent>-to-<dtype>",
+    )
     parser.add_argument("--order", choices=("random", "sequential"), default="random")
     parser.add_argument("--cycle", action="store_true")
     parser.add_argument("--screen-threshold", type=float, default=0.5)
@@ -3641,7 +3686,6 @@ def main(argv: list[str] | None = None) -> int:
                         "stop_after_active_seconds",
                         "stage_id",
                         "finalize_only",
-                        "initial_adapter_precision_transfer",
                         "cycle",
                         "screen_journal",
                         "screen_tokenizations",
@@ -3676,6 +3720,11 @@ def main(argv: list[str] | None = None) -> int:
                             "threads",
                         )
                     },
+                    **(
+                        {"precision_transfer": args["initial_adapter_precision_transfer"]}
+                        if args["initial_adapter_precision_transfer"]
+                        else {}
+                    ),
                 )
                 print(json.dumps(result, indent=2, allow_nan=False))
                 return 0

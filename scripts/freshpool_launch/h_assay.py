@@ -5,7 +5,7 @@ Usage, after the phase worker's ``--``:
 
   --run-id ID --split {h_select,h_gate} --manifest H.jsonl --adapter ADAPTER_DIR
   --fragment F --stage-dir DIR --data-spec SPEC --model-directory MODEL
-  [--device mps|cpu|cuda] [--threads N]
+  [--device mps|cpu|cuda] [--threads N] [--precision-transfer PARENT-to-DTYPE]
   [profile options, default answer-only as study.json fixed_profile]
 
 Completions per image (study.json; scripts/evaluate_freshpool_gates.py COMPLETIONS):
@@ -70,7 +70,7 @@ def answer(completion, labels):
 
 
 def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
-          threads=None):
+          threads=None, precision_transfer=None):
     labels = vlt.load_spec(Path(data_spec))["labels"]
     adapter_sha = file_sha256(Path(adapter) / "adapter_model.safetensors")
     answers = {row["id"]: [] for row in rows}
@@ -79,6 +79,8 @@ def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device
               "device": device, "profile": profile, "init_adapter": Path(adapter)}
     if threads is not None:
         common["threads"] = threads
+    if precision_transfer is not None:
+        common["precision_transfer"] = precision_transfer
     chunks = [rows[i:i + CHUNK] for i in range(0, len(rows), CHUNK)]
     for number, chunk in enumerate(chunks):
         manifest = stage_dir / "chunks" / f"chunk-{number:02d}.jsonl"
@@ -101,6 +103,10 @@ def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device
             initial = record.get("initial_adapter") or {}
             if initial.get("weights_sha256") != adapter_sha:
                 raise RuntimeError("generation ran under a different adapter than assayed")
+            if precision_transfer is not None and (
+                (initial.get("precision_transfer") or {}).get("profile") != precision_transfer
+            ):
+                raise RuntimeError("generation did not record the declared precision transfer")
             expected = 1 if seed is None else profile.num_generations
             for row in chunk:
                 completions = per_row[row["id"]]
@@ -130,6 +136,8 @@ def main(argv=None):
     parser.add_argument("--model-directory", type=Path, required=True)
     parser.add_argument("--device", choices=vlt.DEVICES, default="mps")
     parser.add_argument("--threads", type=int, help="torch intra-op CPU threads (default 2)")
+    parser.add_argument("--precision-transfer", choices=vlt.INFERENCE_PRECISION_TRANSFERS,
+                        help="run the endpoint on another base dtype (recorded per chunk)")
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
@@ -139,7 +147,8 @@ def main(argv=None):
     rows = read_rows(args["manifest"])
     result = assay(rows, args["split"], args["adapter"], args["stage_dir"],
                    data_spec=args["data_spec"], model_directory=args["model_directory"],
-                   device=args["device"], profile=profile, threads=args["threads"])
+                   device=args["device"], profile=profile, threads=args["threads"],
+                   precision_transfer=args["precision_transfer"])
     fragment = {"run_id": args["run_id"], "split": args["split"],
                 "manifest_sha256": file_sha256(args["manifest"]),
                 "seeds": list(SEEDS[args["split"]]), "completion_order":

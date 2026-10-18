@@ -540,3 +540,26 @@ def test_h_assay_passes_cuda_and_threads_only_when_asked(tmp_path, monkeypatch, 
     assert len(seen) == 9  # three chunks x (greedy + two seeds)
     assert all((k.get("threads"), k["device"]) == expected for k in seen)
     assert all(("threads" in k) == bool(extra) for k in seen)
+
+
+def test_h_assay_precision_transfer_must_reach_every_chunk(tmp_path, monkeypatch):
+    fake, argv, stage = assay_setup(tmp_path, monkeypatch)
+    seen = []
+    predict, sample = fake.predict, fake.sample
+
+    def with_transfer(call, recorded):
+        def run(manifest, **kwargs):
+            seen.append(kwargs)
+            record = call(manifest, **kwargs)
+            record["initial_adapter"]["precision_transfer"] = {"profile": recorded}
+            return record
+        return run
+
+    monkeypatch.setattr(vlt, "predict_train_subset", with_transfer(predict, "float16-to-float32"))
+    monkeypatch.setattr(vlt, "sample_train_groups", with_transfer(sample, "float16-to-float32"))
+    flag = ["--precision-transfer", "float16-to-float32"]
+    assert h_assay.main(argv + flag) == 0
+    assert all(k["precision_transfer"] == "float16-to-float32" for k in seen)
+    monkeypatch.setattr(vlt, "predict_train_subset", predict)  # records no transfer
+    with pytest.raises(RuntimeError, match="precision transfer"):
+        h_assay.main(argv + flag)
