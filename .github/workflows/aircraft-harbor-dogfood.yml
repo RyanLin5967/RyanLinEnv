@@ -1,0 +1,55 @@
+# Reproduces the passing local pretrained Docker + Harbor dogfood (plan 62fe9ff1,
+# reports/2026-10-16-harbor-pretrained-dogfood) on a free GitHub-hosted runner.
+# Integration only: native TRAIN fixtures, not held-out, not a benchmark, not RL-vs-SFT.
+name: Aircraft pretrained Harbor dogfood
+run-name: aircraft-harbor-dogfood plan-62fe9ff1 ${{ github.sha }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aircraft-harbor-dogfood
+  cancel-in-progress: false
+jobs:
+  dogfood:
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # Pinned host/build files are read from source commit 1323eb1.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Free runner disk (model 4.4 GB, runtime image, bounded outputs)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL
+          df -B1 /
+          free -b
+      - name: Recreate the plan's absolute root (bind sources and fixture paths are pinned there)
+        run: sudo install -d -o "$(id -u)" -g "$(id -g)" /Users/idide
+      - name: Stage pinned inputs, build runtime image, preflight cgroup, package task
+        run: timeout 3000 python3 -I scripts/harbor_dogfood_ci.py stage
+      - name: SFT probe, then Harbor RL + SFT controls and separate verifier
+        run: timeout 14600 python3 -I scripts/harbor_dogfood_ci.py execute
+      - name: Check C1-C4 from the evidence on disk (non-zero on any failure)
+        if: always()
+        run: >-
+          timeout 300 python3 -I scripts/harbor_dogfood_ci.py criteria
+          --root /Users/idide/RyanLinEnv/runs/aircraft-harbor-dogfood-local-v4
+          --plan-dir /Users/idide/RyanLinEnv/runs/aircraft-harbor-dogfood-local-v4-plan
+      - name: Collect allowlisted text evidence (never base weights, adapters or images)
+        if: always()
+        run: >-
+          timeout 300 python3 -I scripts/harbor_dogfood_ci.py collect
+          --root /Users/idide/RyanLinEnv/runs/aircraft-harbor-dogfood-local-v4
+          --dest evidence
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aircraft-harbor-dogfood-evidence
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: error
