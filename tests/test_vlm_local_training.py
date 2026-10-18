@@ -2823,3 +2823,130 @@ def test_inference_precision_transfer_needs_adapter_before_output(diagnostic, tm
             precision_transfer="float16-to-float32",
         )
     assert not (tmp_path / "out").exists()
+
+
+# --- RFT / expert iteration (released TRL; CI local-vlm job) ---------------------
+
+
+def test_rft_sft_round_trains_on_given_completions_and_respects_time_budget(tmp_path):
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+
+    torch.set_num_threads(2)
+    # One repeated pair: with one example per update, first and last logged losses must be
+    # measured on the SAME example for "loss fell" to mean the round learned (CI run
+    # 39109621953 compared losses on different examples and flaked).
+    records = {
+        "id": ["a#0", "a#1", "a#2"],
+        "label": ["a", "a", "a"],
+        "prompt": ["a b", "a b", "a b"],
+        "completion": [" a", " a", " a"],
+    }
+    tokenizer, policy = _tiny_text_policy()
+    before = {k: v.detach().clone() for k, v in policy.named_parameters() if v.requires_grad}
+    result = local._rft_sft_round(
+        policy,
+        tokenizer,
+        Dataset.from_dict(records),
+        local.Profile(),
+        tmp_path / "round",
+        device="cpu",
+        steps=6,
+        learning_rate=1e-2,
+        seed=42,
+    )
+    assert trl.__version__ == "1.16.0"
+    assert result["optimizer_steps"] == 6 and result["stopped_by_time_budget"] is False
+    assert math.isfinite(result["train_loss"]) and result["last_loss"] < result["first_loss"]
+    assert any(
+        not torch.equal(before[name], parameter)
+        for name, parameter in policy.named_parameters()
+        if parameter.requires_grad
+    )
+    assert not any((tmp_path / "round").glob("checkpoint-*"))  # rounds commit adapters only
+    # An exhausted cumulative budget stops after the first update of the next round.
+    clock = local._RFTClock(committed=10.0, budget=5.0)
+    stopped = local._rft_sft_round(
+        policy,
+        tokenizer,
+        Dataset.from_dict(records),
+        local.Profile(),
+        tmp_path / "round2",
+        device="cpu",
+        steps=6,
+        learning_rate=1e-2,
+        seed=43,
+        clock=clock,
+    )
+    assert stopped["optimizer_steps"] == 1 and stopped["stopped_by_time_budget"] is True
+
+
+def test_rft_round_adapter_restore_is_exact_and_detects_drift(tmp_path):
+    released_trl()
+    import torch
+
+    _, trained = _tiny_text_policy(seed=1)
+    with torch.no_grad():
+        for name, parameter in trained.named_parameters():
+            if "lora_B" in name:
+                parameter.fill_(0.25)
+    trained.save_pretrained(str(tmp_path / "adapter"))
+    _, fresh = _tiny_text_policy(seed=2)
+    local._load_round_adapter(fresh, tmp_path / "adapter")
+    expected = dict(trained.named_parameters())
+    for name, parameter in fresh.named_parameters():
+        if "lora_" in name:
+            assert torch.equal(parameter, expected[name])
+    assert local._peft_weights_sha256(tmp_path / "adapter") == local._file_sha256(
+        tmp_path / "adapter" / "adapter_model.safetensors"
+    )
+
+
+def test_batched_group_sampler_cuts_each_draw_at_first_eos(tmp_path):
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(2)
+
+    class Inputs(dict):
+        def to(self, device):
+            return self
+
+    class Policy:
+        def eval(self):
+            return self
+
+        def generate(self, **kwargs):
+            assert not torch.is_grad_enabled() and kwargs["num_return_sequences"] == 4
+            return torch.tensor(
+                [[8, 8, 10, 99, 0], [8, 8, 11, 99, 0], [8, 8, 10, 10, 10], [8, 8, 12, 99, 0]]
+            )
+
+    processor = SimpleNamespace(
+        tokenizer=SimpleNamespace(
+            decode=lambda tokens, **_: {10: "blue", 11: "red", 12: "bad"}[tokens[0]]
+        )
+    )
+    original = local._inputs
+    local._inputs = lambda *_: Inputs(input_ids=torch.tensor([[8, 8]]))
+    try:
+        reward = local.make_reward(["blue", "red"], 4, [99], tmp_path / "groups.jsonl")
+        groups = local._sample_groups_batched(
+            Policy(),
+            processor,
+            [{"id": "one", "label": "blue"}],
+            {},
+            local.Profile(),
+            "cpu",
+            tmp_path,
+            reward,
+            SimpleNamespace(eos_token_id=[99]),
+        )
+    finally:
+        local._inputs = original
+    assert [s["completion_ids"] for s in groups["one"]] == [[10, 99], [11, 99], [10, 10, 10],
+                                                            [12, 99]]
+    assert [s["terminated"] for s in groups["one"]] == [True, True, False, True]
+    assert json.loads((tmp_path / "groups.jsonl").read_text())["rewards"] == [1, 0, 0, 0]
+    journal = json.loads((tmp_path / "sampled_completions.jsonl").read_text())
+    assert journal["id"] == "one" and len(journal["samples"]) == 4
+
