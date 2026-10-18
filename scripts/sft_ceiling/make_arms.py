@@ -4,8 +4,9 @@
 
 Each launch dir gets arm.json and run.sh (finds this host's r226lin-sftceil root, runs the sweep's
 unchanged arm_exec.py). Arms:
-  I-seed{1,2}: I's exact recipe (controlled400 sft-1e5-time): init W, train400 in file order,
+  I-seed{1,2,3,42}: I's exact recipe (controlled400 sft-1e5-time): init W, train400 in file order,
     SFT LR 1e-5 constant, batch 1, max_steps 6000, stopped at I's 2464 updates; only the seed differs.
+    Seed 42 on CPU is I's own seed: it separates the device effect (I was trained on MPS) from seed.
   cont-all-lr{5e-6,1e-5,2e-5}: SFT from I on the clean all_train pool
     (docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json), seed 42, stops 300/600/1200/2400/4800/7200 (7200 SFT updates ~ active time of 600 GRPO-G8 updates).
 Every stop is assayed on dev800 (sha b01175a1...) by arm_exec's own assay.
@@ -40,7 +41,7 @@ def main():
     pool = json.loads(POOL.read_text())["ids"]
     assert len(t400) == 400 and len(pool) == 1452
     arms = []
-    for seed in (1, 2):
+    for seed in (1, 2, 3, 42):
         arms.append(dict(COMMON, id=f"sftceil-I-seed{seed}", family="I-seed", init="W", lr=1e-5,
                          seed=seed, train_ids=t400, stops=[2464], max_steps_total=6000))
     for lr in (5e-6, 1e-5, 2e-5):
