@@ -594,6 +594,9 @@ def known(name):
 
 def main(argv):
     command = argv[0]
+    if command == "fetch" and len(argv) > 1 and argv[1] == "--all":
+        argv = [command, *argv[2:]]  # uwrun v5: --all lifts the 2 GB fetch refusal
+        log("fetch_all")
     if command in ("fetch", "stop", "rm") and not known(argv[1]):
         return 2
     if command == "ssh":

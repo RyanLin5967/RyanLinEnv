@@ -579,7 +579,10 @@ class UWRunner:
         stage_id = context["stage_id"]
         destination = context["stage_dir"] / "remote"
         # Trailing slash: rsync copies the CONTENT of work/out into the destination.
-        code, _, err = self.uwrun("fetch", name, "work/out/", str(destination), timeout=4000)
+        # --all: uwrun v5 refuses a fetch over 2 GB without it; a stage's whole out/ (Stage 0:
+        # four trainer runs per G with per-step checkpoints) is what the launcher validates.
+        code, _, err = self.uwrun("fetch", "--all", name, "work/out/", str(destination),
+                                  timeout=4000)
         if code != 0:
             self.ledger.append("uw_fetch_failed", stage=stage_id, uw_name=name, stderr=err[-2000:])
             raise UWInterrupted()
