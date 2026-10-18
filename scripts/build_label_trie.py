@@ -67,10 +67,14 @@ def render(document) -> bytes:
 
 
 def commit(staged: dict) -> None:
-    """Write every staged document as one set: each to a sibling ``.staged`` file, each read
-    back from disk against the sha256 of its rendered bytes, and only when all of them hold,
-    renamed into place (os.replace, atomic per file). A failure before the renames removes
-    every temporary file and leaves the committed set as it was."""
+    """Write every staged document: each to a sibling ``.staged`` file, each read back from
+    disk against the sha256 of its rendered bytes, and only when all of them hold, renamed
+    into place (os.replace). Each rename is atomic; the SET is not: the files live in
+    different directories, so a crash between two renames leaves some files new and some
+    old. A failure before the first rename removes every temporary file and leaves the
+    committed files as they were. A mixed set is caught downstream, not here: the report
+    records every artifact's sha256 (``files_sha256``) and a launch plan pins the
+    artifacts it reads by sha256, so a partially renamed set refuses at plan load."""
     temps = {}
     try:
         for path, document in staged.items():
@@ -289,8 +293,8 @@ def main(argv=None):
                         "gold": {"path": rel(args.gold), "sha256": sha(args.gold)},
                         "per_arm": table},
     }
-    # Every check above passed (each refuses with SystemExit/ValueError); only now write,
-    # the three artifacts and the report as one set.
+    # Every check above passed (each refuses with SystemExit/ValueError); only now write
+    # the three artifacts and the report (atomic per file, not as a set: see commit()).
     staged[args.report] = report
     commit(staged)
     print(json.dumps({"files": report["files_sha256"], "trie": report["trie"],

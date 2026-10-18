@@ -567,7 +567,15 @@ def main(argv):
         kind = fault(name)
         if kind == "fail_launch":
             return 2
+        if kind == "slow_launch":
+            time.sleep(2.5)  # a long rsync: the launcher must charge it while it lasts
         shutil.copytree(values["--sync"], run / "work")
+        if kind == "tamper_pins":  # pins.json changed on the host after the launcher hashed it
+            (run / "work" / "pins.json").write_text("{{}}")
+        if kind == "tamper_repo":  # a pinned bundle file changed on the host
+            with (run / "work" / "repo" / "scripts" / "freshpool_launch"
+                  / "phase_worker.py").open("a") as handle:
+                handle.write("\n# changed on the host\n")
         # The host's provisioned packages (here: the fake entry and torch).
         shutil.copytree(os.environ["FAKE_UW_PROVISION"], run / "work" / "repo" / "src",
                         dirs_exist_ok=True)
@@ -1331,8 +1339,8 @@ def test_uw_fetch_failure_interrupts_and_the_resume_reaps_and_reruns(make):
     ({"stage-a-a1-5e-05": "stopped"}, {}, "uw_run_stopped_externally"),
     ({"stage-a-a1-5e-05": "no_fragment"}, {}, "stage_fragment_missing"),
     ({"stage-a-a1-5e-05": "no_hardware"}, {}, "uw_hardware_record_missing_or_pins_failed"),
-    ({}, {"setup": "exit 1"}, "stage_failed"),  # setup fails: rc 96
-    ({}, {"setup": "echo {} > pins.json"}, "stage_failed"),  # setup rewrites the pins: rc 95
+    ({"stage-a-a1-1e-05": "tamper_pins"}, {}, "stage_failed"),  # rc 95, pins.json
+    ({"stage-a-a1-1e-05": "tamper_repo"}, {}, "stage_failed"),  # rc 95, the changed file
 ])
 def test_uw_remote_failures_stop_and_clean_up(make, faults, patch, reason):
     fixture = make(uw=True, faults=faults, uw_patch=patch)
@@ -1342,12 +1350,15 @@ def test_uw_remote_failures_stop_and_clean_up(make, faults, patch, reason):
     finished = [e for e in fixture.journal()
                 if e["event"] == "stage_finished" and e.get("executor") == "uwaterloo"]
     assert finished
-    if "setup" in patch:
-        expected = 96 if patch["setup"] == "exit 1" else 95
-        assert finished[0]["exit_code"] == expected
-        if expected == 95:
-            hardware = [e for e in fixture.journal() if e["event"] == "uw_stage_hardware"]
-            assert hardware[0]["hardware"]["pins_failed"] == ["pins.json"]
+    tamper = {"tamper_pins": ["pins.json"],
+              "tamper_repo": ["repo/scripts/freshpool_launch/phase_worker.py"]}.get(
+                  next(iter(faults.values()), None))
+    if tamper:
+        (tampered,) = [e for e in finished if e["stage"] == "stage-a-a1-1e-05-s42"]
+        assert tampered["exit_code"] == 95
+        hardware = [e for e in fixture.journal() if e["event"] == "uw_stage_hardware"
+                    and e["stage"] == "stage-a-a1-1e-05-s42"]
+        assert hardware[0]["hardware"]["pins_failed"] == tamper
     removed = {e["name"] for e in fixture.uw_log() if e["event"] == "rm"}
     assert {e["uw_name"] for e in finished} <= removed
 
@@ -1384,6 +1395,43 @@ def test_uw_arm_wall_time_reaches_state_while_a_stage_runs(make, monkeypatch):
     assert seen and max(seen) >= 1.0  # saved mid-run, not only at launch and finish
 
 
+def test_uw_arm_wall_time_reaches_state_while_the_upload_runs(make, monkeypatch):
+    # A launcher killed during ``uwrun run`` (its rsync can take minutes) must already have
+    # charged that time to the arm, or the resume voids the instance at 0 s.
+    import threading
+
+    uw_stage_a = importlib.import_module("uw_stage_a")
+    monkeypatch.setattr(uw_stage_a, "SAVE_SECONDS", 0.2)
+    fixture = make(uw=True, faults={"stage-a-a1-1e-05": "slow_launch"})
+    seen, done = [], threading.Event()
+
+    def watch():
+        path = fixture.tmp / "state" / "state.json"
+        while not done.is_set():
+            try:
+                state = json.loads(path.read_text())
+            except (OSError, ValueError):
+                state = {}
+            launched = {e["name"] for e in (json.loads(line) for line in (
+                (fixture.uw_root / "uwrun-log.jsonl").read_text().splitlines()
+                if (fixture.uw_root / "uwrun-log.jsonl").exists() else []))
+                if e["event"] == "run"}
+            running = {n for n, e in (state.get("uw_running") or {}).items()
+                       if e["stage"] == "stage-a-a1-1e-05-s42"}
+            if running and not running & launched:  # recorded, but uwrun run not returned
+                seen.append(state["arm_wall_seconds"].get("stage-a-a1-1e-05-s42", 0.0))
+            done.wait(0.05)
+
+    watcher = threading.Thread(target=watch)
+    watcher.start()
+    try:
+        assert signal_limit.main(fixture.argv) == 0
+    finally:
+        done.set()
+        watcher.join()
+    assert seen and max(seen) >= 1.0  # saved during the upload, not only after it
+
+
 @pytest.mark.parametrize("hosts", [
     {"hosta": [0.1, 28, 100, 0, 100, 0]},  # python / model not provisioned
     {"hosta": [0.1, 28, 100, 0, 100, 1, 0]},  # no AVX2: torch CPU dies with SIGILL
@@ -1410,6 +1458,8 @@ def test_uw_no_qualifying_host_pauses_without_running_anything(make, hosts):
     ({"uwrun": "/nonexistent/uwrun"}, "uwrun_missing"),
     ({"uwrun": "uwrun"}, "uwrun_not_absolute"),
     ({"extra": 1}, "uw_block_invalid"),
+    # No host-side setup hook: it would run before the pin check or rewrite unseen after it.
+    ({"setup": "true"}, "uw_setup_not_supported"),
 ])
 def test_uw_block_refusals(make, capsys, patch, reason):
     fixture = make(uw=True, uw_patch=patch)

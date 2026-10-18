@@ -2604,6 +2604,42 @@ def test_egsft_nostd_band_scales_loss_by_2p_and_zeroes_outside(tmp_path):
     assert ce_calls == ["mixed", "hard", "hard"]
 
 
+def test_egsft_scores_p_in_eval_mode_like_the_screen_and_restores_train_mode(tmp_path):
+    # PR #32 review: the screen scores p with policy.eval() (gold_probability); EG-SFT's p
+    # must be the same quantity, so it is scored in eval mode too, then the CE pass runs in
+    # the mode the trainer left the model in.
+    pytest.importorskip("torch")
+
+    class Base:
+        state = SimpleNamespace(global_step=0)
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            seen.append(("ce", model.training))
+            return model.parameter.sum() * 0.0
+
+    class Recording(_BigramPolicy):
+        def __call__(self, *args, **kwargs):
+            seen.append(("score", self.training))
+            return super().__call__(*args, **kwargs)
+
+    for band_group in (None, 8):
+        seen = []
+        trainer = local._trainer_with_egsft(
+            Base, eos_token_ids=[_EOS], suppress_tokens=[_IMAGE], temperature=1.0,
+            group_size=8, journal=tmp_path / f"modes-{band_group}.jsonl",
+            scale_rewards="none", band_group=band_group)()
+        trainer._vision_rl_prompt_id = "mixed"
+        policy = Recording(_PLANTED, 8)
+        trainer.compute_loss(policy, _gold_batch(5))  # p = .495: in band, CE runs
+        assert seen == [("score", False), ("ce", True)]
+        assert policy.modes == ["eval", "train=True"] and policy.training is True
+        # A model the trainer left in eval mode stays there.
+        seen, policy = [], Recording(_PLANTED, 8)
+        policy.training = False
+        trainer.compute_loss(policy, _gold_batch(5))
+        assert seen == [("score", False), ("ce", False)] and policy.training is False
+
+
 def test_egsft_band_skips_the_optimizer_step_and_leaves_adamw_state_untouched(tmp_path):
     torch = pytest.importorskip("torch")
     theta = torch.nn.Parameter(torch.tensor([0.5, -1.0]))

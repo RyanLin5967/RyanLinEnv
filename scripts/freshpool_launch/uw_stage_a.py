@@ -24,8 +24,11 @@ the repository's ``src`` and only its .py and .json files ship, so nothing under
 sealed TEST images included, can leave this machine through it), the stage's inputs
 (``inputs/``: manifests rewritten to bundled images, init adapter, label resources) and
 ``pins.json`` (the SHA256 of every bundled file, repo/ and inputs/ alike). The command checks
-every pin and the SHA256 of pins.json itself, which the command line carries, so ``uw.setup``
-cannot rewrite either unseen (``remote-check``, stdlib only), and writes ``out/hardware.json``
+every pin and the SHA256 of pins.json itself, which the command line carries
+(``remote-check``, stdlib only), as the FIRST thing that reads the bundle: nothing
+plan-supplied runs on the host before it (there is no ``uw.setup`` hook; a plan naming one is
+refused, since a setup step that ran before the check could rewrite the checker or the
+bundle, and one after it could rewrite them unseen), and writes ``out/hardware.json``
 (hostname, CPU model, cores, memory, Python, threads) before ``phase_worker.py --remote-cpu``
 runs the stage entry with ACCELERATE_TORCH_DEVICE=cpu, the plan's frozen environment, the
 bundled ``src`` on PYTHONPATH and VISION_RL_TORCH_THREADS = uwrun --threads. Only
@@ -65,6 +68,7 @@ import socket
 import string
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -115,7 +119,12 @@ def verify_uw_block(plan):
     launch = _launch()
     Stop = launch.Stop
     uw = plan.get("uw")
-    if not isinstance(uw, dict) or set(uw) - {*UW_KEYS, "setup"} or not set(UW_KEYS) <= set(uw):
+    if isinstance(uw, dict) and "setup" in uw:
+        # A host-side setup step would run either before the pin check (and could rewrite
+        # the checker it then runs) or after it (and could rewrite the bundle unseen).
+        # Hosts are provisioned before a launch instead, and the probe checks the result.
+        raise Stop("uw_setup_not_supported")
+    if not isinstance(uw, dict) or set(uw) - set(UW_KEYS) or not set(UW_KEYS) <= set(uw):
         raise Stop("uw_block_invalid", keys=sorted(uw) if isinstance(uw, dict) else None)
     hosts = uw["hosts"]
     if (not isinstance(hosts, list) or not hosts or len(set(hosts)) != len(hosts)
@@ -145,8 +154,6 @@ def verify_uw_block(plan):
         # Its rsync excludes, remote timeout and status words decide what every guard here
         # sees, so its bytes are pinned like the launcher's own.
         raise Stop("plan_does_not_pin", file=uw["uwrun"])
-    if "setup" in uw and not isinstance(uw["setup"], str):
-        raise Stop("uw_setup_not_a_string")
     forecasts = uw["forecast_seconds"]
     if not isinstance(forecasts, dict) or any(
             type(forecasts.get(k)) not in (int, float) or not forecasts[k] > 0
@@ -403,11 +410,10 @@ class UWRunner:
             f"export {exports}" if exports else ":",
             f'export PYTHONPATH="{":".join(shipped)}" VISION_RL_TORCH_THREADS="$UWRUN_THREADS"',
         ]
-        if self.uw.get("setup"):
-            lines.append(f"( {self.uw['setup']} ) || exit 96")
         lines += [
-            # After setup, with pins.json's own hash from this command line: whatever setup
-            # did to repo/, inputs/ or pins.json is seen here.
+            # The first command that reads the bundle, with pins.json's own hash from this
+            # command line: anything that changed repo/, inputs/ or pins.json after the
+            # launcher hashed them (the sync, the host) is seen here.
             f"{python} -I -B repo/scripts/freshpool_launch/uw_stage_a.py remote-check "
             f"pins.json out/hardware.json {pins_sha256} || exit 95",
             "exec " + " ".join(shlex.quote(part) for part in worker),
@@ -436,10 +442,11 @@ class UWRunner:
         self.state["uw_running"][name] = {"stage": job["stage_id"], "host": host,
                                           "instance": context["instance"]}
         self.ledger.save()
-        # The arm clock starts before ``uwrun run`` (its rsync and launch are charged), and
-        # is saved at once after it, so an interrupt at any later point voids that time.
+        # The arm clock starts before ``uwrun run`` (its rsync and launch are charged) and
+        # reaches state.json every SAVE_SECONDS WHILE the upload runs, so a launcher killed
+        # mid-upload still charges that time to the arm on resume.
         started = time.monotonic()
-        code, out, err = self.uwrun(*command, timeout=4000)
+        code, out, err = self.uwrun_charged(context, started, command, timeout=4000)
         self.charge(context, started, save=True)
         if code != 0 or (out.strip().splitlines() or [""])[-1] != name:
             self.ledger.append("uw_launch_failed", stage=job["stage_id"], uw_name=name,
@@ -448,6 +455,28 @@ class UWRunner:
         shutil.rmtree(directory / "repo", ignore_errors=True)  # synced; keep inputs + pins
         running[name] = {"job": job, "context": context, "host": host,
                          "started": started, "unreachable_since": None}
+
+    def uwrun_charged(self, context, started, args, timeout):
+        """``uwrun ARGS`` like :meth:`uwrun`, charging the arm clock while it runs."""
+        with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+            process = subprocess.Popen([self.uw["uwrun"], *args], stdout=out, stderr=err,
+                                       stdin=subprocess.DEVNULL, text=True)
+            try:
+                deadline = time.monotonic() + timeout
+                while process.poll() is None:
+                    self.charge(context, started)
+                    if time.monotonic() >= deadline:
+                        process.kill()
+                        process.wait()
+                        return 124, "", "uwrun timed out"
+                    time.sleep(min(0.1, SAVE_SECONDS))
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            out.seek(0)
+            err.seek(0)
+            return process.returncode, out.read(), err.read()
 
     def charge(self, context, started, save=False):
         """The instance's wall time so far onto its arm (state), saved at least every

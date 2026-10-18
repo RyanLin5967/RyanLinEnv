@@ -567,7 +567,7 @@ def test_remote_check_refuses_a_changed_or_missing_pin_and_an_empty_list(tmp_pat
         assert uw_stage_a.remote_check("pins.json", "hardware.json", digest) == code
         hardware = json.loads((tmp_path / "hardware.json").read_text())
         assert hardware["pins_checked"] == len(pins)
-    # pins.json rewritten on the host (by uw.setup, say): its own hash is from the command
+    # pins.json rewritten on the host after the launcher hashed it: its own hash is from the command
     # line, so the check fails although every listed pin holds.
     (tmp_path / "pins.json").write_text(json.dumps(good))
     assert uw_stage_a.remote_check("pins.json", "hardware.json", "0" * 64) == 1

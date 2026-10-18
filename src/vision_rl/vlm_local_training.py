@@ -2196,15 +2196,24 @@ def _trainer_with_egsft(
             label = None
             if tokenizations:
                 label = labels_by_id[identifier]
-            with torch.no_grad():
-                probability, _ = _batch_gold_probability(
-                    model,
-                    inputs,
-                    eos_token_ids=eos_token_ids,
-                    suppress_tokens=suppress_tokens,
-                    temperature=temperature,
-                    alternatives=(tokenizations or {}).get(label, ()),
-                )
+            # p is scored in eval mode, as the screen scores it (score_screen_candidate:
+            # policy.eval()), then back to train mode for the CE pass. With the study's
+            # lora_dropout 0.0 the numbers are the same either way; eval mode keeps the two
+            # p definitions identical by construction for any profile with dropout.
+            was_training = model.training
+            model.eval()
+            try:
+                with torch.no_grad():
+                    probability, _ = _batch_gold_probability(
+                        model,
+                        inputs,
+                        eos_token_ids=eos_token_ids,
+                        suppress_tokens=suppress_tokens,
+                        temperature=temperature,
+                        alternatives=(tokenizations or {}).get(label, ()),
+                    )
+            finally:
+                model.train(was_training)
             weight = egsft_weight(probability, group_size, scale_rewards=scale_rewards)
             in_band = None
             if band_group is not None:
