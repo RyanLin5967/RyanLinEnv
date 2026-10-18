@@ -212,3 +212,8 @@ diagnostics, never held-out results.
 
 ## D21 — Named Qwen3.8-27B-8bit baseline activated (discovery first)
 - Activated copy docs/aircraft-named-baseline-plan-v1-activated.json, sha256 4c9845f0faac78a5e526f1ac3aa81e6fb764894510af69ddf76738299180132b, committed before any baseline call. Discovery (100 protocol-salted VAL images) runs first under supervise_local_vlm; its gate result is committed before full VAL. Single accelerator owner; TEST untouched.
+
+## D22 — 27B discovery complete: 34/100 (0 invalid), gate proceed; root git-pull incident
+- Discovery (plan 4c9845f0...) completed 100/100 over 2 invocations (inv 1: 50, inv 2: 50), 0 invalid, 0 unknown, mean 5.61 s/image. Equal-class accuracy 0.34 (Hoeffding 95% [0.204, 0.476]). Gate: proceed; projected full VAL 19,253 s, cap 38,506 s.
+- Incident (root error): during invocation 2 my background merge script ran `git pull` in the checkout the runner reads; the end-of-invocation re-verification saw a mid-write tree and exited 2 after the ledger had recorded a normal finish. Re-running the same check minutes later passes; parse_label/prompt hashes unchanged (f75d20ee..., 859dd366...). Generation used sources verified at invocation start; results kept. Also: chain v1 ran only one invocation and treated it as done; chain v2 first failed before any model work on a fixed telemetry filename.
+- RULE: no git checkout/pull/merge in the run tree while any run is in flight; do git work in a separate worktree.
