@@ -319,7 +319,7 @@ def test_committed_plan_pins_match_this_tree_and_v1(runner):
     assert plan["stages"]["full"]["ids_sha256"] == v1["stages"]["full"]["ids_sha256"]
     assert plan["generation"]["sampling"] == local_vlm.INSTRUCT_GENERATION
     assert plan["prompt_and_parser"]["prompt_sha256"] == v1["prompt_and_parser"]["prompt_sha256"]
-    assert plan["sharding"]["shards"] == {"discovery": 10, "full": 30}
+    assert plan["sharding"]["shards"] == {"discovery": 10, "full": 60}
     assert plan["comparison"]["resamples"] == 20000 and plan["comparison"]["seed"] == 2718
     assert [a["name"] for a in plan["comparison"]["arms"]] == ["W", "RL400", "strongest_SFT"]
 
@@ -701,7 +701,7 @@ def test_budget_semantics_match_the_stage_budgets():
                      + b["long_generation_allowance_seconds"])
     text = plan["budget_semantics"]["invocation_wall_seconds"]
     assert f"discovery {walls[0]} s, full {walls[1]} s" in text
-    assert walls == [1486000, 1608200]
+    assert walls == [1338520, 1478920]
     assert plan["engine"]["threads"] == 32
 
 
@@ -998,3 +998,13 @@ def test_committed_runtime_lock_is_the_pinned_freeze():
     for name, version in plan["model"]["runtime_pins"].items():
         assert pins[name] == version, name
     assert pins["huggingface-hub"] == "2.2.0" and lock["python"] == "3.12.15"
+
+
+def test_committed_plan_runs_the_canary_checked_kernel_path_on_allowlisted_hosts():
+    plan = json.loads(PLAN.read_text())
+    numerics = plan["engine"]["cpu_numerics"]
+    assert (numerics["aten_cpu_capability_env"], numerics["mkl_cbwr"],
+            numerics["mkldnn_enabled"], numerics["onednn_max_cpu_isa"]) == (
+        "default", "AVX", True, "AVX")
+    assert set(plan["sharding"]["hosts"]) == {
+        "ICCAD1", "iccad2", "ICCAD3", "iccad5", "iccad10", "iccad12", "iccad13"}

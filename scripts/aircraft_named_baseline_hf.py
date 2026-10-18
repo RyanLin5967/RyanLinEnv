@@ -16,7 +16,8 @@ Sampling replicates mlx-vlm 0.6.8 (``mlx_vlm.sample_utils``) instead of Hugging 
 warpers, whose order differs: presence penalty over the unique tokens among the last 20
 entries of mlx-vlm's token history (the prompt, or only its last token when the prompt is
 prefilled in 2048-token chunks, followed by the generated tokens), then log-softmax, then
-top-p on the untempered distribution, then top-k, then a categorical draw at the declared temperature. The draw happens inside the logits processor with a per-image
+top-p on the untempered distribution, then top-k, then a categorical draw at the declared
+temperature. The draw happens inside the logits processor with a per-image
 ``torch.Generator``; it hands generate() a one-hot score row and generate() runs greedy
 (``do_sample=False``), so no Hugging Face warper or model generation default can change the
 token. After generation the emitted tokens are compared with the drawn ones and any
@@ -38,6 +39,7 @@ import copy
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import re
@@ -73,8 +75,12 @@ def pin_cpu_numerics(numerics):
     """
     import sys
 
+    # oneDNN reads ONEDNN_MAX_CPU_ISA once, at its first JIT dispatch; None means unset.
+    # DNNL_MAX_CPU_ISA is its legacy alias and must never be set beside it.
     wanted = {"ATEN_CPU_CAPABILITY": numerics["aten_cpu_capability_env"],
-              "MKL_CBWR": numerics["mkl_cbwr"]}
+              "MKL_CBWR": numerics["mkl_cbwr"],
+              "ONEDNN_MAX_CPU_ISA": numerics.get("onednn_max_cpu_isa"),
+              "DNNL_MAX_CPU_ISA": None}
     loaded = "torch" in sys.modules or any(
         marker in library for library in _mapped_libraries()
         for marker in ("libtorch_cpu", "libmkl", "libiomp"))
@@ -84,7 +90,11 @@ def pin_cpu_numerics(numerics):
         if any(os.environ.get(k) != v for k, v in wanted.items()):
             raise ValueError("torch or MKL was loaded before the CPU kernel path was pinned")
     else:
-        os.environ.update(wanted)
+        for key, value in wanted.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
     import torch
 
     torch.backends.mkldnn.enabled = numerics["mkldnn_enabled"]
@@ -93,10 +103,12 @@ def pin_cpu_numerics(numerics):
         "mkldnn_enabled": torch.backends.mkldnn.enabled,
         "mkl_cbwr": os.environ.get("MKL_CBWR"),
         "mkl_available": torch.backends.mkl.is_available(),
+        "onednn_max_cpu_isa": os.environ.get("ONEDNN_MAX_CPU_ISA"),
     }
     expected = {"aten_cpu_capability": numerics["aten_cpu_capability"],
                 "mkldnn_enabled": numerics["mkldnn_enabled"], "mkl_cbwr": numerics["mkl_cbwr"],
-                "mkl_available": numerics["mkl_available"]}
+                "mkl_available": numerics["mkl_available"],
+                "onednn_max_cpu_isa": numerics.get("onednn_max_cpu_isa")}
     if observed != expected:
         raise ValueError(f"CPU kernel path is not the pre-registered one: {observed}")
     return observed
@@ -145,10 +157,18 @@ def kernel_fingerprint(threads):
     import torch.nn.functional as F
 
     torch.set_num_threads(threads)
-    generator = torch.Generator().manual_seed(20261018)
+    offset = [0]
 
     def draw(*shape):
-        return torch.randn(*shape, generator=generator, dtype=torch.float32)
+        # Inputs from exact integer arithmetic and one correctly rounded division, never
+        # torch.randn: ATen's normal sampler picks an AVX2 fill by CPUID whatever the pinned
+        # capability, so seeded randn differs between Ivy Bridge and AVX2 hosts (measured:
+        # equal model logits, different randn-based fingerprints on iccad3 and iccad5).
+        count = math.prod(shape)
+        index = torch.arange(offset[0], offset[0] + count, dtype=torch.int64)
+        offset[0] += count
+        values = (index * 2654435761 + 12345) % 1000003
+        return (values.to(torch.float32) / 1000003.0 - 0.5).reshape(shape)
 
     a, w, x = draw(64, 2048), draw(2048, 2048), draw(1, 2048)
     q, k, v = draw(1, 8, 96, 128), draw(1, 8, 96, 128), draw(1, 8, 96, 128)

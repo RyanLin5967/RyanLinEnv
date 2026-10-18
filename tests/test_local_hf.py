@@ -146,3 +146,22 @@ def test_kernel_fingerprint_is_stable_and_fires_on_a_changed_kernel(monkeypatch)
         assert local_hf.kernel_fingerprint(2) == first
     finally:
         torch.set_num_threads(threads)
+
+
+def test_kernel_pin_refuses_a_onednn_isa_other_than_the_plan_once_torch_is_loaded(monkeypatch):
+    numerics = {"aten_cpu_capability_env": "default", "mkl_cbwr": "AVX",
+                "onednn_max_cpu_isa": "AVX"}
+    monkeypatch.setenv("ATEN_CPU_CAPABILITY", "default")
+    monkeypatch.setenv("MKL_CBWR", "AVX")
+    monkeypatch.delenv("DNNL_MAX_CPU_ISA", raising=False)
+    for isa in ("AVX2", None):
+        if isa is None:
+            monkeypatch.delenv("ONEDNN_MAX_CPU_ISA", raising=False)
+        else:
+            monkeypatch.setenv("ONEDNN_MAX_CPU_ISA", isa)
+        with pytest.raises(ValueError, match="loaded before the CPU kernel path"):
+            local_hf.pin_cpu_numerics(numerics)
+    monkeypatch.setenv("ONEDNN_MAX_CPU_ISA", "AVX")
+    monkeypatch.setenv("DNNL_MAX_CPU_ISA", "AVX")  # the legacy alias must stay unset
+    with pytest.raises(ValueError, match="loaded before the CPU kernel path"):
+        local_hf.pin_cpu_numerics(numerics)

@@ -1,6 +1,11 @@
 # Named baseline v2 smoke: 4 TRAIN images (sizing only; not a score)
 
-The **pinned** runs use the configuration plan v2 registers:
+**Superseded kernel path.** The plan no longer runs the "pinned" configuration below (oneDNN off).
+It now keeps oneDNN on, capped at the AVX ISA, because oneDNN off was measured to cause the slow
+decode. See `reports/2026-10-18-named-baseline-v2-kernel-probe`. These files stay as the record of
+the earlier runs.
+
+The **pinned** runs used the configuration plan v2 registered at the time:
 - ATen `default` kernels, `MKL_CBWR=AVX` and oneDNN off;
 - an mlx-vlm presence history that includes the prompt tail.
 
