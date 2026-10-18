@@ -9,6 +9,7 @@ Expected values are written out from that fixture's design (its RL150 / RL600 / 
 SFT_T tables and assay counts), never read back from the report.
 """
 
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -33,6 +34,17 @@ REPORT = load("freshpool_report_e2e_under_test", ROOT / "scripts" / "freshpool_r
 pytestmark = LAUNCH_TESTS.pytestmark
 
 
+def pin_report_code(fixture):
+    """The report refuses unless the plan pins every file it executes, as the production
+    plan does: add launch.py and the comparison module to the fixture plan's pins."""
+    plan = json.loads(fixture.plan_path.read_text())
+    for path in (REPORT.LAUNCH, REPORT.COMPARISON):
+        plan["file_sha256"][str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    fixture.plan_path.write_text(json.dumps(plan, indent=1))
+    fixture.plan_sha = hashlib.sha256(fixture.plan_path.read_bytes()).hexdigest()
+    return fixture
+
+
 def report_of(fixture, tmp_path):
     out = tmp_path / "report.json"
     code = REPORT.main(["--state-directory", str(tmp_path / "state"), "--plan",
@@ -43,7 +55,7 @@ def report_of(fixture, tmp_path):
 
 
 def test_report_recomputes_a_full_launcher_run(tmp_path, monkeypatch):
-    fixture = LAUNCH_TESTS.Fixture(tmp_path, monkeypatch)
+    fixture = pin_report_code(LAUNCH_TESTS.Fixture(tmp_path, monkeypatch))
     assert LAUNCH_TESTS.load_launch().main(fixture.argv) == 0
     report = report_of(fixture, tmp_path)
     assert report["study_status"] == "completed"
@@ -55,7 +67,8 @@ def test_report_recomputes_a_full_launcher_run(tmp_path, monkeypatch):
     assert report["selections_recomputed"] == {
         "rl_continuers": ["rl-5e-05-s42-u150", "rl-1e-04-s42-u150"],
         "rl_star": "rl-1e-04-s42-u600", "sft_e_star": "sft-e-5e-05-s42",
-        "sft_t_star": "sft-t-5e-05-s42"}
+        "sft_t_lrs": [5e-05, 1e-04], "sft_t_star": "sft-t-5e-05-s42"}
+    assert report["e0"]["passes"] is True
     assert [s["stage"] for s in report["stages"]] == LAUNCH_TESTS.EXPECTED_ORDER
     assert all(s["status"] == "completed" for s in report["stages"])
     # Fixture assays: W 0 of 5 / 0 of 9; RL* 5 of 5 and 9 of 9; SFT-E* and SFT-T* 6 of 9 on
@@ -74,7 +87,7 @@ def test_report_recomputes_a_full_launcher_run(tmp_path, monkeypatch):
 
 
 def test_report_of_a_g1_stop(tmp_path, monkeypatch):
-    fixture = LAUNCH_TESTS.Fixture(tmp_path, monkeypatch, p0_pass=False)
+    fixture = pin_report_code(LAUNCH_TESTS.Fixture(tmp_path, monkeypatch, p0_pass=False))
     assert LAUNCH_TESTS.load_launch().main(fixture.argv) == 2
     report = report_of(fixture, tmp_path)
     assert report["study_status"] == "stopped" and report["stop_reason"] == "gate_failed"
@@ -91,6 +104,7 @@ def test_report_after_an_interrupted_and_resumed_arm(tmp_path, monkeypatch):
     marker = tmp_path / "interrupted-once"
     fixture.scenario["rl-1e-05-s42-u150"]["behaviour"] = {"interrupt_once": str(marker)}
     fixture.write()
+    pin_report_code(fixture)
     command = [sys.executable, "-B", str(ROOT / "scripts" / "freshpool_launch" / "launch.py"),
                *fixture.argv]
     first = subprocess.run(command, capture_output=True, text=True, timeout=600)
