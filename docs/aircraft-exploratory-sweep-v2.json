@@ -335,5 +335,10 @@
  },
  "status": "exploratory",
  "study_id": "aircraft-exploratory-sweep-v2",
+ "task_data_spec": {
+  "path": "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json",
+  "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+  "why": "W and I control_identity.data_spec_sha256; saved-adapter TRAIN assay refuses another spec; same labels/question/preprocessing as development/data_spec.json"
+ },
  "written_before_any_result": true
 }

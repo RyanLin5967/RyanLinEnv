@@ -41,6 +41,11 @@ INITS = {
           "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"),
 }
 MODEL = "data/models/Qwen2-VL-2B-Instruct-895c3a49"
+# The task data spec W and I were trained under (their control_identity.data_spec_sha256);
+# the trainer's TRAIN assay of a saved adapter refuses any other spec. Same 100 labels,
+# question and preprocessing as development/data_spec.json; freshpool used it too.
+DATA_SPEC = "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json"
+DATA_SPEC_SHA256 = "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a"
 REFERENCE_VENV = ".venv-detection"
 
 
@@ -113,7 +118,9 @@ def build(out: Path, repo: Path) -> dict:
         if src.is_symlink() or sha_file(src) != audit[image_id]["encoded_sha256"]:
             raise SystemExit(f"refusing: {src} is not the audited TRAIN image")
         place(src, out / "data/manifests/images/train" / f"{image_id}.jpg")
-    place(dev / "data_spec.json", out / "data/data_spec.json")
+    if sha_file(repo / DATA_SPEC) != DATA_SPEC_SHA256:
+        raise SystemExit("refusing: task data spec differs from the one W and I were trained under")
+    place(repo / DATA_SPEC, out / "data/data_spec.json")
     place(design / "splits.json", out / "data/splits.json")
     place(design / "arms-rung1.json", out / "data/arms-rung1.json")
     hier = {i: {k: audit[i][k] for k in ("manufacturer", "family", "variant")} for i in native}

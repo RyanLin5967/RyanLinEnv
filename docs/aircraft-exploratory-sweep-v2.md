@@ -54,6 +54,11 @@ The source is the freshpool G0 manifests (`runs/aircraft-freshpool-g0-v1/manifes
 - **Order**: `random.Random(seed).shuffle(sorted(ids))` for seeds 42, 314 and 2718. This gives
   `s_train_scan_seed*.jsonl` and `all_train_scan_seed*.jsonl`. The seed-42 order serves rung 1.
 
+Every run trains and is assayed under the task data spec that W and I were trained under,
+`candidates/fourshot-seed791/data_spec.json` (sha256 `afc69edd…477a`). It has the same 100
+labels, question and preprocessing as `development/data_spec.json`. The trainer's assay of a
+saved adapter refuses any other spec.
+
 The trainer receives only TRAIN manifests. `arm_exec.py` refuses any training manifest named
 `dev*` or `h_*`, and drops holdout ids from control sequences. `payload.py` ships an image only
 if its id is native TRAIN, its source is `development/images/train/<id>.jpg`, and its bytes
