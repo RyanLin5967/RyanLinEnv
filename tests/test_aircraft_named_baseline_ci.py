@@ -301,9 +301,14 @@ def receipt(digest, **changes):
 def test_full_shard_rule_matches_hand_arithmetic(activated):
     path, digest = activated
     plan = json.loads(path.read_text())
-    # usable = 19800 - 900 - 900 = 18000 s; the SLOWEST shard's mean (55 s, not the 40 s
-    # overall mean) + 5 s fetch, x 3.0 = 180 s per image; 100 per shard.
-    assert ci.required_full_shards(plan, receipt(digest)) == 34  # ceil(3333 / 100)
+    # usable = 19800 - 900 - 900 = 18000 s. The SLOWEST shard's mean (55 s, not the 40 s
+    # overall mean) + 5 s fetch, x 3.0 = 180 s, below the 330 s floor: 330 s per image,
+    # floor(18000 / 330) = 54 per shard.
+    assert ci.required_full_shards(plan, receipt(digest)) == 62  # ceil(3333 / 54)
+    slow = receipt(digest)
+    slow["timing"]["max_shard_mean_image_latency_seconds"] = 115.0
+    # 3.0 x (115 + 5) = 360 s > 330 s; floor(18000 / 360) = 50 per shard.
+    assert ci.required_full_shards(plan, slow) == 67  # ceil(3333 / 50)
 
 
 def test_shard_rule_survives_the_measured_runner_spread(activated):
@@ -318,6 +323,57 @@ def test_shard_rule_survives_the_measured_runner_spread(activated):
     assert shards == 61  # 18834.6 / (3.0 x 114.14) = 55.0 -> 55 per shard
     per_shard = -(-3333 // shards)  # busiest shard: 55 images
     assert 65.4 + per_shard * (297.80 + 1.07) <= 19800 - 900
+    # A discovery that lands only on very fast hosts (9.4 s measured) is held by the floor.
+    fast["timing"]["max_shard_mean_image_latency_seconds"] = 9.4
+    shards = ci.required_full_shards(plan, fast)
+    assert shards == 59  # floor(18834.6 / 330) = 57 per shard
+    assert 65.4 + -(-3333 // shards) * (297.80 + 1.07) <= 19800 - 900
+
+
+class FakeTorch:
+    def __init__(self, capability):
+        self.backends = SimpleNamespace(
+            cpu=SimpleNamespace(get_cpu_capability=lambda: capability),
+            mkldnn=SimpleNamespace(enabled=True))
+
+
+def test_cpu_kernel_path_is_pinned_and_checked(monkeypatch):
+    plan = json.loads(PLAN.read_text())
+    torch = FakeTorch("AVX2")
+    assert ci.check_cpu_numerics(plan, torch) == {"aten_cpu_capability": "AVX2",
+                                                  "mkldnn_enabled": False}
+    assert torch.backends.mkldnn.enabled is False
+    with pytest.raises(ValueError, match="not the pre-registered"):
+        ci.check_cpu_numerics(plan, FakeTorch("AVX512"))
+    monkeypatch.setitem(sys.modules, "torch", object())
+    with pytest.raises(ValueError, match="imported before"):
+        ci.pin_cpu_numerics(plan)
+    monkeypatch.delitem(sys.modules, "torch")
+    monkeypatch.delenv("ATEN_CPU_CAPABILITY", raising=False)
+    ci.pin_cpu_numerics(plan)
+    assert os.environ["ATEN_CPU_CAPABILITY"] == "avx2"
+    monkeypatch.delenv("ATEN_CPU_CAPABILITY")
+
+
+@pytest.mark.parametrize("responses, ok", [
+    (["DC-8", "Global Express", "DC-8"], True),
+    (["DC-8", "DC-8", "DC-8"], False),  # what the AVX-512 bf16 host answered
+])
+def test_plumbing_canary_requires_the_preregistered_answers(tmp_path, responses, ok):
+    ids = ["0450014", "0056978", "2223757"]
+
+    def shard(*args):
+        (tmp_path / "out").mkdir(exist_ok=True)
+        return {"ids": ids, "host": {"cpu_model": "x"}, "status": "completed",
+                "results": {i: {"response": r} for i, r in zip(ids, responses, strict=True)}}
+
+    if ok:
+        assert ci.plumbing(tmp_path / "w", tmp_path / "out", shard=shard)["canary"]["match"]
+    else:
+        with pytest.raises(ValueError, match="differ from the pre-registered"):
+            ci.plumbing(tmp_path / "w", tmp_path / "out", shard=shard)
+    written = json.loads((tmp_path / "out" / "shard.json").read_text())
+    assert written["canary"]["match"] is ok
 
 
 def gate_cases(digest):
@@ -343,7 +399,7 @@ def gate_cases(digest):
         "valid-answer": receipt(digest, valid_fraction=0.5),
         "not a number": receipt(digest, valid_fraction=None),
         "timing": no_timing,
-        "at least 34 shards": receipt(digest),
+        "at least 62 shards": receipt(digest),
     }
 
 
@@ -354,9 +410,9 @@ def test_discovery_gate_refuses_failures(activated, tmp_path, monkeypatch):
     for reason, value in gate_cases(digest).items():
         (tmp_path / "receipt.json").write_text(json.dumps(value))
         with pytest.raises(ValueError, match=reason):
-            ci.discovery_gate(plan, digest, "receipt.json", 33)
+            ci.discovery_gate(plan, digest, "receipt.json", 61)
     (tmp_path / "receipt.json").write_text(json.dumps(receipt(digest)))
-    ci.discovery_gate(plan, digest, "receipt.json", 34)
+    ci.discovery_gate(plan, digest, "receipt.json", 62)
 
 
 def test_matrix_command_refuses_a_malformed_receipt_with_code_2(

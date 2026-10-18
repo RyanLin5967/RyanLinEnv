@@ -34,12 +34,15 @@ Blind spots, stated on purpose:
   ref but refs/heads/main, and every shard identity carries the SHA256 of this runner and the
   workflow, which the discovery gate requires full VAL to repeat. Someone who can push to main
   can still change both; that is what branch protection and review are for, not this file.
-- Free runners differ: plumbing measured ~113 s and ~298 s per image on hosts with the same
-  vCPU count and memory. The shard rule sizes against the slowest discovery shard times a
-  pre-registered factor above that spread; a host slower still stops its shard as partial and
-  the merge refuses the run (fail closed, reported, never patched). Each shard records the CPU
-  model and flags so the spread can be attributed. They are not part of the merge identity,
-  because a full run's shards land on mixed hosts and would always be refused.
+- Free runners differ. Under default kernels plumbing measured ~9 s per image on an AVX-512
+  bf16 host, which also changed one greedy answer, and ~113 s and ~298 s on AVX2-class hosts.
+  Every shard therefore pins one kernel path (ATen AVX2, oneDNN off; pin_cpu_numerics), records
+  it in the merge identity, and the PR plumbing canary requires the pre-registered answers on
+  whatever host it lands on. That canary samples one host per PR; it does not prove every host
+  type agrees. The shard rule sizes against max(330 s floor, 3.0 x the slowest discovery
+  shard); a host slower still stops its shard as partial and the merge refuses the run (fail
+  closed, reported, never patched). Each shard records the CPU model and flags; they are not
+  part of the merge identity, because a full run's shards land on mixed hosts.
 """
 
 from __future__ import annotations
@@ -231,8 +234,9 @@ def required_full_shards(plan, receipt):
     Per image: factor x (the SLOWEST discovery shard's mean generation latency + mean per-image
     fetch seconds), since a shard fetches all its images during setup. The factor (3.0) is
     above the measured 2.63x runner-to-runner spread, so a fast discovery cannot size shards
-    that a slow host overruns. Fixed: the largest discovery setup excluding image fetches
-    (model download, rehash, load), plus one per-image deadline.
+    that a slow host overruns, and per image is never below the pre-registered floor (330 s,
+    above the slowest host measured). Fixed: the largest discovery setup excluding image
+    fetches (model download, rehash, load), plus one per-image deadline.
     """
     rule = plan["stages"]["full"]["gate"]
     sharding, timing = plan["sharding"], receipt.get("timing")
@@ -241,8 +245,9 @@ def required_full_shards(plan, receipt):
         raise ValueError("Discovery receipt timing is missing or not positive numbers")
     usable = (sharding["shard_wall_seconds"] - sharding["image_seconds"]
               - timing["max_fixed_setup_seconds"])
-    per_image = rule["latency_safety_factor"] * (timing["max_shard_mean_image_latency_seconds"]
-                                                 + timing["mean_image_fetch_seconds"])
+    per_image = max(rule["latency_floor_seconds"],
+                    rule["latency_safety_factor"] * (timing["max_shard_mean_image_latency_seconds"]
+                                                     + timing["mean_image_fetch_seconds"]))
     capacity = math.floor(usable / per_image) if usable > 0 and per_image > 0 else 0
     if capacity < 1:
         raise ValueError("Discovery latency leaves no image capacity per shard")
@@ -489,6 +494,31 @@ def host_facts():
             "disk_free_bytes": shutil.disk_usage(Path.cwd()).free}
 
 
+def pin_cpu_numerics(plan):
+    """Select one CPU kernel path on every host, before torch is imported.
+
+    Plumbing measured different greedy answers for the same image on a host with native
+    AVX-512 bf16 (AMD EPYC 9V45) than on AVX2-only hosts, so default kernels make bf16
+    outputs depend on which runner a shard lands on. ATen is held to its AVX2 kernels
+    (ATEN_CPU_CAPABILITY must be read at torch import) and oneDNN is disabled after import.
+    """
+    numerics = plan["generation"]["cpu_numerics"]
+    if "torch" in sys.modules:
+        raise ValueError("torch was imported before the CPU kernel path was pinned")
+    os.environ["ATEN_CPU_CAPABILITY"] = numerics["aten_cpu_capability_env"]
+
+
+def check_cpu_numerics(plan, torch):
+    numerics = plan["generation"]["cpu_numerics"]
+    torch.backends.mkldnn.enabled = numerics["mkldnn_enabled"]
+    observed = {"aten_cpu_capability": torch.backends.cpu.get_cpu_capability(),
+                "mkldnn_enabled": torch.backends.mkldnn.enabled}
+    if observed != {"aten_cpu_capability": numerics["aten_cpu_capability"],
+                    "mkldnn_enabled": numerics["mkldnn_enabled"]}:
+        raise ValueError(f"CPU kernel path is not the pre-registered one: {observed}")
+    return observed
+
+
 def load_backend(plan, frozen, model_directory):
     """A frozen evaluator Backend holding the named model: no adapter, no trainable weights."""
     native, evaluation = frozen["vlm_local_training"], frozen["vlm_local_evaluation"]
@@ -496,11 +526,13 @@ def load_backend(plan, frozen, model_directory):
     generation = plan["generation"]
     profile = native.Profile(**generation["profile"])
     profile.validate()
+    pin_cpu_numerics(plan)
     environment = native.preflight("cpu")
     versions = safe._check_runtime()
     verified = native._verified_model_directory(Path(model_directory), MODEL_NAME)
     torch, transformers = (importlib.import_module(n) for n in ("torch", "transformers"))
     torch.set_num_threads(min(generation["torch_threads"], os.cpu_count() or 1))
+    cpu_numerics = check_cpu_numerics(plan, torch)
     transformers.set_seed(42)
     spec = evaluator_contract(plan, frozen)
     backend = object.__new__(evaluation.Backend)
@@ -532,6 +564,7 @@ def load_backend(plan, frozen, model_directory):
         "prompt_sha256": plan["evaluator_identity"]["prompt_sha256"],
         "trainable_parameters": 0,
         "torch_threads": torch.get_num_threads(),
+        "cpu_numerics": cpu_numerics,
     }
     return backend, identity
 
@@ -635,6 +668,23 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
         write_json(output / SHARD_RECORD, record)
     if status != "completed" or len(record["results"]) != len(images):
         raise ValueError(f"Shard {index} of {shards} ended {status}; the merge will refuse it")
+    return record
+
+
+def plumbing(work, output, *, shard=None):
+    """The PR check. Beyond the shard path, a cross-host canary: the greedy answers on the
+    three TRAIN images must equal the pre-registered ones, so a host whose kernels change
+    the answers fails the PR instead of silently mixing numerics into a VAL run."""
+    shard = shard or run_shard
+    record = shard(PLAN, sha_file(PLAN), "plumbing", 1, 0, work, output)
+    expected = read_json(PLAN)["stages"]["plumbing"]["expected_responses"]
+    observed = [record["results"][row]["response"] for row in record["ids"]]
+    record["canary"] = {"expected": expected, "observed": observed,
+                        "match": observed == expected}
+    write_json(Path(output).resolve() / SHARD_RECORD, record)
+    if observed != expected:
+        raise ValueError(f"Plumbing answers differ from the pre-registered ones on this host "
+                         f"({record['host'].get('cpu_model')}): {observed} != {expected}")
     return record
 
 
@@ -859,7 +909,7 @@ def main(argv=None):
             result = run_shard(args.plan, args.plan_sha256, args.stage, args.shards,
                                args.index, args.work, args.output)
         elif args.command == "plumbing":
-            result = run_shard(PLAN, sha_file(PLAN), "plumbing", 1, 0, args.work, args.output)
+            result = plumbing(args.work, args.output)
         elif args.command == "verify-endpoints":
             result = verify_endpoints(args.work)
         else:
