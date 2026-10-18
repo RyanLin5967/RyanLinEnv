@@ -395,7 +395,31 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 - Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
 - Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
 
-## D35 (PR #31) — 27B v2 CPU baseline: oneDNN capped at AVX, 6-host pool, 60 full shards (unactivated)
-- Kernel pin changed from oneDNN off to oneDNN on with ONEDNN_MAX_CPU_ISA=AVX (plus ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX). Measured back to back on iccad3: oneDNN off made decode 61.7 s/token (13.7 alone) vs 2.1 with oneDNN on; cores busy 25-32 throughout, so the pin, not host load. Under the new pin the first-step score rows of 4 TRAIN canary images are bit-identical on iccad1/2/3, iccad5 and iccad10/12/13 (3 CPU families). Source: reports/2026-10-18-named-baseline-v2-kernel-probe.
+## D35 — RL-from-I corrections adopted; confirmatory pre-registration written, unactivated (2026-10-18)
+- Adopted as binding for every RL-from-I lane: `docs/aircraft-rl-lessons-audit-2026-10-18/CORRECTIONS.md` (sha256 cc392fa0…1dcf), a byte copy of the gitignored `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`. Its evidence, `audit.md` bfc3dd1b… (C1–C19) and `critic.md` ed9c3845… (M1–M12), is copied beside it. It has two parts:
+  - **GATE 0.** No new GRPO-I arm launches until four things are measured: P0-I, the SFT-from-I curve on the same labels, the dev800 calibration against native VAL, and the placebo pairs. P0-I is a no-go below about 5% pass@8 headroom.
+  - **Arm design rules.** These cover:
+    - fp32 GRPO unless a bf16 waiver is earned, and one device class per trajectory;
+    - the LR grid, β, dynamic sampling, the screened target and multi-image updates;
+    - controls with the same LR count and best-of-k, full label access, and time matching at each checkpoint;
+    - dropped families;
+    - pool rules that exclude the 477 near-duplicates and train400, and a rebuilt confusion map;
+    - the RL-from-sftall\* family;
+    - co-tenancy, the CUDA resume E0, a fixed rung schedule, and one shared look ledger.
+- Pre-registered before any dev800 winner exists, status UNACTIVATED: `docs/aircraft-rl-from-I-confirmatory-v1.{json,md}`. It fixes:
+  - **Intake.** At most K = 3 dev800-screened arms. Each must have passed GATE 0 and the arm rules, beaten a placebo-adjusted bar B = max(0.03, placebo max), and passed an h_gate sign check. Each is frozen by adapter sha256 before replicates or VAL.
+  - **Comparator pool.** One global pool: I re-scored, every SFT-from-I control LR with E and T endpoints, and sftall\* with its LR siblings, all scored in one look.
+  - **VAL gates.** Inherited from `substantial_rl`: ≥ 0.80, +0.05 over I, +0.05 over the strongest SFT, RER ≥ 0.20, and a lower bound > 0 on a Bonferroni 98.33% interval across K.
+  - **Replicates.** Seeds 314 and 2718, run from the same frozen I. I is never retrained.
+  - **One native-VAL scoring event**, with an append-only look ledger that discloses that VAL already selected I.
+  - **Evaluator.** The frozen 85f0865 evaluator on MPS fp32, or one validated fp32 equivalent.
+  - **Disclosures.** The 477 near-duplicates; the relabel from 4-shot to about 23 labelled images per class; the confusion-map/dev600 overlap.
+  - **Prerequisite.** A full-VAL named baseline: 3B CI run 39144098450 or 27B v2.
+  - **TEST.** A once-only sealed TEST for an allowlist of roles, opened only after a VAL pass.
+- Not activated. Activation needs, among other things, a committed GATE 0 go, `splits.json` on main, a completed full-VAL named baseline, and a reviewed validator with fire tests for every refusal id.
+
+## D36 (PR #31) — 27B v2 CPU baseline: oneDNN capped at AVX, 6-host pool, 60 full shards (unactivated)
+- Kernel pin changed from oneDNN off to oneDNN on with ONEDNN_MAX_CPU_ISA=AVX (plus ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX). Measured back to back on iccad3: oneDNN off made decode 61.7 s/token (13.7 alone) vs 2.1 with oneDNN on; cores busy 25-32 throughout, so the pin, not host load. Under the new pin the first-step score rows of 4 TRAIN canary images are bit-identical on iccad1/2/3, iccad5 and iccad10/12/13 (3 CPU families). The expected kernel fingerprint 9d149dab... (measured on iccad1/3/5/6/9/10/12/13) is pinned in the plan and refused otherwise before any image. Source: reports/2026-10-18-named-baseline-v2-kernel-probe.
 - Pool = 6 hosts (allowlist in the plan): iccad1, iccad3, iccad5, iccad10, iccad12, iccad13. Excluded: iccad2 (canary matched, but ~130 GB available with the snapshot loaded cannot take uwrun --mem 170); ecetesla0/1, iccad4, iccad6 (RAM); iccad0/7/8 (free RAM beside the sweep); iccad9/11 (saturated by the sweep, canary unfinished). Shards: 10 discovery, 60 full; gate projects at the slowest discovery host. Projection about 65-73 h for full VAL (was about 170 h). Plan remains UNACTIVATED; no VAL or TEST image touched.
 - Operation: the staging path left the run identity (each uwrun run syncs to a new directory; image hashes remain); the machine preflight (snapshot incl. unlisted files, runtime lock, kernel pin, fingerprint, host/ledger binding) runs before the ledger charges an invocation; tree, venv and --output live at fixed /var/tmp/r226lin-nbv2/ paths; every launch uses --threads 32 --mem 170 and a timeout of wall cap + 3600 s; an oom-guard or --mem stop is a charged, killed invocation whose reserved image is unknown and never quoted.
+- Lost processes: a stall watchdog ends an invocation after 3 h without journal or progress writes; a shard that lost its process (unfinished invocation, no hard stop) may be re-run from scratch once on another host (lost.json + shard-k-of-N-rerun/), scored only from the rerun. A second loss still stops the stage.
