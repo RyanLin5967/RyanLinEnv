@@ -63,11 +63,13 @@ ARM_RSS_GB = 16.0  # measured max RSS of one fp32 2B LoRA trainer was ~13.6 GB (
 # --mem = ceil(1.2 * max(training peak of the kind, assay peak)): the assay runs in the same
 # run after training. G4 was not running; it is bounded by G8 (fewer generations), unverified.
 PEAK_RSS_GIB = {"sft": 12.97, "grpo4": 13.56, "grpo8": 13.56, "grpo16": 15.22}
-# Assay: self ru_maxrss after chunks 1-3 of 25 = 12.912, 13.720, 13.958 GiB (probe-1, 8 threads).
-# It still grows per chunk, so the 25-chunk peak is EXTRAPOLATED (unverified): last increment
-# 0.238 GiB x 22 more chunks -> 19.2 GiB. Replace with the measured value from
-# rlesweep-assay-rss-probe-full (25 chunks) when it finishes.
-ASSAY_PEAK_GIB = 19.2
+# Assay: self ru_maxrss after chunks 1-6 of 25 = 12.9, 13.621, 13.800, 13.800, 14.106,
+# 14.362 GiB (rlesweep-assay-rss-probe-full, iccad5, 8 threads; stopped at chunk 6 by
+# amendment 3, iccad5 belongs to the GATE 0 lane). It still grows, so the 25-chunk peak is
+# EXTRAPOLATED (unverified): largest increment 0.306 GiB x 19 more chunks -> 20.2 GiB.
+# Replace it with the measured max of summary.json `resources.self_maxrss_gib` from the
+# first full assay under this payload (an sftall continuation).
+ASSAY_PEAK_GIB = 20.2
 MEM_HEADROOM = 1.2
 NAME_OK = re.compile(r"[^A-Za-z0-9_-]")
 
