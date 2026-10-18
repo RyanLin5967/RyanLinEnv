@@ -130,19 +130,19 @@ def table() -> dict:
     return {x["id"]: x for x in json.loads(TABLE.read_text())["arms"]}
 
 
-def push(host: str, spec: dict, prio: str, state: dict) -> None:
+def push(host: str, spec: dict, prio: str, state: dict, suffix: str = "") -> None:
     if DEVICE_CLASS[host] != spec["device_class"]:
         raise SystemExit(f"REFUSE: {spec['id']} is {spec['device_class']}, {host} is "
                          f"{DEVICE_CLASS[host]}")
-    if spec["id"] in state["queued"]:
-        raise SystemExit(f"REFUSE: {spec['id']} already queued on "
-                         f"{state['queued'][spec['id']]['host']}")
-    key = f"{prio}-{spec['id']}"
+    qid = spec["id"] + suffix
+    if qid in state["queued"]:
+        raise SystemExit(f"REFUSE: {qid} already queued on {state['queued'][qid]['host']}")
+    key = f"{prio}-{qid}"
     raw = base64.b64encode((json.dumps(spec, indent=1, sort_keys=True) + "\n").encode()).decode()
     uw("ssh", host, f"mkdir -p {ROOT}/gpuq/pending && echo {raw} | base64 -d > "
        f"{ROOT}/gpuq/pending/.{key}.tmp && mv {ROOT}/gpuq/pending/.{key}.tmp "
        f"{ROOT}/gpuq/pending/{key}.json && echo queued {key}", timeout=180)
-    state["queued"][spec["id"]] = {"host": host, "key": key, "at": now()}
+    state["queued"][qid] = {"host": host, "key": key, "at": now()}
     save_state(state)
     print(f"queued {key} on {host}")
 
@@ -197,13 +197,21 @@ def cmd_fetch(a) -> int:
     return 0
 
 
+def arm_dirs() -> list:
+    """[(arm id, results dir)] over every fetched worker, ordered by the worker's start time
+    (a continuation's dir comes after the run it continues)."""
+    out = []
+    for arm_json in (STUDY_DIR / "results").rglob("arm.json"):
+        d = arm_json.parent
+        w = d / "worker.json"
+        start = json.loads(w.read_text())["start"] if w.is_file() else 10**12
+        out.append((start, d.name, json.loads(arm_json.read_text())["id"], d))
+    return [(i, d) for _, _, i, d in sorted(out)]
+
+
 def arm_results() -> dict:
-    """{arm id: results dir} over every fetched worker (latest by arm_exec's arm.json)."""
-    found = {}
-    for arm_json in sorted((STUDY_DIR / "results").rglob("arm.json")):
-        spec = json.loads(arm_json.read_text())
-        found[spec["id"]] = arm_json.parent
-    return found
+    """{arm id: latest results dir}."""
+    return dict(arm_dirs())
 
 
 RAW_FILES = ("arm.json", "summary.json", "worker.json", "stages.json", "endpoint_receipt.json",
@@ -217,8 +225,8 @@ def cmd_raw(a) -> int:
     import shutil
 
     n = 0
-    for arm_id, d in sorted(arm_results().items()):
-        dest = DOCS / "raw" / arm_id.replace("~", "_")
+    for arm_id, d in arm_dirs():
+        dest = DOCS / "raw" / d.parent.parent.name / d.name.replace("~", "_")
         for name in RAW_FILES:
             if (d / name).is_file():
                 dest.mkdir(parents=True, exist_ok=True)
@@ -231,6 +239,21 @@ def cmd_raw(a) -> int:
     if n == 0:
         raise SystemExit("REFUSE: no fetched arm results to copy")
     print(f"copied {n} files under {DOCS / 'raw'}")
+    return 0
+
+
+def cmd_continue(a) -> int:
+    """Continue an arm in place on its host from checkpoint-<resume_stop> (same work dir,
+    same trajectory); stops after resume_stop only."""
+    t, state = table(), load_state()
+    spec = dict(t[a.of])
+    stops = [x for x in spec["stops"] if x > a.resume_stop]
+    if a.extra_stops:
+        stops += [int(x) for x in a.extra_stops.split(",")]
+    if not stops or max(stops) > spec["max_steps_total"]:
+        raise SystemExit("REFUSE: no stop left, or a stop past max_steps_total")
+    spec.update(work_id=spec["id"], resume_stop=a.resume_stop, stops=sorted(set(stops)))
+    push(a.host, spec, a.prio, state, suffix=f"@c{a.resume_stop}")
     return 0
 
 
@@ -267,9 +290,8 @@ def cmd_report(a) -> int:
     for line in GOLD.read_text().splitlines():
         r = json.loads(line)
         gold[r["id"]] = r["label"]
-    res = arm_results()
-    rows, base, host_of = [], {}, {}
-    for arm_id, d in sorted(res.items()):
+    rows, base, host_of = {}, {}, {}
+    for arm_id, d in arm_dirs():
         spec = json.loads((d / "arm.json").read_text())
         if (d / "summary.json").is_file():
             host_of[arm_id] = json.loads((d / "summary.json").read_text())["host"].split(".")[0]
@@ -277,7 +299,7 @@ def cmd_report(a) -> int:
             doc = json.loads(f.read_text())
             if set(doc["predictions"]) != set(gold):
                 raise SystemExit(f"REFUSE: {arm_id}/{f.name} is not over dev800")
-            rows.append((spec, f.stem, doc))
+            rows[(arm_id, f.stem)] = (spec, f.stem, doc)  # a later dir (re-assay) wins
             if spec["mode"] == "eval":
                 # keyed by host (same physical card) and by device class (first host wins)
                 base[(host_of.get(arm_id), spec["init"])] = (arm_id, doc)
@@ -306,7 +328,7 @@ def cmd_report(a) -> int:
             "cpu_accuracy": cpu[init][1]["metrics"]["accuracy"],
             "same_prediction_fraction": sum(cp[i] == gp[i] for i in gold) / len(gold),
             "gpu_minus_cpu": run.paired_bootstrap(gp, cp, gold, a.resamples, seed=20261018)})
-    for spec, label, doc in rows:
+    for spec, label, doc in rows.values():
         if spec["mode"] == "eval":
             continue
         same = host_of.get(spec["id"])
@@ -363,12 +385,18 @@ def main(argv=None) -> int:
     c.add_argument("--of", required=True)
     c.add_argument("--host", required=True, choices=sorted(DEVICE_CLASS))
     c.add_argument("--prio", default="05")
+    k = sub.add_parser("continue")
+    k.add_argument("--of", required=True)
+    k.add_argument("--host", required=True, choices=sorted(DEVICE_CLASS))
+    k.add_argument("--resume-stop", type=int, required=True)
+    k.add_argument("--extra-stops", default="")
+    k.add_argument("--prio", default="04")
     r = sub.add_parser("report")
     r.add_argument("--resamples", type=int, default=20000)
     a = p.parse_args(argv)
     return {"specs": cmd_specs, "enqueue": cmd_enqueue, "worker": cmd_worker,
             "queue": cmd_queue, "fetch": cmd_fetch, "control": cmd_control,
-            "report": cmd_report, "raw": cmd_raw}[a.cmd](a)
+            "report": cmd_report, "raw": cmd_raw, "continue": cmd_continue}[a.cmd](a)
 
 
 if __name__ == "__main__":
