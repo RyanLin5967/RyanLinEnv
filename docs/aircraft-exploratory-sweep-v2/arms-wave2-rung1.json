@@ -1000,7 +1000,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-fmtpen-grpo-I-1e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 5e-06,
@@ -1032,7 +1034,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-fmtpen-grpo-I-2e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 1e-05,
@@ -1064,7 +1068,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-fmtpen-grpo-I-5e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 2e-05,
@@ -1096,7 +1102,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-closedset-grpo-I-1e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 5e-06,
@@ -1128,7 +1136,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-closedset-grpo-I-2e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 1e-05,
@@ -1160,7 +1170,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-closedset-grpo-I-5e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 2e-05,
@@ -1192,7 +1204,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-drgrpo-grpo-I-1e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 5e-06,
@@ -1224,7 +1238,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-drgrpo-grpo-I-2e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 1e-05,
@@ -1256,7 +1272,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-drgrpo-grpo-I-5e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 3e-05,
@@ -1288,7 +1306,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-drgrpo-grpo-I-3e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 2e-05,
@@ -1320,7 +1340,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-mu2-grpo-I-1e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 5e-06,
@@ -1352,7 +1374,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-mu2-grpo-I-2e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 1e-05,
@@ -1384,7 +1408,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-mu2-grpo-I-5e-5-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 2e-05,
@@ -1418,7 +1444,8 @@
    "dtype": "float32",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx2080ti",
    "id": "wave2-dapo-grpo-I-1e-5-g8-b0-rtx2080ti-float32~ctl",
@@ -1454,7 +1481,8 @@
    "dtype": "float32",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx2080ti",
    "id": "wave2-dapo-grpo-I-2e-5-g8-b0-rtx2080ti-float32~ctl",
@@ -1490,7 +1518,8 @@
    "dtype": "float32",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx2080ti",
    "id": "wave2-dapo-grpo-I-5e-5-g8-b0-rtx2080ti-float32~ctl",
@@ -1524,7 +1553,9 @@
    "device_class": "cpu-float32",
    "dtype": "float32",
    "family": "control",
-   "features": [],
+   "features": [
+    "replay_sequence"
+   ],
    "id": "wave2-guard-grpo-I-3e-6-g8-b0-cpu-float32~ctl",
    "init": "I",
    "lr": 5e-06,
@@ -1558,7 +1589,8 @@
    "dtype": "bfloat16",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx3070",
    "id": "wave2-rft-I-1e-5-k8-rtx3070-bfloat16~ctl",
@@ -1594,7 +1626,8 @@
    "dtype": "bfloat16",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx3070",
    "id": "wave2-rft-I-2e-5-k8-rtx3070-bfloat16~ctl",
@@ -1630,7 +1663,8 @@
    "dtype": "bfloat16",
    "family": "control",
    "features": [
-    "cuda"
+    "cuda",
+    "replay_sequence"
    ],
    "gpu": "rtx3070",
    "id": "wave2-rft-I-5e-5-k8-rtx3070-bfloat16~ctl",

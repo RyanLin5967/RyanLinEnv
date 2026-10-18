@@ -413,12 +413,18 @@ def load_classification(
     *,
     preprocessing_id: str | None = None,
     require_all_classes: bool = True,
+    allow_repeated_ids: bool = False,
 ) -> list[dict[str, Any]]:
-    """Only immutable task-wide text enters the prompt; rows cannot override it."""
+    """Only immutable task-wide text enters the prompt; rows cannot override it.
+
+    `allow_repeated_ids` (default off; a matched control's replay sequence only) accepts an
+    id more than once, as an exact repeat (same image and label) of its first row, so a
+    sequential replay can present a row again in order.
+    """
     path = Path(path).resolve()
     if preprocessing_id not in (None, PREPROCESSING_ID):
         raise ValueError("unknown preprocessing_id")
-    rows, seen = [], set()
+    rows, seen, first = [], set(), {}
     for number, line in enumerate(path.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -427,17 +433,25 @@ def load_classification(
             raise ValueError(f"{path.name}:{number}: require only id, split, image, label")
         if row["split"] != split or split not in {"train", "validation"}:
             raise ValueError(f"expected {split} split; training adapter never opens test")
-        if not isinstance(row["id"], str) or not row["id"] or row["id"] in seen:
+        repeat = isinstance(row["id"], str) and row["id"] in seen
+        if not isinstance(row["id"], str) or not row["id"] or (repeat and not allow_repeated_ids):
             raise ValueError("classification IDs must be unique nonempty strings")
         if row["label"] not in labels or not isinstance(row["image"], str):
             raise ValueError("unknown canonical label or invalid image path")
         row["image"] = str((path.parent / row["image"]).resolve())
+        if repeat:
+            original = first[row["id"]]
+            if (row["image"], row["label"]) != (original["image"], original["label"]):
+                raise ValueError(f"{path.name}:{number}: a repeated id must repeat its row")
+            rows.append(dict(original))
+            continue
         row["image_sha256"] = (
             aircraft_pixel_sha256(row["image"])
             if preprocessing_id == PREPROCESSING_ID
             else image_hash(row["image"])
         )
         seen.add(row["id"])
+        first[row["id"]] = row
         rows.append(row)
     if not rows:
         raise ValueError("manifest is empty")
@@ -3405,6 +3419,7 @@ def train_local(
     invalid_reward: float | None = None,
     grpo_overrides: dict | None = None,
     dynamic_sampling_max_draws: int | None = None,
+    replay_sequence: bool = False,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -3442,6 +3457,10 @@ def train_local(
         exploratory_sweep != EXPLORATORY_SWEEP_ID or train_only is not True
     ):
         raise ValueError(f"exploratory_sweep must be {EXPLORATORY_SWEEP_ID!r} with train_only")
+    if type(replay_sequence) is not bool:
+        raise ValueError("replay_sequence must be boolean")
+    if replay_sequence and (mode != "sft" or order != "sequential" or train_only is not True):
+        raise ValueError("replay_sequence is a TRAIN-only sequential SFT control mode")
     overrides = validate_grpo_overrides(grpo_overrides)
     if (overrides or dynamic_sampling_max_draws is not None) and mode != "grpo":
         raise ValueError("grpo_overrides and dynamic sampling apply only to GRPO")
@@ -3557,6 +3576,7 @@ def train_local(
         spec["labels"],
         preprocessing_id=spec.get("preprocessing_id"),
         require_all_classes=not train_only,
+        allow_repeated_ids=replay_sequence,
     )
     row_cap = (
         NATIVE_TRAIN_ROWS
@@ -3565,7 +3585,8 @@ def train_local(
         if screened or order == "sequential"
         else 400
     )
-    if train_only and len(train_rows) > row_cap:
+    # a replay sequence presents rows again; the cap is on distinct TRAIN images
+    if train_only and len({row["id"] for row in train_rows}) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
     if screened and len(train_rows) < target_accepted:
         raise ValueError("screen scan is shorter than target_accepted; it would exhaust S")
@@ -3666,6 +3687,12 @@ def train_local(
             "backoff_factor": 0.5,
             "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
             "max_consecutive_skips": MAX_CONSECUTIVE_LOSS_SCALE_SKIPS,
+        }
+    if replay_sequence:
+        settings["replay_sequence"] = {
+            "order": "manifest rows in file order, repeated ids presented again",
+            "rows": len(train_rows),
+            "distinct_ids": len({row["id"] for row in train_rows}),
         }
     if overrides:
         settings["grpo_overrides"] = overrides
@@ -4954,6 +4981,7 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             "grpo_overrides",
             "dynamic_sampling_max_draws",
             "loss_scale_init",
+            "replay_sequence",
         )
         if args.get(key) not in (None, False)
     ]
@@ -5071,6 +5099,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--order", choices=("random", "sequential"), default="random")
     parser.add_argument("--cycle", action="store_true")
+    parser.add_argument(
+        "--replay-sequence",
+        action="store_true",
+        help="SFT control: the TRAIN manifest is a replay sequence; repeated ids train again",
+    )
     parser.add_argument("--screen-threshold", type=float, default=0.5)
     parser.add_argument("--target-accepted", type=int, default=600)
     parser.add_argument("--probe", action="store_true")
@@ -5178,6 +5211,7 @@ def main(argv: list[str] | None = None) -> int:
                         "invalid_reward",
                         "grpo_overrides",
                         "dynamic_sampling_max_draws",
+                        "replay_sequence",
                     )
                     if k in args
                 ) or (

@@ -377,6 +377,17 @@ def control_spec(state: dict, ctl: dict) -> dict:
         if scanned.get("global_step") != receipt["global_step"]:
             raise SystemExit(f"REFUSE: {ctl['control_of']} scanned ids are for another step")
         ids = scanned["scanned_prompt_ids"]
+        committed = receipt["committed_prompt_ids"]
+        if receipt.get("schema") == "arm_exec-rft-endpoint-v1":
+            # RFT trains on kept samples of prompts it scored (the per-round order of kept
+            # examples is canonical, not scan order): every committed id was scanned
+            ok = set(committed) <= set(ids)
+        else:  # every committed update's prompt is one scanned draw, in scan order
+            stream = iter(ids)
+            ok = all(any(x == c for x in stream) for c in committed)
+        if not ok:
+            raise SystemExit(f"REFUSE: {ctl['control_of']} committed ids are not within its "
+                             f"scanned ids in order")
     if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
@@ -736,8 +747,10 @@ def control_for(rl: dict, control_lr: dict) -> dict:
                # wave 2: a closed-set RL arm's control trains and assays on the same prompt
                response_format=extra.get("control_response_format", "answer_only"),
                beta=None, temperature=None,
+               # a promoted control can replay more ids than s_train has rows (rung 3:
+               # 1,500 > 1,424) or repeated draws, so its host needs --replay-sequence
                screen_threshold=None, features=[f for f in rl.get("features", [])
-                                                if f == "cuda"],
+                                                if f == "cuda"] + ["replay_sequence"],
                max_active_seconds=SFT_ACTIVE_CAP_SECONDS,
                # a scanned-replay control trains on every scored row, more than RL updates
                max_steps_total=int(rl.get("control_max_steps_total", rl["max_steps_total"])))
