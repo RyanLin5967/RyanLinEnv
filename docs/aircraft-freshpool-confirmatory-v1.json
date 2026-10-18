@@ -110,7 +110,7 @@
       {"role": "rl_star_seed42", "identity_source": "gate_report.gates.G4.rl_star", "kind": "actor_adapter"},
       {"role": "strongest_sft_protocol_pool", "identity_source": "gate_report.gates.G4.protocol.strongest_sft", "kind": "actor_adapter_or_w"},
       {"role": "initial_policy_w", "identity_source": "the evidence document's W endpoint; its adapter must equal the activated protocol's frozen_identities.initial_policy_w.adapter_sha256", "kind": "actor_adapter"},
-      {"role": "named_baseline_27b", "identity_source": "activated protocol frozen_identities.strong_baseline", "kind": "named_baseline", "repository": "mlx-community/Qwen3.8-27B-8bit", "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9", "profile": "the activated named-baseline plan's native-instruct direct-answer profile"}
+      {"role": "named_baseline_27b", "identity_source": "activated protocol frozen_identities.strong_baseline", "kind": "named_baseline", "repository": "mlx-community/Qwen3.8-27B-8bit", "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9", "profile": "the activated named-baseline plan's native-instruct direct-answer profile (D23 run 2), bound by these three values, which the validator checks against pins.named_baseline_plan and claim requires", "native_profile": "qwen3.8-native-instruct-v1", "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1", "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca"}
     ],
     "never_on_test": ["replicate-seed endpoints (314, 2718)", "EG-SFT", "RL endpoints other than RL*", "SFT endpoints other than the protocol-pool strongest", "controlled400 endpoints, unless one is the protocol-pool strongest", "RL400", "any endpoint chosen after a TEST output exists"],
     "strongest_sft_is_w": "If W is the protocol-pool strongest, the two roles name one identity; it is evaluated on TEST once and both roles read that one prediction file.",
@@ -151,19 +151,22 @@
   },
   "refusal_conditions": [
     {"id": "plan_not_activated", "when": "authorize", "condition": "plan activated is false, or the activated copy's activation.activates SHA256 does not match this file, or any non-activation field differs from it"},
-    {"id": "pin_mismatch", "when": "validate", "condition": "any pins.* file SHA256 differs from the file on disk"},
+    {"id": "pin_mismatch", "when": "validate", "condition": "any pins.* file SHA256 differs from the file on disk, or (authorize) the bytes executed differ from the pinned bytes, or any vision_rl.classification_comparison function the evaluator holds was not compiled from pins.comparison_module.path (an installed or sys.path copy)"},
     {"id": "inherited_block_changed", "when": "validate", "condition": "any inherited_unchanged canonical SHA256 or restated threshold differs from the activated protocol"},
     {"id": "seeds_or_n_changed", "when": "validate", "condition": "primary seed, replication seeds or N differ from the activated protocol"},
     {"id": "branch_mismatch", "when": "validate", "condition": "branch fields differ from the branch receipt, or the receipt records test_consumed true"},
     {"id": "test_not_sealed", "when": "validate", "condition": "the activated protocol's data.test_status does not start with SEALED"},
-    {"id": "contender_not_allowlisted", "when": "validate", "condition": "test.contenders is not exactly the four allowlisted roles, once each, or an identity contains a wildcard, or the baseline identity differs from the activated protocol"},
+    {"id": "contender_not_allowlisted", "when": "validate", "condition": "test.contenders is not exactly the four allowlisted roles, once each, or an identity contains a wildcard, or the baseline identity differs from the activated protocol, or its native_profile, prompt_sha256 or parser_source_sha256 differ from the pinned named-baseline plan"},
     {"id": "envelope_already_used", "when": "validate", "condition": "the envelope receipt exists, or ever existed in git history, or plan state is not unused, or max uses is not 1"},
-    {"id": "evidence_contains_test", "when": "authorize", "condition": "the evidence document handed to authorize has TEST rows, TEST predictions or named-baseline TEST predictions"},
-    {"id": "gates_not_passed", "when": "authorize", "condition": "the pinned evaluator does not report G4 and G5 evaluated and passed with failed_at null and G6 awaiting evidence"},
+    {"id": "evidence_contains_test", "when": "authorize", "condition": "the evidence document handed to authorize has any key outside the pre-TEST allowlist: top level {labels, rows, a_star, b4_edge_extension, g1, endpoints}, rows {h_select, h_gate, val}, endpoint splits {h_select, h_gate, val}"},
+    {"id": "gates_not_passed", "when": "authorize", "condition": "the pinned evaluator does not report G4 and G5 evaluated and passed with failed_at null and G6 awaiting evidence, or it raises anything, or the committed seed-42 G4 report is not a pass naming the same RL* and strongest SFT"},
     {"id": "evidence_branch_mismatch", "when": "authorize", "condition": "evidence a_star or b4_edge_extension differ from the branch receipt"},
     {"id": "w_identity_mismatch", "when": "authorize", "condition": "the W endpoint's adapter differs from the activated protocol's frozen W"},
-    {"id": "look_not_allowlisted", "when": "claim", "condition": "a TEST look is claimed for a role or identity not in the envelope receipt"},
-    {"id": "look_already_taken", "when": "claim", "condition": "a TEST look for that role was already claimed"}
+    {"id": "look_not_allowlisted", "when": "claim", "condition": "a TEST look is claimed for a role or identity not in the envelope receipt, or for the named baseline under a profile other than the receipt's"},
+    {"id": "look_already_taken", "when": "claim", "condition": "a TEST look for that role was already claimed: its look file exists, or ever existed in git history (all refs and reflogs)"},
+    {"id": "evidence_not_committed", "when": "authorize", "condition": "the activated copy, the evidence document or the seed-42 G4 report is not tracked and identical to HEAD, or any tracked file differs from HEAD"},
+    {"id": "receipt_not_authentic", "when": "claim", "condition": "the receipt is not the activated plan's receipt_path, is not tracked and identical to HEAD, or its plan_sha256, looks_dir or max_uses do not match the committed activated plan"},
+    {"id": "record_not_committed", "when": "authorize, claim", "condition": "the receipt or look record could not be committed; it is removed, and nothing is authorized or claimed"}
   ],
   "test_seal": {
     "allowlist_guard": "scripts/validate_freshpool_confirmatory.py authorize derives the TEST identities from the pinned evaluator's own report on the pre-TEST evidence; nobody types them. claim then refuses any role or identity not in the envelope receipt. It is an allowlist: anything not named is refused.",
@@ -173,12 +176,13 @@
       "max_uses": 1,
       "state": "unused",
       "creation": "exclusive create (open mode x): a second authorize fails because the file exists",
-      "commit_rule": "The receipt is committed to main by PR immediately after authorize, before any TEST image is opened, so it stays in git history even if the file is later deleted."
+      "commit_rule": "authorize commits the receipt itself (git commit --only of that one path) before it returns, and removes it if the commit fails, so an issued envelope is always in git history; claim refuses a receipt that is not committed and unmodified. Each look record is committed by claim the same way. The commits reach main by PR before any TEST score is computed."
     },
-    "runner_obligation": "Any TEST runner calls claim for its contender and refuses unless it returns a look record, before it opens any file under data/fgvc-aircraft-2013b/sealed/. A deterministic contender run resumes from its own journal; it never claims twice.",
+    "runner_obligation": "Any TEST runner calls claim for its contender (the named baseline also passes its native_profile, prompt_sha256 and parser_source_sha256) and refuses unless it returns a look record, before it opens any file under data/fgvc-aircraft-2013b/sealed/. A deterministic contender run resumes from its own journal; it never claims twice.",
     "blind_spots": [
       "It cannot stop a process that opens the sealed directory without calling claim; the guard binds cooperating runners only. The sealed path is also kept out of every development manifest by the data pipeline.",
-      "History detection reads git log of the local clone: a shallow clone sees only its own commits. Validate from a full clone before activation.",
+      "History detection reads git log --all --reflog of the local clone: a shallow or fresh clone sees only its own commits, and a rewrite followed by reflog expiry is not seen. Validate, authorize and claim in one full clone.",
+      "A receipt hand-written after activation and committed at receipt_path with the activated plan's SHA256 is trusted by claim, which does not re-run the evaluator.",
       "It cannot tell whether predictions came from the identity that claimed the look; prediction files must carry the adapter or model hash and the gate evaluator trusts it, as it states."
     ]
   },
@@ -186,11 +190,11 @@
     "source": "docs/aircraft-freshpool-study-v1.md section 10 rates (extrapolated, unverified) and D22's measured 27B discovery mean of 5.61 s/image",
     "replicate_seed_each": "17.68 h if two SFT LRs qualify, 12.10 h if one",
     "actor_test_three_identities": "2.81 h",
-    "named_baseline_test": "about 5.2 h (3,333 x 5.61 s, from the 100-image discovery mean; unverified at full scale)",
+    "named_baseline_test": "about 5.35 h (19,253 s): D22's projection for 3,333 images under the named-baseline plan's stages.full.gate.projection formula (3333 x discovery mean latency + ceil(3333 / chunk_images) x per-invocation load), decision-log-2026-10-16-claude.md D22; TEST has the same image count. Unverified at full scale.",
     "single_owner": "One MPS owner at a time; the 27B runner and the actor never overlap."
   },
   "activation_prerequisites": [
-    "Seed 42 G4 report (pinned evaluator, pre-TEST evidence) committed with G4 protocol pass.",
+    "Seed 42 G4 report (pinned evaluator, pre-TEST evidence) committed with G4 protocol pass. authorize enforces this, and that the activated copy and the evidence are committed in a clean tree (evidence_not_committed).",
     "Root reviews this draft and commits a separately identified activated copy docs/aircraft-freshpool-confirmatory-v1-activated.json whose activation.activates pins this file's SHA256; only status, activated and activation may differ.",
     "The validator passes on the activated copy from a full clone (no envelope receipt in history).",
     "Replicate forecasts (1.25x caps) frozen from the seed-42 measured values before the first replicate stage.",

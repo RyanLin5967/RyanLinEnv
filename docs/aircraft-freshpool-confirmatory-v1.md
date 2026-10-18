@@ -18,7 +18,7 @@
 | Gate evaluator | `scripts/evaluate_freshpool_gates.py` | `9a575a94…354d` |
 | Bootstrap module | `src/vision_rl/classification_comparison.py` | `269b2d78…6861` |
 
-Freezing the gate and bootstrap code here is the protocol's `test_freeze_before_access` item ("freeze bootstrap code, random seed and all numerical acceptance margins"). Editing either file makes this plan refuse until a reviewed PR re-pins it, which is the intended effect.
+Freezing the gate and bootstrap code here is the protocol's `test_freeze_before_access` item ("freeze bootstrap code, random seed and all numerical acceptance margins"). Editing either file makes this plan refuse until a reviewed PR re-pins it, which is the intended effect. `authorize` executes the exact bytes it hashed: it loads the pinned bootstrap module into `sys.modules` before the evaluator's `from vision_rl.classification_comparison import …`, so an editable install pointing at another checkout is never used, and it then refuses (`pin_mismatch`) unless every comparison function the evaluator holds was compiled from the pinned path.
 
 Branch, from the receipt: a\* = 0.7539 (`sft-1e5-time`), D_req = 0.05, **full mode** (G3 margin +0.02), no B4 edge extension, `test_consumed: false`.
 
@@ -49,7 +49,7 @@ TEST is the full native split of 3,333 images. It is opened at most once, and on
 | `rl_star_seed42` | gate report `G4.rl_star` (must be the seed-42, 600-update RL endpoint) |
 | `strongest_sft_protocol_pool` | gate report `G4.protocol.strongest_sft` (VAL-selected; it can be W or a controlled400 endpoint) |
 | `initial_policy_w` | the evidence's W endpoint, whose adapter must equal the frozen W `f05840be…` |
-| `named_baseline_27b` | `mlx-community/Qwen3.8-27B-8bit` @ `815b83c0…`, the activated named-baseline plan's native-instruct direct-answer profile |
+| `named_baseline_27b` | `mlx-community/Qwen3.8-27B-8bit` @ `815b83c0…`, the activated named-baseline plan's native-instruct direct-answer profile (D23 run 2): `qwen3.8-native-instruct-v1`, prompt `859dd366…`, parser source `f75d20ee…`. The validator checks these against the pinned named-baseline plan, the receipt carries them, and `claim` refuses a baseline look under any other profile. |
 
 **Never on TEST:**
 - replicate-seed endpoints;
@@ -114,13 +114,14 @@ The procedure is a **fixed sequence of conjunctive families**: G4 (VAL, seed 42)
 
 ## 8. How TEST stays sealed
 
-- **Allowlist guard.** `scripts/validate_freshpool_confirmatory.py authorize` takes the pre-TEST evidence and checks that it contains no TEST rows, TEST predictions or baseline TEST predictions. It then runs the **pinned** gate evaluator itself and derives the four identities from that report, so nobody types them. `claim` refuses any role or identity that is not in the receipt.
-- **Single-use envelope.** The receipt `reports/aircraft-freshpool-confirmatory-v1/test-envelope.json` is created by exclusive create, so a second authorize fails even in a race. It is committed to main before any sealed file is opened. Each role's look is `test-looks/<role>.json`, also created exclusively, and a second claim for the same role is refused.
-- **Already used.** `validate` refuses if the receipt exists, or if it **ever** existed in git history (a deleted receipt still counts). It also refuses if the plan's state is not `unused` or its maximum uses is not 1. If git history cannot be read, it refuses rather than passing.
-- **Runner obligation.** A TEST runner calls `claim` and stops unless it gets a look record, before it opens anything under `data/fgvc-aircraft-2013b/sealed/`.
+- **Allowlist guard.** `scripts/validate_freshpool_confirmatory.py authorize` refuses unless the activated copy, the pre-TEST evidence and the seed-42 G4 report are committed and unmodified and no tracked file differs from HEAD. It accepts only allowlisted evidence keys (top level `labels`, `rows`, `a_star`, `b4_edge_extension`, `g1`, `endpoints`; rows and endpoint splits `h_select`, `h_gate`, `val`), so any TEST-like key is refused whatever its spelling. It then runs the **pinned** gate evaluator itself and derives the four identities from that report, so nobody types them. `claim` refuses any role, identity or baseline profile that is not in the receipt.
+- **Single-use envelope.** The receipt `reports/aircraft-freshpool-confirmatory-v1/test-envelope.json` is created by exclusive create, so a second authorize fails even in a race, and `authorize` commits it before returning (removing it if the commit fails), so an issued envelope is always in history. `claim` accepts only that path, tracked and identical to HEAD, with `plan_sha256` equal to the committed activated copy. Each role's look is `test-looks/<role>.json`, created exclusively and committed by `claim`. A second claim for a role is refused if the look exists or ever existed in history, including commits only the reflog still reaches.
+- **Already used.** `validate` refuses if the receipt exists, or if it **ever** existed in git history (all refs and reflogs, so a deleted receipt still counts). It also refuses if the plan's state is not `unused` or its maximum uses is not 1. If git history cannot be read, it refuses rather than passing.
+- **Runner obligation.** A TEST runner calls `claim` (the baseline also passes its profile) and stops unless it gets a look record, before it opens anything under `data/fgvc-aircraft-2013b/sealed/`.
 - **Blind spots (stated in the script too).**
   - The guard binds cooperating runners only. A process that opens the sealed directory directly is not seen.
-  - A shallow clone's git history is incomplete, so activation validates from a full clone.
+  - A shallow or fresh clone's git history is incomplete, and a history rewrite followed by reflog expiry is not seen, so validate, authorize and claim run in one full clone.
+  - A receipt hand-written after activation and committed at the receipt path with the activated plan's SHA256 is trusted by `claim`, which does not re-run the evaluator.
   - The script cannot verify which adapter produced a prediction file, and it trusts the file's recorded hash, as the gate evaluator does.
   - The G6-awaiting check in `authorize` is implied by the no-TEST-evidence check. A mutation that removes it survives the tests, which is expected for an equivalent condition.
 
@@ -131,8 +132,10 @@ Every refusal exits 2 and names one of these ids:
 | When | Refusal ids |
 |---|---|
 | Validate | `malformed`, `pin_mismatch`, `inherited_block_changed`, `seeds_or_n_changed`, `branch_mismatch`, `test_not_sealed`, `contender_not_allowlisted`, `envelope_already_used` |
-| Authorize | `plan_not_activated`, `evidence_contains_test`, `gates_not_passed`, `evidence_branch_mismatch`, `w_identity_mismatch` |
-| Claim | `look_not_allowlisted`, `look_already_taken` |
+| Authorize | `plan_not_activated`, `evidence_not_committed`, `evidence_contains_test`, `gates_not_passed`, `evidence_branch_mismatch`, `w_identity_mismatch`, `pin_mismatch`, `record_not_committed` |
+| Claim | `receipt_not_authentic`, `look_not_allowlisted`, `look_already_taken`, `record_not_committed` |
+
+Input the script cannot parse (evidence that is not an object, a field of the wrong type) is refused as `malformed` with exit 2, and any exception from the evaluator is `gates_not_passed`.
 
 `tests/test_freshpool_confirmatory.py` forces each one to fire against the committed plan, or against a git fixture repository holding the pinned files. It uses the hand-computed gate fixture of `tests/test_evaluate_freshpool_gates.py` with its synthetic TEST rows removed. No real TEST data is read.
 
@@ -140,12 +143,12 @@ Every refusal exits 2 and names one of these ids:
 
 - **Each replicate seed:** 17.68 h if two SFT LRs qualify, 12.10 h if one. This is from study §10.
 - **Actor TEST (three identities):** 2.81 h, from study §10.
-- **27B TEST:** about 5.2 h. This is 3,333 × 5.61 s/image, using D22's 100-image discovery mean, and is unverified at full scale.
+- **27B TEST:** about 5.35 h (19,253 s). This is D22's projection for 3,333 images under the named-baseline plan's `stages.full.gate.projection` formula (3,333 × discovery mean latency, 5.61 s/image, plus per-invocation load for each chunk); TEST has the same image count. It is unverified at full scale.
 - **Scheduling:** one MPS owner at a time, and the 27B and the actor never overlap.
 
 ## 11. Activation prerequisites
 
-1. The seed-42 G4 report is committed, from the pinned evaluator on pre-TEST evidence, with a G4 protocol pass.
+1. The seed-42 G4 report is committed, from the pinned evaluator on pre-TEST evidence, with a G4 protocol pass. `authorize` enforces this (`evidence_not_committed`, `gates_not_passed`).
 2. Root commits `docs/aircraft-freshpool-confirmatory-v1-activated.json`. Its `activation.activates` pins this draft's SHA256, and only `status`, `activated` and `activation` may differ from the draft. The validator refuses anything else.
 3. `python scripts/validate_freshpool_confirmatory.py validate --plan docs/aircraft-freshpool-confirmatory-v1-activated.json` passes from a full clone.
 4. Replicate caps are frozen from the seed-42 measured forecasts.

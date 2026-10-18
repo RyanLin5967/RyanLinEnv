@@ -4,26 +4,32 @@ Pure logic over committed JSON and recorded evidence: no model, image or acceler
 and no file under the sealed TEST directory is ever opened here.
 
   validate   refuse a malformed plan, or one whose TEST envelope was already used
-  authorize  (activated plan only) run the pinned gate evaluator on PRE-TEST evidence; if G4 and
-             G5 passed, write the envelope receipt by exclusive create, naming exactly the four
-             allowlisted TEST identities
-  claim      record one TEST look for one allowlisted role and identity, by exclusive create
+  authorize  (activated plan only, clean tree, plan + evidence + seed-42 G4 report committed)
+             run the pinned gate evaluator, bound to the pinned comparison module, on PRE-TEST
+             evidence; if G4 and G5 passed, write the envelope receipt by exclusive create and
+             commit it, naming exactly the four allowlisted TEST identities
+  claim      (committed receipt at the plan's receipt_path, bound to the activated plan's SHA256)
+             record one TEST look for one allowlisted role, identity and baseline profile, by
+             exclusive create, and commit it
 
 Every refusal exits 2 and names its refusal id (plan refusal_conditions).
 
 Blind spots, stated: the guard binds cooperating runners only; a process that opens the sealed
-directory without calling ``claim`` is not seen. Envelope history is read from ``git log`` of the
-given repository, so a shallow clone sees only its own commits. Prediction provenance (which
-adapter produced a TEST file) is trusted, as the gate evaluator states.
+directory without calling ``claim`` is not seen. Envelope and look history is read from
+``git log --all --reflog`` of the given repository, so a shallow or fresh clone sees only its own
+commits, and a history rewrite followed by reflog expiry is not seen. A receipt hand-written
+after activation and committed at the plan's receipt_path with the activated plan's SHA256 is
+trusted: claim does not re-run the evaluator. Prediction provenance (which adapter produced a
+TEST file) is trusted, as the gate evaluator states.
 """
 
 import argparse
 import copy
 import hashlib
 import json
-import runpy
 import subprocess
 import sys
+import types
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -62,9 +68,20 @@ REQUIRED_REFUSALS = {
     "branch_mismatch", "test_not_sealed", "contender_not_allowlisted", "envelope_already_used",
     "evidence_contains_test", "gates_not_passed", "evidence_branch_mismatch",
     "w_identity_mismatch", "look_not_allowlisted", "look_already_taken",
+    "evidence_not_committed", "receipt_not_authentic", "record_not_committed",
 }
 ENVELOPE_DIR = "reports/aircraft-freshpool-confirmatory-v1/"
 ACTIVATION_KEYS = {"status", "activated", "activation"}
+COMPARISON_MODULE = "vision_rl.classification_comparison"
+# Pre-TEST evidence allowlist (what the gate evaluator reads before G6). Anything else is refused.
+EVIDENCE_KEYS = {"labels", "rows", "a_star", "b4_edge_extension", "g1", "endpoints"}
+SPLIT_KEYS = {"h_select", "h_gate", "val"}
+# The named baseline's frozen native profile, bound into the envelope (named-baseline plan keys).
+BASELINE_PROFILE_KEYS = {
+    "native_profile": ("generation", "native_profile"),
+    "prompt_sha256": ("prompt_and_parser", "prompt_sha256"),
+    "parser_source_sha256": ("prompt_and_parser", "parser_source_sha256"),
+}
 
 
 class Refusal(Exception):
@@ -95,18 +112,20 @@ def dig(document, keys):
     return document
 
 
-def envelope_used(repo_root, receipt_rel):
-    """True if the receipt exists or ever existed in git history. Unreadable history refuses."""
-    if (Path(repo_root) / receipt_rel).exists():
+def envelope_used(repo_root, rel, refusal_id="envelope_already_used"):
+    """True if ``rel`` exists or ever existed in git history (all refs and reflogs).
+
+Unreadable history refuses with ``refusal_id``; it never reads as unused."""
+    if (Path(repo_root) / rel).exists():
         return True
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "log", "--all", "--format=%H", "--", receipt_rel],
+            ["git", "-C", str(repo_root), "log", "--all", "--reflog", "--format=%H", "--", rel],
             capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise Refusal("envelope_already_used", f"cannot read git history: {error}") from error
+        raise Refusal(refusal_id, f"cannot read git history: {error}") from error
     if result.returncode != 0:
-        raise Refusal("envelope_already_used",
+        raise Refusal(refusal_id,
                       f"cannot read git history of {repo_root}: {result.stderr.strip()}")
     return bool(result.stdout.strip())
 
@@ -189,7 +208,8 @@ def _validate(plan, repo_root, require_activated):
         _require(branch.get(key) == receipt.get(key), "branch_mismatch",
                  f"branch.{key} {branch.get(key)!r} != receipt {receipt.get(key)!r}")
 
-    _check_test(plan["test"], protocol)
+    _check_test(plan["test"], protocol,
+                load_json(repo_root / pins["named_baseline_plan"]["path"]))
     _check_primary(plan["primary_endpoint"], protocol)
     _require(plan["multiplicity"].get("procedure") == "fixed_sequence_conjunctive"
              and plan["multiplicity"].get("sequence") == SEQUENCE, "malformed",
@@ -250,7 +270,7 @@ def _check_thresholds(restated, protocol):
              "inherited_block_changed", "replicate mean threshold differs from the protocol")
 
 
-def _check_test(test, protocol):
+def _check_test(test, protocol, named_baseline_plan):
     _require(test["images"] == protocol["data"]["native_test_images"]
              and test["split"] == "native_test", "malformed",
              "TEST must be the full native test split")
@@ -265,6 +285,11 @@ def _check_test(test, protocol):
     _require(baseline.get("repository") == frozen["repository"]
              and baseline.get("revision") == frozen["revision"], "contender_not_allowlisted",
              "named baseline identity differs from the activated protocol")
+    for key, keys in BASELINE_PROFILE_KEYS.items():
+        frozen_value = dig(named_baseline_plan, keys)
+        _require(baseline.get(key) == frozen_value, "contender_not_allowlisted",
+                 f"named baseline {key} {baseline.get(key)!r} != named-baseline plan "
+                 f"{frozen_value!r}")
 
 
 def _check_primary(primary, protocol):
@@ -275,41 +300,172 @@ def _check_primary(primary, protocol):
              f"primary bootstrap {primary.get('bootstrap')} != protocol {expected}")
 
 
-def _contains_test(evidence):
-    found = []
-    if "test" in evidence.get("rows", {}):
-        found.append("rows.test")
-    if "named_baseline_test" in evidence:
-        found.append("named_baseline_test")
-    found += [f"endpoints[{e.get('run_id')}].splits.test" for e in evidence.get("endpoints", [])
-              if "test" in e.get("splits", {})]
+def _evidence_outside_allowlist(evidence):
+    """Return every key outside the pre-TEST allowlist. Anything not named is refused."""
+    _require(isinstance(evidence, dict), "malformed", "evidence is not a JSON object")
+    found = [key for key in evidence if key not in EVIDENCE_KEYS]
+    rows = evidence.get("rows", {})
+    _require(isinstance(rows, dict), "malformed", "evidence rows is not an object")
+    found += [f"rows.{key}" for key in rows if key not in SPLIT_KEYS]
+    endpoints = evidence.get("endpoints", [])
+    _require(isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints),
+             "malformed", "evidence endpoints is not a list of objects")
+    for endpoint in endpoints:
+        splits = endpoint.get("splits", {})
+        _require(isinstance(splits, dict), "malformed",
+                 f"endpoints[{endpoint.get('run_id')}].splits is not an object")
+        found += [f"endpoints[{endpoint.get('run_id')}].splits.{key}" for key in splits
+                  if key not in SPLIT_KEYS]
     return found
 
 
-def authorize(plan_path, evidence, repo_root=ROOT, now=None):
-    """Write the single-use envelope receipt; return it. ``evidence`` is the parsed document."""
+def _git(repo_root, refusal_id, *args):
+    try:
+        return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True,
+                              text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise Refusal(refusal_id, f"cannot run git {args[0]}: {error}") from error
+
+
+def _repo_relative(repo_root, path, refusal_id):
+    try:
+        return Path(path).resolve().relative_to(Path(repo_root).resolve()).as_posix()
+    except ValueError as error:
+        raise Refusal(refusal_id, f"{path} is not inside {repo_root}") from error
+
+
+def _require_committed(repo_root, rel, refusal_id):
+    """Refuse unless ``rel`` is tracked and identical to HEAD (index and working tree)."""
+    tracked = _git(repo_root, refusal_id, "ls-files", "--error-unmatch", "--", rel)
+    _require(tracked.returncode == 0, refusal_id, f"{rel} is not committed")
+    diff = _git(repo_root, refusal_id, "diff", "--quiet", "HEAD", "--", rel)
+    _require(diff.returncode == 0, refusal_id,
+             f"{rel} differs from HEAD (rc {diff.returncode}): commit it first")
+
+
+def _require_clean_tree(repo_root, refusal_id):
+    status = _git(repo_root, refusal_id, "status", "--porcelain", "--untracked-files=no")
+    _require(status.returncode == 0 and not status.stdout.strip(), refusal_id,
+             f"tracked files differ from HEAD: {status.stdout.strip() or status.stderr.strip()}")
+
+
+def _commit_record(repo_root, rel, message):
+    """Commit exactly ``rel``. On failure remove it, so no uncommitted record survives."""
+    add = _git(repo_root, "record_not_committed", "add", "--", rel)
+    commit = add.returncode == 0 and _git(
+        repo_root, "record_not_committed", "commit", "-q", "--only", "-m", message, "--", rel)
+    if add.returncode != 0 or commit.returncode != 0:
+        _git(repo_root, "record_not_committed", "reset", "-q", "--", rel)
+        (Path(repo_root) / rel).unlink(missing_ok=True)
+        failed = add if add.returncode != 0 else commit
+        raise Refusal("record_not_committed",
+                      f"could not commit {rel}, so it was removed: {failed.stderr.strip()}")
+
+
+def _pinned_source(repo_root, pin):
+    """The pinned file's bytes, hashed as read: the bytes checked are the bytes executed."""
+    path = (repo_root / pin["path"]).resolve()
+    data = path.read_bytes()
+    _require(hashlib.sha256(data).hexdigest() == pin["sha256"], "pin_mismatch",
+             f"{pin['path']} changed after validation")
+    return path, data
+
+
+def load_pinned_evaluator(repo_root, pins):
+    """Execute the pinned gate evaluator against the pinned comparison module.
+
+The evaluator's ``from vision_rl.classification_comparison import ...`` would resolve through
+sys.path (an editable install points at whichever checkout installed it), so the pinned file is
+executed and placed in sys.modules first; the import then binds to it. The previous
+sys.modules entry is restored afterwards. ``check_comparison_loaded`` then reads the outcome."""
+    comparison_path, comparison_bytes = _pinned_source(repo_root, pins["comparison_module"])
+    evaluator_path, evaluator_bytes = _pinned_source(repo_root, pins["gate_evaluator"])
+    module = types.ModuleType(COMPARISON_MODULE)
+    module.__file__ = str(comparison_path)
+    module.__package__ = COMPARISON_MODULE.rpartition(".")[0]
+    saved = sys.modules.get(COMPARISON_MODULE)
+    sys.modules[COMPARISON_MODULE] = module
+    try:
+        exec(compile(comparison_bytes, str(comparison_path), "exec"), module.__dict__)
+        namespace = {"__name__": "freshpool_gate_evaluator", "__file__": str(evaluator_path)}
+        exec(compile(evaluator_bytes, str(evaluator_path), "exec"), namespace)
+    finally:
+        if saved is None:
+            sys.modules.pop(COMPARISON_MODULE, None)
+        else:
+            sys.modules[COMPARISON_MODULE] = saved
+    check_comparison_loaded(namespace, comparison_path)
+    return namespace
+
+
+def check_comparison_loaded(namespace, comparison_path):
+    """Refuse unless every comparison function the evaluator holds was compiled from the pin."""
+    imported = [value for value in namespace.values()
+                if isinstance(value, types.FunctionType)
+                and value.__module__ == COMPARISON_MODULE]
+    _require(imported, "pin_mismatch",
+             f"the evaluator imported nothing from {COMPARISON_MODULE}")
+    pinned = Path(comparison_path).resolve()
+    for function in imported:
+        source = Path(function.__code__.co_filename).resolve()
+        _require(source == pinned, "pin_mismatch",
+                 f"{function.__name__} was loaded from {source}, not the pinned {pinned}")
+
+
+def _baseline_profile(contender):
+    return {key: contender[key] for key in BASELINE_PROFILE_KEYS}
+
+
+def authorize(plan_path, evidence_path, g4_report_path, repo_root=ROOT, now=None):
+    """Write and commit the single-use envelope receipt; return it.
+
+``evidence_path`` is the pre-TEST evidence document and ``g4_report_path`` the seed-42 G4
+report; both, and the activated plan, must be committed and unmodified in a clean tree."""
     repo_root = Path(repo_root)
+    _require(Path(plan_path).resolve() == (repo_root / ACTIVATED_PLAN).resolve(),
+             "plan_not_activated", f"authorize reads only {ACTIVATED_PLAN}")
     raw = Path(plan_path).read_bytes()
     plan, protocol = validate_plan(json.loads(raw), repo_root, require_activated=True)
-    found = _contains_test(evidence)
-    _require(not found, "evidence_contains_test", f"pre-TEST evidence holds {found}")
+    evidence_rel = _repo_relative(repo_root, evidence_path, "evidence_not_committed")
+    g4_rel = _repo_relative(repo_root, g4_report_path, "evidence_not_committed")
+    for rel in (ACTIVATED_PLAN.as_posix(), evidence_rel, g4_rel):
+        _require_committed(repo_root, rel, "evidence_not_committed")
+    _require_clean_tree(repo_root, "evidence_not_committed")
+    evidence = load_json(repo_root / evidence_rel)
+    g4_report = load_json(repo_root / g4_rel)
+
+    found = _evidence_outside_allowlist(evidence)
+    _require(not found, "evidence_contains_test",
+             f"pre-TEST evidence holds keys outside the allowlist: {found}")
     receipt_branch = load_json(repo_root / plan["pins"]["branch_receipt"]["path"])
     _require(evidence.get("a_star") == receipt_branch["a_star"]
              and evidence.get("b4_edge_extension") == receipt_branch["b4_edge_extension"],
              "evidence_branch_mismatch", "evidence a_star / b4_edge_extension != branch receipt")
 
-    evaluator = runpy.run_path(str(repo_root / plan["pins"]["gate_evaluator"]["path"]))
+    evaluator = load_pinned_evaluator(repo_root, plan["pins"])
     try:
         report = evaluator["evaluate"](copy.deepcopy(evidence))
-    except (KeyError, TypeError, ValueError) as error:
-        raise Refusal("gates_not_passed",
-                      f"gate evaluator refused the evidence: {error}") from error
-    gates = report["gates"]
-    passed = all(gates[g].get("status") == "evaluated" and gates[g].get("pass") is True
-                 for g in ("G1", "G2", "G3a", "G3b", "G4", "G5"))
-    _require(passed and report["failed_at"] is None and report["awaiting"] == "G6"
-             and gates["G6"].get("status") == "awaiting_evidence", "gates_not_passed",
-             f"failed_at={report['failed_at']} awaiting={report['awaiting']}")
+        gates = report["gates"]
+        passed = all(gates[g].get("status") == "evaluated" and gates[g].get("pass") is True
+                     for g in ("G1", "G2", "G3a", "G3b", "G4", "G5"))
+        failed_at, awaiting = report["failed_at"], report["awaiting"]
+        g6_status = gates["G6"].get("status")
+    except Exception as error:  # noqa: BLE001 - any evaluator failure is a refusal, never a pass
+        raise Refusal("gates_not_passed", f"gate evaluator refused the evidence: "
+                      f"{type(error).__name__}: {error}") from error
+    _require(passed and failed_at is None and awaiting == "G6"
+             and g6_status == "awaiting_evidence", "gates_not_passed",
+             f"failed_at={failed_at} awaiting={awaiting}")
+    try:
+        committed_g4 = g4_report["gates"]["G4"]
+        g4_matches = (committed_g4["status"] == "evaluated" and committed_g4["pass"] is True
+                      and committed_g4["rl_star"] == gates["G4"]["rl_star"]
+                      and committed_g4["protocol"]["strongest_sft"]
+                      == gates["G4"]["protocol"]["strongest_sft"])
+    except (KeyError, TypeError) as error:
+        raise Refusal("gates_not_passed", f"seed-42 G4 report unreadable: {error!r}") from error
+    _require(g4_matches, "gates_not_passed",
+             "the committed seed-42 G4 report is not a pass naming the same RL* and strongest SFT")
 
     endpoints = {e["run_id"]: e for e in evidence["endpoints"]}
     (w,) = [e for e in evidence["endpoints"] if e["arm"] == "W"]
@@ -333,14 +489,14 @@ def authorize(plan_path, evidence, repo_root=ROOT, now=None):
         strongest["shares_look_with"] = "initial_policy_w"
     contenders = [actor("rl_star_seed42", rl), strongest, actor("initial_policy_w", w),
                   {"role": "named_baseline_27b", "kind": "named_baseline",
-                   "run_id": baseline["repository"],
-                   "revision": baseline["revision"]}]
+                   "run_id": baseline["repository"], "revision": baseline["revision"],
+                   "profile": _baseline_profile(baseline)}]
     envelope = plan["test_seal"]["envelope"]
     record = {
         "plan_id": PLAN_ID, "study_id": STUDY_ID,
         "plan_sha256": hashlib.sha256(raw).hexdigest(),
-        "evidence_sha256": canonical_sha256(evidence),
-        "gate_report_sha256": canonical_sha256(report),
+        "evidence_path": evidence_rel, "evidence_sha256": canonical_sha256(evidence),
+        "g4_report_path": g4_rel, "gate_report_sha256": canonical_sha256(report),
         "authorized_at": (now or datetime.now(UTC)).isoformat(),
         "max_uses": 1, "contenders": contenders,
         "looks_dir": envelope["looks_dir"],
@@ -354,13 +510,41 @@ def authorize(plan_path, evidence, repo_root=ROOT, now=None):
             handle.write("\n")
     except FileExistsError as error:
         raise Refusal("envelope_already_used", f"{path} already exists") from error
+    _commit_record(repo_root, envelope["receipt_path"],
+                   f"Authorize {PLAN_ID} TEST envelope (single use)")
     return record
 
 
-def claim(receipt_path, role, identity, repo_root=ROOT, now=None):
-    """Record the one TEST look for ``role``; ``identity`` is adapter_sha256 or revision."""
+def _authentic_receipt(receipt_path, repo_root):
+    """The committed receipt at the activated plan's receipt_path, bound to that plan."""
+    plan_rel = ACTIVATED_PLAN.as_posix()
+    _require_committed(repo_root, plan_rel, "receipt_not_authentic")
+    raw = (repo_root / plan_rel).read_bytes()
+    plan = json.loads(raw)
+    _require(plan.get("activated") is True and plan.get("plan_id") == PLAN_ID,
+             "receipt_not_authentic", f"{plan_rel} is not the activated {PLAN_ID}")
+    envelope = plan["test_seal"]["envelope"]
+    receipt_rel = envelope["receipt_path"]
+    _require(Path(receipt_path).resolve() == (repo_root / receipt_rel).resolve(),
+             "receipt_not_authentic", f"{receipt_path} is not the plan's receipt {receipt_rel}")
+    _require_committed(repo_root, receipt_rel, "receipt_not_authentic")
+    receipt = load_json(repo_root / receipt_rel)
+    _require(isinstance(receipt, dict) and receipt.get("plan_id") == PLAN_ID
+             and receipt.get("plan_sha256") == hashlib.sha256(raw).hexdigest()
+             and receipt.get("looks_dir") == envelope["looks_dir"]
+             and receipt.get("max_uses") == 1, "receipt_not_authentic",
+             "receipt plan_sha256, looks_dir or max_uses do not match the activated plan")
+    return receipt
+
+
+def claim(receipt_path, role, identity, repo_root=ROOT, now=None, profile=None):
+    """Record and commit the one TEST look for ``role``.
+
+``identity`` is the adapter_sha256 (actors) or revision (named baseline); the named baseline
+must also present its frozen ``profile`` (native_profile, prompt_sha256,
+parser_source_sha256)."""
     repo_root = Path(repo_root)
-    receipt = load_json(receipt_path)
+    receipt = _authentic_receipt(receipt_path, repo_root)
     matches = [c for c in receipt["contenders"] if c["role"] == role]
     _require(len(matches) == 1, "look_not_allowlisted", f"role {role!r} not in the envelope")
     (contender,) = matches
@@ -369,15 +553,23 @@ def claim(receipt_path, role, identity, repo_root=ROOT, now=None):
     expected = contender.get("adapter_sha256") or contender.get("revision")
     _require(identity == expected, "look_not_allowlisted",
              f"identity {identity!r} != envelope {expected!r} for {role}")
-    look = repo_root / receipt["looks_dir"] / f"{role}.json"
+    if contender["kind"] == "named_baseline":
+        _require(profile == contender["profile"], "look_not_allowlisted",
+                 f"profile {profile!r} != envelope {contender['profile']!r} for {role}")
+    look_rel = f"{receipt['looks_dir']}/{role}.json"
+    _require(not envelope_used(repo_root, look_rel, "look_already_taken"),
+             "look_already_taken", f"{look_rel} exists or exists in git history")
+    look = repo_root / look_rel
     look.parent.mkdir(parents=True, exist_ok=True)
     try:
         with look.open("x", encoding="utf-8") as handle:
             json.dump({"role": role, "identity": identity, "run_id": contender["run_id"],
+                       "profile": profile,
                        "claimed_at": (now or datetime.now(UTC)).isoformat()}, handle, indent=2)
             handle.write("\n")
     except FileExistsError as error:
         raise Refusal("look_already_taken", f"{look} already exists") from error
+    _commit_record(repo_root, look_rel, f"Claim {PLAN_ID} TEST look for {role}")
     return look
 
 
@@ -387,26 +579,35 @@ def main(argv=None):
     check = sub.add_parser("validate")
     check.add_argument("--plan", type=Path, default=ROOT / PLAN)
     grant = sub.add_parser("authorize")
-    grant.add_argument("--plan", type=Path, default=ROOT / ACTIVATED_PLAN)
+    grant.add_argument("--plan", type=Path, help=f"default: <repo>/{ACTIVATED_PLAN}")
     grant.add_argument("--evidence", type=Path, required=True)
+    grant.add_argument("--g4-report", type=Path, required=True)
+    grant.add_argument("--repo", type=Path, default=ROOT)
     look = sub.add_parser("claim")
     look.add_argument("--receipt", type=Path, required=True)
     look.add_argument("--role", required=True, choices=TEST_ROLES)
     look.add_argument("--identity", required=True)
+    look.add_argument("--repo", type=Path, default=ROOT)
+    for key in BASELINE_PROFILE_KEYS:
+        look.add_argument(f"--{key.replace('_', '-')}",
+                          help="named_baseline_27b only: the frozen profile the run uses")
     args = parser.parse_args(argv)
     try:
         if args.command == "validate":
             validate_plan(load_json(args.plan))
             print(f"valid: {args.plan} (envelope unused)")
         elif args.command == "authorize":
-            record = authorize(args.plan, load_json(args.evidence))
+            plan = args.plan or args.repo / ACTIVATED_PLAN
+            record = authorize(plan, args.evidence, args.g4_report, args.repo)
             print(json.dumps(record["contenders"], indent=2))
         else:
-            print(claim(args.receipt, args.role, args.identity))
+            values = {key: getattr(args, key) for key in BASELINE_PROFILE_KEYS}
+            profile = values if any(values.values()) else None
+            print(claim(args.receipt, args.role, args.identity, args.repo, profile=profile))
     except Refusal as refusal:
         print(f"refused: {refusal}", file=sys.stderr)
         return 2
-    except (KeyError, TypeError, ValueError) as error:
+    except Exception as error:  # noqa: BLE001 - a guard that cannot parse its input refuses
         print(f"refused: malformed: {type(error).__name__}: {error}", file=sys.stderr)
         return 2
     return 0
