@@ -72,7 +72,8 @@ tarball sha and `plan-SHA256SUMS`) and drives it with the plan's own `local_run.
 `assert_complete` and the C1–C4 `evaluate`. The only replaced piece is the Colima-only launch gate,
 which becomes a GitHub gate: Linux, this repository, `workflow_dispatch`, run attempt 1,
 `RUNNER_ENVIRONMENT=github-hosted`, the runner's local Docker daemon, and a public repository.
-A second step, `criteria`, re-derives C1–C4 from the retained tree in a fresh process and exits
+A second step, `criteria`, re-derives C1–C4 from the retained tree in a fresh process, using plan
+code extracted afresh from the committed tarball (never the copy inside the run tree), and exits
 non-zero on any failure. `tests/test_harbor_dogfood_ci.py` plants failing evidence (mmap loader,
 uniform-reward zero gradient, unchanged adapter, verifier hash mismatch, shared verifier env,
 cgroup swap in one resource row, RSS over 12 GiB, short SFT-time control, missing receipts, empty
@@ -92,13 +93,16 @@ Inputs, all public and pinned (the same sources the first-four CPU workflow alre
   `git show <plan source_commit>:<file>` and hash-checked.
 
 The uploaded artifact is an allowlist: `.json/.jsonl/.log/.txt/.toml/.md` receipts under 16 MiB
-each, no `checkpoint-*` directories, no symlinks, no base tokenizer files, never images or weights.
+each, no `checkpoint-*` directories, no symlinks, no base-model tokenizer/processor/config files,
+never images or weights. `GH_TOKEN` is used for one visibility API call and removed from the
+environment before Docker or Harbor runs.
 
 ### Memory on a 16 GB runner, and the risk
 Sizing is unchanged from the local PASS: each container gets a 13 GiB cgroup (`13958643712` B)
-with zero swap, a 12 GiB tree-RSS guard and a 1 GiB host-available floor; the driver refuses to
-launch either Harbor run below 13 GiB `MemAvailable`, and a kernel preflight must read
-`13958643712 0 0` from the runtime image's cgroup files first. Measured on the same runner class
+with zero swap, a 12 GiB tree-RSS guard and a 1 GiB host-available floor. Before each Harbor run the
+driver applies the plan README's step-3 floors (`MemAvailable` ≥ 14 GiB, ≥ 4 GiB free on `/` and on
+the run disk), and a kernel preflight must first read `13958643712 0 0` from the runtime image's
+cgroup files. The installed host `uv.lock` must equal the plan's `uv_lock_sha256`. Measured on the same runner class
 (first-four run 38889151068, `ci-state.json` and its audit): `MemTotal` 16,766,410,752 B,
 prelaunch `MemAvailable` 15,313,494,016 B, minimum host available 3.90e9 B, peak tree RSS
 11,795,185,664 B, and about 525 s per GRPO update (local: 530 s).

@@ -5,12 +5,16 @@ the local PASS (reports/2026-10-16-harbor-pretrained-dogfood/evidence); each mut
 defect and must flip the named criterion and the process exit code.
 """
 
+import hashlib
 import importlib.util
+import io
 import json
 import shutil
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -315,3 +319,196 @@ def test_evidence_copy_is_an_allowlist(passing, tmp_path):
     shipped = {p.name for p in destination.rglob("*") if p.is_file()}
     assert shipped == names | {"MANIFEST.json"}
     assert not any(p.is_symlink() for p in destination.rglob("*"))
+
+
+# ---- input assembly, with synthetic pinned bundles and no network ---------------------------
+
+MODEL_PREFIX = "data/models/Qwen2-VL-2B-Instruct-895c3a49/"
+
+
+def digest(content):
+    return hashlib.sha256(content).hexdigest()
+
+
+def tar_bytes(members, mode):
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode=mode) as archive:
+        for name, content in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
+class FakeNetwork:
+    """Serves pinned URLs from memory with the real download contract (size, sha, no overwrite)."""
+
+    def __init__(self):
+        self.content, self.fetched = {}, []
+
+    def download(self, url, destination, *, size, sha256):
+        if destination.exists():
+            raise ValueError("Never overwrite prior downloaded evidence")
+        content = self.content[url]
+        if len(content) != size or digest(content) != sha256:
+            raise ValueError("Downloaded content differs from immutable size/SHA256")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
+        self.fetched.append(url)
+
+
+@pytest.fixture
+def synthetic(tmp_path):
+    network = FakeNetwork()
+    source_files = {
+        "runs/aircraft-objective-ablation-v1-plan/source/vision_rl/__init__.py": b"# frozen\n",
+        "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json": b"{}\n",
+        MODEL_PREFIX + "model-source.json": json.dumps(
+            {"revision": REVISION, "files": [{"path": "config.json"}]}
+        ).encode(),
+        MODEL_PREFIX + ".pinned-download.json": b"{}\n",
+    }
+    bundle = tar_bytes(source_files, "w")
+    warm_files = {
+        "aircraft-common-warm/final_adapter/adapter_model.safetensors": b"warm adapter",
+        "aircraft-common-warm/local_training.json": b"{}",
+    }
+    warm = tar_bytes(warm_files, "w:gz")
+    jpeg, config = b"\xff\xd8 train jpeg", b'{"model_type": "qwen2_vl"}'
+    base = "https://github.com/RyanLin5967/RyanLinEnv/releases/download/x/"
+    hf = "https://huggingface.co/"
+    network.content.update(
+        {
+            base + "bundle.tar": bundle,
+            base + "warm.tar.gz": warm,
+            hf + "jpeg": jpeg,
+            hf + "config": config,
+        }
+    )
+    public = {"file": "bundle.tar", "bytes": len(bundle), "sha256": digest(bundle)}
+    public["url"] = base + "bundle.tar"
+    descriptor = {
+        "bundle": public,
+        "files": {name: digest(content) for name, content in source_files.items()},
+        "downloads": [
+            {
+                "path": str(ci.IMAGE_DIR_REL / "0143341.jpg"),
+                "url": hf + "jpeg",
+                "bytes": len(jpeg),
+                "sha256": digest(jpeg),
+            },
+            {
+                "path": MODEL_PREFIX + "config.json",
+                "url": hf + "config",
+                "bytes": len(config),
+                "sha256": digest(config),
+            },
+        ],
+    }
+    repository = tmp_path / "repo"
+    put(repository / ci.DESCRIPTOR, descriptor)
+    host = {"pyproject.toml": b"[project]\nname = 'pinned'\n"}
+    plan = {
+        "first4_descriptor_sha256": digest((repository / ci.DESCRIPTOR).read_bytes()),
+        "public_source_bundle": public,
+        "public_warm_bundle": {
+            "file": "warm.tar.gz",
+            "url": base + "warm.tar.gz",
+            "bytes": len(warm),
+            "sha256": digest(warm),
+            "files": {name: digest(content) for name, content in warm_files.items()},
+        },
+        "model_identity": {
+            "initial_weights_sha256": digest(b"warm adapter"),
+            "manifest_sha256": digest(source_files[MODEL_PREFIX + "model-source.json"]),
+            "marker_sha256": digest(b"{}\n"),
+            "revision": REVISION,
+        },
+        "host_source_sha256": {"pyproject.toml": digest(host["pyproject.toml"])},
+        "build_files": {},
+        "source_commit": "1" * 40,
+        "provenance": [
+            {
+                "encoded_sha256": digest(jpeg),
+                "original_record": {"id": "0143341", "split": "train"},
+            }
+        ],
+    }
+    helpers = SimpleNamespace(
+        download=network.download, extract_tar=ci.CI.extract_tar, safe_name=ci.CI.safe_name
+    )
+
+    def assemble(**overrides):
+        return ci.assemble_inputs(
+            repository,
+            tmp_path / "ci/inputs",
+            dict(plan, **overrides),
+            helpers,
+            read_at_commit=lambda repo, commit, name: host[name],
+        )
+
+    return SimpleNamespace(
+        assemble=assemble, plan=plan, network=network, inputs=tmp_path / "ci/inputs"
+    )
+
+
+def test_assembles_the_pinned_tree(synthetic):
+    assert synthetic.assemble() == {"images": 1, "model_files": 1}
+    inputs = synthetic.inputs
+    assert (inputs / "runs/aircraft-warmstart-v1/final_adapter/adapter_model.safetensors").exists()
+    assert (inputs / ci.IMAGE_DIR_REL / "0143341.jpg").read_bytes() == b"\xff\xd8 train jpeg"
+    assert (inputs / MODEL_PREFIX / "config.json").exists()
+    assert (inputs / "pyproject.toml").read_bytes() == b"[project]\nname = 'pinned'\n"
+    assert not (inputs.parent / "downloads").exists()
+
+
+def test_refuses_a_host_file_that_differs_at_the_source_commit(synthetic):
+    with pytest.raises(ValueError, match="differs at the source commit"):
+        synthetic.assemble(host_source_sha256={"pyproject.toml": "0" * 64})
+
+
+def test_refuses_a_fixture_whose_mirror_hash_differs(synthetic):
+    row = dict(synthetic.plan["provenance"][0], encoded_sha256="0" * 64)
+    with pytest.raises(ValueError, match="differs from the plan provenance"):
+        synthetic.assemble(provenance=[row])
+
+
+def test_refuses_a_non_train_fixture(synthetic):
+    row = dict(synthetic.plan["provenance"][0])
+    row["original_record"] = {"id": "0143341", "split": "test"}
+    with pytest.raises(ValueError, match="native TRAIN"):
+        synthetic.assemble(provenance=[row])
+    assert not any("huggingface" in url for url in synthetic.network.fetched)
+
+
+def test_refuses_a_different_warm_adapter(synthetic):
+    identity = dict(synthetic.plan["model_identity"], initial_weights_sha256="0" * 64)
+    with pytest.raises(ValueError, match="f05840be"):
+        synthetic.assemble(model_identity=identity)
+
+
+def test_refuses_a_different_model_manifest(synthetic):
+    identity = dict(synthetic.plan["model_identity"], manifest_sha256="0" * 64)
+    with pytest.raises(ValueError, match="model identity"):
+        synthetic.assemble(model_identity=identity)
+    assert not any("huggingface" in url for url in synthetic.network.fetched)
+
+
+def test_refuses_to_download_without_disk(synthetic, monkeypatch):
+    monkeypatch.setattr(ci, "DISK_HEADROOM_BYTES", 1 << 60)
+    with pytest.raises(RuntimeError, match="Insufficient disk"):
+        synthetic.assemble()
+    assert not any("huggingface" in url for url in synthetic.network.fetched)
+
+
+def test_criteria_ignores_a_tampered_plan_copy_in_the_run_tree(passing):
+    (passing / "plan/local_run.py").write_text(
+        "raise SystemExit('the gate must not import the run tree copy')\n"
+    )
+    code, result = cli(passing)
+    assert (code, result["pass"]) == (0, True)
+
+
+def test_terminate_signal_is_an_exception_so_finally_blocks_run():
+    with pytest.raises(Exception, match="outer step timeout"):
+        ci._terminate(15, None)

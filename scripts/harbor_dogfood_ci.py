@@ -25,13 +25,16 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent
 REPOSITORY = "RyanLin5967/RyanLinEnv"
 REPORT = Path("reports/2026-10-16-harbor-pretrained-dogfood")
 PLAN_TARBALL_SHA = "5526f60ac9468d9c1ac0c07e6c021d0e63ffbb6f2ae63368185a080ef8ae391e"
@@ -47,9 +50,32 @@ GIB = 1024**3
 # the CPU torch/transformers image measured about 3 GiB locally; unverified on x86), Harbor's
 # 2 GiB host output cap, and the 1 GiB floor run_harbor enforces.
 DISK_HEADROOM_BYTES = 11 * GIB
+# README step 3 preflight floors, checked on the runner before each Harbor run.
+PRELAUNCH_AVAILABLE_BYTES = 14 * GIB
+PRELAUNCH_ROOT_FREE_BYTES = 4 * GIB
+SECRET_ENVIRONMENT = (
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "ACTIONS_RUNTIME_TOKEN",
+    "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+)
 EVIDENCE_SUFFIXES = {".json", ".jsonl", ".log", ".txt", ".toml", ".md"}
-# Base-model tokenizer files are copied into checkpoints; they are base-model files, not evidence.
-EVIDENCE_EXCLUDED_NAMES = {"tokenizer.json", "vocab.json", "merges.txt"}
+# Base-model processor/tokenizer files that trainers copy next to adapters: base-model files,
+# not evidence, so never shipped even outside checkpoint-* directories.
+EVIDENCE_EXCLUDED_NAMES = {
+    "added_tokens.json",
+    "chat_template.jinja",
+    "chat_template.json",
+    "config.json",
+    "generation_config.json",
+    "merges.txt",
+    "preprocessor_config.json",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "video_preprocessor_config.json",
+    "vocab.json",
+}
 EVIDENCE_FILE_CAP = 16 * 1024**2
 EVIDENCE_TOTAL_CAP = 256 * 1024**2
 
@@ -61,22 +87,19 @@ def _load(name, path):
     return module
 
 
-def ci_helpers():
-    """The validated download/extract/digest helpers of the first-four CI reproduction."""
-    return _load("aircraft_ci_experiment", HERE / "aircraft_ci_experiment.py")
+# The validated download/extract/digest/write helpers of the first-four CI reproduction.
+# Importing that module performs no work.
+CI = _load("aircraft_ci_experiment", HERE / "aircraft_ci_experiment.py")
+sha = CI.digest
+write_json = CI.write
 
 
-def sha(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+class Terminated(Exception):
+    """SIGTERM/SIGHUP from the step timeout: an Exception, so every finally and the result run."""
 
 
-def write_json(path, value):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
-    temporary.replace(path)
+def _terminate(signum, frame):
+    raise Terminated(f"Driver signal {signum} (outer step timeout)")
 
 
 # ---- the plan directory, byte for byte from the committed report ---------------------------
@@ -135,13 +158,21 @@ def plan_modules(plan_dir):
 # ---- read-only criteria (the gate) ----------------------------------------------------------
 
 
-def criteria(root, plan_dir):
-    """Re-derive C1-C4 and the probe/complete assertions from an existing run tree."""
-    local = plan_modules(plan_dir)
+def criteria(root, repository=REPO_ROOT):
+    """Re-derive C1-C4 and the probe/complete assertions from an existing run tree.
+
+    The plan code is extracted afresh from the committed tarball, never taken from the run tree
+    being judged. This mirrors local_run.py's `criteria` subcommand, deliberately differing in
+    two ways: a missing packaged contract is a recorded failure (so an empty tree still yields a
+    full failing report), and failure reasons are kept for the summary.
+    """
+    with tempfile.TemporaryDirectory(prefix="dogfood-criteria-") as temporary:
+        local = plan_modules(extract_plan(repository, temporary))
+        return _criteria(local, Path(root).resolve())
+
+
+def _criteria(local, root):
     plan = local.read_plan()
-    if sha(Path(plan_dir) / "plan.json") != PLAN_SHA:
-        raise ValueError("Plan is not the passing v4 plan 62fe9ff1")
-    root = Path(root).resolve()
     jobs = root / "output" / "jobs"
     contract_path = root / "prepared/bundle/task/environment/contract.json"
     error = None
@@ -271,11 +302,16 @@ def meminfo():
     }
 
 
-def require_memory(plan):
+def require_memory(plan, path):
+    """README step 3 floors (MemAvailable >= 14 GiB, root free >= 4 GiB) before each Harbor run."""
     available = meminfo()["MemAvailable"]
-    if available < plan["resource"]["prelaunch_available_bytes"]:
-        raise RuntimeError(f"Prelaunch host memory guard: MemAvailable {available} B")
-    return available
+    floor = max(PRELAUNCH_AVAILABLE_BYTES, plan["resource"]["prelaunch_available_bytes"])
+    if available < floor:
+        raise RuntimeError(f"Prelaunch host memory guard: MemAvailable {available} B < {floor} B")
+    free = {"root": shutil.disk_usage("/").free, "run": shutil.disk_usage(path).free}
+    if min(free.values()) < PRELAUNCH_ROOT_FREE_BYTES:
+        raise RuntimeError(f"Prelaunch disk guard: free {free} below 4 GiB")
+    return {"mem_available_bytes": available, "disk_free_bytes": free}
 
 
 def kernel_preflight(image, plan):
@@ -308,7 +344,13 @@ def kernel_preflight(image, plan):
     return out
 
 
-def assemble_inputs(repository, inputs, plan, ci):
+def git_show(repository, commit, name):
+    return subprocess.check_output(
+        ["git", "-C", str(repository), "show", f"{commit}:{name}"], timeout=30
+    )
+
+
+def assemble_inputs(repository, inputs, plan, ci, read_at_commit=git_show):
     """Lay out the pinned tree the plan expects, from public pinned URLs and the source commit."""
     descriptor = json.loads((Path(repository) / DESCRIPTOR).read_text())
     if sha(Path(repository) / DESCRIPTOR) != plan["first4_descriptor_sha256"]:
@@ -334,9 +376,7 @@ def assemble_inputs(repository, inputs, plan, ci):
         raise ValueError("Warm adapter is not f05840be")
     # Host/build files exactly as of the plan's source commit (pyproject.toml changed later).
     for name, expected in {**plan["host_source_sha256"], **plan["build_files"]}.items():
-        content = subprocess.check_output(
-            ["git", "-C", str(repository), "show", f"{plan['source_commit']}:{name}"], timeout=30
-        )
+        content = read_at_commit(repository, plan["source_commit"], name)
         if hashlib.sha256(content).hexdigest() != expected:
             raise ValueError(f"Pinned host file differs at the source commit: {name}")
         target = inputs / name
@@ -350,12 +390,20 @@ def assemble_inputs(repository, inputs, plan, ci):
         if record["split"] != "train":
             raise ValueError("Every fixture must be native TRAIN")
         relative = str(IMAGE_DIR_REL / f"{record['id']}.jpg")
-        row = rows[relative]
+        row = rows.get(relative)
+        if row is None:
+            raise ValueError(f"No pinned mirror download for fixture {record['id']}")
         if row["sha256"] != item["encoded_sha256"]:
             raise ValueError("Pinned mirror JPEG differs from the plan provenance")
         wanted.append(row)
     model_prefix = "data/models/Qwen2-VL-2B-Instruct-895c3a49/"
     model_rows = [row for path, row in rows.items() if path.startswith(model_prefix)]
+    identity = plan["model_identity"]
+    if (
+        sha(inputs / model_prefix / "model-source.json") != identity["manifest_sha256"]
+        or sha(inputs / model_prefix / ".pinned-download.json") != identity["marker_sha256"]
+    ):
+        raise ValueError("Model manifest/marker differ from the plan's model identity")
     source = json.loads((inputs / model_prefix / "model-source.json").read_text())
     if source["revision"] != plan["model_identity"]["revision"] or {
         model_prefix + f["path"] for f in source["files"]
@@ -380,14 +428,20 @@ def run(repository, root):
         raise ValueError("Never reuse a CI directory; no retries")
     root.mkdir(parents=True)
     root = root.resolve()
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _terminate)
     plan_dir = extract_plan(repository, root)
     local = plan_modules(plan_dir)
     plan = local.read_plan()
     require_ci_launch(plan)  # Before any download, build or Docker call.
     local.require_wall_nesting(plan)
-    ci = ci_helpers()
+    ci = CI
     if ci.api_json("")["private"]:
         raise ValueError("Only the public repository on free standard runners is allowed")
+    for name in SECRET_ENVIRONMENT:  # Needed only for that one call; never reaches Harbor.
+        os.environ.pop(name, None)
+    if sha(repository / "uv.lock") != plan["host_dependencies"]["uv_lock_sha256"]:
+        raise ValueError("The installed Harbor host environment's uv.lock differs from the plan")
     harbor = repository / ".venv/bin/harbor"
     version = subprocess.check_output(
         [
@@ -413,7 +467,9 @@ def run(repository, root):
         "commit": os.environ.get("GITHUB_SHA"),
         "run_id": os.environ.get("GITHUB_RUN_ID"),
         "harbor_version": version,
-        "cpu_hardware": json.loads(subprocess.check_output(["lscpu", "--json"], text=True)),
+        "cpu_hardware": json.loads(
+            subprocess.check_output(["lscpu", "--json"], text=True, timeout=30)
+        ),
         "initial_memory": meminfo(),
         "initial_disk_free_bytes": shutil.disk_usage(root).free,
         "native_validation_used": False,
@@ -485,14 +541,15 @@ def run(repository, root):
         )
         contract = local.verify_bundle(prepared / "bundle", PLAN_SHA, plan)
         state["runtime_image_id"] = local.image_id()
-        env = dict(os.environ, PYTHONPATH=str(inputs / FROZEN_REL))
+        env = {k: v for k, v in os.environ.items() if k not in SECRET_ENVIRONMENT}
+        env["PYTHONPATH"] = str(inputs / FROZEN_REL)
         jobs = output / "jobs"
         caps = plan["local"]
         for task, job, wall, probe in (
             ("sft-resource-task", local.PROBE_JOB, caps["probe_wall_seconds"], True),
             ("task", local.MAIN_JOB, caps["main_wall_seconds"], False),
         ):
-            state.setdefault("prelaunch_available_bytes", {})[job] = require_memory(plan)
+            state.setdefault("prelaunch", {})[job] = require_memory(plan, output)
             write_json(output / "ci-state.json", state)
             command = local.harbor_command(prepared / "bundle" / task, jobs, job, probe=probe)
             command[0] = str(harbor)  # The plan's exact flags; only the executable path differs.
@@ -525,8 +582,6 @@ def main(argv=None):
     for name in ("run", "criteria", "collect-evidence"):
         command = sub.add_parser(name)
         command.add_argument("--root", type=Path, default=DEFAULT_ROOT)
-        if name == "criteria":
-            command.add_argument("--plan-dir", type=Path, help="defaults to <root>/plan")
         if name == "collect-evidence":
             command.add_argument("--destination", type=Path)
     args = parser.parse_args(argv)
@@ -535,7 +590,7 @@ def main(argv=None):
         print(json.dumps({"copied": len(copied)}))
         return 0
     if args.command == "criteria":
-        result = criteria(args.root, args.plan_dir or args.root / "plan")
+        result = criteria(args.root)
     else:
         result = run(Path.cwd(), args.root)
     print(json.dumps(summary(result), indent=2))

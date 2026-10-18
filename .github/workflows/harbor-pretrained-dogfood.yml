@@ -27,14 +27,17 @@ jobs:
       - name: Free runner disk taken by unused preinstalled toolchains
         run: |
           df -B1 /
-          timeout 600 sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          timeout 300 sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup
           df -B1 /
       - name: Install the pinned Harbor host environment
-        run: timeout 900 uv sync --extra harbor --locked
+        run: timeout 600 uv sync --extra harbor --locked
+      # Budget: 300 + 600 + 18000 + 120 s leaves about 37 min of the 355 min cap for the
+      # always() steps. SIGTERM from timeout is turned into an exception by the driver, so Harbor
+      # is killed, owned containers are stopped and the failing result is still written.
       - name: Run the probe, the main trial and the separate verifier (exit 0 only on C1-C4 pass)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: timeout 19800 python3 -I scripts/harbor_dogfood_ci.py run --root runs/harbor-dogfood-ci
+        run: timeout --kill-after=120 18000 python3 -I scripts/harbor_dogfood_ci.py run --root runs/harbor-dogfood-ci
       - name: Re-check C1-C4 from the retained tree in a fresh process
         if: always()
         run: timeout 300 python3 -I scripts/harbor_dogfood_ci.py criteria --root runs/harbor-dogfood-ci
