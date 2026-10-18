@@ -947,6 +947,11 @@
     "h_gate.jsonl": "51b5187cb0a6a352f2fb35ba28e6dd2e281c9b3dc07db2ee94ae575482d87896"
    }
   },
-  "kind": "study"
+  "kind": "study",
+  "corrections_conflicts": {
+   "path": "docs/aircraft-rl-next-study-v1-corrections-conflicts.md",
+   "sha256": "e7e5dc9647f331b48a7a1535fc0393fda7d2e072f5c69b5c7665140fa9a63a20",
+   "note": "CORRECTIONS.md (D35) is binding for every RL lane and postdates this design; the file lists each conflict. Root's activation line must say how each is resolved (amend before any output, or accept as disclosed)."
+  }
  }
 }

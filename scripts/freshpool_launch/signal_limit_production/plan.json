@@ -3,11 +3,11 @@
  "execution": "uwaterloo",
  "study": {
   "path": "docs/aircraft-rl-next-study-v1-activated.json",
-  "sha256": "40c7552949afb7c9b6865414bccf3203fa60519f388814211c294ec7b43c630d"
+  "sha256": "f7e61faf6793977e356a645a478c04f516c2b26484da70ae1fb80571943526f1"
  },
  "protocol": {
   "path": "docs/aircraft-rl-protocol-signal-limit-v1-activated.json",
-  "sha256": "26b778bb200146ae72b09094753ebd8eacd24eaf5dba4d4eeecc6633f58a61bf"
+  "sha256": "56ffc8c91a925592b0b6bd5174f8fbedcc9ee46c2713ceba1f2ab079722234ce"
  },
  "python": "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
  "python_resolved": "/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
@@ -30,21 +30,22 @@
  "file_sha256": {
   "scripts/freshpool_launch/launch.py": "20a3f6b6325173d61d753fe1720d74e52b7848932472898cac5c2ea922c312b3",
   "scripts/freshpool_launch/phase_worker.py": "de2fe73c71ff63e97ab7d9c180812806b4c6398a474ae4d93a49c11068e1f5ec",
-  "scripts/freshpool_launch/signal_limit_launch.py": "c2ae7dbddcbea3ce9360216324b97448f394422f580c6f65ea2adb6c5e5789eb",
+  "scripts/freshpool_launch/signal_limit_launch.py": "f140a9d6c1667ad61e0db939aa33466c4504135a3a93a0331a520158105690c9",
   "scripts/freshpool_launch/stage_table.py": "6712c463f607b0fd35df2724801813a1cf2c8f1f6cd13bac74608b820270496e",
-  "scripts/freshpool_launch/uw_stage_a.py": "725ce0241e13c20c00ab3e3efff55833bd7a03e0199e9341c4d552022dfab5ba",
+  "scripts/freshpool_launch/uw_stage_a.py": "962c31e4e76e99169991bfd2ea49afda3774c51c06f67b4a188fa1e49c57351a",
   "scripts/freshpool_launch/trainer_fragment.py": "a8b03c47ed2ae06e129d0b6af2220209b46fd571f60c535958c9c981e4004653",
   "scripts/freshpool_launch/h_assay.py": "3b28ff2ed14bb82355a7b504ccb9ae7cebad59ba64b557dd6b704f5bd20564ea",
   "scripts/freshpool_launch/p0_screen.py": "420a39188960623f15ed1da2ab1cccf4f3f0bf54d8da728a9c0c434cc0382dc3",
-  "scripts/freshpool_launch/stage0_gate.py": "144da71b41a7285e44ab1c60b52caa9341c01ba3893c352adaecf758924b96e3",
+  "scripts/freshpool_launch/stage0_gate.py": "2033fda0d25c27281fc46afd600299bf5608c887e506c733c56d2c5d32c48d3f",
   "scripts/freshpool_launch/e0_gate.py": "d91d95fbff12a247f47ca6f319fae2ea8bec771c52de94018dba3d34987f6c7f",
   "scripts/evaluate_signal_limit_gates.py": "16b8d51cbed969d72e1eb9546c17e28e3e0a8b58d5ee9b75521e6d2b262b3bf8",
   "scripts/evaluate_freshpool_gates.py": "9a575a94f4961d9cad386776507e6929c22df341265d115ce42fab036a43354d",
   "scripts/freshpool_launch/signal_limit_production/uwrun.frozen": "e4261e36d75d237e2799608a11249c6db1076e91d3a0776a54d27fd2c9630683",
   "docs/aircraft-rl-next-study-v1.json": "060a2a51bf53d3279081baabe15c8329548b35fb9f8bd17ae396b2d316947141",
-  "docs/aircraft-rl-next-study-v1-activated.json": "40c7552949afb7c9b6865414bccf3203fa60519f388814211c294ec7b43c630d",
+  "docs/aircraft-rl-next-study-v1-activated.json": "f7e61faf6793977e356a645a478c04f516c2b26484da70ae1fb80571943526f1",
   "docs/aircraft-rl-protocol-signal-limit-v1.json": "e2c2aca81c0ed9afeb0fe67aeac61f595a240320302a53686d04a8643317a406",
-  "docs/aircraft-rl-protocol-signal-limit-v1-activated.json": "26b778bb200146ae72b09094753ebd8eacd24eaf5dba4d4eeecc6633f58a61bf",
+  "docs/aircraft-rl-protocol-signal-limit-v1-activated.json": "56ffc8c91a925592b0b6bd5174f8fbedcc9ee46c2713ceba1f2ab079722234ce",
+  "docs/aircraft-rl-next-study-v1-corrections-conflicts.md": "e7e5dc9647f331b48a7a1535fc0393fda7d2e072f5c69b5c7665140fa9a63a20",
   "data/fgvc-aircraft-2013b/audit/label-trie-qwen2vl2b.json": "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0",
   "data/fgvc-aircraft-2013b/audit/p0-confusion-map.json": "575b5406424d89f05e29a97cff3e4664e6c6267a42224b5413c2a35c713e63fc",
   "data/fgvc-aircraft-2013b/audit/taxonomy-train-only.json": "ac2ae10d096871ecabd12fdfddd803ff92d4bc5222dbb86310ed9c819cf3f2a9",
@@ -154,16 +155,16 @@
   "stage_headroom_bytes": 877232128
  },
  "forecast_seconds": {
-  "p0": 13094.2,
-  "stage0": 25642.4,
-  "assay_h_select": 22716.0,
-  "assay_h_gate": 40648.0,
-  "sft_e": 7503.0,
-  "stage_a_sft": 14556.0,
-  "stage_a_egsft": 23232.0,
-  "stage_a_hn_sft": 68460.0,
-  "stage_a_hls_sft": 401706.0,
-  "stage_a_cce_sft": 18972.0
+  "p0": 13994.2,
+  "stage0": 29242.4,
+  "assay_h_select": 24516.0,
+  "assay_h_gate": 42448.0,
+  "sft_e": 8403.0,
+  "stage_a_sft": 15456.0,
+  "stage_a_egsft": 24132.0,
+  "stage_a_hn_sft": 69360.0,
+  "stage_a_hls_sft": 402606.0,
+  "stage_a_cce_sft": 19872.0
  },
  "forecast_sources": {
   "unit_seconds": {
@@ -179,6 +180,10 @@
    "grpo_g16_update": 673.67
   },
   "process_overhead_seconds": 450.0,
+  "transfer_allowance_seconds": {
+   "stage0": 3600.0,
+   "default": 900.0
+  },
   "receipts": "reports/2026-10-18-signal-limit-uw-cost/README.md",
   "rule": "forecast = measured unit cost x planned units on the chosen device; cap = 1.25 x forecast (launch.py CAP_FACTOR); RL = c(G) from Stage 0 x 300; SFT-T and LIM-T = T_RL; assays x2 (a cap only guards a hang)"
  },
@@ -270,7 +275,7 @@
   "stage0": {
    "kind": "train",
    "entry": "stage0_gate:main",
-   "entry_sha256": "144da71b41a7285e44ab1c60b52caa9341c01ba3893c352adaecf758924b96e3",
+   "entry_sha256": "2033fda0d25c27281fc46afd600299bf5608c887e506c733c56d2c5d32c48d3f",
    "argv": [
     "--fragment",
     "{fragment}",
