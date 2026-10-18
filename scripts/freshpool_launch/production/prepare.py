@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 
@@ -51,22 +52,33 @@ ACTIVATED = "docs/aircraft-rl-protocol-freshpool-v1-activated.json"
 BRANCH = "docs/aircraft-freshpool-branch-receipt-v1.json"
 DECISION = "docs/decision-log-2026-10-16-claude.md"
 NATIVE_VAL = "reports/2026-10-17-controlled400-native-val"
+NAMED_BASELINE = "docs/aircraft-named-baseline-plan-v1-activated.json"
 EVIDENCE = "scripts/freshpool_launch/production/evidence-base.json"
 PLAN = "scripts/freshpool_launch/production/plan.json"
 PLAN_SHA = "scripts/freshpool_launch/production/plan.sha256"
 W_SHA = "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"  # protocol W
 
 # Repository files the stages execute; launch.py pins them before every stage and gate.
-REPO_PINS = (
+# Every tracked src/vision_rl file is pinned (not only the modules the trainer imports today,
+# which grew with expanded_contract in PR #11): the frozen worktree cannot drift, and a pin
+# list that misses an import is the gap this closes.
+LAUNCH_PINS = (
     "scripts/freshpool_launch/launch.py", "scripts/freshpool_launch/phase_worker.py",
     "scripts/freshpool_launch/e0_gate.py", "scripts/freshpool_launch/trainer_fragment.py",
     "scripts/freshpool_launch/h_assay.py", "scripts/freshpool_launch/p0_screen.py",
-    "scripts/evaluate_freshpool_gates.py", "src/vision_rl/__init__.py",
-    "src/vision_rl/vlm_local_training.py", "src/vision_rl/vlm.py", "src/vision_rl/data.py",
-    "src/vision_rl/evaluation.py", "src/vision_rl/aircraft_data.py",
-    "src/vision_rl/classification_comparison.py", "src/vision_rl/spatial.py",
-    "src/vision_rl/training.py",
-)  # every vision_rl module the trainer and evaluator import (measured with sys.modules)
+    "scripts/evaluate_freshpool_gates.py",
+)
+
+
+def repo_pins():
+    tracked = subprocess.run(["git", "-C", str(REPO), "ls-files", "src/vision_rl"],
+                             capture_output=True, text=True, timeout=60, check=True)
+    files = tracked.stdout.split()
+    if "src/vision_rl/vlm_local_training.py" not in files:
+        raise SystemExit("git ls-files found no trainer: wrong repository")
+    return (*LAUNCH_PINS, *files)
+
+
 TRAINER = "src/vision_rl/vlm_local_training.py"
 
 # Owner patterns: Python programs that would take the accelerator (launch.py reads only
@@ -75,7 +87,7 @@ OWNER_PATTERNS = [
     "vision_rl.vlm_local_training", "vision_rl.aircraft_recipe", "phase_worker.py",
     "freshpool_launch/launch.py", "supervise_chunks.py", "mlx_vlm", "mlx_lm",
     "local_vision.py", "pills_local.py", "aircraft_local_probe.py", "supervise_local_vlm.py",
-    "check_mlx_stream_parity.py",
+    "check_mlx_stream_parity.py", "aircraft_named_baseline.py",
 ]
 
 # --- forecasts (seconds). Every number is a measurement named here, or the study's own
@@ -154,7 +166,7 @@ def activated_protocol():
         "date": "2026-10-17",
         "authority": "Root's freshpool production workflow (task: activate under a separately "
                      "identified activated copy whose hash_protocol_id salt is unchanged). "
-                     "Recorded in docs/decision-log-2026-10-16-claude.md D19.",
+                     "Recorded in docs/decision-log-2026-10-16-claude.md D22.",
         "changed_vs_revision": ["protocol_id", "status", "activated", "activation"],
         "unchanged_vs_revision": "Every other top-level field, byte for byte after JSON "
                                  "parsing; scripts/freshpool_launch/launch.py refuses any "
@@ -191,10 +203,12 @@ def activated_protocol():
                 "repository": baseline["repository"], "revision": baseline["revision"],
                 "model_source_manifest_sha256": baseline["manifest_sha256"],
                 "provenance": "docs/local-qwen3.8-27b-8bit-provenance.json",
-                "native_profile": "Not frozen here: strong_baseline.bounded_prompt_selection "
-                                  "selects it on the 100-image VAL discovery sample before any "
-                                  "full comparison. Needed only at G6; nothing in this launch "
-                                  "runs the baseline."},
+                "plan": {"path": NAMED_BASELINE, "sha256": sha(REPO / NAMED_BASELINE),
+                         "plan_id": read_json(REPO / NAMED_BASELINE)["plan_id"]},
+                "native_profile": "The activated named-baseline plan's native-instruct "
+                                  "direct-answer profile (D20, D21); its xhigh profile is "
+                                  "unmeasured, so the baseline claim label is native-instruct. "
+                                  "Needed only at G6; nothing in this launch runs it."},
         },
     }
     status = ("ACTIVATED 2026-10-17 (separately identified copy of the unactivated revision "
@@ -397,7 +411,7 @@ def launch_plan(receipt_paths, evidence_path):
         "state_directory": str(STATE),
         "evaluator": "scripts/evaluate_freshpool_gates.py",
         "environment": environment,
-        "file_sha256": {**{p: sha(REPO / p) for p in REPO_PINS}, **data_pins, **pins},
+        "file_sha256": {**{p: sha(REPO / p) for p in repo_pins()}, **data_pins, **pins},
         "limits": {"minimum_free_bytes": 5 * 1024**3, "rss_limit_bytes": 24 * 1024**3,
                    "survivor_grace_seconds": 30, "poll_seconds": 5},
         "forecast_seconds": FORECAST,

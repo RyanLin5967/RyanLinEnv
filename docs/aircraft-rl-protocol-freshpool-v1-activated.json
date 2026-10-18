@@ -785,7 +785,7 @@
    "protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1"
   },
   "date": "2026-10-17",
-  "authority": "Root's freshpool production workflow (task: activate under a separately identified activated copy whose hash_protocol_id salt is unchanged). Recorded in docs/decision-log-2026-10-16-claude.md D19.",
+  "authority": "Root's freshpool production workflow (task: activate under a separately identified activated copy whose hash_protocol_id salt is unchanged). Recorded in docs/decision-log-2026-10-16-claude.md D22.",
   "changed_vs_revision": [
    "protocol_id",
    "status",
@@ -824,7 +824,7 @@
    },
    "parser_and_trainer": {
     "output_grammar": "canonical-label-v2/optional-tags",
-    "trainer_source_sha256": "6497cf3ac58dd8f4afdea696db13b800dba70ce3793e36f77a10d59d91c24d6a"
+    "trainer_source_sha256": "c6d8419a41fd2328b0d518215a618fbc94d92a15c5d53d9258f28a5507e42f7e"
    },
    "processor_files_sha256": {
     "chat_template.json": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96",
@@ -841,7 +841,12 @@
     "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9",
     "model_source_manifest_sha256": "a444e60f1f91029c9c4fe3d319b192c1e088e3adba34422034e042f1260ec1ff",
     "provenance": "docs/local-qwen3.8-27b-8bit-provenance.json",
-    "native_profile": "Not frozen here: strong_baseline.bounded_prompt_selection selects it on the 100-image VAL discovery sample before any full comparison. Needed only at G6; nothing in this launch runs the baseline."
+    "plan": {
+     "path": "docs/aircraft-named-baseline-plan-v1-activated.json",
+     "sha256": "4c9845f0faac78a5e526f1ac3aa81e6fb764894510af69ddf76738299180132b",
+     "plan_id": "aircraft-named-baseline-qwen3.8-27b-8bit-v1"
+    },
+    "native_profile": "The activated named-baseline plan's native-instruct direct-answer profile (D20, D21); its xhigh profile is unmeasured, so the baseline claim label is native-instruct. Needed only at G6; nothing in this launch runs it."
    }
   }
  }
