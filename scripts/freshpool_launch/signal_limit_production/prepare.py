@@ -94,15 +94,16 @@ LAUNCH_PINS = tuple(f"scripts/freshpool_launch/{name}" for name in (
 # Chosen by measured FP32 cost on the hosts; every number names its receipt.
 # See COST_REPORT for the measurements and the choice.
 EXECUTION = {
-    # CPU FP32 on the Xeon Gold 61xx class (Skylake-SP, AVX-512) at 16 torch threads. The
-    # 2080 Ti is ~7x faster per update but cannot run the study: GRPO G16 FP32 is out of
-    # memory there and G8 peaks at 10.0 of 10.6 GiB on a GPU another user shares; the 3070s
-    # (8 GiB) cannot hold FP32 weights. Gold 6154 and 6136 measured the same at 16 threads.
+    # CPU FP32 on one host class, AMD Ryzen 9 5900X (Zen 3, AVX2, 12 cores / 24 threads), at
+    # 16 torch threads: three identical hosts with 300-600 GB of /var/tmp, not used by the
+    # exploratory sweep. The 2080 Ti is ~7x faster per update but cannot run the study: GRPO
+    # G16 FP32 is out of memory there and G8 peaks at 10.0 of 10.6 GiB on a GPU another user
+    # shares; the 3070s (8 GiB) cannot hold FP32 weights. The Xeon Gold 61xx hosts are full
+    # (the sweep) and measured 3x slower than idle under that load (COST_REPORT).
     "device": "cpu",
-    "hosts": ["iccad0", "iccad7", "iccad8", "iccad9", "iccad10", "iccad11", "iccad12",
-              "iccad13"],
+    "hosts": ["ecetesla1", "ecetesla2", "ecetesla4"],
     "threads": 16,
-    "per_host": 4,  # uwrun sessions of anyone on the host, ours included
+    "per_host": 2,  # uwrun sessions of anyone on the host, ours included
     "min_idle_threads": 16,  # nproc - load1: the stage's 16 threads are idle when it starts
 }
 UW_PYTHON = "/var/tmp/r226lin-slenv-v1/bin/python"
@@ -280,9 +281,9 @@ def execution_record():
                     "sequences, gates and journals (plan execution: uwaterloo)",
         "device": EXECUTION["device"], "dtype": "float32", "hosts": EXECUTION["hosts"],
         "replaces": "fixed_profile.model's 'FP32 MPS' device. The protocol's activation "
-                    "prerequisites name 'the chosen device'; this is it: CPU FP32, Xeon Gold "
-                    "61xx (Skylake-SP, AVX-512) hosts, 16 torch threads per stage. dtype stays "
-                    "FP32.",
+                    "prerequisites name 'the chosen device'; this is it: CPU FP32 on AMD Ryzen "
+                    "9 5900X hosts (ecetesla1/2/4, one hardware class), 16 torch threads per "
+                    "stage. dtype stays FP32.",
         "why_not_gpu": "The RTX 2080 Ti (the only FP32-capable GPU, 11 GiB) ran SFT and "
                        "GRPO G8 but GRPO G16 FP32 ran out of memory, and Stage 0 must prove "
                        "E0 and measure c(G) at G16 (GB0 may choose it); G8 peaked at 10.0 of "
