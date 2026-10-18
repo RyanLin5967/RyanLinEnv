@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "status": "PREPARED_UNACTIVATED",
+  "activated": false,
+  "scope": "One prospective policy-preserving language-only rank8 expansion; no next-study activation",
+  "source_sha256": {
+    "src/vision_rl/vlm_local_training.py": "5d608416cbde9ccd3df8bbcef23b98add087ace3626edaa348558adff5c63c49",
+    "src/vision_rl/vlm.py": "2f1e75b6f33035e4415f64f390fffc776a187ebf19acd3607af3633cfd035ba3",
+    "src/vision_rl/aircraft_recipe.py": "c49b8f3e0101f7e323800f2de1e619c068c9b0c39cc96d7e20614af2271b2788",
+    "src/vision_rl/vlm_local_task_builder.py": "d25d83753c1c060e74f1c20792dae50ae2c207406b3e543efe13423fd23600de",
+    "src/vision_rl/vlm_local_evaluation.py": "f1c2b85a76d0bbf5ac9315ffbca45abcc0e650ee91e42280913464aebff4785e",
+    "runs/aircraft-capacity-review-v1/report.json": "7f6e264130a2ca41a48fbfec3bc6519484d10d53be031999ef3f0cd6f4fcf139",
+    ".venv-detection/lib/python3.12/site-packages/peft/tuners/lora/layer.py": "9a2688af69fd16cef94fdb08ab0e973b37d7b2a672e64ba2057a01df7e98b7d8",
+    "runs/vlm-local-libs/site-packages/trl/trainer/grpo_trainer.py": "1c3dc2253fb3653269c11dfce4f946f74201a4cb63e0887a37e8e3bb4a3f5503"
+  },
+  "converter_sha256": "32fb29279951733133ade53079020006176cf7be07c970cb780c9fdd1ad775e4",
+  "tests_sha256": "cbef7f71f310b944f17dc51d70c406898214c76fb3e392a145fdd427374a2d7e",
+  "parent_weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+  "parent_config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+  "expansion_seed": 42,
+  "rank": 8,
+  "alpha": 16,
+  "dropout": 0,
+  "precision": "float32",
+  "target_profile": "qwen2vl2b-language-seven-r8-v1",
+  "preserved_tensor_count": 112,
+  "added_tensor_count": 280,
+  "expanded_tensor_count": 392,
+  "expanded_parameters": 9232384,
+  "numeric_artifact_max_bytes": 67108864,
+  "validation_authorized": {
+    "tiny_random_CPU_threads": 1,
+    "synthetic_function_serialization_reference_tests": true,
+    "numeric_warm_adapter_conversion": true,
+    "pretrained_forward_or_training": false,
+    "pretrained_base_payload_reads": false,
+    "MPS": false,
+    "images": false,
+    "downloads": false
+  },
+  "future_controls": "Every expanded GRPO and SFT arm uses identical converted warm adapter, rank/alpha/targets/precision/prompt/data; fresh optimizer; frozen expanded initial reference; equal exposure and cumulative active time with bounded SFT LR search",
+  "scientific_gate": "Root reviews completed main400 outcome before any prospective next experiment; capacity change isolated from loss/sampling/resolution changes",
+  "unmeasured": [
+    "Full pretrained numerical logit equivalence",
+    "Expanded pretrained task gradients and exact resume",
+    "CPU/MPS peak memory and throughput",
+    "Any learning improvement or held-out result"
+  ],
+  "prospective_activation_requirements": [
+    "Versioned native/profile/loader contract plus strict numeric-only 392-tensor grader",
+    "Completed conversion receipt validated without fake training metadata",
+    "Exact expanded initial/reference identity across every arm",
+    "Bounded pretrained resource, logprob, reload/resume check on root-scheduled device",
+    "Separately frozen full controlled plan and data/evaluation clearance"
+  ]
+}

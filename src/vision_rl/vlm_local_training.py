@@ -25,6 +25,7 @@ from importlib import import_module, metadata
 from pathlib import Path
 from typing import Any
 
+from . import expanded_contract as _expanded
 from .aircraft_data import PREPROCESSING_ID, aircraft_pixel_sha256, load_aircraft_rgb
 from .data import assert_disjoint, image_hash
 from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_lora_config
@@ -82,7 +83,7 @@ class Profile:
         if self.dtype not in {"float32", "bfloat16"}:
             raise ValueError("dtype must be float32 or bfloat16")
         for name, value in asdict(self).items():
-            if name not in {"dtype", "temperature", "response_format"}:
+            if name not in {"dtype", "temperature", "response_format", "adapter_profile"}:
                 if type(value) is not int or value < 1:
                     raise ValueError(f"{name} must be a positive integer")
         if not 2 <= self.num_generations <= 16 or not 1 <= self.lora_rank <= 64:
@@ -93,6 +94,21 @@ class Profile:
             raise ValueError("invalid bounded token profile")
         if not math.isfinite(self.temperature) or not 0 < self.temperature <= 2:
             raise ValueError("temperature must be finite and in (0, 2]")
+
+
+@dataclass(frozen=True)
+class ExpandedProfile(Profile):
+    """Separately versioned language-seven rank-8 FP32 LoRA profile.
+
+    A subclass, so every legacy Q/V `asdict(Profile())` identity stays byte-identical.
+    Its artifacts go only through `expanded_contract`, never through the 112-tensor grader.
+    """
+
+    adapter_profile: str = _expanded.PROFILE_ID
+
+    def validate(self) -> None:
+        _expanded.validate_profile(self)
+        super().validate()
 
 
 def _write(path: Path, value: Any) -> None:
@@ -763,14 +779,20 @@ def predict_train_subset(
     sample_groups: bool = False,
     seed: int = 42,
     init_adapter: Path | None = None,
+    expanded_initial_path: Path | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
     This permits a prospectively selected subset of classes while retaining the
     complete task vocabulary. Its mean-class score covers only represented
     classes and is explicitly not a held-out benchmark result.
+
+    ``expanded_initial_path`` is this machine's copy of the approved expanded INIT,
+    used to re-verify a registered expanded endpoint (default: the trainer's path).
     """
     profile.validate()
+    if expanded_initial_path is not None and not _expanded.is_expanded(profile):
+        raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
         raise ValueError("sample_groups must be boolean and seed a nonnegative integer")
     if model not in MODEL_REVISIONS:
@@ -825,8 +847,12 @@ def predict_train_subset(
         "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
         "optimizer_steps": 0,
     }
+    if _expanded.is_expanded(profile) and not init_adapter:
+        raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
-        _inference_adapter_identity(Path(init_adapter).resolve(), record, profile)
+        _inference_adapter_identity(
+            Path(init_adapter).resolve(), record, profile, initial_path=expanded_initial_path
+        )
         if init_adapter
         else None
     )
@@ -860,8 +886,18 @@ def predict_train_subset(
         if policy.config.model_type not in {"qwen2_vl", "qwen2_5_vl"}:
             raise LocalVLMError("unexpected cached model architecture")
         if initial:
-            policy = import_module("peft").PeftModel.from_pretrained(
-                policy, str(init_adapter), is_trainable=False
+            policy = (
+                _expanded.attach_numeric(
+                    policy,
+                    Path(init_adapter).resolve(),
+                    expected_weights_sha256=initial["weights_sha256"],
+                    is_trainable=False,
+                    initial_path=expanded_initial_path,
+                )
+                if _expanded.is_expanded(profile)
+                else import_module("peft").PeftModel.from_pretrained(
+                    policy, str(init_adapter), is_trainable=False
+                )
             )
         policy.requires_grad_(False).to(device).eval()
         if sample_groups:
@@ -2010,6 +2046,10 @@ def _audit_callback(
 def _adapter_identity(
     path: Path, identity: dict, profile: Profile, *, precision_transfer: str | None = None
 ) -> dict:
+    if _expanded.is_expanded(profile):
+        if precision_transfer is not None:
+            raise ValueError("expanded FP32 profile does not permit precision transfer")
+        return _expanded.artifact_identity(path, identity, profile)
     parent = json.loads((path.parent / "local_training.json").read_text())
     source = parent["control_identity"]
     matching_keys = ("model", "model_revision", "processor_model", "processor_revision")
@@ -2078,8 +2118,16 @@ def _verify_initial_adapter_tensors(policy, path: Path) -> dict:
     return {"exact_saved_tensors": True, "tensor_count": len(expected), "dtype": "float32"}
 
 
-def _inference_adapter_identity(path: Path, identity: dict, profile: Profile) -> dict:
+def _inference_adapter_identity(
+    path: Path, identity: dict, profile: Profile, *, initial_path: Path | None = None
+) -> dict:
     """Only a hash-bound completed endpoint may be used for a TRAIN assay."""
+    if _expanded.is_expanded(profile):
+        return _expanded.artifact_identity(
+            path, identity, profile, inference=True, initial_path=initial_path
+        )
+    if initial_path is not None:
+        raise ValueError("initial_path applies only to the expanded profile")
     initial = _adapter_identity(path, identity, profile)
     parent = json.loads((path.parent / "local_training.json").read_text())
     if initial["parent_data_identity"]["data_spec_sha256"] != identity["data_spec_sha256"]:
@@ -2759,6 +2807,16 @@ def train_local(
         if spec.get("preprocessing_id") == PREPROCESSING_ID
         else None,
     }
+    if _expanded.is_expanded(profile) and (
+        not init_adapter
+        or mode not in {"grpo", "sft"}
+        or (mode == "grpo" and beta != 0.04)
+        or continue_from_checkpoint is not None
+    ):
+        raise ValueError(
+            "expanded training requires the approved init, SFT or GRPO with beta .04, "
+            "and no continuation"
+        )
     initial = (
         _adapter_identity(
             Path(init_adapter).resolve(),
@@ -2862,6 +2920,8 @@ def train_local(
             and not (checkpoint / "ref/adapter_model.safetensors").is_file()
         ):
             raise ValueError("positive-beta resume requires the frozen ref adapter checkpoint")
+        if _expanded.is_expanded(profile):
+            _expanded.validate_checkpoint(checkpoint, initial, mode)
         previous = json.loads((output / "local_training.json").read_text())
         if previous["control_identity"] != identity or previous["settings"] != settings:
             raise ValueError("resume must preserve exact model/data/profile/settings")
@@ -2924,6 +2984,9 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
+    if _expanded.is_expanded(profile):
+        # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
+        environment["expanded_source_closure"] = _expanded.source_closure()
     if previous and previous["environment"] != environment:
         raise ValueError("resume requires the original environment and adapter source")
     output.mkdir(parents=True, exist_ok=True)
@@ -2992,7 +3055,14 @@ def train_local(
             bias="none",
         )
         policy = (
-            peft.PeftModel.from_pretrained(policy, str(init_adapter), is_trainable=True)
+            _expanded.attach_numeric(
+                policy,
+                Path(init_adapter).resolve(),
+                expected_weights_sha256=initial["weights_sha256"],
+                is_trainable=True,
+            )
+            if _expanded.is_expanded(profile)
+            else peft.PeftModel.from_pretrained(policy, str(init_adapter), is_trainable=True)
             if init_adapter
             else peft.get_peft_model(policy, lora)
         )
@@ -3210,7 +3280,16 @@ def train_local(
             # Reload the saved adapter into the same frozen base to verify persistence without
             # allocating a second VLM. The optimizer is no longer used after this point.
             base = policy.unload()
-            reloaded = peft.PeftModel.from_pretrained(base, str(adapter), is_trainable=False)
+            reloaded = (
+                _expanded._attach_values(
+                    base,
+                    _expanded.read_numeric(adapter / "adapter_model.safetensors")[0],
+                    layout=_expanded.active_layout(),
+                    is_trainable=False,
+                )
+                if _expanded.is_expanded(profile)
+                else peft.PeftModel.from_pretrained(base, str(adapter), is_trainable=False)
+            )
             reload_nll = _gold_nll(reloaded, processor, diagnostic_rows, spec, profile, device)
             record["probe"] = {
                 "after_train_gold_nll": after_nll,
@@ -3241,6 +3320,11 @@ def train_local(
         )
         _write(output / "local_training.json", record)
         raise
+    if _expanded.is_expanded(profile):
+        # Outside the try: a refusal here (e.g. vision_rl source changed during the run)
+        # must not rewrite the completed native record that the receipt already binds.
+        # The verifier's pin is the SHA-256 of the expanded_endpoint.json written here.
+        _expanded.publish_endpoint(output)
     return record
 
 
