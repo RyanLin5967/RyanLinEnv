@@ -105,8 +105,8 @@ def build_integrity(directory, metadata):
             raise ValueError(f"Git blob id differs from the Hub: {name}")
         files.append({"path": name, "bytes": entry["size"], "sha256": digest})
     return {"model_repository": REPOSITORY, "revision": REVISION, "weights_dtype": "bfloat16",
-            "instrument": "scripts/aircraft_named_baseline_hf.py build_integrity against the Hub API "
-                          "revision listing (?blobs=true)", "files": files}
+            "instrument": "scripts/aircraft_named_baseline_hf.py build_integrity against "
+                          "the Hub API revision listing (?blobs=true)", "files": files}
 
 
 def verify_snapshot(directory, integrity, integrity_sha256):
@@ -530,7 +530,8 @@ def run_local_hf(
 
 
 def main(argv=None):
-    """``python -I scripts/aircraft_named_baseline_hf.py integrity --snapshot DIR --metadata JSON --write OUT``"""
+    """``python -I scripts/aircraft_named_baseline_hf.py integrity --snapshot DIR
+    --metadata JSON --write OUT``"""
     import argparse
 
     parser = argparse.ArgumentParser(description="Hash a downloaded snapshot against the Hub")

@@ -111,7 +111,7 @@
   "sources_pinned": {
     "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
     "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
-    "scripts/aircraft_named_baseline_hf.py": "08188f36bf5b4f15eef9053cb23bcf49e4b0bc61c89476429c90f15c7da7da00"
+    "scripts/aircraft_named_baseline_hf.py": "dadbb852ce3168717c2d7a93edd468fded8bb86d77c36a46fa589123292d6176"
   },
   "sources_pinned_note": "local_vlm.py (the journaled core _run_locked, final_answer, prepare_local) and local_vlm_execution.py are byte-identical to v1's pins. The remaining runner sources are hashed into each unit's ledger at its first invocation and must not change afterwards; full VAL refuses unless every discovery shard ran under this plan and the same sources.",
   "sharding": {
