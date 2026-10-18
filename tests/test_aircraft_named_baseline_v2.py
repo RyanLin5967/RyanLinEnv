@@ -193,7 +193,7 @@ def fake_backend(answers, calls, *, finish="stop", fail=None, clock=None, seen=N
 
         def __init__(self, directory, config):
             assert config["profile"] == "instruct" and config["enable_thinking"] is False
-            assert config["engine"]["dtype"] == "bfloat16"
+            assert config["engine"]["dtype"] == "float32"
             if seen is not None:
                 seen.append(config["engine"])
             if clock is not None:
@@ -364,7 +364,7 @@ def test_merge_refuses_shards_with_different_identity(runner, world, clock):
     run_all(runner, world, "discovery", answers, calls, clock, path, digest)
     run_json = world["out"] / "stage-discovery/shard-2-of-3/run/run.json"
     recorded = json.loads(run_json.read_text())
-    recorded["identity"]["config"]["engine"]["dtype"] = "float32"
+    recorded["identity"]["config"]["engine"]["dtype"] = "bfloat16"
     run_json.write_text(json.dumps(recorded))
     with pytest.raises(ValueError, match="different run identity"):
         runner.merge(world["plan"], "discovery", world["repo"], world["out"])
@@ -476,5 +476,5 @@ def test_smoke_reads_train_images_only(runner, world):
     with pytest.raises(OSError):
         runner.smoke(world["repo"], world["weights"], world["integrity"], [val_id],
                      world["repo"] / "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/"
-                     "data_spec.json", 1, "bfloat16", {}, None,
+                     "data_spec.json", 1, "float32", {}, None,
                      backend_factory=fake_backend({}, []))

@@ -13,12 +13,12 @@
   ],
   "scope": "Named open-weight comparator on FGVC-Aircraft 2013b native VALIDATION only. No TEST image is opened, decoded, synced or predicted. No training. The only download is the pinned author snapshot, onto the shard hosts.",
   "baseline_identity": {
-    "name": "Qwen3.8-27B (author bf16 weights), native instruct profile, transformers on CPU",
+    "name": "Qwen3.8-27B (author bf16 weights, computed in float32), native instruct profile, transformers on CPU",
     "repository": "Qwen/Qwen3.8-27B",
     "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
     "license": "Apache-2.0",
-    "claim_label": "Qwen3.8-27B (bf16, transformers CPU) native-instruct (direct answer), single seeded sample per image",
-    "identity_change_vs_v1": "v1 evaluated mlx-community/Qwen3.8-27B-8bit@815b83c0 (8-bit affine, group 64) converted from this same upstream revision (docs/local-qwen3.8-27b-8bit-provenance.json upstream_revision_checked 1d4bf0f2). v2 evaluates the author bf16 weights themselves, so the two are the same base model at different numerics: v2 is the unquantized author model, v1 a lossy 8-bit conversion. The engine also changes (mlx-vlm 0.6.8 on Metal -> transformers 5.20.0 on CPU), and the random stream changes (MLX -> torch.Generator) while the sampling definition stays the mlx-vlm one. A v2 result is therefore NOT a v1 result and is never labelled as the 8-bit model.",
+    "claim_label": "Qwen3.8-27B (author bf16 weights, fp32 compute, transformers CPU) native-instruct (direct answer), single seeded sample per image",
+    "identity_change_vs_v1": "v1 evaluated mlx-community/Qwen3.8-27B-8bit@815b83c0 (8-bit affine, group 64) converted from this same upstream revision (docs/local-qwen3.8-27b-8bit-provenance.json upstream_revision_checked 1d4bf0f2). v2 evaluates the author bf16 weights themselves, so the two are the same base model at different numerics: v2 is the unquantized author model, v1 a lossy 8-bit conversion. The engine also changes (mlx-vlm 0.6.8 on Metal -> transformers 5.20.0 on CPU, float32 compute over the exactly upcast bf16 weights), and the random stream changes (MLX -> torch.Generator) while the sampling definition stays the mlx-vlm one. A v2 result is therefore NOT a v1 result and is never labelled as the 8-bit model.",
     "v1_results_not_merged": "No v1 run-2 artifact (discovery 34/100 twice, full-VAL invocations 1-3) is read, copied, resumed or pooled by v2. v2 regenerates every discovery and full-VAL image from scratch. v1 numbers may be quoted beside v2 only with their own label.",
     "not_claimed": "Not the strongest Qwen3.8 profile (xhigh thinking stays unmeasured, as in v1). Bit-identical outputs to any GPU or MLX run are not claimed."
   },
@@ -42,9 +42,9 @@
   },
   "engine": {
     "name": "transformers-cpu",
-    "dtype": "bfloat16",
-    "dtype_rule": "bfloat16, the author dtype. float32 is used only if bfloat16 load or generation raises on the shard hosts, which needs a new plan version (the dtype is part of the run identity, so shards cannot silently differ).",
-    "dtype_evidence": "torch 2.14.1+cpu on iccad3 (Xeon E5-2667 v2, AVX without AVX2, cpu_capability DEFAULT) ran a bf16 matmul (setup run qwen38hf-setup-iccad3) and the 4-image TRAIN smoke in bf16; see measured_cost",
+    "dtype": "float32",
+    "dtype_rule": "Compute in float32: the author bf16 weights are loaded with dtype=float32, an exact upcast (every bf16 value is representable in float32), so the weights are the author's values and only activations are computed at higher precision. bf16 compute is not supported natively by the ram-pool CPUs (Xeon E5-2667 v2 / Ivy Bridge: AVX without AVX2, FMA or AVX512-BF16; torch cpu_capability DEFAULT), so torch emulates it, and it was measured impractical (dtype_evidence). The dtype is part of the run identity, so shards cannot silently differ; changing it needs a new plan version.",
+    "dtype_evidence": "reports/2026-10-18-named-baseline-v2-smoke: bf16 on iccad3 had not finished TRAIN image 0447760 after about 3,120 s of generation and was stopped; float32 finished the same image in 504.6 s (iccad3) and 859.7 s (iccad1).",
     "threads": "operational, not identity: --threads per shard, recorded in each ledger start and in load_info",
     "implementation": "scripts/aircraft_named_baseline_hf.py (TransformersBackend, run_local_hf; kept out of src/vision_rl because pre-registered plans hash every module there); journal loop is local_vlm._run_locked unchanged",
     "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on unique tokens among the last 20 generated tokens, log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
@@ -70,7 +70,7 @@
     "mlx_memory_limit_bytes": null,
     "decoding_protocol": "One seeded native-sampled completion per image (pass@1). The eight endpoints are greedy; this difference is disclosed, not equalised, because the baseline must use its supported native profile.",
     "output_budget_note": "The native 16,384-token ceiling is kept. No reduced cap is imposed to cause truncation.",
-    "memory_note": "No MLX limit; the shard hosts have 441-490 GB available (uwrun hosts ram, 2026-10-18)."
+    "memory_note": "No MLX limit. A float32 shard process peaked at 164.7 GB RSS in the smoke; the shard hosts had 441-490 GB available (uwrun hosts ram, 2026-10-18) and also hold the 52 GB snapshot in /dev/shm. One shard per host."
   },
   "prompt_and_parser": {
     "same_as": "vision_rl.vlm_local_evaluation (eight-endpoint native-VAL evaluator): prompt_text(spec, \"answer_only\") over the complete 100-label vocabulary, parse_label(response, labels, allow_reasoning=True) only for a normally terminated generation",
@@ -233,7 +233,17 @@
         "half_width": 0.13581015157406195
       },
       "report": "numerator, denominator, exact IDs, macro (= micro by balance), invalid/unterminated answers, finish reasons, native tokens, generation and charged active seconds; a partial run reports completed counts and metric null",
-      "budget": {},
+      "budget": {
+        "chunk_images": 34,
+        "image_seconds": 1800,
+        "load_allowance_seconds": 1200,
+        "long_generation_allowance_seconds": 100000,
+        "max_invocations": 3,
+        "max_active_seconds": 487200,
+        "max_calendar_seconds": 1209600,
+        "max_output_bytes": 1073741824,
+        "derivation": "per shard (34/33/33 images, one invocation each if nothing fails): image_seconds 1800 is 3.0x the slowest float32 smoke image on iccad3 (596.6 s) and 2.1x the slowest on iccad1 (859.7 s); load 1200 s covers the measured snapshot rehash plus load (about 190 s on iccad3); long_generation_allowance 100000 s covers one native 16,384-token answer at the slowest measured decode rate (6.1 s/token, iccad3 image 0447760), so a long answer is not truncated by the wall cap; wall cap = 1200 + 34 x 1800 + 100000 = 162400 s; max_active = 3 wall caps"
+      },
       "regenerated": "Same 100 IDs as v1, regenerated by v2; v1 discovery outputs are not reused."
     },
     "full": {
@@ -245,7 +255,7 @@
       "gate": {
         "requires": "every discovery shard completed with zero unknown and zero hard-stop outcomes, under this activated plan's SHA256 and the same runner sources",
         "minimum_valid_answer_fraction": 0.9,
-        "max_projected_shard_active_seconds": null,
+        "max_projected_shard_active_seconds": 1209600,
         "projection": "per shard: ceil(3333/3) x discovery mean image latency + ceil(ceil(3333/3) / chunk_images) x max(discovery mean load seconds, discovery charged seconds not spent generating / discovery invocations)",
         "active_cap_multiplier": 2.0,
         "shard_max_active_seconds": "min(max_projected_shard_active_seconds, active_cap_multiplier x projection); a hard ceiling per shard",
@@ -253,7 +263,17 @@
         "on_stop": "Report the named comparator as incomplete. Do not change prompt, profile, output budget, dtype or sample to rescue it; any change is a new plan version.",
         "headroom": "Not gated here; a root decision."
       },
-      "budget": {}
+      "budget": {
+        "chunk_images": 64,
+        "image_seconds": 1800,
+        "load_allowance_seconds": 1200,
+        "long_generation_allowance_seconds": 100000,
+        "max_invocations": 24,
+        "max_active_seconds": "derived per shard by the gate",
+        "max_calendar_seconds": 2419200,
+        "max_output_bytes": 2147483648,
+        "derivation": "per shard of 1,111 images: 18 chunks of 64 needed, 24 allowed; wall cap = 1200 + 64 x 1800 + 100000 = 216400 s; calendar 28 days"
+      }
     }
   },
   "budget_semantics": {
@@ -267,12 +287,56 @@
   "supervision": {
     "command": "uwrun run --host <iccad1|iccad3|iccad5> --sync <staged tree> --threads <T> --timeout <invocation_wall_seconds + 900> --name <name> -- <venv>/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --threads <T> --output <shared output>",
     "wall_limit": "uwrun --timeout TERMs then KILLs the process group at the bound; a killed invocation has no finish record and is charged its full wall cap",
-    "memory": "No MLX/Metal limit applies. A shard process holds the bf16 weights (about 52 GiB) plus activations; the hosts have 441-490 GB available.",
+    "memory": "No MLX/Metal limit applies. A float32 shard process peaked at 164.7 GB RSS (smoke, both hosts); the hosts have 441-490 GB available plus the 52 GB /dev/shm snapshot. One shard per host.",
     "one_invocation_at_a_time": "run_local_hf holds an exclusive lock on its shard run directory; no automatic retries",
     "staged_tree": "src/, scripts/, docs/ (plan + integrity), data/fgvc-aircraft-2013b/{audit/val-images.json, development/validation.jsonl, development/images/validation/, candidates/fourshot-seed791/data_spec.json} only; never data/fgvc-aircraft-2013b/sealed"
   },
   "measured_cost": {
-    "status": "pending smoke"
+    "instrument": "reports/2026-10-18-named-baseline-v2-smoke (scripts/aircraft_named_baseline_v2.py smoke; uwrun runs qwen38hf-smoke-fp32-iccad1-r2, qwen38hf-smoke-fp32-iccad3, qwen38hf-smoke-bf16-iccad3-r3)",
+    "split": "TRAIN only (0447760, 1158113, 0090868, 0489934); never VAL or TEST",
+    "float32_seconds_per_image": {
+      "iccad1": [
+        859.7,
+        831.2,
+        177.1,
+        266.6
+      ],
+      "iccad3": [
+        504.6,
+        596.6,
+        207.9,
+        283.2
+      ]
+    },
+    "float32_mean_seconds_per_image": {
+      "iccad1": 533.7,
+      "iccad3": 398.1,
+      "pooled_8": 465.9
+    },
+    "prefill_seconds_iccad3": [
+      468.0,
+      569.7,
+      188.3,
+      271.5
+    ],
+    "decode_seconds_per_token_iccad3": "2.9-6.1 (from latency minus prefill over the remaining generated tokens)",
+    "generated_tokens_per_image": [
+      7,
+      7,
+      7,
+      5
+    ],
+    "prompt_tokens": [
+      1392,
+      2391,
+      1161,
+      1445
+    ],
+    "peak_rss_gb": 164.7,
+    "bfloat16": "iccad3: image 0447760 unfinished after about 3,120 s, stopped; impractical on these CPUs",
+    "host_conditions": "Both hosts were shared with other users' jobs during the smoke (load average 19-44 on 32 logical CPUs); per-host numbers only, not dedicated-hardware figures",
+    "projection_full_val": "3,333 images / 3 shards = 1,111 per shard. At 398.1 / 465.9 / 533.7 s per image: 122.9 / 143.8 / 164.7 h of generation per shard (about 5.1 / 6.0 / 6.9 days of wall clock with 3 shards in parallel), plus about 200 s per invocation x 18. One host alone: 368.6 / 431.3 / 494.1 h. Discovery: 34 images per shard, about 3.8-5.0 h. Not a forecast: VAL images run up to 1.9 MP (largest smoke image 1.67 MP), and the full-stage cap is derived from the discovery measurement",
+    "consistency_with_v1": "All 8 float32 images reproduce v1's templated-prompt sha c4409cac..., and the two images shared with v1's MLX TRAIN probe (0447760, 1158113) have identical input_ids_shape, pixel_values_shape and image_grid_thw. Both hosts produced identical answers from the same seeds."
   },
   "analysis": {
     "metric": "mean(diag(row_normalized_confusion)) (equal-class accuracy) via vision_rl.classification_comparison, plus image (micro) accuracy; invalid, unterminated and missing answers stay in class denominators",

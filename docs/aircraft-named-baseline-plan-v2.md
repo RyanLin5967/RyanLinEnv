@@ -18,7 +18,7 @@ hosts cannot run v1.
 | --- | --- | --- |
 | weights | `mlx-community/Qwen3.8-27B-8bit@815b83c0`, 8-bit affine, group 64 | `Qwen/Qwen3.8-27B@1d4bf0f2`, the author's bf16 safetensors (55.6 GB) |
 | relation | lossy conversion of upstream `1d4bf0f2` | that upstream revision itself |
-| engine | mlx-vlm 0.6.8 on Metal | transformers 5.20.0 + torch 2.14.1+cpu, bf16 |
+| engine | mlx-vlm 0.6.8 on Metal | transformers 5.20.0 + torch 2.14.1+cpu, float32 compute over the exactly upcast bf16 weights |
 | random stream | MLX | `torch.Generator`, with the same per-image seed |
 | sampling definition | mlx-vlm chain | the same chain, reimplemented in `local_hf.mlx_filter` |
 | prompt, parser, scorer | eight-endpoint evaluator | the same; v1's `stage_inputs`, `canonical` and the evaluator scorer are called directly |
@@ -53,8 +53,12 @@ make it refuse to resume. A test asserts that they still match v1's pins.
 - **Stop rule.** `finish_reason` is `stop` only when the last token is an author eos token, and
   that eos token is not part of the text. Otherwise it is `length`, at the native 16,384-token
   ceiling.
-- **Dtype.** bf16. float32 would need a new plan version, because dtype is part of the run
-  identity.
+- **Dtype.** float32. The author bf16 weights are upcast exactly at load, and only the
+  activations are computed at higher precision. The ram-pool CPUs (Xeon E5-2667 v2: AVX, but no
+  AVX2, FMA or AVX512-BF16) have no native bf16, so torch emulates it. In the bf16 smoke, TRAIN
+  image 0447760 was still unfinished after about 3,120 s; in float32 the same image took 505 s on
+  iccad3 and 860 s on iccad1. Dtype is part of the run identity, so changing it needs a new plan
+  version.
 - **Threads.** Threads affect speed only, so they are not part of the identity. The thread count
   is recorded in each ledger start and in `load_info`.
 
@@ -95,8 +99,33 @@ make it refuse to resume. A test asserts that they still match v1's pins.
 
 ## Measured cost
 
-See `measured_cost` in the JSON. It holds the 4-image TRAIN smoke on iccad3, which is sizing
-only and not a forecast. The full-stage cap comes from the discovery measurement, not the smoke.
+Source: `reports/2026-10-18-named-baseline-v2-smoke`, float32 with 32 threads, 4 TRAIN images
+per host. Both hosts were shared with other jobs, so these are per-host figures.
+
+| host | s/image | mean |
+| --- | --- | --- |
+| iccad1 | 859.7, 831.2, 177.1, 266.6 | 533.7 |
+| iccad3 | 504.6, 596.6, 207.9, 283.2 | 398.1 |
+
+- **Where the time goes.** Prefill takes 91-96% of each image on iccad3. Decode runs at 2.9-6.1 s per
+  token, and answers are 5-7 tokens. Peak RSS was 164.7 GB.
+- **Full-VAL projection with 3 shards (1,111 images each):**
+
+  | s/image assumed | hours per shard | wall clock |
+  | --- | --- | --- |
+  | 398 | 123 | 5.1 days |
+  | 466 (pooled mean) | 144 | 6.0 days |
+  | 534 | 165 | 6.9 days |
+
+  One host alone would need 369-494 h. Discovery takes about 3.8-5.0 h per shard.
+- **Budgets per shard.**
+  - Discovery: wall cap 162,400 s, 3 invocations.
+  - Full: wall cap 216,400 s, 24 invocations, 28 calendar days.
+  - Gate ceiling: 1,209,600 s per shard.
+  - Each wall cap includes 100,000 s, enough for one native 16,384-token answer at 6.1 s per
+    token, so a long answer is not truncated.
+- **Not a forecast.** VAL images reach 1.9 MP, and the largest smoke image was 1.67 MP. The full
+  cap comes from the discovery measurement.
 
 ## Not claimed
 
