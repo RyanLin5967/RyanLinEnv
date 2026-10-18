@@ -161,8 +161,12 @@ def a_floor(s_b_size):
     return N_ACCEPTED * CAP / s_b_size
 
 
-def p0_values(doc, adapter, s_b_ids):
-    """Validate a P0 document and compute its values for every G in {4, 8, 16}."""
+def p0_values(doc, adapter, s_b_ids, allow_no_rollouts=False):
+    """Validate a P0 document and compute its values for every G in {4, 8, 16}.
+
+    ``allow_no_rollouts`` (P0' only): when no G clears a_floor, p0_screen samples nothing
+    and writes ``rollouts: []``; the journal is still validated and the rollout-derived
+    values are None, so GB0 records its failure instead of crashing."""
     if doc.get("seed") != PRIMARY_SEED or doc.get("adapter_sha256") != adapter:
         raise ValueError(f"P0 must run at seed 42 under adapter {adapter}")
     order = doc.get("scan_order") or []
@@ -186,19 +190,6 @@ def p0_values(doc, adapter, s_b_ids):
     if not journal_groups:
         raise ValueError("P0 journal u/accepted match u_G(p) >= 0.5 for no G in {4, 8, 16}")
     scored = {e["id"]: e for e in journal}
-    images = {g["id"] for g in rollouts}
-    sizes = {len(g["completions"]) for g in rollouts}
-    expected = {(i, s) for i in images for s in P0["rollout_seeds"]}
-    if (len(images) != P0["rollout_images"] or images - set(scored)
-            or {(g["id"], g["seed"]) for g in rollouts} != expected
-            or len(rollouts) != len(expected) or len(sizes) != 1 or not sizes <= set(GROUPS)):
-        raise ValueError("P0 needs equal-size groups (G in {4, 8, 16}) at seeds 42 and 314 "
-                         "on 64 scanned candidates")
-    (rollout_group,) = sizes
-    completions = [c for g in rollouts for c in g["completions"]]
-    correct = [c for c in completions if c["correct"]]
-    if any(type(c.get("label_only")) is not bool for c in correct):
-        raise ValueError("P0 correct completions must state label_only (bare label or not)")
     by_group = {}
     for g in GROUPS:
         us = [u_g(e["p"], g) for e in journal]
@@ -214,6 +205,27 @@ def p0_values(doc, adapter, s_b_ids):
                                   for x, e in zip(us, journal)),
             },
         }
+    if allow_no_rollouts and rollouts == []:
+        return {"journal_groups": journal_groups, "rollout_group": None,
+                "journal_ids": [e["id"] for e in journal], "by_group": by_group,
+                "observed_useful_mixed": None, "predicted_useful_mixed": None,
+                "valid": None, "eos": None,
+                "scorer_seconds_per_candidate": sum(e["scorer_seconds"] for e in journal)
+                / len(journal),
+                "non_canonical_share_of_correct": None}
+    images = {g["id"] for g in rollouts}
+    sizes = {len(g["completions"]) for g in rollouts}
+    expected = {(i, s) for i in images for s in P0["rollout_seeds"]}
+    if (len(images) != P0["rollout_images"] or images - set(scored)
+            or {(g["id"], g["seed"]) for g in rollouts} != expected
+            or len(rollouts) != len(expected) or len(sizes) != 1 or not sizes <= set(GROUPS)):
+        raise ValueError("P0 needs equal-size groups (G in {4, 8, 16}) at seeds 42 and 314 "
+                         "on 64 scanned candidates")
+    (rollout_group,) = sizes
+    completions = [c for g in rollouts for c in g["completions"]]
+    correct = [c for c in completions if c["correct"]]
+    if any(type(c.get("label_only")) is not bool for c in correct):
+        raise ValueError("P0 correct completions must state label_only (bare label or not)")
     mixed = sum(len({c["correct"] for c in g["completions"]}) == 2 for g in rollouts)
     return {
         "journal_groups": journal_groups,
@@ -257,13 +269,15 @@ def gate_pi(doc, s_b_ids):
 
 def gate_b0(doc, s_b_ids, i_star_adapter, pi_journal_ids):
     """GB0: P0' at I*. G is the smallest in {8, 16} whose predicted acceptance clears a_floor."""
-    values = p0_values(doc, i_star_adapter, s_b_ids)
+    values = p0_values(doc, i_star_adapter, s_b_ids, allow_no_rollouts=True)
     if values["journal_ids"] != pi_journal_ids:
         raise ValueError("P0' must score the same 400 S_b candidates as P0-I")
     floor = a_floor(len(s_b_ids))
     chosen = next((g for g in G_CHOICES if at_least(
         values["by_group"][str(g)]["predicted_acceptance"], floor)), None)
     checks = {"g_qualifies": chosen is not None}
+    if chosen is not None and values["rollout_group"] is None:
+        raise ValueError(f"P0' chose no rollouts although G{chosen} qualifies")
     if chosen is not None:
         if values["rollout_group"] != chosen:
             raise ValueError(f"P0' rollouts are G{values['rollout_group']} but the chosen G is "

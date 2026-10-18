@@ -428,6 +428,43 @@ def test_signal_limit_profile_only_for_new_arms_and_dr_grpo_rl():
                                           "EG-SFT": "egsft"}
 
 
+def test_signal_limit_profile_carries_the_objective_and_resource_identity():
+    initial = {"weights_sha256": "c" * 64}
+    a2 = {"mode": "egsft", "egsft": {"group_size": 4, "scale_rewards": "none",
+                                     "band": {"group_size": 8, "threshold": 0.5}}}
+    assert trainer_fragment.signal_limit_profile("A2", a2, initial) == {
+        "mode": "egsft", "init_sha256": "c" * 64, "egsft_scale": "none",
+        "egsft_band_group": 8}
+    plain = {"mode": "egsft", "egsft": {"group_size": 4}}  # group-std EG-SFT, no band
+    assert trainer_fragment.signal_limit_profile("LIM-T", plain, initial) == {
+        "mode": "egsft", "init_sha256": "c" * 64, "egsft_scale": "group",
+        "egsft_band_group": None}
+    a5 = {"mode": "cce_sft", "label_trie_sha256": "t" * 64}
+    assert trainer_fragment.signal_limit_profile("A5", a5, initial) == {
+        "mode": "cce_sft", "init_sha256": "c" * 64, "label_trie_sha256": "t" * 64}
+    # The freshpool EG-SFT arm is not a signal-limit arm: its fragment gains nothing.
+    assert trainer_fragment.signal_limit_profile("EG-SFT", plain, initial) == {}
+
+
+@pytest.mark.parametrize(("argument", "local"), [
+    ("inputs/init/adapter", False),
+    ("/var/tmp/model", False),  # the root itself
+    ("/var/tmp/model/sub/file", False),
+    ("--model=/var/tmp/model/x", False),
+    ("/var/tmp/py/bin/python", False),
+    ("/var/tmp/model-other", True),  # shares a prefix, not a path component
+    ("/Users/someone/adapter", True),
+    ("--init-adapter=/Users/someone/adapter", True),  # after '='
+    ("a:/etc/passwd", True),  # after ':'
+    ("../outside", True),
+    ("inputs/../../escape", True),
+    ("1e-05", False),
+])
+def test_uw_argv_guard_is_an_allowlist_on_path_components(argument, local):
+    roots = ("/var/tmp/model", "/var/tmp/py/bin/python")
+    assert uw_stage_a.names_local_path(argument, roots) is local
+
+
 # ---------------------------------------------------------------- phase_worker --remote-cpu
 
 PHASE_ENTRY = '''

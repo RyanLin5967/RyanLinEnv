@@ -2997,8 +2997,12 @@ def test_hls_targets_and_loss_follow_the_taxonomy(tmp_path):
     }
     trainer = _label_trainer(tmp_path, "hls_sft", base_loss=2.0, taxonomy=labels)
     loss = trainer.compute_loss(policy, _label_batch())
-    # q_g = 0.95 (no manufacturer tier), q_a = 0.05 on mean NLL of [4, EOS] = -(ln .3 + 0)/2.
-    assert float(loss.detach()) == pytest.approx(0.95 * 2.0 + 0.05 * -math.log(0.3) / 2, rel=1e-6)
+    # q_g = 0.95 (no manufacturer tier) on the gold's own label sequence [6, EOS], mean NLL
+    # -(ln .5 + ln .9)/2, NOT TRL's CE (2.0, which also averages the post-EOS tail);
+    # q_a = 0.05 on mean NLL of [4, EOS] = -(ln .3 + 0)/2.
+    gold = -(math.log(0.5) + math.log(0.9)) / 2
+    assert float(loss.detach()) == pytest.approx(0.95 * gold + 0.05 * -math.log(0.3) / 2,
+                                                 rel=1e-6)
 
 
 def test_trie_masked_logprob_and_cce_loss(tmp_path):
@@ -3077,6 +3081,15 @@ def test_cuda_and_float16_options_validate_without_hardware(monkeypatch):
         local._refuse_unsupported_dtype({"cuda_device": card}, local.Profile(dtype="bfloat16"))
     local._refuse_unsupported_dtype({"cuda_device": card}, local.Profile(dtype="float16"))
     local._refuse_unsupported_dtype({}, local.Profile(dtype="bfloat16"))
+    # float16 is inference-only: no GradScaler (fp16=False), so training refuses it anywhere.
+    for environment in ({"cuda_device": card}, {}):
+        with pytest.raises(local.LocalVLMError, match="float16 training"):
+            local._refuse_unsupported_dtype(
+                environment, local.Profile(dtype="float16"), training=True)
+    with pytest.raises(local.LocalVLMError, match="use float32"):
+        local._refuse_unsupported_dtype(
+            {"cuda_device": card}, local.Profile(dtype="bfloat16"), training=True)
+    local._refuse_unsupported_dtype({}, local.Profile(), training=True)  # float32 trains
 
 
 def test_cli_passes_signal_limit_options_and_inference_takes_only_the_trie(monkeypatch, capsys):

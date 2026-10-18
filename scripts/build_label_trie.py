@@ -61,10 +61,23 @@ def rel(path: Path) -> str:
     return str(path)
 
 
+def render(document) -> bytes:
+    return (json.dumps(document, indent=1, sort_keys=True) + "\n").encode()
+
+
 def write(path: Path, document) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(document, indent=1, sort_keys=True) + "\n")
+    path.write_bytes(render(document))
     return sha(path)
+
+
+def staged_sha(staged: dict, path: Path, document) -> str:
+    """Hold ``document`` for ``path`` until every check passed; return its future sha256.
+
+    Nothing is written before the coverage and upper-bound checks, so a refused build
+    never replaces the committed, sha-pinned G0 artifacts."""
+    staged[path] = document
+    return hashlib.sha256(render(document)).hexdigest()
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -206,11 +219,12 @@ def main(argv=None):
     if len(labels) != 100 or comparison["test_consumed"] is not False:
         raise SystemExit("native-VAL report is not the 100-label, TEST-unconsumed comparison")
 
+    staged = {}
     taxonomy, train_ids = build_taxonomy(args.train_annotations, labels)
-    taxonomy_sha = write(args.audit_dir / "taxonomy-train-only.json", taxonomy)
+    taxonomy_sha = staged_sha(staged, args.audit_dir / "taxonomy-train-only.json", taxonomy)
     confusion = build_confusion(args.p0_dir, taxonomy, train_ids, labels)
     confusion["sources"]["taxonomy_sha256"] = taxonomy_sha
-    confusion_sha = write(args.audit_dir / "p0-confusion-map.json", confusion)
+    confusion_sha = staged_sha(staged, args.audit_dir / "p0-confusion-map.json", confusion)
 
     vocab, encode, eos, tokenizer_pins = load_tokenizer(args.tokenizer_dir)
     trie = lt.build_trie(labels, vocab, {label: encode(label) for label in labels}, eos,
@@ -219,7 +233,7 @@ def main(argv=None):
                           "builder": {"path": "scripts/build_label_trie.py",
                                       "module": "scripts/label_trie.py"}}
     trie["sha256"] = lt.trie_sha256(trie)
-    trie_file_sha = write(args.audit_dir / "label-trie-qwen2vl2b.json", trie)
+    trie_file_sha = staged_sha(staged, args.audit_dir / "label-trie-qwen2vl2b.json", trie)
     index = lt.LabelTrie(trie)
 
     completions = val_completions(args.journals, comparison["prediction_journal_sha256"])
@@ -257,6 +271,10 @@ def main(argv=None):
                         "gold": {"path": rel(args.gold), "sha256": sha(args.gold)},
                         "per_arm": table},
     }
+    # Every check above passed (each refuses with SystemExit/ValueError); only now write.
+    for path, document in staged.items():
+        if write(path, document) != hashlib.sha256(render(document)).hexdigest():
+            raise SystemExit(f"{path} did not hash to its staged sha256 after writing")
     write(args.report, report)
     print(json.dumps({"files": report["files_sha256"], "trie": report["trie"],
                       "coverage": cover,

@@ -441,6 +441,26 @@ def test_gate_b0_chooses_the_smallest_qualifying_g():
     assert report["gates"]["GB0"]["checks"] == {"g_qualifies": False}
 
 
+def test_gate_b0_records_no_qualifying_g_when_p0_prime_sampled_nothing():
+    # p0_screen writes rollouts [] when no G clears a_floor (G8 = G16 = 100/400 = .25 here);
+    # GB0 must record the failure, not crash on the missing rollouts.
+    document = evidence()
+    document["p0_prime"] = p0_doc(I_STAR, [0.5] * 100 + [0.999] * 300, 16, 128,
+                                  journal_group=16)
+    document["p0_prime"]["rollouts"] = []
+    report = evaluate(document)
+    assert report["failed_at"] == "GB0"
+    gb0 = report["gates"]["GB0"]
+    assert gb0["checks"] == {"g_qualifies": False} and gb0["chosen_group"] is None
+    assert gb0["values"]["by_group"]["16"]["predicted_acceptance"] == 0.25
+    assert gb0["values"]["rollout_group"] is None
+    # A qualifying G with no rollouts is a broken document, not a gate result.
+    document = evidence()
+    document["p0_prime"]["rollouts"] = []
+    with pytest.raises(ValueError, match="no rollouts although G16 qualifies"):
+        evaluate(document)
+
+
 def test_gate_b0_calibration_and_mean_u_boundaries():
     # Predicted mixed at G16 on p=.5 images = 1 - 2/65536 = .99997. 116/128 = .90625
     # (gap .0937) passes; 115/128 = .8984 (gap .1015) fails.

@@ -197,11 +197,19 @@ def preflight(device: str = "mps") -> dict[str, Any]:
     }
 
 
-def _refuse_unsupported_dtype(environment: dict, profile: Profile) -> None:
-    """A CUDA card without native bfloat16 (e.g. RTX 2080 Ti) must run float16 or float32."""
+def _refuse_unsupported_dtype(environment: dict, profile: Profile, training: bool = False) -> None:
+    """A CUDA card without native bfloat16 (e.g. RTX 2080 Ti) must run float16 or float32.
+
+    float16 is inference-only: training keeps `fp16=False` in `trainer_kwargs`, so there is
+    no GradScaler and no loss scaling, and small gradients through float16 activations
+    would underflow silently. Training refuses it on every device; train in float32.
+    """
+    if training and profile.dtype == "float16":
+        raise LocalVLMError("float16 training has no loss scaling here; train in float32")
     device = environment.get("cuda_device")
     if device is not None and profile.dtype == "bfloat16" and not device["native_bfloat16"]:
-        raise LocalVLMError(f"{device['name']} has no native bfloat16; use float16 or float32")
+        fallback = "float32" if training else "float16 or float32"
+        raise LocalVLMError(f"{device['name']} has no native bfloat16; use {fallback}")
 
 
 def load_spec(path: Path) -> dict[str, Any]:
@@ -2250,7 +2258,10 @@ def _trainer_with_label_loss(
     - hn_sft: TRL's CE + HN_SFT_COEFFICIENT * -log(1 - pi(c)); c is the gold's frozen-map
       confuser with the highest live sequence probability (no-grad scoring), then one
       teacher-forced pass with gradient for c. No confuser in the map: CE only.
-    - hls_sft: q_gold * CE + sum_s q_s * mean-token NLL(s) with q from `hls_targets`.
+    - hls_sft: sum_l q_l * mean-token NLL(label l + EOS) over the gold and its smoothing
+      targets, q from `hls_targets`: every term, the gold's included, is the same measure
+      on the same kind of sequence (TRL's CE would also average the post-EOS template
+      tail into the gold term only), so the declared smoothing mass is what is optimised.
     - cce_sft: replaces TRL's CE with the mean over supervised tokens of the log-softmax
       restricted to the label trie's allowed next tokens; the post-EOS template tail is
       unrestricted, so with no trie restriction it equals TRL's completion-only CE.
@@ -2289,8 +2300,6 @@ def _trainer_with_label_loss(
                 loss = constrained_nll(logps[0], len(completion))
                 row["constrained_positions"] = sum(entry is not None for entry in mask)
             else:
-                result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
-                loss, outputs = result if return_outputs else (result, None)
                 if list(label_token_ids[gold]) + [canonical[-1]] != canonical:
                     raise LocalVLMError("tokenizer label sequence differs from collated gold")
 
@@ -2298,6 +2307,10 @@ def _trainer_with_label_loss(
                     return list(label_token_ids[label]) + [canonical[-1]]
 
                 if mode == "hn_sft":
+                    result = super().compute_loss(
+                        model, inputs, return_outputs, num_items_in_batch
+                    )
+                    loss, outputs = result if return_outputs else (result, None)
                     candidates = list(confusers.get(gold, ()))
                     if gold in candidates:
                         raise LocalVLMError("hn_sft confuser equals the gold label")
@@ -2322,12 +2335,12 @@ def _trainer_with_label_loss(
                         row["confuser"] = None
                 else:
                     targets = hls_targets(gold, taxonomy)
-                    loss = loss * targets[gold]
+                    loss = None
                     for label, weight in sorted(targets.items()):
-                        if label != gold:
-                            tokens = sequence(label)
-                            logps = _completion_token_logps(model, prompt, tokens, **score)
-                            loss = loss + weight * constrained_nll(logps[0], len(tokens))
+                        tokens = sequence(label)
+                        logps = _completion_token_logps(model, prompt, tokens, **score)
+                        term = weight * constrained_nll(logps[0], len(tokens))
+                        loss = term if loss is None else loss + term
                     row.update(gold_weight=targets[gold], smoothed_labels=len(targets) - 1)
             if not torch.isfinite(loss.detach()).all():
                 raise LocalVLMError(f"nonfinite {mode} loss")
@@ -3550,7 +3563,8 @@ def train_local(
         settings["label_loss"] = {
             "objective": {
                 "hn_sft": "CE + 0.5 * -log(1 - pi(c)), c = top live frozen-map confuser",
-                "hls_sft": "q_gold CE + sum q_s mean-token NLL(s), q = hierarchical smoothing",
+                "hls_sft": "sum_l q_l mean-token NLL(label l + EOS), gold included, "
+                "q = hierarchical smoothing",
                 "cce_sft": "mean CE of the trie-restricted log-softmax; post-EOS tail free",
             }[mode],
             **({"coefficient": HN_SFT_COEFFICIENT} if mode == "hn_sft" else {}),
@@ -3682,7 +3696,7 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
-    _refuse_unsupported_dtype(environment, profile)
+    _refuse_unsupported_dtype(environment, profile, training=True)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
         environment["expanded_source_closure"] = _expanded.source_closure()

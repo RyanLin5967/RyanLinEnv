@@ -45,6 +45,13 @@ COMPARATOR_ARMS = ("A1", "A3", "A5")
 I_STAR_FROM = ("A1", "A2", "A3")  # Stage B init: "H-select-best endpoint among A1*, A2*, A3*"
 # LIM-T continues the Gate-A limit objective (study.json Stage B controls LIM-T).
 LIM_T_MODES = {"A2": "egsft"}
+# A2's objective identity (study.json Stage A arms: "egsft with scale_rewards='none' and screen
+# band G=8"); LIM-T keeps the scale and takes the band of the G chosen at GB0.
+A2_EGSFT = {"egsft_scale": "none", "egsft_band_group": 8}
+# Stage A arms that train against a frozen label resource, and the plan pin each must match.
+ARM_RESOURCES = {"A3": ("confusion_map", "confusion_map_sha256"),
+                 "A4": ("taxonomy", "taxonomy_sha256"),
+                 "A5": ("label_trie", "label_trie_sha256")}
 # Stage B rl.reward: "exact-EOS 0/1, the reward whose screened Dr-GRPO limit is A2 ...".
 RL_REWARDS = {"A2": "exact"}
 RL_REWARD_RULE = "exact-EOS 0/1, the reward whose screened Dr-GRPO limit is A2"

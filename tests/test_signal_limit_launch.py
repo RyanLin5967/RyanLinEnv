@@ -64,6 +64,16 @@ S_B = seed42(f"b{n:04d}" for n in range(700))
 A_FLOOR = 375 / 700  # 300 x 1.25 / |S_b|
 TRIE_TEXT = '{"trie": "fixture"}'
 TRIE_SHA = sha_text(TRIE_TEXT)
+MAP_TEXT = '{"map": "fixture"}'
+MAP_SHA = sha_text(MAP_TEXT)
+TAXONOMY_TEXT = '{"variants": "fixture"}'
+TAXONOMY_SHA = sha_text(TAXONOMY_TEXT)
+# What each Stage A arm's trainer records (trainer_fragment.signal_limit_profile): A2 is the
+# screened no-std limit at B_8; A3, A4 and A5 hashed the plan's frozen resources.
+ARM_IDENTITY = {"A2": {"egsft_scale": "none", "egsft_band_group": 8},
+                "A3": {"confusion_map_sha256": MAP_SHA},
+                "A4": {"taxonomy_sha256": TAXONOMY_SHA},
+                "A5": {"label_trie_sha256": TRIE_SHA}}
 
 
 def lr_tag(lr):
@@ -197,7 +207,8 @@ def scenario():
                 continue
             run_id = f"stage-a-{arm.lower()}-{lr_tag(lr)}-s42"
             s[run_id] = train(run_id, arm, lr, 600, 60.0, series((1, 600, 0.1, 60.0)),
-                              S_A, W_SHA, mode=modes[arm], init_sha256=W_SHA)
+                              S_A, W_SHA, mode=modes[arm], init_sha256=W_SHA,
+                              **ARM_IDENTITY.get(arm, {}))
             s[f"{run_id}-h_select"] = assay(run_id, "h_select", k)
     s[f"{I_STAR}-h_gate"] = assay(I_STAR, "h_gate", H_GATE_K[I_STAR])
     for lr, k in RL100_K.items():
@@ -239,7 +250,8 @@ def scenario():
                    series((1, LIM_T_UPDATES - 1, 1.0, T_RL - 0.5),
                           (LIM_T_UPDATES, LIM_T_UPDATES, T_RL, T_RL)),
                    [SCANNED_300[n % 600] for n in range(LIM_T_UPDATES)], i_star_sha,
-                   mode="egsft", init_sha256=i_star_sha)
+                   mode="egsft", init_sha256=i_star_sha, egsft_scale="none",
+                   egsft_band_group=8)  # the chosen G (GB0 chose 8)
     s[f"{lim}-h_select"] = assay(lim, "h_select", LIM_T_K)
     s[f"{lim}-h_gate"] = assay(lim, "h_gate", H_GATE_K[lim])
     return s
@@ -704,6 +716,13 @@ class Fixture:
         trie = self.tmp / "label-trie.json"
         trie.write_text(TRIE_TEXT)
         self.trie = {"path": str(trie), "sha256": TRIE_SHA}
+        resources = {}
+        for name, text, digest in (("confusion_map", MAP_TEXT, MAP_SHA),
+                                   ("taxonomy", TAXONOMY_TEXT, TAXONOMY_SHA)):
+            path = self.tmp / f"{name}.json"
+            path.write_text(text)
+            resources[name] = {"path": str(path), "sha256": digest}
+        self.resources = resources
 
     def uw_files(self, monkeypatch, hosts, faults):
         root = self.tmp / "uw-root"
@@ -819,7 +838,7 @@ class Fixture:
                 "I": {"adapter_sha256": o.get("i_sha", I_SHA),
                       "adapter_path": str(self.tmp / "init-i")},
                 "W": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "init-w")}},
-            "label_trie": self.trie, "evidence_base": self.base,
+            "label_trie": self.trie, **self.resources, "evidence_base": self.base,
             "data_spec": "data/fgvc-aircraft-2013b/spec.json",
             "model_directory": str(self.tmp / "model"),
             "owner_patterns": [self.sentinel], "g0": self.g0,
@@ -959,6 +978,28 @@ def test_lim_t_with_the_other_objective_stops(make):
     assert fixture.state()["stop_reason"] == "lim_t_mode_is_not_the_gate_a_winner_objective"
 
 
+@pytest.mark.parametrize(("stage", "change", "reason"), [
+    # A2 run as group-std EG-SFT without the band: not the pre-registered limit.
+    ("stage-a-a2-1e-04-s42", {"egsft_scale": "group", "egsft_band_group": None},
+     "stage_a_a2_not_the_screened_no_std_limit"),
+    ("stage-a-a2-1e-05-s42", {"egsft_band_group": 16},
+     "stage_a_a2_not_the_screened_no_std_limit"),
+    # A5 trained against another trie, A3 against another map.
+    ("stage-a-a5-5e-05-s42", {"label_trie_sha256": "f" * 64},
+     "stage_a_label_resource_differs_from_plan_pin"),
+    ("stage-a-a3-1e-05-s42", {"confusion_map_sha256": None},
+     "stage_a_label_resource_differs_from_plan_pin"),
+    # LIM-T at B_16 although GB0 chose G8.
+    ("lim-t-5e-05-s42", {"egsft_band_group": 16}, "lim_t_not_the_limit_at_the_chosen_band"),
+])
+def test_objective_and_resource_identity_is_checked_on_the_fragment(make, stage, change, reason):
+    fixture = make()
+    fixture.scenario[stage]["payload"].update(change)
+    fixture.write()
+    assert signal_limit.main(fixture.argv) == 2
+    assert fixture.state()["stop_reason"] == reason
+
+
 def test_rl_profile_must_be_dr_grpo_beta_0_at_the_chosen_g(make):
     fixture = make()
     fixture.scenario["rl-1e-05-s42-u100"]["payload"]["group"] = 16
@@ -1038,6 +1079,10 @@ def test_local_sequence_passes_the_real_gates_evaluator(make):
     ({"unpin": ("stage_table.py",)}, "plan_does_not_pin"),
     ({"plan_patch": {"stage_a_execution": "cloud"}}, "stage_a_execution_unknown"),
     ({"plan_patch": {"uw": {}}}, "uw_block_without_uwaterloo_execution"),
+    ({"plan_patch": {"taxonomy": {"path": "/nonexistent", "sha256": TAXONOMY_SHA}}},
+     "taxonomy_missing_or_changed"),
+    ({"plan_patch": {"confusion_map": {"path": "/nonexistent", "sha256": MAP_SHA}}},
+     "confusion_map_missing_or_changed"),
 ])
 def test_plan_refusals_before_any_state(make, capsys, options, reason):
     fixture = make(**options)

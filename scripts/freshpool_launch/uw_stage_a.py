@@ -147,6 +147,26 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+ABSOLUTE_PATH = re.compile(r"(?:^|[=:,])(/[^=:,\s]*)")
+
+
+def names_local_path(argument, allowed_roots):
+    """True when one argv element names an absolute path outside ``allowed_roots`` (the plan's
+    host-local python and model directory, matched at a path-component boundary), or
+    climbs out of the bundle with a ``..`` component.
+
+    Allowlist: a remote command may name only bundle-relative paths and those two roots.
+    Absolute paths are found anywhere in the element, also after ``=``, ``:`` or ``,``
+    (``--flag=/x``, ``a:/x``). Blind spot, stated: a path glued to other text without one of
+    those separators (``x/abs``) is read as relative and resolves inside the bundle.
+    """
+    roots = [root.rstrip("/") for root in allowed_roots]
+    for path in ABSOLUTE_PATH.findall(argument):
+        if not any(path == root or path.startswith(root + "/") for root in roots):
+            return True
+    return ".." in re.split(r"[/=:,\s]", argument)
+
+
 def link_or_copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -295,8 +315,8 @@ class UWRunner:
         except (KeyError, ValueError, IndexError) as exc:
             raise launch.Stop("template_placeholder_unresolved", stage=context["stage_id"],
                               error=str(exc)) from None
-        allowed = (self.uw["model_directory"], self.uw["python"])
-        local = [a for a in argv if a.startswith("/") and not a.startswith(allowed)]
+        local = [a for a in argv if names_local_path(
+            a, (self.uw["model_directory"], self.uw["python"]))]
         if local:
             # Allowlist: a remote command may name only bundle-relative paths and the plan's
             # host-local python and model directory.

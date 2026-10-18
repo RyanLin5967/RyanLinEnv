@@ -317,3 +317,40 @@ def test_committed_artifacts_load_in_the_trainer_with_one_trie():
     assert confusers["707-320"] == ["DC-8"]
     taxonomy = local.load_taxonomy(AUDIT / "taxonomy-train-only.json", labels)
     assert taxonomy["737-300"] == {"family": "Boeing 737", "manufacturer": "Boeing"}
+
+
+def test_builder_writes_nothing_when_a_check_refuses(tmp_path, monkeypatch):
+    # Forced fire: coverage refuses after the taxonomy, confusion map and trie are built.
+    # The committed G0 artifacts must stay untouched, so the audit dir must stay empty.
+    builder = script()
+    labels = [f"L{i}" for i in range(100)]
+    report = tmp_path / "native-val"
+    report.mkdir()
+    (report / "comparison.json").write_text(json.dumps(
+        {"test_consumed": False, "prediction_journal_sha256": {}, "n": 0}))
+    (report / "plan.json").write_text(json.dumps({"labels": labels}))
+    sums = "".join(
+        f"{hashlib.sha256((report / name).read_bytes()).hexdigest()}  "
+        f"{builder.NATIVE_VAL}/{name}\n" for name in ("comparison.json", "plan.json"))
+    (report / "SHA256SUMS").write_text(sums)
+    tax = {"variants": {}, "families": {}, "manufacturers": {}, "train_rows": 0}
+    monkeypatch.setattr(builder, "build_taxonomy", lambda *_: (tax, set()))
+    monkeypatch.setattr(builder, "build_confusion", lambda *_: {"sources": {}, "map": {}})
+    vocab = {label.encode(): i + 1 for i, label in enumerate(labels)}
+    monkeypatch.setattr(builder, "load_tokenizer", lambda _: (
+        vocab, lambda label: [vocab[label.encode()]], [999], {}))
+    monkeypatch.setattr(builder, "val_completions", lambda *_: {arm: {} for arm in builder.ARMS})
+    audit = tmp_path / "audit"
+    with pytest.raises(ValueError, match="zero valid completions"):
+        builder.main(["--native-val-report", str(report), "--audit-dir", str(audit),
+                      "--report", str(tmp_path / "report.json")])
+    assert not audit.exists() and not (tmp_path / "report.json").exists()
+
+
+def test_staged_sha_is_the_written_files_sha(tmp_path):
+    builder = script()
+    staged, path = {}, tmp_path / "x.json"
+    digest = builder.staged_sha(staged, path, {"b": 1, "a": [2]})
+    assert not path.exists() and staged == {path: {"b": 1, "a": [2]}}
+    assert builder.write(path, staged[path]) == digest
+    assert path.read_text() == '{\n "a": [\n  2\n ],\n "b": 1\n}\n'  # indent 1, sorted

@@ -40,8 +40,9 @@ Fragment fields:
                                                  then the scanned sequence from row 0)
   receipt_status, requested_boundary             from the receipt
   mode, init_sha256 [, loss_type, scale_rewards,  signal-limit arms (A1-A5, LIM-T) and an RL run
-   beta, group, reward]                          whose trainer recorded a loss_type only: the
-                                                 trainer settings the signal-limit gates check
+   beta, group, reward] [, egsft_scale,          whose trainer recorded a loss_type only: the
+   egsft_band_group] [, confusion_map_sha256,    trainer settings the signal-limit gates and
+   taxonomy_sha256, label_trie_sha256]           the launcher check
 
 Blind spots, stated: the per-step seconds and the useful-mixed flags come from append-only
 physical journals (optimizer_audit.jsonl, reward_groups.jsonl). They are exact only because
@@ -65,6 +66,7 @@ ARM_MODES = {"RL": "grpo", "SFT-E": "sft", "SFT-T": "sft", "EG-SFT": "egsft"}
 # supervised comparator since design-review amendment 1, never continued as LIM-T).
 SIGNAL_LIMIT_ARMS = {"A1": ("sft",), "A2": ("egsft",), "A3": ("hn_sft",), "A4": ("hls_sft",),
                      "A5": ("cce_sft",), "LIM-T": ("egsft",)}
+RESOURCE_KEYS = ("confusion_map_sha256", "taxonomy_sha256", "label_trie_sha256")
 # The trainer entry; module-level so tests substitute a fake, never selectable by a plan.
 TRAINER = vlt.main
 
@@ -121,6 +123,16 @@ def signal_limit_profile(arm, settings, initial):
     if arm not in SIGNAL_LIMIT_ARMS and not (arm == "RL" and "loss_type" in settings):
         return {}
     profile = {"mode": settings["mode"], "init_sha256": initial.get("weights_sha256")}
+    egsft = settings.get("egsft")
+    if isinstance(egsft, dict):
+        # The objective's identity, so the launcher can refuse an A2 / LIM-T that is not the
+        # screened no-std limit at the declared band (study amendment 1).
+        profile.update(egsft_scale=egsft.get("scale_rewards", "group"),
+                       egsft_band_group=(egsft.get("band") or {}).get("group_size"))
+    for key in RESOURCE_KEYS:
+        # The frozen label resources the trainer hashed (A3 map, A4 taxonomy, A5 trie).
+        if key in settings:
+            profile[key] = settings[key]
     if arm == "RL":
         screening = settings.get("screening") or {}
         profile.update(

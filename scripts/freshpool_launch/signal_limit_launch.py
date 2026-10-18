@@ -166,10 +166,14 @@ def verify_signal_limit_plan(plan_path, expected):
             inits["I"]["adapter_sha256"] != i_sha
             or not w_prefix or not inits["W"]["adapter_sha256"].startswith(w_prefix)):
         raise Stop("init_endpoint_differs_from_study", study_i=i_sha, study_w_prefix=w_prefix)
-    trie = plan.get("label_trie") or {}
-    trie_path = L.resolve(trie.get("path", "/nonexistent"))
-    if not trie_path.is_file() or sha(trie_path) != trie.get("sha256"):
-        raise Stop("label_trie_missing_or_changed")
+    for name in ("label_trie", "confusion_map", "taxonomy"):
+        # The frozen label resources (G0): the trie for assays and A5, the P0 confusion map
+        # for A3, taxonomy-train-only for A4. Each Stage A arm's fragment must carry the
+        # pinned sha256 its trainer hashed (stage_a_check).
+        entry = plan.get(name) or {}
+        path = L.resolve(entry.get("path", "/nonexistent"))
+        if not path.is_file() or sha(path) != entry.get("sha256"):
+            raise Stop(f"{name}_missing_or_changed")
     base = plan.get("evidence_base") or {}
     base_path = L.resolve(base.get("path", "/nonexistent"))
     if not base_path.is_file() or sha(base_path) != base.get("sha256"):
@@ -341,6 +345,8 @@ class SignalLimitLauncher(L.Launcher):
                 "model_directory": str(self.plan["model_directory"]),
                 "label_trie": str(L.resolve(self.plan["label_trie"]["path"])),
                 "label_trie_sha256": self.plan["label_trie"]["sha256"],
+                "confusion_map": str(L.resolve(self.plan["confusion_map"]["path"])),
+                "taxonomy": str(L.resolve(self.plan["taxonomy"]["path"])),
                 "a_floor": repr(self.g0["a_floor"]), **values}
 
     def device(self):
@@ -427,24 +433,34 @@ class SignalLimitLauncher(L.Launcher):
         order (study.json budget_matching.stage_a: 'the same S_a order')."""
         expected = self.g0["s_a_ids"][: self.counts["stage_a"]]
         mode = dict((a, m) for a, m, _ in T.STAGE_A_ARMS)[arm]
+        resource = T.ARM_RESOURCES.get(arm)
 
         def check(f):
             if f.get("mode") != mode:
                 return "stage_a_mode_differs"
             if f.get("committed_prompt_ids") != expected:
                 return "stage_a_exposure_not_s_a_order"
+            if arm == "A2" and {k: f.get(k) for k in T.A2_EGSFT} != T.A2_EGSFT:
+                # Judged on what the trainer recorded, not on the template's flags.
+                return "stage_a_a2_not_the_screened_no_std_limit"
+            if resource and f.get(resource[1]) != self.plan[resource[0]]["sha256"]:
+                return "stage_a_label_resource_differs_from_plan_pin"
             return None
         return check
 
     @staticmethod
-    def lim_t_check(mode, t_rl, scanned_manifest):
-        """LIM-T: the Gate-A winner's objective, from I* over RL*'s scanned sequence from row
-        0, cycling, stopping at the first step at or above T_RL (the step before is below)."""
+    def lim_t_check(mode, t_rl, scanned_manifest, group):
+        """LIM-T: the Gate-A winner's objective (A2's no-std scale, with the band of the G
+        chosen at GB0), from I* over RL*'s scanned sequence from row 0, cycling, stopping at
+        the first step at or above T_RL (the step before is below)."""
         scanned = jsonl_ids(scanned_manifest)
 
         def check(f):
             if f.get("mode") != mode:
                 return "lim_t_mode_is_not_the_gate_a_winner_objective"
+            if (f.get("egsft_scale"), f.get("egsft_band_group")) != (
+                    T.A2_EGSFT["egsft_scale"], group):
+                return "lim_t_not_the_limit_at_the_chosen_band"
             ids = f.get("committed_prompt_ids")
             if (not scanned or not isinstance(ids, list) or len(ids) != f["updates"]
                     or ids != [scanned[n % len(scanned)] for n in range(len(ids))]):
@@ -748,7 +764,7 @@ class SignalLimitLauncher(L.Launcher):
                               scanned_manifest=rl_star["scanned_manifest"]),
             self.train_validator(lim_id, "LIM-T", lr,
                                  check=self.lim_t_check(T.LIM_T_MODES[winner], t_rl,
-                                                        rl_star["scanned_manifest"]),
+                                                        rl_star["scanned_manifest"], group),
                                  init_sha256=init))
         self.assay_fragment(lim, "h_select")
         sft_t_star = self.choose("sft_t_star", sft_t, lambda s: s.select_sft_t()[1]["run_id"])
