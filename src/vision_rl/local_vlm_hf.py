@@ -142,12 +142,23 @@ def runtime_versions(pins):
 
 
 def eos_token_ids(directory):
-    """mlx-vlm stops on model.config.eos_token_id; read the same top-level field."""
-    config = json.loads((Path(directory) / "config.json").read_text())
-    value = config.get("eos_token_id", config.get("text_config", {}).get("eos_token_id"))
+    """The stopping set mlx-vlm used in v1, read from the author snapshot.
+
+    v1 stopped on the mlx-community config's top-level eos_token_id, [248046, 248044],
+    which that conversion copied from the author's generation_config.json. The author
+    config.json has no top-level field and its text_config names only 248044, which would
+    not stop at <|im_end|>; so the generation config is the source, and it must contain the
+    text config's EOS.
+    """
+    directory = Path(directory)
+    generation = json.loads((directory / "generation_config.json").read_text())
+    value = generation.get("eos_token_id")
     value = [value] if isinstance(value, int) else value
     if not value or any(type(token) is not int for token in value):
-        raise ValueError("Model config declares no integer EOS token")
+        raise ValueError("Generation config declares no integer EOS token")
+    text = json.loads((directory / "config.json").read_text()).get("text_config", {})
+    if text.get("eos_token_id") is not None and text["eos_token_id"] not in value:
+        raise ValueError("Generation EOS set omits the text config's EOS")
     return sorted(set(value))
 
 
@@ -259,6 +270,7 @@ class TransformersCPUBackend:
                        "os_cpu_count": os.cpu_count()},
             "rss_bytes_after_load": _rss_bytes(), "peak_rss_bytes_after_load": _peak_rss_bytes(),
             "eos_token_ids": self.eos,
+            "eos_source": "generation_config.json eos_token_id (v1's MLX stopping set)",
             "strict_load": "output_loading_info has no missing, unexpected or mismatched keys",
         }
         self.telemetry_stop = threading.Event()

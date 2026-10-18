@@ -538,3 +538,14 @@ def test_mlx_sampler_matches_an_independent_restatement():
     with pytest.raises(ValueError, match="Greedy"):
         local_vlm_hf.mlx_instruct_probs(torch.tensor(logits), torch.tensor(context),
                                         {**generation, "temperature": 0.0})
+
+
+def test_eos_set_is_v1s_mlx_stopping_set_from_the_generation_config(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps({"text_config": {"eos_token_id": 248044}}))
+    (tmp_path / "generation_config.json").write_text(json.dumps(
+        {"eos_token_id": [248046, 248044]}))
+    # The mlx-community config v1 stopped on: top-level eos_token_id [248046, 248044].
+    assert local_vlm_hf.eos_token_ids(tmp_path) == [248044, 248046]
+    (tmp_path / "generation_config.json").write_text(json.dumps({"eos_token_id": [248046]}))
+    with pytest.raises(ValueError, match="omits the text config"):
+        local_vlm_hf.eos_token_ids(tmp_path)

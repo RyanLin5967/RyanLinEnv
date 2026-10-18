@@ -73,7 +73,7 @@
     "per_image_seed": "int(sha256(canonical([1729, id]))[:8], 16) as in run_local; the per-image seed seeds a torch.Generator, so sampled tokens differ from MLX's RNG for the same seed",
     "dtype": "bfloat16",
     "dtype_rule": "bfloat16 is the author dtype and ran on the smoke host's CPU (smoke block). fp32 would be used only if bf16 CPU were unsupported; it is not, so fp32 is not used. Changing dtype is a new plan version.",
-    "stopping": "EOS = config.json eos_token_id (the field mlx-vlm stops on); finish_reason stop on EOS, length at 16,384 new tokens",
+    "stopping": "EOS set [248044, 248046] from the author generation_config.json, which is the set v1 stopped on (the mlx-community config.json top-level eos_token_id copies it); the author config.json text_config names only 248044, which would not stop at <|im_end|>. finish_reason stop on EOS, length at 16,384 new tokens",
     "decoding_protocol": "One seeded native-sampled completion per image (pass@1). The eight endpoints are greedy; this difference is disclosed, not equalised, because the baseline must use its supported native profile.",
     "output_budget_note": "The native 16,384-token ceiling is kept. No reduced cap is imposed to cause truncation."
   },
@@ -111,7 +111,7 @@
   "sources_pinned": {
     "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
     "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
-    "src/vision_rl/local_vlm_hf.py": "cd242502c1caa8ef317549a679eb525c829337b44204a48672d64fc5c353c1fc"
+    "src/vision_rl/local_vlm_hf.py": "1f44f4a4cb05974ab5b06762af25082cc3c1094e959096128545bd7fdae5b908"
   },
   "sources_pinned_note": "local_vlm.py (the journaled core _run_locked, final_answer, prepare_local) and local_vlm_execution.py are byte-identical to v1's pins. The remaining runner sources are hashed into each unit's ledger at its first invocation and must not change afterwards; full VAL refuses unless every discovery shard ran under this plan and the same sources.",
   "sharding": {
