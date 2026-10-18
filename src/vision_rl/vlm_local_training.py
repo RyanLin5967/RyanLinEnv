@@ -39,6 +39,21 @@ TRAIN_ONLY_STEP_CAPS = {"grpo": 400, "sft": None}
 # Screened RL scans, and SFT replaying a given sequence, read up to the whole fresh
 # pool (2,919 native-TRAIN images outside train400 and probe16).
 SCAN_ROW_CAP = 2919
+# Exploratory sweep on TRAIN-derived holdouts only (docs/aircraft-exploratory-sweep-v2.md).
+# Naming this exact id (with --train-only) lifts the 400-update GRPO and 400-row random-order
+# caps up to the native TRAIN size; the id enters settings, so every such artifact says so.
+EXPLORATORY_SWEEP_ID = "aircraft-exploratory-sweep-v2"
+NATIVE_TRAIN_ROWS = 3334
+
+
+def _torch_threads() -> int:
+    """Intra-op threads: VLM_TORCH_THREADS when set (1..256), else the historical 2."""
+    raw = os.environ.get("VLM_TORCH_THREADS")
+    if raw is None:
+        return 2
+    if not raw.isdigit() or not 1 <= int(raw) <= 256:
+        raise ValueError("VLM_TORCH_THREADS must be an integer in 1..256")
+    return int(raw)
 MODEL_REVISIONS = {
     DEFAULT_MODEL: "895c3a49bc3fa70a340399125c650a463535e71c",
     "Qwen/Qwen2.5-VL-3B-Instruct": "66285546d2b821cf421d4f5eb2576359d3770cd3",
@@ -867,7 +882,7 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(_torch_threads())
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -2654,6 +2669,7 @@ def train_local(
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
+    exploratory_sweep: str | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -2672,6 +2688,10 @@ def train_local(
     resuming the continuation itself passes the same continue_from_checkpoint.
     """
     profile.validate()
+    if exploratory_sweep is not None and (
+        exploratory_sweep != EXPLORATORY_SWEEP_ID or train_only is not True
+    ):
+        raise ValueError(f"exploratory_sweep must be {EXPLORATORY_SWEEP_ID!r} with train_only")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
@@ -2737,7 +2757,11 @@ def train_local(
     if train_only and (validation is not None or probe):
         raise ValueError("TRAIN-only diagnostic forbids validation/probe")
     if train_only:
-        step_cap = None if screened else TRAIN_ONLY_STEP_CAPS["sft" if mode == "egsft" else mode]
+        step_cap = (
+            None
+            if screened or exploratory_sweep
+            else TRAIN_ONLY_STEP_CAPS["sft" if mode == "egsft" else mode]
+        )
         if step_cap is not None and max_steps > step_cap:
             raise ValueError(f"TRAIN-only {mode} diagnostic exceeds {step_cap} steps")
         if mode != "grpo" and max_steps > 400 and max_active_seconds is None:
@@ -2753,7 +2777,13 @@ def train_local(
         preprocessing_id=spec.get("preprocessing_id"),
         require_all_classes=not train_only,
     )
-    row_cap = SCAN_ROW_CAP if screened or order == "sequential" else 400
+    row_cap = (
+        NATIVE_TRAIN_ROWS
+        if exploratory_sweep
+        else SCAN_ROW_CAP
+        if screened or order == "sequential"
+        else 400
+    )
     if train_only and len(train_rows) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
     if screened and len(train_rows) < target_accepted:
@@ -2863,6 +2893,8 @@ def train_local(
             "advantage_eps": TRL_ADVANTAGE_EPS,
             "weight": "stopgrad[w_G(p) / w_G(0.5)], TRL Bessel-corrected group std",
         }
+    if exploratory_sweep is not None:
+        settings["exploratory_sweep"] = exploratory_sweep
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
     continuation = None
@@ -3026,7 +3058,7 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(_torch_threads())
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
@@ -3427,6 +3459,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-accepted", type=int, default=600)
     parser.add_argument("--probe", action="store_true")
     parser.add_argument(
+        "--exploratory-sweep",
+        choices=(EXPLORATORY_SWEEP_ID,),
+        help="TRAIN-holdout exploratory sweep; lifts the TRAIN-only step/row caps",
+    )
+    parser.add_argument(
         "--train-only",
         action="store_true",
         help="Bounded TRAIN learning diagnostic; no held-out data",
@@ -3458,6 +3495,7 @@ def main(argv: list[str] | None = None) -> int:
                         "resume_from_checkpoint",
                         "probe",
                         "train_only",
+                        "exploratory_sweep",
                         "stop_after_steps",
                         "stop_after_active_seconds",
                         "stage_id",

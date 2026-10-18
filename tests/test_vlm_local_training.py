@@ -208,6 +208,52 @@ def test_train_only_accepts_public_train_subset_and_never_opens_validation(
         local.train_local(**args)
 
 
+def test_exploratory_sweep_lifts_train_only_caps_only_by_exact_id(
+    diagnostic, tmp_path, monkeypatch
+):
+    spec_path = diagnostic / "data_spec.json"
+    spec = json.loads(spec_path.read_text())
+    spec.pop("diagnostic_only")
+    spec_path.write_text(json.dumps(spec))
+    train = diagnostic / "train.jsonl"
+    train.write_text(train.read_text().splitlines()[0] + "\n")
+    monkeypatch.setattr(
+        local, "preflight", lambda *_: (_ for _ in ()).throw(RuntimeError("ready before model"))
+    )
+    args = dict(
+        train=train,
+        validation=None,
+        data_spec=spec_path,
+        output=tmp_path / "out",
+        model_directory=tmp_path / "model",
+        max_steps=1500,
+        train_only=True,
+    )
+    with pytest.raises(ValueError, match="400 steps"):
+        local.train_local(**args)
+    sweep = local.EXPLORATORY_SWEEP_ID
+    with pytest.raises(RuntimeError, match="ready before model"):
+        local.train_local(**dict(args, exploratory_sweep=sweep))
+    with pytest.raises(ValueError, match="exploratory_sweep must be"):
+        local.train_local(**dict(args, exploratory_sweep="another-study"))
+    with pytest.raises(ValueError, match="exploratory_sweep must be"):
+        local.train_local(**dict(args, exploratory_sweep=sweep, train_only=False))
+    # Long SFT still needs its finite active-time cap inside the sweep.
+    with pytest.raises(ValueError, match="original finite active-time cap"):
+        local.train_local(**dict(args, mode="sft", exploratory_sweep=sweep))
+
+
+def test_torch_threads_default_and_bounds(monkeypatch):
+    monkeypatch.delenv("VLM_TORCH_THREADS", raising=False)
+    assert local._torch_threads() == 2
+    monkeypatch.setenv("VLM_TORCH_THREADS", "16")
+    assert local._torch_threads() == 16
+    for bad in ("0", "257", "x", "-1", ""):
+        monkeypatch.setenv("VLM_TORCH_THREADS", bad)
+        with pytest.raises(ValueError, match="VLM_TORCH_THREADS"):
+            local._torch_threads()
+
+
 def test_train_only_cli_requires_explicit_scope(monkeypatch, capsys):
     def train(**kwargs):
         assert kwargs["train_only"] is True
