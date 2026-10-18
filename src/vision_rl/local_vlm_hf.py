@@ -151,21 +151,24 @@ def eos_token_ids(directory):
     return sorted(set(value))
 
 
-def mlx_instruct_sample(logits, context_ids, generation, generator):
-    """One sampled token, re-stating mlx-vlm 0.6.8 generate_step for these settings.
+def mlx_instruct_probs(logits, context_ids, generation):
+    """The sampling distribution of mlx-vlm 0.6.8 generate_step for these settings.
 
     ``logits`` is a 1-D float tensor; ``context_ids`` the prompt plus generated tokens so
     far (mlx-vlm concatenates the full prompt on the first step). Order, as released:
     presence penalty (subtract once per distinct token in the last 20 context tokens),
-    log-softmax, nucleus on the untempered distribution (keep a token when the ascending
+    log-softmax, nucleus on the UNtempered distribution (keep a token when the ascending
     cumulative probability up to and including it exceeds 1 - top_p), min-p (disabled at
-    0), top-k, then categorical sampling of logprobs / temperature.
+    0), top-k, then softmax(logprobs / temperature). Temperature 0 is refused here because
+    mlx-vlm then takes the argmax instead of sampling.
     """
     import torch
 
     if generation["repetition_penalty"] not in (None, 1.0) or generation["min_p"] != 0.0:
         raise ValueError("Only the native instruct sampler (no repetition, no min-p) is "
                          "re-stated here")
+    if not generation["temperature"] > 0:
+        raise ValueError("Greedy decoding is not the native instruct profile")
     logits = logits.detach().to(torch.float32).clone()
     penalty = generation["presence_penalty"]
     if penalty:
@@ -182,14 +185,20 @@ def mlx_instruct_sample(logits, context_ids, generation, generator):
                                torch.full_like(logprobs, -float("inf")))
     top_k = generation["top_k"]
     if top_k > 0:
+        if not top_k < logprobs.shape[-1]:
+            raise ValueError("top_k must be below the vocabulary size, as in mlx-vlm")
         keep = torch.topk(logprobs, top_k).indices
         masked = torch.full_like(logprobs, -float("inf"))
         masked[keep] = logprobs[keep]
         logprobs = masked
-    temperature = generation["temperature"]
-    if temperature == 0:
-        return int(torch.argmax(logprobs))
-    probs = torch.softmax(logprobs / temperature, dim=-1)
+    return torch.softmax(logprobs / generation["temperature"], dim=-1)
+
+
+def mlx_instruct_sample(logits, context_ids, generation, generator):
+    """One token drawn from ``mlx_instruct_probs`` with a seeded torch.Generator."""
+    import torch
+
+    probs = mlx_instruct_probs(logits, context_ids, generation)
     return int(torch.multinomial(probs, 1, generator=generator))
 
 

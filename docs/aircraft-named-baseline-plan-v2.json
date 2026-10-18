@@ -1,0 +1,348 @@
+{
+  "schema_version": 2,
+  "plan_id": "aircraft-named-baseline-qwen3.8-27b-bf16-cpu-v2",
+  "status": "PRE_REGISTERED_UNACTIVATED",
+  "activated": false,
+  "activation": null,
+  "created_date": "2026-10-18",
+  "author_agent": "claude (workflow subagent, branch named-baseline-v2-cpu)",
+  "relation_to_v1": {
+    "v1_plan": "docs/aircraft-named-baseline-plan-v1.json (mlx-community/Qwen3.8-27B-8bit on MLX, Apple only)",
+    "why_v2": "v1 run 2 (runs/aircraft-named-baseline-v1-run2) completed discovery twice at 34/100 and full-VAL invocations 1-3, then was paused because MLX wired about 37.5 GB and lagged the owner's Mac. MLX cannot run on the UWaterloo hosts, so v2 runs the same base model's original weights on CPU there.",
+    "identity_change": "v2 is NOT the v1 model artifact. v1 evaluated the mlx-community 8-bit affine (group 64) conversion with MLX Metal kernels; v2 evaluates the author's original Qwen/Qwen3.8-27B bfloat16 safetensors at the same upstream revision that conversion names, with PyTorch CPU kernels. Quantization, kernels and the random-number generator all differ, so per-image outputs are not expected to match v1 and a v1-vs-v2 difference is not attributable to any one of these.",
+    "no_merge": "v1 run-2 partial results (discovery 34/100 twice, full-VAL invocations 1-3) are NOT merged with, copied into, or used to gate v2. v2 regenerates every image in its own journals; v1 numbers may be cited only as v1 numbers.",
+    "v1_resume": "This change edits scripts/aircraft_named_baseline.py, whose hash v1 run 2 recorded in its ledger, so a v1 resume from this tree is refused (fail closed). Resuming v1 needs a checkout of da4e401."
+  },
+  "must_not_run_until": [
+    "Root review approves this plan and writes an activated copy (activated true, activation.activated_at, activation.approved_by) committed before the first VAL model call; the runner refuses anything else and requires that copy's SHA256 on every invocation.",
+    "The TRAIN smoke (smoke block) has been run with this exact runner and its cost reviewed; the smoke opens no VAL or TEST image."
+  ],
+  "scope": "Named open-weight comparator on FGVC-Aircraft 2013b native VALIDATION only. No TEST image is opened, decoded, synced to a host, or predicted (the host dataset copy excludes sealed/ and every TEST audit file). No training. No hosted inference API. Weights are downloaded once per host from the Hugging Face Hub at the pinned revision and verified by hash before every load.",
+  "baseline_identity": {
+    "name": "Qwen3.8-27B (original author weights, bfloat16), native instruct profile",
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "license": "Apache-2.0",
+    "weights_bytes": 55563006776,
+    "weights_files": 18,
+    "claim_label": "Qwen3.8-27B (bf16, CPU) native-instruct (direct answer), single seeded sample per image",
+    "not_claimed": "Not the strongest Qwen3.8 profile (xhigh/thinking remains unmeasured, as in v1). Not bit-identical to any GPU or MLX run of the same weights."
+  },
+  "model": {
+    "engine": "transformers-cpu",
+    "directory": "data/models/Qwen3.8-27B",
+    "directory_on_hosts": "Host-local /dev/shm/r226lin-qwen38-27b/weights, passed as run --model-directory. The NFS home has a per-user quota (about 25 GB, inferred from a Disk quota exceeded at that usage on 2026-10-18) that cannot hold the 55.6 GB snapshot, and the only writable local disk (root /var/tmp) has 19-56 GB free; /dev/shm is a 252 GB tmpfs on each ram-pool host. The location is not part of the identity: every file is rehashed against the pinned integrity record before every load.",
+    "integrity": "docs/aircraft-named-baseline-v2-model-integrity.json",
+    "integrity_sha256": "fd72f40857ce193ceef23f7c99521a41ae933dc499836c64167dd7736b385162",
+    "integrity_instrument": "python -m vision_rl.local_vlm_hf integrity on iccad1 (2026-10-18, uwrun run aircraft-v2-setup1) over the downloaded snapshot: each LFS file's sha256 equals the Hub API's lfs.sha256 and each small file's git blob sha1 equals the Hub API's blobId for this revision; missing, extra or symlinked files are refused",
+    "hub_metadata": "docs/aircraft-named-baseline-v2-hub-metadata.json",
+    "hub_metadata_sha256": "9f29625ab9f80a1c05c460b316fb42f475b1d1e30df46447d7a4c64b7284ba52",
+    "hub_metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3.8-27B/revision/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0?blobs=true (fetched 2026-10-18)",
+    "verification": "run_local_hf rehashes the integrity record against integrity_sha256 and every snapshot file against the record before each load; load is strict (no missing, unexpected or mismatched keys), trust_remote_code false, offline",
+    "python": ".venv/bin/python -I (CPython 3.12, uv)",
+    "environment": "uv sync -p 3.12 --extra dev --locked; uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1; uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock (the CI local-vlm job's install, unchanged)",
+    "runtime_pins": {
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "transformers": "5.20.0",
+      "tokenizers": "0.23.3",
+      "pillow": "12.3.0",
+      "numpy": "2.5.4",
+      "safetensors": "0.8.0",
+      "huggingface-hub": "2.2.0"
+    },
+    "runtime_pins_source": "importlib.metadata on iccad1 (2026-10-18, uwrun run aircraft-v2-setup1) after the environment install; run_local_hf refuses any other version set and binds it into the run identity"
+  },
+  "generation": {
+    "profile": "instruct",
+    "native_profile": "qwen3.8-native-instruct-v1",
+    "sampling": {
+      "max_tokens": 16384,
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0.0,
+      "presence_penalty": 1.5,
+      "repetition_penalty": 1.0,
+      "enable_thinking": false
+    },
+    "sampling_source": "vision_rl.local_vlm.INSTRUCT_GENERATION (author-card native instruct values); identical to the measured chunk1 probe",
+    "sampler": "vision_rl.local_vlm_hf.mlx_instruct_probs re-states the released mlx-vlm 0.6.8 generate_step for these settings: presence penalty 1.5 subtracted once per distinct token among the last 20 context tokens (prompt included, as mlx-vlm concatenates the prompt on the first step), log-softmax, nucleus 0.8 on the untempered distribution, top-k 20, then softmax(logprobs / 0.7). transformers drives its own decode loop and cache in greedy mode over a one-hot of that sample, so no transformers warper touches the logits.",
+    "assistant_prefill": "<think>\n\n</think>\n\n",
+    "seed": 1729,
+    "per_image_seed": "int(sha256(canonical([1729, id]))[:8], 16) as in run_local; the per-image seed seeds a torch.Generator, so sampled tokens differ from MLX's RNG for the same seed",
+    "dtype": "bfloat16",
+    "dtype_rule": "bfloat16 is the author dtype and ran on the smoke host's CPU (smoke block). fp32 would be used only if bf16 CPU were unsupported; it is not, so fp32 is not used. Changing dtype is a new plan version.",
+    "stopping": "EOS = config.json eos_token_id (the field mlx-vlm stops on); finish_reason stop on EOS, length at 16,384 new tokens",
+    "decoding_protocol": "One seeded native-sampled completion per image (pass@1). The eight endpoints are greedy; this difference is disclosed, not equalised, because the baseline must use its supported native profile.",
+    "output_budget_note": "The native 16,384-token ceiling is kept. No reduced cap is imposed to cause truncation."
+  },
+  "prompt_and_parser": {
+    "same_as": "vision_rl.vlm_local_evaluation (eight-endpoint native-VAL evaluator): prompt_text(spec, \"answer_only\") over the complete 100-label vocabulary, parse_label(response, labels, allow_reasoning=True) only for a normally terminated generation",
+    "response_format": "answer_only",
+    "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+    "prompt_sha256_evidence": "Equal to prompt_sha256 in runs/aircraft-native-val-activation-v1/bundle/plan.json and to runs/local-qwen8bit/aircraft-native-instruct-plan/prompt.txt (shasum -a 256, 2026-10-17); recomputed from data_spec by jq with the prompt_text formula.",
+    "output_grammar": "canonical-label-v2/optional-tags",
+    "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca",
+    "parser_source_sha256_evidence": "sha256 of the parse_label source text in the evaluator frozen copy (runs/aircraft-native-val-activation-v1/frozen/src) and on main c966df4 (identical), equal to parser_source_sha256 in the native-instruct probe plan.",
+    "terminated_rule": "finish_reason == \"stop\"; otherwise the answer is None (invalid, counted wrong)",
+    "no_repair": "Raw generated text is retained; no answer repair, fuzzy matching or retry.",
+    "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+    "formatted_prompt_sha256_evidence": "_digest(formatted_prompt) recorded by the MLX engine for every v1 image (runs/aircraft-named-baseline-v1-run2/stage-discovery/run/attempts.jsonl and runs/local-qwen8bit/aircraft-native-instruct-probe/attempts.jsonl). The transformers engine refuses an image whose chat-template output differs, so the text the model sees before the image tokens are expanded is the v1 text.",
+    "image_tokens": "The processor expands the one image placeholder from image_grid_thw. The smoke compares grid and input length with the MLX engine's on the two TRAIN images both engines saw (smoke.parity)."
+  },
+  "inputs": {
+    "dataset_root": "data/fgvc-aircraft-2013b",
+    "val_images": {
+      "path": "audit/val-images.json",
+      "sha256": "046320db26084151ad73f138f75ce9e655f356257780b130815edd5a83561420"
+    },
+    "validation": {
+      "path": "development/validation.jsonl",
+      "sha256": "27d5cd01bd7e8e007211623ac2186f94ecb308afa4a02745ce39c92fb504b9cb"
+    },
+    "data_spec": {
+      "path": "candidates/fourshot-seed791/data_spec.json",
+      "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a"
+    },
+    "image_preprocessing": "fgvc-aircraft-rgb-remove-bottom20-v1 (shared aircraft_data transform; original JPEG, RGB, bottom 20 rows removed, no box crop, no external resize, no EXIF transposition); run_local rehashes model-visible pixels before each image",
+    "hash_instrument": "shasum -a 256 on the main checkout, 2026-10-17"
+  },
+  "sources_pinned": {
+    "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
+    "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
+    "src/vision_rl/local_vlm_hf.py": "cd242502c1caa8ef317549a679eb525c829337b44204a48672d64fc5c353c1fc"
+  },
+  "sources_pinned_note": "local_vlm.py (the journaled core _run_locked, final_answer, prepare_local) and local_vlm_execution.py are byte-identical to v1's pins. The remaining runner sources are hashed into each unit's ledger at its first invocation and must not change afterwards; full VAL refuses unless every discovery shard ran under this plan and the same sources.",
+  "sharding": {
+    "shards": 3,
+    "assignment": "author-order-round-robin: shard k of N takes ids[k::N]",
+    "applies_to": "both stages; discovery shards hold 34/33/33 images, full-VAL shards 1111 each",
+    "hosts": "One shard per ram-pool host (iccad1, iccad3, iccad5: about 490 GB free, 32-40 hardware threads each), launched with uwrun run --host <h> --threads <physical cores>. The host is recorded in every ledger start event. A shard may resume on another host; its identity excludes the thread count.",
+    "layout": "<output>/stage-<stage>/shard-<k>-of-<N>/{ledger.jsonl, run/attempts.jsonl, run/run.json, summary.json} on the shared NFS home; each shard's run_local journal binds exactly its assigned rows",
+    "merge": "scripts/aircraft_named_baseline.py merge (and every report) replays all shard journals and refuses: an image recorded in two shards or in a shard that does not own it, a shard whose run identity binds other rows, and any shard directory outside the plan. merge, compare and compare-endpoints also refuse while any image is unattempted or unknown."
+  },
+  "stages": {
+    "discovery": {
+      "order": 1,
+      "definition": "strong_baseline.validation_discovery of docs/aircraft-rl-protocol-freshpool-v1.json",
+      "selection": "Within each of the 100 classes, the native-VAL ID with the lowest SHA256 of compact JSON [\"fgvc-aircraft-2013b\",\"fgvc-aircraft-freshpool-screened-grpo-v1\",\"baseline-discovery\",791,label,id] (salt pinned by decision D13); evaluated in author order. Metadata only; no image or model output consulted.",
+      "images": 100,
+      "ids": [
+        "0067396",
+        "0091362",
+        "0092976",
+        "0097108",
+        "0098072",
+        "0118429",
+        "0136167",
+        "0182724",
+        "0195002",
+        "0295861",
+        "0302868",
+        "0368821",
+        "0388910",
+        "0447773",
+        "0458784",
+        "0491938",
+        "0558247",
+        "0591254",
+        "0598742",
+        "0692142",
+        "0699595",
+        "0722894",
+        "0730793",
+        "0737639",
+        "0842400",
+        "0851614",
+        "0858585",
+        "0875351",
+        "0890355",
+        "0903124",
+        "0907752",
+        "0917396",
+        "0927430",
+        "0950326",
+        "0962633",
+        "0973103",
+        "0977265",
+        "1018862",
+        "1026133",
+        "1027348",
+        "1031522",
+        "1042843",
+        "1047792",
+        "1053984",
+        "1094917",
+        "1097303",
+        "1110803",
+        "1119082",
+        "1131594",
+        "1149050",
+        "1152495",
+        "1157334",
+        "1161864",
+        "1164553",
+        "1168016",
+        "1168209",
+        "1170152",
+        "1193564",
+        "1231212",
+        "1246392",
+        "1269238",
+        "1288661",
+        "1294506",
+        "1334472",
+        "1345202",
+        "1351207",
+        "1365711",
+        "1372373",
+        "1389713",
+        "1391858",
+        "1393629",
+        "1510899",
+        "1555557",
+        "1570201",
+        "1584007",
+        "1594799",
+        "1602047",
+        "1605065",
+        "1608837",
+        "1691790",
+        "1783696",
+        "1795992",
+        "1816331",
+        "1838250",
+        "1839351",
+        "1861128",
+        "1879799",
+        "1895885",
+        "1898332",
+        "1980084",
+        "2015169",
+        "2091953",
+        "2103000",
+        "2115048",
+        "2127863",
+        "2137099",
+        "2179973",
+        "2190106",
+        "2226295",
+        "2227920"
+      ],
+      "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
+      "ids_evidence": "Computed with jq -c and shasum -a 256 over audit/val-images.json by two independent jq reductions that agree; the runner recomputes it in Python and refuses on any difference.",
+      "uncertainty": {
+        "method": "Hoeffding, 100 bounded outcomes, clipped to [0,1]",
+        "confidence_level": 0.95,
+        "half_width": 0.13581015157406195
+      },
+      "report": "numerator, denominator, exact IDs, macro (= micro by balance), invalid/unterminated answers, finish reasons, native tokens, generation and charged active seconds; a partial run reports completed counts and metric null",
+      "budget": {
+        "chunk_images": 12,
+        "image_seconds": 1800,
+        "load_allowance_seconds": 1800,
+        "long_generation_allowance_seconds": 3600,
+        "max_invocations": 6,
+        "max_active_seconds": 1,
+        "max_calendar_seconds": 1209600,
+        "max_output_bytes": 1073741824,
+        "scope": "per shard"
+      }
+    },
+    "full": {
+      "order": 2,
+      "images": 3333,
+      "ids_sha256": "c33a8794a287122d2237f0906996fd1988f7f16604ecf887786229b398cef0cd",
+      "ids_evidence": "sha256 of compact JSON list of all image_id values of audit/val-images.json in author order (jq -c, shasum -a 256).",
+      "regenerates_discovery_images": "Yes: full VAL is its own run; discovery outputs are never copied into it.",
+      "gate": {
+        "requires": "discovery completed with zero unknown and zero hard-stop outcomes",
+        "minimum_valid_answer_fraction": 0.9,
+        "max_projected_active_seconds": 0,
+        "projection": "per shard, because shards run in parallel: ceil(3333 / N) x the WORST discovery shard's mean image latency + ceil(ceil(3333 / N) / chunk_images) x the worst shard's max(mean load seconds, charged seconds not spent generating / invocations); a shard with no recorded load stops the gate",
+        "active_cap_multiplier": 2.0,
+        "full_max_active_seconds": "min(max_projected_active_seconds, active_cap_multiplier x projection), per shard; a hard ceiling (see budget_semantics.refusals)",
+        "ceiling_consistency": "proceed only if projection + one full invocation wall cap (77400 s) <= full_max_active_seconds",
+        "discovery_identity": "full VAL refuses unless every discovery shard's ledger recorded this activated plan's SHA256 and the same runner sources",
+        "on_stop": "Report the named comparator as incomplete. Do not change prompt, profile, output budget or sample to rescue it; any change is a new plan version.",
+        "headroom": "Not gated here. Whether the frontier comparison is still worth running is a root decision that needs the eight-endpoint results; this plan only reports the discovery interval."
+      },
+      "budget": {
+        "chunk_images": 40,
+        "image_seconds": 1800,
+        "load_allowance_seconds": 1800,
+        "long_generation_allowance_seconds": 3600,
+        "max_invocations": 60,
+        "max_active_seconds": "derived by the gate",
+        "max_calendar_seconds": 4838400,
+        "max_output_bytes": 2147483648,
+        "scope": "per shard"
+      }
+    }
+  },
+  "smoke": {
+    "purpose": "Engine plumbing and cost on TRAIN images only, before activation: install, load, template parity, preprocessing parity, s/image. Not a score; never used by the gate.",
+    "train_ids": [
+      "0447760",
+      "1158113",
+      "0090868",
+      "0489934"
+    ],
+    "train_ids_source": "The first four IDs of the fixed16 TRAIN probe (runs/local-qwen8bit/aircraft-native-instruct-probe/run.json identity rows); the MLX engine completed the first two, which gives a preprocessing parity check.",
+    "train_images": {
+      "path": "audit/train-images.json",
+      "sha256": "62f146b99b82ff78b518b2fe0aec48bfa199f1e3a738d56b1bc7529499c2c9e1"
+    },
+    "command": "scripts/aircraft_named_baseline.py smoke --plan docs/aircraft-named-baseline-plan-v2.json --output <run dir> --model-directory /dev/shm/r226lin-qwen38-27b/weights",
+    "measured": null
+  },
+  "budget_semantics": {
+    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 27000 s, full 77400 s); passed to uwrun as --timeout",
+    "long_generation_allowance": "PROVISIONAL",
+    "charging": "A finished invocation is charged its measured elapsed seconds; a started invocation with no finish record is charged its full wall cap.",
+    "survives_resume": "The ledger's first start time and invocation count are never reset. Per shard.",
+    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation). Applied per shard."
+  },
+  "supervision": {
+    "command": "uwrun run --host <iccad1|iccad3|iccad5> --name <unique> --threads <physical cores> --timeout <invocation_wall_seconds> -- bash -c 'cd ~/aircraft-v2/repo && .venv/bin/python -I scripts/aircraft_named_baseline.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k>/3 --output ~/aircraft-v2/out --model-directory /dev/shm/r226lin-qwen38-27b/weights'",
+    "wall_cap": "uwrun --timeout sends TERM at the cap and KILL 30 s later; a killed invocation has no finished record and is charged its full cap",
+    "memory": "No RSS kill limit: the ram-pool hosts have about 490 GB free against about 56 GB of bf16 weights in the process plus 56 GB in /dev/shm. RSS is recorded every 5 s in run/mlx-memory.jsonl (file name kept from the shared journal core).",
+    "one_invocation_at_a_time": "run_local holds an exclusive lock on each shard's run directory; no automatic retries"
+  },
+  "analysis": {
+    "metric": "mean(diag(row_normalized_confusion)) via vision_rl.classification_comparison (the evaluator's scorer); micro accuracy supplemental; invalid, unterminated and missing answers stay in class denominators",
+    "image_accuracy": "micro accuracy over all 3,333 images, reported beside the equal-class metric",
+    "comparisons_after_full": "compare-endpoints: compare_classification(gold, baseline, endpoint) for W, RL400 and the strongest declared SFT, read from their hash-pinned native-VAL journals; paired image bootstrap within class, 20,000 draws, seed 2718; difference = baseline minus endpoint",
+    "claim_limits": "A full native-VAL baseline claim requires all 3,333 predictions with zero unknown. The discovery sample is a resource-sizing and validity diagnostic, never a benchmark score or a win. Frontier superiority still requires the frozen native TEST, which this plan does not touch."
+  },
+  "comparison": {
+    "resamples": 20000,
+    "seed": 2718,
+    "bundle": "runs/aircraft-native-val-activation-v1/bundle",
+    "bundle_plan_sha256": "cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896",
+    "strongest_sft_rule": "comparison.json strongest_declared_sft of the completed bundle: highest macro accuracy across the six prospectively declared SFT endpoints, lexical ID tie-break (already fixed before this plan; it is sft-1e5-time)",
+    "endpoints": {
+      "W": {
+        "arm": "common",
+        "prediction_journal_sha256": "2c39d423e8f112ea834f86a19dde406348d1bba80ae18aadb702aded17a87618"
+      },
+      "RL400": {
+        "arm": "rl-exposure",
+        "prediction_journal_sha256": "8b690e4cb3bfda17e37451ee2d706728266fcbb395ec29274cdac694b85fda67"
+      },
+      "strongest_SFT": {
+        "arm": "sft-1e5-time",
+        "prediction_journal_sha256": "12abe0617f29dd2a8cd3eb2188915180ef1cfe47e6f2db606ef5e8ff2f94abe9"
+      }
+    },
+    "endpoint_pin_evidence": "shasum -a 256 of each arm's predictions.jsonl equals prediction_journal_sha256 in the bundle's comparison.json (2026-10-18)"
+  },
+  "deviations_from_strong_baseline": [
+    "strong_baseline proposes comparing the placeholder-free v2 thinking request and a direct-answer request on the discovery sample. This plan runs the direct-answer (native instruct) request only, the one profile with a completed measurement. The v2/xhigh profile stays unmeasured and the claim label says so.",
+    "strong_baseline.identity asks for the owner's frozen plan values; they are copied from the native-instruct probe plan and runner (local_vlm.py hash, sampling, prefill, seed).",
+    "Engine and artifact differ from v1 (identity_change above). Decoding uses the same native instruct settings, re-stated for torch; per-image seeds feed a different RNG."
+  ],
+  "resume_and_journal": "run_local attempts.jsonl: each image is reserved (fsynced) before generation; an interrupted reservation is unknown_after_interruption and never regenerated; completed answers, including invalid ones, are never repeated; a resume with any identity change (model files, prompt, pixels, seed, profile, runtime versions, dtype, engine, sources) is refused before model load. The runner's ledger.jsonl carries the budget clock. Each shard has its own journal and ledger.",
+  "runner": "scripts/aircraft_named_baseline.py with src/vision_rl/local_vlm_hf.py (tests: tests/test_aircraft_named_baseline_v2.py and tests/test_aircraft_named_baseline.py, fake backend, CPU only)"
+}
