@@ -402,7 +402,9 @@ def cmd_worker(a, state_path: Path) -> int:
     if cls["wait"] == "gpu":
         env["NEED_MIB"] = str(cls["need_mib"])
     else:
-        env["NEED_CORES"] = str(cls["threads"])
+        # free physical cores required before an arm starts (default: the class's threads);
+        # lower it only on a host with fewer physical cores than threads (recorded in state)
+        env["NEED_CORES"] = str(a.need_cores if a.need_cores is not None else cls["threads"])
     if a.slot is not None:
         env["SLOT"] = str(a.slot)
     name = runner.safe_name(f"rlc-worker-{a.host}-s{a.slot or 0}-{int(time.time())}")
@@ -414,6 +416,7 @@ def cmd_worker(a, state_path: Path) -> int:
     with runner.state_lock(state_path) as st:
         st.setdefault("workers", {}).setdefault(a.host, []).append(
             {"name": name, "at": runner.now(), "slot": a.slot, "mem_gb": mem,
+             "need_cores": env.get("NEED_CORES"),
              "threads": cls["threads"], "device_class": device_class})
         st["uwrun_runs"].append({"name": name, "host": a.host, "kind": "worker",
                                  "at": runner.now()})
@@ -876,6 +879,7 @@ def main(argv=None) -> int:
     w.add_argument("--host", required=True)
     w.add_argument("--slot", type=int)
     w.add_argument("--mem", type=float)
+    w.add_argument("--need-cores", type=int)
     w.add_argument("--timeout", type=int, default=259200)
     w.add_argument("--arm-timeout", type=int, default=172800)
     w.add_argument("--idle-max", type=int, default=21600)
