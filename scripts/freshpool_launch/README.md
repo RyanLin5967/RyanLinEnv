@@ -154,6 +154,20 @@ Operating constraints, stated:
 | `e0_gate.py` | Entry `e0_gate:main` for the `e0` template: the protocol's `real_learning_and_resume_gate`. Four screened GRPO updates from W uninterrupted, 2+2 and 1+3, each trainer part in its own process through `phase_worker.py` (24 GiB MPS guard each), plus a resume from the 2+2 split checkpoint with one reference-adapter bit flipped, which the trainer must refuse. Twelve checks, all required by the launcher; the docstring lists them |
 | `production/` | The real launch: `prepare.py` (writes the receipts, evidence base, `plan.json`, `plan.sha256`), `start.py` (the single command), `chain.py` (detached runner), `status.py` (monitoring), `live.py` (whether the study is running, for the test and dry-run refusals) |
 
+## Results report
+
+`scripts/freshpool_report.py --state-directory <state> [--json out.json] [--markdown out.md] [--watch 60]`
+is read-only over a state directory. It admits only the fragments the journal completed (by
+path and SHA256), rebuilds the evaluator's evidence with `Launcher.evidence` for every
+`gate_started`, re-decides each gate with `evaluate`, and refuses (exit 2) when a fragment is
+missing or changed, a rebuilt evidence file or a recomputed gate differs from what the
+launcher wrote, or a selection disagrees with the evaluator's. It reports per-stage status, E0,
+every gate, H-select / H-gate accuracies with the protocol's paired bootstrap, RL* vs W,
+SFT-E*, SFT-T* and EG-SFT, and the branch receipt's VAL target a* + D_req. It never scores
+TEST. Its synthetic tests are `tests/test_freshpool_report.py` (safe beside the live study) and
+`tests/test_freshpool_report_launcher_e2e.py` (real launcher runs; CI only, refused by
+`tests/conftest.py` while the study runs).
+
 ## Stage order (seed 42)
 
 1. **G0.** Checked by the launcher before anything starts, by content where the content is checkable:
