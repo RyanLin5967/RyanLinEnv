@@ -21,7 +21,9 @@ POOL = WT / "docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json"
 COMMON = {"adapter_profile": "legacy-qv-v1", "beta": None, "device": "cpu", "dtype": "float32",
           "features": [], "max_completion_length": 256, "max_pixels": 200704, "min_pixels": 50176,
           "mode": "sft", "num_generations": 4, "order": "random", "response_format": "answer_only",
-          "temperature": None, "threads": 16, "save_steps": 100,
+          # 1.0, as eval-I's spec: arm_exec.assay validates a Profile from the spec (None raises);
+          # the dev800 assay is greedy and SFT training never passes --temperature
+          "temperature": 1.0, "threads": 16, "save_steps": 100,
           # a stop, not a trajectory parameter (constant LR); large enough never to bind on CPU
           "max_active_seconds": 172800.0, "study": "aircraft-sft-ceiling-v1"}
 RUN_SH = """#!/bin/bash
