@@ -69,8 +69,11 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   in each shard's run identity. This is needed because the pool mixes Ivy Bridge (iccad1/3, AVX
   only) with Broadwell (iccad5, AVX2 and FMA). A 4-image TRAIN canary on iccad3 and iccad5
   checks whether the pin gives the same answers on both; the result is under `measured_cost`.
-- **Threads.** Threads affect speed only, so they are not part of the identity. The thread count
-  is recorded in each ledger start and in `load_info`.
+- **Threads.** Fixed at 32 and part of the run identity. float32 reductions in ATen's parallel
+  loops, and in MKL without CBWR STRICT, can depend on the thread count. The canary ran at 32
+  threads on both iccad3 and iccad5.
+- **Sampling settings.** The engine refuses any setting that mlx-vlm would apply but this engine
+  does not implement: a repetition penalty other than 1.0, a frequency penalty, or `min_p`.
 
 ## Shards and merge
 
@@ -87,10 +90,12 @@ make it refuse to resume. A test asserts that they still match v1's pins.
     (the identity includes dtype, the observed CPU kernel path, runtime versions and the
     templated-prompt hash);
   - shard ledgers that started under a different plan SHA256 or different runner sources;
-  - any missing or unknown image.
+  - any missing or unknown image, or any image that ended in a hard stop.
 
   It scores only a complete stage. It writes `<output>/merged-<stage>-predictions.json`, outside
-  the stage directory.
+  the stage directory, and hidden entries such as `.DS_Store` and rsync temporaries are ignored.
+  `merge` and `compare` need the activated plan and its SHA256, and they refuse any shard whose
+  ledger started under a different plan. `report` is diagnostic only.
 - **Pinned files.** `sources_pinned` lists all 9 files the runner hashes, and the runner refuses
   an activated plan whose list differs. The plan also pins the snapshot record's SHA256, which
   `run` and `smoke` check before they rehash the weights.

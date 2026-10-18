@@ -69,9 +69,14 @@ def pin_cpu_numerics(numerics):
 
     wanted = {"ATEN_CPU_CAPABILITY": numerics["aten_cpu_capability_env"],
               "MKL_CBWR": numerics["mkl_cbwr"]}
-    if "torch" in sys.modules:
+    loaded = "torch" in sys.modules or any(
+        marker in library for library in _mapped_libraries()
+        for marker in ("libtorch_cpu", "libmkl", "libiomp"))
+    if loaded:
+        # MKL reads MKL_CBWR once, when it initialises; if torch or any MKL was already
+        # in the process, an environment that differs now cannot be the one in force.
         if any(os.environ.get(k) != v for k, v in wanted.items()):
-            raise ValueError("torch was imported before the CPU kernel path was pinned")
+            raise ValueError("torch or MKL was loaded before the CPU kernel path was pinned")
     else:
         os.environ.update(wanted)
     import torch
@@ -89,6 +94,20 @@ def pin_cpu_numerics(numerics):
     if observed != expected:
         raise ValueError(f"CPU kernel path is not the pre-registered one: {observed}")
     return observed
+
+
+def _mapped_libraries():
+    """Shared objects mapped into this process (Linux); empty where unreadable.
+
+    Blind spot: torch links MKL statically and exports no MKL CBWR query, so the code path
+    MKL actually chose cannot be read back; this guard only proves MKL could not have
+    initialised before MKL_CBWR was set.
+    """
+    try:
+        return {line.split()[-1] for line in Path("/proc/self/maps").read_text().splitlines()
+                if "/" in line}
+    except OSError:
+        return set()
 
 
 def cpu_model():
@@ -186,6 +205,19 @@ def mlx_filter(scores, history, *, temperature, top_p, top_k, min_p, presence_pe
     return logprobs / temperature
 
 
+SAMPLING_KEYS = {"max_tokens", "temperature", "top_p", "top_k", "min_p", "presence_penalty",
+                 "repetition_penalty", "enable_thinking"}
+
+
+def check_generation(generation):
+    """Refuse any sampling setting mlx-vlm would apply that mlx_filter does not."""
+    unknown = set(generation) - SAMPLING_KEYS
+    if unknown:
+        raise ValueError(f"Sampling settings this engine does not implement: {sorted(unknown)}")
+    if generation.get("repetition_penalty") not in (None, 0, 1.0):
+        raise ValueError("repetition_penalty other than 1.0 is not implemented by this engine")
+
+
 class MLXEquivalentSampler:
     """Logits processor that draws the token itself and forces generate() to emit it."""
 
@@ -205,6 +237,7 @@ class MLXEquivalentSampler:
         if generated != self.drawn:
             raise ValueError("generate() emitted a token this sampler did not draw")
         if self.prompt_ids is None:
+            check_generation(self.generation)
             self.prompt_ids = input_ids[0, :self.prompt_length].tolist()
         history = presence_history(self.prompt_ids, generated)
         g = self.generation
@@ -376,10 +409,10 @@ def run_local_hf(
     task_contract = json.loads(json.dumps(task_contract, allow_nan=False))
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError("seed must be an unsigned32-bit integer")
-    if engine.get("dtype") not in DTYPES or "threads" in engine:
-        # Threads change latency, not outputs: they are passed to the backend factory
-        # and recorded by the caller, never part of the run identity.
-        raise ValueError("Engine identity needs an explicit dtype and no thread count")
+    if engine.get("dtype") not in DTYPES or type(engine.get("threads")) is not int:
+        # float32 reductions (ATen parallel loops, MKL without CBWR STRICT) depend on the
+        # thread count, so it is part of the identity and fixed by the plan.
+        raise ValueError("Engine identity needs an explicit dtype and thread count")
     if not engine.get("formatted_prompt_sha256") or "cpu_numerics" not in engine:
         raise ValueError("Engine identity needs the formatted-prompt SHA256 and CPU numerics")
     prepared = [local_vlm.prepare_local(row, preprocessing_id) for row in rows]
@@ -413,7 +446,11 @@ def run_local_hf(
         if not output.is_dir():
             raise ValueError("Cannot resume a missing local run")
     else:
-        output.mkdir(parents=True, exist_ok=False)
+        # A directory left by an invocation killed before run.json was written holds at most
+        # the lock file; anything else is history and is never overwritten.
+        output.mkdir(parents=True, exist_ok=True)
+        if any(child.name != ".run.lock" for child in output.iterdir()):
+            raise ValueError("A new local run directory must be empty")
     import fcntl
 
     with (output / ".run.lock").open("a") as lock:

@@ -53,7 +53,8 @@
       "mkl_available": true,
       "reason": "The ram pool mixes Ivy Bridge (iccad1/3: AVX, no AVX2/FMA; torch picks DEFAULT kernels) and Broadwell (iccad5: AVX2+FMA). Default kernels would differ per host, and the repo's CI named baseline measured host-dependent answers under default kernels. The engine sets ATEN_CPU_CAPABILITY=default and MKL_CBWR=AVX before torch is imported, disables oneDNN, refuses unless torch reports exactly this path, and records the observed path in every shard's run identity, so the merge refuses a mix. Whether the pin makes iccad5 reproduce iccad1/3 is checked by the TRAIN canary (smoke_canary), not assumed."
     },
-    "threads": "operational, not identity: --threads per shard, recorded in each ledger start and in load_info",
+    "threads": 32,
+    "threads_rule": "Fixed and part of the run identity: float32 reductions (ATen parallel loops, MKL without CBWR STRICT) can depend on the thread count, so every shard uses torch.set_num_threads(32) and uwrun --threads 32 (OMP/MKL/OPENBLAS = 32). The canary and the pinned smoke ran at 32 threads on iccad3 (32 logical CPUs) and iccad5 (40).",
     "implementation": "scripts/aircraft_named_baseline_hf.py (TransformersBackend, run_local_hf; kept out of src/vision_rl because pre-registered plans hash every module there); journal loop is local_vlm._run_locked unchanged",
     "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on unique tokens among the last 20 generated tokens, log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
     "stop_rule": "finish_reason stop iff the last generated token is one of the author generation_config eos_token_id; the eos token is not part of the text (as mlx-vlm); otherwise length at max_tokens"
@@ -291,14 +292,14 @@
   },
   "budget_semantics": {
     "scope": "Every budget is per shard: each shard has its own ledger.jsonl under stage-<stage>/shard-<k>-of-6/ and its own invocation count, active seconds and calendar clock.",
-    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 162400 s, full 216400 s); the uwrun --timeout of an invocation is this value + 900 s",
-    "long_generation_allowance": "100000 s covers one native 16,384-token answer at the slowest measured float32 decode rate (6.1 s/token, iccad3 smoke), so a long native answer is not truncated by the wall cap",
+    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 1486000 s, full 1608200 s); the uwrun --timeout of an invocation is this value + 900 s",
+    "long_generation_allowance": "1440000 s covers one native 16,384-token answer at the slowest measured pinned float32 decode rate (see stages.*.budget.derivation), so a long native answer is not truncated by the wall cap",
     "charging": "A finished invocation is charged its measured elapsed seconds; a started invocation with no finish record is charged its full wall cap.",
     "survives_resume": "The ledger's first start time and invocation count are never reset.",
     "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation)."
   },
   "supervision": {
-    "command": "uwrun run --host <iccad1|iccad3|iccad5> --sync <staged tree> --threads <T> --timeout <invocation_wall_seconds + 900> --name <name> -- <venv>/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --threads <T> --output <shared output>",
+    "command": "uwrun run --host <iccad1|iccad3|iccad5> --sync <staged tree> --threads 32 --timeout <invocation_wall_seconds + 900> --name <name> -- <venv>/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --output <shared output>",
     "wall_limit": "uwrun --timeout TERMs then KILLs the process group at the bound; a killed invocation has no finish record and is charged its full wall cap",
     "memory": "No MLX/Metal limit applies. A float32 shard process peaked at 164.7 GB RSS (smoke, both hosts); the hosts have 441-490 GB available plus the 52 GB /dev/shm snapshot. One shard per host.",
     "one_invocation_at_a_time": "run_local_hf holds an exclusive lock on its shard run directory; no automatic retries",

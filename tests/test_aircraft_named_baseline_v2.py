@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import sys
 import time
 import types
 from pathlib import Path
@@ -234,7 +235,7 @@ def run_all(runner, world, stage, answers, calls, clock, path, digest, *, shards
     for shard in shards:
         for _ in range(4):
             report = runner.run_shard(path, digest, stage, shard, world["repo"], world["out"],
-                                      world["weights"], 7,
+                                      world["weights"],
                                       backend_factory=fake_backend(answers, calls, clock=clock))
             journal = world["out"] / f"stage-{stage}/shard-{shard}-of-3/run/attempts.jsonl"
             done = sum('"completed"' in line for line in journal.read_text().splitlines())
@@ -252,7 +253,7 @@ def test_committed_plan_is_unactivated_and_refused(runner, tmp_path):
         runner.load_plan(PLAN, sha(PLAN))
     assert runner.main(["run", "--plan", str(PLAN), "--expected-plan-sha256", sha(PLAN),
                         "--stage", "discovery", "--shard", "0", "--weights", str(tmp_path),
-                        "--threads", "1", "--output", str(tmp_path / "never")]) == 2
+                        "--output", str(tmp_path / "never")]) == 2
     assert not (tmp_path / "never").exists()
 
 
@@ -270,7 +271,7 @@ def test_changed_pinned_source_is_refused_before_any_output(runner, world):
     path, digest = write_plan(world, plan)
     with pytest.raises(ValueError, match="pinned runner source changed"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
-                         world["weights"], 1, backend_factory=fake_backend({}, []))
+                         world["weights"], backend_factory=fake_backend({}, []))
     assert not world["out"].exists()
 
 
@@ -313,15 +314,15 @@ def test_sharded_discovery_merges_and_scores(runner, world, clock):
     answers[discovery[20]] = "Variant 020 because of the tail"
     calls, seen = [], []
     partial = runner.run_shard(path, digest, "discovery", 1, world["repo"], world["out"],
-                               world["weights"], 5,
+                               world["weights"],
                                backend_factory=fake_backend(answers, calls, clock=clock,
                                                             seen=seen))
-    assert seen[0]["threads"] == 5
+    assert seen[0]["threads"] == 32  # fixed by the plan, part of the run identity
     assert calls == discovery[1::3][:20] and partial["status"] == "partial"
     assert partial["metric"] is None
     report = run_all(runner, world, "discovery", answers, calls, clock, path, digest)
     assert sorted(calls) == sorted(discovery) and len(calls) == 100
-    merged = runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+    merged = runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
     assert merged["status"] == "completed" == report["status"]
     assert merged["metric"]["correct"] == 100 - 13 - 1
     assert merged["metric"]["mean_class_accuracy"] == pytest.approx(0.86)
@@ -350,10 +351,10 @@ def test_merge_refuses_missing_shard(runner, world, clock):
     report = runner.merged_report(world["plan"], "discovery", world["repo"], world["out"])
     assert report["status"] == "partial" and report["missing_images"] == 33
     with pytest.raises(ValueError, match="Merge refused: 33 missing"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
     with pytest.raises(ValueError, match="discovery gate"):
         runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
-                         world["weights"], 1, backend_factory=fake_backend(answers, calls))
+                         world["weights"], backend_factory=fake_backend(answers, calls))
 
 
 def test_merge_refuses_duplicate_or_foreign_images(runner, world, clock):
@@ -366,12 +367,12 @@ def test_merge_refuses_duplicate_or_foreign_images(runner, world, clock):
     original = victim.read_text()
     victim.write_text(original + "\n".join(donor) + "\n")
     with pytest.raises(ValueError, match="outside its shard"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
     victim.write_text(original)
-    runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+    runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
     (stage / "shard-0-of-2").mkdir()
     with pytest.raises(ValueError, match="Unexpected shard directory"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
 
 
 def test_merge_refuses_shards_with_different_identity(runner, world, clock):
@@ -383,7 +384,7 @@ def test_merge_refuses_shards_with_different_identity(runner, world, clock):
     recorded["identity"]["config"]["engine"]["dtype"] = "bfloat16"
     run_json.write_text(json.dumps(recorded))
     with pytest.raises(ValueError, match="different run identity"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
 
 
 def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world, clock):
@@ -391,12 +392,12 @@ def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world
     answers, calls = answers_for(world, wrong=set(list(world["gold"])[:30])), []
     with pytest.raises(ValueError, match="discovery shard 0 never ran"):
         runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
-                         world["weights"], 1, backend_factory=fake_backend(answers, calls))
+                         world["weights"], backend_factory=fake_backend(answers, calls))
     run_all(runner, world, "discovery", answers, calls, clock, path, digest)
     calls.clear()
     run_all(runner, world, "full", answers, calls, clock, path, digest)
     assert sorted(calls) == sorted(world["gold"])
-    merged = runner.merge(world["plan"], "full", world["repo"], world["out"])
+    merged = runner.merge(world["plan"], "full", world["repo"], world["out"], digest)
     assert merged["metric"]["correct"] == 270
     perfect = {i: g for i, g in world["gold"].items()}
     arms = {}
@@ -404,7 +405,7 @@ def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world
         arms[name] = world["tmp"] / f"{name}.json"
         arms[name].write_text(json.dumps(perfect))
     result = runner.compare(world["plan"], world["repo"], world["out"],
-                            {k: str(v) for k, v in arms.items()})
+                            {k: str(v) for k, v in arms.items()}, digest)
     image = result["against"]["W"]["image"]
     assert image["image_accuracy_difference"] == pytest.approx(-30 / 300)
     assert image["comparator_image_accuracy"] == 1.0 and image["draws"] == 20000
@@ -416,19 +417,20 @@ def test_full_runs_after_discovery_and_compares_with_declared_arms(runner, world
     assert equal["comparator"]["mean_class_accuracy"] == 1.0
     assert equal["uncertainty"]["seed"] == 2718
     with pytest.raises(ValueError, match="declared arms"):
-        runner.compare(world["plan"], world["repo"], world["out"], {"W": str(arms["W"])})
+        runner.compare(world["plan"], world["repo"], world["out"], {"W": str(arms["W"])},
+                       digest)
     short = world["tmp"] / "short.json"
     short.write_text(json.dumps(dict(list(perfect.items())[:-1])))
     with pytest.raises(ValueError, match="does not cover"):
         runner.compare(world["plan"], world["repo"], world["out"],
-                       {**{k: str(v) for k, v in arms.items()}, "W": str(short)})
+                       {**{k: str(v) for k, v in arms.items()}, "W": str(short)}, digest)
 
 
 def test_source_change_after_first_invocation_is_refused(runner, world, clock):
     path, digest = write_plan(world)
     answers, calls = answers_for(world), []
     runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
-                     world["weights"], 1,
+                     world["weights"],
                      backend_factory=fake_backend(answers, calls, clock=clock))
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     events = [json.loads(line) for line in ledger.read_text().splitlines()]
@@ -436,7 +438,7 @@ def test_source_change_after_first_invocation_is_refused(runner, world, clock):
     ledger.write_text("".join(json.dumps(e) + "\n" for e in events))
     with pytest.raises(ValueError, match="changed since this shard's first invocation"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
-                         world["weights"], 1, backend_factory=fake_backend(answers, calls))
+                         world["weights"], backend_factory=fake_backend(answers, calls))
 
 
 def test_snapshot_verification_refuses_changed_or_linked_files(world):
@@ -470,15 +472,16 @@ def test_engine_journal_refuses_non_validation_phase(world, tmp_path):
     assert not (tmp_path / "x").exists()
 
 
-def test_engine_identity_needs_dtype_and_excludes_threads(world, tmp_path):
+def test_engine_identity_needs_dtype_and_thread_count(world, tmp_path):
     identifier = world["author"][0]["image_id"]
     root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
     rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
              "prompt": "x"}]
-    for engine in ({"name": "transformers-cpu", "dtype": "bfloat16", "threads": 4},
-                   {"name": "transformers-cpu", "dtype": "float16"},
-                   {"name": "transformers-cpu"}):
-        with pytest.raises(ValueError, match="explicit dtype and no thread count"):
+    for engine in ({"name": "transformers-cpu", "dtype": "float32"},
+                   {"name": "transformers-cpu", "dtype": "float32", "threads": "32"},
+                   {"name": "transformers-cpu", "dtype": "float16", "threads": 32},
+                   {"name": "transformers-cpu", "threads": 32}):
+        with pytest.raises(ValueError, match="explicit dtype and thread count"):
             local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
                                   integrity=world["integrity"], engine=engine, runtime_pins={},
                                   phase="validation", image_root=root,
@@ -501,7 +504,7 @@ def test_unpinned_integrity_record_is_refused(runner, world):
     path, digest = write_plan(world)
     with pytest.raises(ValueError, match="integrity record differs"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
-                         world["weights"], 1, backend_factory=fake_backend({}, []))
+                         world["weights"], backend_factory=fake_backend({}, []))
     with pytest.raises(ValueError, match="integrity record differs"):
         runner.smoke(world["plan"], world["repo"], world["weights"], ["x"], 1, "float32",
                      backend_factory=fake_backend({}, []))
@@ -515,7 +518,7 @@ def test_repeated_image_within_a_shard_journal_is_refused(runner, world, clock):
     lines = journal.read_text().splitlines()
     journal.write_text("\n".join(lines + lines[:2]) + "\n")
     with pytest.raises(ValueError, match="Duplicate reserved event"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
 
 
 def test_shards_under_different_plans_are_refused(runner, world, clock):
@@ -526,8 +529,12 @@ def test_shards_under_different_plans_are_refused(runner, world, clock):
     events = [json.loads(line) for line in ledger.read_text().splitlines()]
     events[0]["plan_sha256"] = "f" * 64
     ledger.write_text("".join(json.dumps(e) + "\n" for e in events))
+    # Without a given plan the shards must still agree with each other ...
     with pytest.raises(ValueError, match="different plan or runner source"):
-        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+        runner.merged_report(world["plan"], "discovery", world["repo"], world["out"])
+    # ... and merge also binds every shard to the activated plan it is given.
+    with pytest.raises(ValueError, match="plan other than the one given"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
 
 
 def test_merge_command_output_does_not_block_the_full_stage(runner, world, clock, capsys):
@@ -535,7 +542,7 @@ def test_merge_command_output_does_not_block_the_full_stage(runner, world, clock
     answers, calls = answers_for(world), []
     run_all(runner, world, "discovery", answers, calls, clock, path, digest)
     assert runner.main(["merge", "--plan", str(path), "--stage", "discovery",
-                        "--output", str(world["out"]),
+                        "--expected-plan-sha256", digest, "--output", str(world["out"]),
                         "--repository", str(world["repo"])]) == 0
     merged = json.loads((world["out"] / "merged-discovery-predictions.json").read_text())
     assert len(merged) == 100
@@ -543,7 +550,7 @@ def test_merge_command_output_does_not_block_the_full_stage(runner, world, clock
                         "--output", str(world["out"]),
                         "--repository", str(world["repo"])]) == 0
     report = runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
-                              world["weights"], 1,
+                              world["weights"],
                               backend_factory=fake_backend(answers, calls, clock=clock))
     assert report["per_shard"][0]["completed"] == 50
 
@@ -564,8 +571,9 @@ def test_engine_requires_prompt_pin_and_numerics(world, tmp_path):
     rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
              "prompt": "x"}]
     numerics = {"aten_cpu_capability_env": "default"}
-    for engine in ({"name": "transformers-cpu", "dtype": "float32", "cpu_numerics": numerics},
-                   {"name": "transformers-cpu", "dtype": "float32",
+    for engine in ({"name": "transformers-cpu", "dtype": "float32", "threads": 32,
+                    "cpu_numerics": numerics},
+                   {"name": "transformers-cpu", "dtype": "float32", "threads": 32,
                     "formatted_prompt_sha256": "a" * 64}):
         with pytest.raises(ValueError, match="formatted-prompt SHA256 and CPU numerics"):
             local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
@@ -574,3 +582,97 @@ def test_engine_requires_prompt_pin_and_numerics(world, tmp_path):
                                   task_contract={"task": "classification"},
                                   preprocessing_id=None)
     assert not (tmp_path / "x").exists()
+
+
+def test_hard_stop_blocks_merge(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    # The last image of shard 1 fails: every image is then journaled, none is missing or
+    # unknown, and only the hard stop stands between the shard and a "complete" merge.
+    victim = world["discovery"][1::3][-1]
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[0, 2])
+    for _ in range(2):
+        runner.run_shard(path, digest, "discovery", 1, world["repo"], world["out"],
+                         world["weights"],
+                         backend_factory=fake_backend(answers, calls, clock=clock,
+                                                      fail=(victim, RuntimeError("boom"))))
+    report = runner.merged_report(world["plan"], "discovery", world["repo"], world["out"])
+    assert report["hard_stop_errors"] == [victim] and report["status"] == "partial"
+    assert report["missing_images"] == 0 and not report["unknown_after_interruption"]
+    with pytest.raises(ValueError, match="0 missing, 0 unknown and 1 hard-stop"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_merge_refuses_a_plan_other_than_the_one_run(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    with pytest.raises(ValueError, match="plan other than the one given"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], "e" * 64)
+    assert runner.main(["merge", "--plan", str(PLAN), "--stage", "discovery",
+                        "--expected-plan-sha256", sha(PLAN), "--output", str(world["out"]),
+                        "--repository", str(world["repo"])]) == 2
+
+
+def test_hidden_files_in_a_stage_directory_are_ignored(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    (world["out"] / "stage-discovery/.DS_Store").write_text("x")
+    (world["out"] / "stage-discovery/.shard-0-of-3.tmp123").mkdir()
+    assert runner.merge(world["plan"], "discovery", world["repo"], world["out"],
+                        digest)["status"] == "completed"
+
+
+def test_run_directory_left_without_run_json_is_started_fresh(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run = world["out"] / "stage-discovery/shard-0-of-3/run"
+    run.mkdir(parents=True)
+    (run / ".run.lock").write_text("")
+    report = runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                              world["weights"],
+                              backend_factory=fake_backend(answers, calls, clock=clock))
+    assert report["per_shard"][0]["completed"] == 20  # one discovery chunk
+    stale = world["out"] / "stage-discovery/shard-1-of-3/run"
+    stale.mkdir(parents=True)
+    (stale / "attempts.jsonl").write_text("")
+    with pytest.raises(ValueError, match="must be empty"):
+        runner.run_shard(path, digest, "discovery", 1, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+
+
+def test_sampling_settings_the_engine_lacks_are_refused():
+    base = {"max_tokens": 16384, "temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
+            "presence_penalty": 1.5, "repetition_penalty": 1.0, "enable_thinking": False}
+    local_hf.check_generation(base)
+    with pytest.raises(ValueError, match="repetition_penalty"):
+        local_hf.check_generation(dict(base, repetition_penalty=1.05))
+    with pytest.raises(ValueError, match="frequency_penalty"):
+        local_hf.check_generation(dict(base, frequency_penalty=0.5))
+
+
+def test_kernel_pin_refuses_an_already_loaded_torch_or_mkl(monkeypatch):
+    numerics = {"aten_cpu_capability_env": "default", "mkl_cbwr": "AVX"}
+    monkeypatch.delenv("MKL_CBWR", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace())
+    with pytest.raises(ValueError, match="loaded before the CPU kernel path"):
+        local_hf.pin_cpu_numerics(numerics)
+    monkeypatch.delitem(sys.modules, "torch")
+    monkeypatch.setattr(local_hf, "_mapped_libraries",
+                        lambda: {"/venv/lib/python3.12/site-packages/torch/lib/libtorch_cpu.so"})
+    with pytest.raises(ValueError, match="loaded before the CPU kernel path"):
+        local_hf.pin_cpu_numerics(numerics)
+
+
+def test_budget_semantics_match_the_stage_budgets():
+    plan = json.loads(PLAN.read_text())
+    walls = []
+    for stage in ("discovery", "full"):
+        b = plan["stages"][stage]["budget"]
+        walls.append(b["load_allowance_seconds"] + b["chunk_images"] * b["image_seconds"]
+                     + b["long_generation_allowance_seconds"])
+    text = plan["budget_semantics"]["invocation_wall_seconds"]
+    assert f"discovery {walls[0]} s, full {walls[1]} s" in text
+    assert walls == [1486000, 1608200]
+    assert plan["engine"]["threads"] == 32

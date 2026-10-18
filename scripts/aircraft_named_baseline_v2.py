@@ -32,7 +32,6 @@ shared hosts includes other users' load.
 from __future__ import annotations
 
 import argparse
-import functools
 import importlib
 import importlib.util
 import json
@@ -109,7 +108,7 @@ def integrity_path(plan, repository):
 
 def engine_identity(plan):
     engine = plan["engine"]
-    return {"name": engine["name"], "dtype": engine["dtype"],
+    return {"name": engine["name"], "dtype": engine["dtype"], "threads": engine["threads"],
             "cpu_numerics": engine["cpu_numerics"],
             "formatted_prompt_sha256": plan["prompt_and_parser"]["formatted_prompt_sha256"]}
 
@@ -177,7 +176,7 @@ def _shared_identity(identity):
     return shared
 
 
-def merged_report(plan, stage, repository, output):
+def merged_report(plan, stage, repository, output, *, plan_sha256=None):
     """Union of every shard journal of a stage. Metric is null unless all images completed."""
     inputs = stage_inputs(plan, stage, repository)
     identifiers = [row["id"] for row in inputs["rows"]]
@@ -185,6 +184,8 @@ def merged_report(plan, stage, repository, output):
     stage_directory = Path(output) / f"stage-{stage}"
     if stage_directory.exists():
         for child in stage_directory.iterdir():
+            if child.name.startswith("."):
+                continue  # .DS_Store, rsync temporaries; never a shard
             match = SHARD_NAME.fullmatch(child.name)
             if not match or int(match[2]) != shards or int(match[1]) >= shards:
                 raise ValueError(f"Unexpected shard directory {child.name}; plan declares "
@@ -213,6 +214,8 @@ def merged_report(plan, stage, repository, output):
                 raise ValueError(f"Shard {shard} ran under a different run identity")
         ledger = v1.ledger_state(directory / "ledger.jsonl")
         for event in ledger["started"]:
+            if plan_sha256 is not None and event["plan_sha256"] != plan_sha256:
+                raise ValueError(f"Shard {shard} ran under a plan other than the one given")
             governed = (event["plan_sha256"], json.dumps(event["sources"], sort_keys=True))
             if governing is None:
                 governing = governed
@@ -249,7 +252,7 @@ def merged_report(plan, stage, repository, output):
         for key in tokens:
             tokens[key] += (prediction.get("usage") or {}).get(key) or 0
     missing = [i for i in identifiers if i not in completed]
-    complete = not missing and not unknown
+    complete = not missing and not unknown and not hard_stop
     report = {
         "plan_id": PLAN_ID, "stage": stage, "shards": shards, "per_shard": per_shard,
         "denominator": len(identifiers), "completed": len(completed),
@@ -288,12 +291,14 @@ def merged_report(plan, stage, repository, output):
     return report
 
 
-def merge(plan, stage, repository, output):
-    """The merged predictions, refusing any missing, unknown or duplicate image."""
-    report = merged_report(plan, stage, repository, output)
+def merge(plan, stage, repository, output, plan_sha256):
+    """The merged predictions, refusing any missing, unknown, hard-stop or repeated image,
+    and any shard that ran under a plan other than the activated one given."""
+    report = merged_report(plan, stage, repository, output, plan_sha256=plan_sha256)
     if report["status"] != "completed":
-        raise ValueError(f"Merge refused: {report['missing_images']} missing and "
-                         f"{len(report['unknown_after_interruption'])} unknown images")
+        raise ValueError(f"Merge refused: {report['missing_images']} missing, "
+                         f"{len(report['unknown_after_interruption'])} unknown and "
+                         f"{len(report['hard_stop_errors'])} hard-stop images")
     return report
 
 
@@ -349,11 +354,11 @@ def discovery_decision(plan, report):
     }
 
 
-def stage_budget(plan, stage, repository, output):
+def stage_budget(plan, stage, repository, output, plan_sha256=None):
     budget = dict(plan["stages"][stage]["budget"])
     if stage == "full":
-        decision = discovery_decision(plan, merged_report(plan, "discovery", repository,
-                                                          output))
+        decision = discovery_decision(plan, merged_report(
+            plan, "discovery", repository, output, plan_sha256=plan_sha256))
         if decision["decision"] != "proceed":
             raise ValueError("Full VAL refused by the discovery gate: "
                              + "; ".join(decision["reasons"]))
@@ -362,7 +367,7 @@ def stage_budget(plan, stage, repository, output):
     return budget
 
 
-def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weights, threads,
+def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weights,
               *, backend_factory=None, clock=time.time):
     """One bounded invocation of one shard of one stage."""
     repository, output = Path(repository).resolve(), Path(output).resolve()
@@ -387,7 +392,7 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
                                  "full VAL needs discovery under this exact plan and code")
     inputs = stage_inputs(plan, stage, repository, shard)
     identifiers = [row["id"] for row in inputs["rows"]]
-    budget = stage_budget(plan, stage, repository, output)
+    budget = stage_budget(plan, stage, repository, output, plan_sha)
     directory = shard_directory(output, stage, shard, shards)
     directory.mkdir(parents=True, exist_ok=True)
     ledger_path, run_directory = directory / "ledger.jsonl", directory / "run"
@@ -398,7 +403,7 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
         raise ValueError("Plan or source changed since this shard's first invocation")
     journal = v1.journal_state(run_directory, identifiers)
     if journal["complete"]:
-        return merged_report(plan, stage, repository, output)
+        return _shard_summary(plan, stage, repository, output, directory, plan_sha)
     halts = []
     if ledger["unfinished"]:
         halts.append("previous invocation never recorded its finish")
@@ -421,7 +426,7 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
         "event": "started", "invocation": number, "time": clock(), "stage": stage,
         "shard": shard, "shards": shards, "plan_sha256": plan_sha, "sources": sources,
         "wall_cap_seconds": budget["invocation_wall_seconds"],
-        "completed_before": len(journal["completed"]), "threads": threads,
+        "completed_before": len(journal["completed"]),
     })
     model = plan["model"]
     factory = backend_factory or local_hf.TransformersBackend
@@ -431,8 +436,10 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
             inputs["rows"], run_directory, model_directory=Path(weights),
             integrity=integrity_path(plan, repository), engine=engine_identity(plan),
             runtime_pins=model["runtime_pins"], phase="validation",
-            seed=plan["generation"]["seed"], resume=run_directory.exists(),
-            backend_factory=functools.partial(_with_threads, factory, threads),
+            # run.json is written exclusively right after the directory is created, so it,
+            # not the directory, marks a run that exists.
+            seed=plan["generation"]["seed"], resume=(run_directory / "run.json").exists(),
+            backend_factory=factory,
             image_root=inputs["image_root"], task_contract=inputs["task_contract"],
             preprocessing_id=PREPROCESSING_ID,
             stop_after_completions=min(budget["chunk_images"], len(journal["remaining"])),
@@ -441,18 +448,16 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
     finally:
         v1._append(ledger_path, {"event": "finished", "invocation": number,
                                  "elapsed_seconds": time.monotonic() - started})
-    report = merged_report(plan, stage, repository, output)
+    return _shard_summary(plan, stage, repository, output, directory, plan_sha)
+
+
+def _shard_summary(plan, stage, repository, output, directory, plan_sha):
+    report = merged_report(plan, stage, repository, output, plan_sha256=plan_sha)
     if stage == "discovery" and report["status"] == "completed":
         report["decision"] = discovery_decision(plan, report)
     report.pop("predictions", None)
     (directory / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
-
-
-def _with_threads(factory, threads, directory, config):
-    # Thread count is operational (it changes latency, not outputs), so it stays out of
-    # the run identity and is recorded in each invocation's ledger start and load_info.
-    return factory(directory, {**config, "engine": {**config["engine"], "threads": threads}})
 
 
 def image_accuracy_bootstrap(rows, candidate, comparator, labels, resamples, seed):
@@ -476,9 +481,9 @@ def image_accuracy_bootstrap(rows, candidate, comparator, labels, resamples, see
     }
 
 
-def compare(plan, repository, output, against):
+def compare(plan, repository, output, against, plan_sha256):
     """Baseline (candidate) versus each declared arm on the complete native VAL."""
-    report = merge(plan, "full", repository, output)
+    report = merge(plan, "full", repository, output, plan_sha256)
     inputs = stage_inputs(plan, "full", repository)
     rule = plan["comparison"]
     declared = {arm["name"] for arm in rule["arms"]}
@@ -535,7 +540,8 @@ def smoke(plan, repository, weights, ids, threads, dtype, *, backend_factory=Non
     model = local_hf.verify_snapshot(weights, integrity_path(plan, repository))
     versions = local_hf.runtime_versions(plan["model"]["runtime_pins"])
     config = {
-        **local_vlm.native_profile("instruct"), "seed": 1729,
+        **local_vlm.native_profile(plan["generation"]["profile"]),
+        "seed": plan["generation"]["seed"], "generation": plan["generation"]["sampling"],
         "engine": {**engine_identity(plan), "dtype": dtype, "threads": threads},
         "preprocessing_id": PREPROCESSING_ID, "stream_progress": progress_path is not None,
         "generation_progress_path": str(progress_path), "identity_sha256": None,
@@ -547,14 +553,14 @@ def smoke(plan, repository, weights, ids, threads, dtype, *, backend_factory=Non
         image = (train_root / f"{identifier}.jpg").resolve(strict=True)
         if not image.is_relative_to(train_root):
             raise ValueError("Smoke images must be TRAIN images")
-        seed = int(local_vlm._digest([1729, identifier])[:8], 16)
+        seed = int(local_vlm._digest([config["seed"], identifier])[:8], 16)
         start = time.monotonic()
         native = backend.infer({"id": identifier, "image_path": str(image), "prompt": prompt},
                                seed)
         latency = time.monotonic() - start
         response = native["native_response"]
         answer = local_vlm.final_answer(response["text"], response["finish_reason"],
-                                        profile="instruct")
+                                        profile=plan["generation"]["profile"])
         results.append({
             "id": identifier, "latency_seconds": latency, "text": response["text"],
             "finish_reason": response["finish_reason"],
@@ -594,7 +600,8 @@ def main(argv=None):
             command.add_argument("--expected-plan-sha256", required=True)
             command.add_argument("--shard", type=int, required=True)
             command.add_argument("--weights", type=Path, required=True)
-            command.add_argument("--threads", type=int, required=True)
+        if name in ("merge", "compare"):
+            command.add_argument("--expected-plan-sha256", required=True)
         if name == "compare":
             command.add_argument("--against", action="append", required=True,
                                  metavar="NAME=PATH",
@@ -615,7 +622,7 @@ def main(argv=None):
     try:
         if args.command == "run":
             result = run_shard(args.plan, args.expected_plan_sha256, args.stage, args.shard,
-                               args.repository, args.output, args.weights, args.threads)
+                               args.repository, args.output, args.weights)
         elif args.command == "export-arm":
             args.out.write_text(json.dumps(export_arm(args.bundle, args.arm), indent=1) + "\n")
             return 0
@@ -624,20 +631,25 @@ def main(argv=None):
             result = smoke(plan, args.repository, args.weights, args.ids, args.threads,
                            args.dtype, progress_path=args.out.with_suffix(".progress.jsonl"))
             args.out.write_text(json.dumps(result, indent=2) + "\n")
-        else:
-            plan = load_plan(args.plan, require_activated=False)
+        elif args.command in ("merge", "compare"):
+            # Results are merged and compared only under the activated plan they ran under.
+            plan = load_plan(args.plan, args.expected_plan_sha256)
             if args.command == "compare":
                 against = dict(item.split("=", 1) for item in args.against)
-                result = compare(plan, args.repository, args.output, against)
-            elif args.command == "merge":
-                result = merge(plan, args.stage, args.repository, args.output)
+                result = compare(plan, args.repository, args.output, against,
+                                 args.expected_plan_sha256)
+            else:
+                result = merge(plan, args.stage, args.repository, args.output,
+                               args.expected_plan_sha256)
                 # Outside stage-<stage>/, whose children must all be shard directories.
                 (args.output / f"merged-{args.stage}-predictions.json").write_text(
                     json.dumps(result["predictions"], indent=1) + "\n")
-            else:
-                result = merged_report(plan, args.stage, args.repository, args.output)
-                if args.stage == "discovery":
-                    result["decision"] = discovery_decision(plan, result)
+        else:
+            # Diagnostic only: never a merge, never a comparison.
+            plan = load_plan(args.plan, require_activated=False)
+            result = merged_report(plan, args.stage, args.repository, args.output)
+            if args.stage == "discovery":
+                result["decision"] = discovery_decision(plan, result)
         result.pop("predictions", None)
         print(json.dumps(result, indent=2, allow_nan=False))
         return 0
