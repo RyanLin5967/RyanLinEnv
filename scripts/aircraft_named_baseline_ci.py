@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import hashlib
 import importlib
 import importlib.util
@@ -58,6 +59,8 @@ SHARD_RECORD = "shard.json"
 FROZEN_PREFIX = "/Users/idide/RyanLinEnv/runs/aircraft-native-val-activation-v1/frozen/"
 MODEL_NAME = "Qwen/Qwen2.5-VL-3B-Instruct"
 ATTEMPTS = 3
+# The only fields an activated copy may differ in from the committed pre-registration.
+ACTIVATION_FIELDS = ("activated", "activation", "status")
 
 
 def compact(value):
@@ -123,6 +126,11 @@ def load_plan(path, expected_sha256=None, *, require_activated=True):
             raise ValueError("Named-baseline CI plan is unactivated; VAL stages must not run")
         if expected_sha256 is None or sha_file(path) != expected_sha256:
             raise ValueError("Pass the activated plan's exact SHA256 to run it")
+        committed = read_json(PLAN)
+        if ({k: v for k, v in plan.items() if k not in ACTIVATION_FIELDS}
+                != {k: v for k, v in committed.items() if k not in ACTIVATION_FIELDS}):
+            raise ValueError("Activated copy changes pre-registered fields; only "
+                             + ", ".join(ACTIVATION_FIELDS) + " may differ")
     return plan
 
 
@@ -193,17 +201,23 @@ def shard_bounds(plan, stage, shards):
         raise ValueError(
             f"{stage} shard count must be an integer in [{declared['min']}, {declared['max']}]"
         )
+    if "declared" in declared and shards != declared["declared"]:
+        raise ValueError(f"{stage} shard count is pre-registered as {declared['declared']}")
 
 
 def required_full_shards(plan, receipt):
-    """Pre-registered rule: the smallest N whose busiest shard fits the shard wall budget
-    at 1.5x the discovery mean image latency, after the largest measured shard setup and
-    one reserved per-image deadline."""
+    """Pre-registered rule: the smallest N whose busiest shard fits the shard wall budget.
+
+    Per image: 1.5 x (discovery mean generation latency + mean per-image fetch seconds), since
+    a shard fetches all its images during setup. Fixed: the largest discovery setup excluding
+    image fetches (install-free: model download, rehash, load), plus one per-image deadline.
+    """
     rule = plan["stages"]["full"]["gate"]
-    sharding = plan["sharding"]
+    sharding, timing = plan["sharding"], receipt["timing"]
     usable = (sharding["shard_wall_seconds"] - sharding["image_seconds"]
-              - receipt["timing"]["max_setup_seconds"])
-    per_image = rule["latency_safety_factor"] * receipt["timing"]["mean_image_latency_seconds"]
+              - timing["max_fixed_setup_seconds"])
+    per_image = rule["latency_safety_factor"] * (timing["mean_image_latency_seconds"]
+                                                 + timing["mean_image_fetch_seconds"])
     capacity = math.floor(usable / per_image) if usable > 0 and per_image > 0 else 0
     if capacity < 1:
         raise ValueError("Discovery latency leaves no image capacity per shard")
@@ -319,6 +333,7 @@ def evaluator_contract(plan, frozen):
 # ------------------------------------------------------------------------ downloads
 
 
+@functools.cache
 def _download_module():
     path = ROOT / "scripts/aircraft_ci_experiment.py"
     spec = importlib.util.spec_from_file_location("aircraft_ci_experiment", path)
@@ -470,7 +485,9 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
     frozen = load_frozen(plan, materialize_evaluator(plan, work / "frozen"))
     pixels = frozen["aircraft_data"].aircraft_pixel_sha256
     native, evaluation = frozen["vlm_local_training"], frozen["vlm_local_evaluation"]
+    fetching = clock()
     fetch_images(images, work / "data")
+    record["timing"]["image_fetch_seconds"] = clock() - fetching
     fetch_model(plan, work / "model")
     loading = clock()
     backend, identity = load_backend(plan, frozen, work / "model")
@@ -480,9 +497,12 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
         "evaluator_commit": plan["evaluator_identity"]["commit"],
         "frozen_sources_sha256": sha_bytes(compact(frozen_sources(plan)).encode()),
     }
-    record["timing"].update(setup_seconds=clock() - started, load_seconds=clock() - loading)
+    setup = clock() - started
+    record["timing"].update(setup_seconds=setup, load_seconds=clock() - loading,
+                            fixed_setup_seconds=setup - record["timing"]["image_fetch_seconds"])
     sharding, labels = plan["sharding"], backend.spec["labels"]
-    status = "completed"
+    limit = plan["generation"]["profile"]["max_completion_length"]
+    status = "failed"  # anything that escapes the loop below leaves the shard failed
     try:
         for row in images:
             if clock() - started + sharding["image_seconds"] > sharding["shard_wall_seconds"]:
@@ -496,6 +516,21 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
             try:
                 with evaluation._deadline(sharding["image_seconds"]):
                     result = backend.predict({"id": row["id"], "image": row["image"]})
+                # The frozen run_chunk's output checks and parse, inside its error handler.
+                if (
+                    type(result["terminated"]) is not bool
+                    or not isinstance(result["response"], str)
+                    or len(result["response"]) > 65536
+                    or len(result["completion_ids"]) > limit
+                ):
+                    raise ValueError("Malformed or oversized inference output")
+                result.update(
+                    status="completed",
+                    canonical_label=native.parse_label(result["response"], labels,
+                                                       allow_reasoning=True)
+                    if result["terminated"] else None,
+                    latency_seconds=clock() - tick,
+                )
             except KeyboardInterrupt:
                 status = "unknown_after_interruption"
                 _append(journal, {"event": "outcome", "id": row["id"], "result": {
@@ -510,19 +545,10 @@ def run_shard(plan_path, plan_sha256, stage, shards, index, work, output, *, clo
                 _append(journal, {"event": "outcome", "id": row["id"], "result": failure})
                 record["results"][row["id"]] = failure
                 break
-            if (type(result["terminated"]) is not bool
-                    or len(result["completion_ids"])
-                    > plan["generation"]["profile"]["max_completion_length"]):
-                raise ValueError("Malformed or oversized inference output")
-            result.update(
-                status="completed",
-                canonical_label=native.parse_label(result["response"], labels,
-                                                   allow_reasoning=True)
-                if result["terminated"] else None,
-                latency_seconds=clock() - tick,
-            )
             _append(journal, {"event": "outcome", "id": row["id"], "result": result})
             record["results"][row["id"]] = result
+        else:
+            status = "completed"
     finally:
         record["status"] = status
         record["timing"].update(
@@ -643,8 +669,9 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
     shard_bounds(plan, stage, shards)
     expected = [row["id"] for row in stage_images(plan, stage)]
     run = run_identity()
+    records = read_shard_records(artifacts, stage, shards)
     results, identity = verify_shards(
-        read_shard_records(artifacts, stage, shards), expected, shards,
+        records, expected, shards,
         stage=stage, plan_sha256=plan_sha256,
         run={"run_id": run["run_id"], "sha": run["sha"]},
     )
@@ -663,7 +690,6 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
     rows = comparison._inputs(gold, (predictions,), labels)
     score, _ = comparison._score(rows, predictions, labels)
     latencies = [r["latency_seconds"] for r in results.values()]
-    records = read_shard_records(artifacts, stage, shards)
     receipt = {
         "schema_version": 1, "plan_id": PLAN_ID, "plan_sha256": plan_sha256, "stage": stage,
         "status": "completed", "shards": shards, "run": run, "identity": identity,
@@ -675,6 +701,10 @@ def merge(plan_path, plan_sha256, stage, shards, artifacts, work, output):
             "mean_image_latency_seconds": sum(latencies) / len(latencies),
             "max_image_latency_seconds": max(latencies),
             "max_setup_seconds": max(r["timing"]["setup_seconds"] for r in records.values()),
+            "max_fixed_setup_seconds": max(r["timing"]["fixed_setup_seconds"]
+                                           for r in records.values()),
+            "mean_image_fetch_seconds": sum(r["timing"]["image_fetch_seconds"]
+                                            for r in records.values()) / len(expected),
             "max_shard_elapsed_seconds": max(r["timing"]["elapsed_seconds"]
                                              for r in records.values()),
         },

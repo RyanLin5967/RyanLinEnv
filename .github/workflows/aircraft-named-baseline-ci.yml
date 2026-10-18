@@ -14,7 +14,7 @@ on:
         options: [discovery, full]
         required: true
       shards:
-        description: Number of shards (discovery 1-20; full by the plan's shard rule, max 256)
+        description: Number of shards (discovery exactly 4; full by the plan's shard rule, max 256)
         type: string
         required: true
       plan:
@@ -35,9 +35,17 @@ on:
       - .github/workflows/aircraft-named-baseline-ci.yml
       - scripts/aircraft_named_baseline_ci.py
       - scripts/aircraft_ci_experiment.py
-      - docs/aircraft-named-baseline-ci-plan-v1.json
+      - scripts/export_native_val_endpoint_predictions.py
+      - tests/test_aircraft_named_baseline_ci.py
+      - docs/aircraft-named-baseline-ci-plan-v1*
       - docs/aircraft-named-baseline-ci-v1/**
+      - docs/aircraft-named-baseline-plan-v1.json
+      - reports/2026-10-17-controlled400-native-val/plan.json
+      - reports/2026-10-17-controlled400-native-val/comparison.json
       - requirements-vlm-local.lock
+      - pyproject.toml
+      - uv.lock
+      - .python-version
 permissions:
   contents: read
 concurrency:
@@ -147,6 +155,23 @@ jobs:
           path: ${{ runner.temp }}/named-baseline-merged/
           retention-days: 90
           if-no-files-found: error
+
+  tests:
+    # Full history, so the frozen-evaluator materialisation test runs instead of skipping.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - name: Runner refusal tests with the frozen commit required
+        env:
+          REQUIRE_FROZEN_COMMIT: "1"
+        run: timeout 600 .venv/bin/pytest -q -rs tests/test_aircraft_named_baseline_ci.py
 
   plumbing:
     if: github.event_name == 'pull_request'

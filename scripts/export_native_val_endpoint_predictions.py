@@ -33,7 +33,9 @@ def sha_file(path):
 
 
 def canonical_input_sha256(labels, gold, candidate, comparator):
-    """The frozen compare_classification input identity, recomputed independently."""
+    """The frozen compare_classification input identity, recomputed independently.
+
+    Rows are ordered by image ID, as the frozen ``_inputs`` returns them."""
     rows = [
         {
             "id": row["id"],
@@ -43,7 +45,7 @@ def canonical_input_sha256(labels, gold, candidate, comparator):
             "comparator": comparator.get(row["id"]),
             "comparator_recorded": row["id"] in comparator,
         }
-        for row in gold
+        for row in sorted(gold, key=lambda row: row["id"])
     ]
     payload = {"labels": list(labels), "rows": rows}
     return hashlib.sha256(

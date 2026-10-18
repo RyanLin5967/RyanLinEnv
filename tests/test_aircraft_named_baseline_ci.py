@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -41,7 +42,8 @@ def activated(tmp_path):
 
 
 def record(ids, shards, index, *, identity=None, attempt="1", status="completed"):
-    mine = ci.partition(ids, shards, index)
+    # Expected membership written out as i mod N, never taken from ci.partition.
+    mine = [identifier for position, identifier in enumerate(ids) if position % shards == index]
     return {
         "plan_id": ci.PLAN_ID, "plan_sha256": "p", "stage": "discovery", "shards": shards,
         "index": index, "status": status,
@@ -50,7 +52,8 @@ def record(ids, shards, index, *, identity=None, attempt="1", status="completed"
         "ids": mine,
         "results": {i: {"status": "completed", "canonical_label": None, "terminated": False,
                         "response": "", "latency_seconds": 1.0} for i in mine},
-        "timing": {"setup_seconds": 10.0, "elapsed_seconds": 20.0},
+        "timing": {"setup_seconds": 10.0, "elapsed_seconds": 20.0,
+                   "fixed_setup_seconds": 8.0, "image_fetch_seconds": 2.0},
     }
 
 
@@ -77,11 +80,28 @@ def test_activated_copy_needs_its_exact_sha256(activated):
     assert ci.matrix(path, digest, "discovery", 4) == {"shard": [0, 1, 2, 3]}
 
 
-@pytest.mark.parametrize("shards", [0, 21, -1])
-def test_discovery_shard_count_is_bounded(activated, shards):
+@pytest.mark.parametrize("shards", [0, 3, 5, 21, -1])
+def test_discovery_shard_count_is_the_declared_four(activated, shards):
     path, digest = activated
     with pytest.raises(ValueError, match="shard count"):
         ci.matrix(path, digest, "discovery", shards)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("generation", {"profile": {}}),
+    ("sharding", {}),
+    ("amendments", ["relax the gate"]),
+    ("analysis", {}),
+])
+def test_activated_copy_may_change_only_activation_fields(tmp_path, field, value):
+    plan = json.loads(PLAN.read_text())
+    plan.update(activated=True, status="ACTIVATED",
+                activation={"activated_at": "2026-10-18T00:00:00Z", "approved_by": "test"})
+    plan[field] = value
+    path = tmp_path / "tampered.json"
+    path.write_text(json.dumps(plan))
+    with pytest.raises(ValueError, match="changes pre-registered fields"):
+        ci.load_plan(path, sha(path))
 
 
 def test_full_val_needs_a_discovery_receipt(activated):
@@ -125,6 +145,14 @@ def test_partition_scores_each_image_exactly_once(shards):
     parts = [ci.partition(ids, shards, index) for index in range(shards)]
     flat = [identifier for part in parts for identifier in part]
     assert sorted(flat) == ids and len(flat) == len(set(flat)) == 3333
+    for index, part in enumerate(parts):
+        assert part == [ids[p] for p in range(3333) if p % shards == index]
+
+
+def test_partition_is_interleaved_author_order():
+    assert ci.partition(IDS, 3, 0) == ["0000000", "0000003", "0000006", "0000009"]
+    assert ci.partition(IDS, 3, 1) == ["0000001", "0000004", "0000007"]
+    assert ci.partition(IDS, 3, 2) == ["0000002", "0000005", "0000008"]
 
 
 def test_complete_shards_merge_in_author_order():
@@ -208,27 +236,30 @@ def test_merge_command_refuses_a_missing_shard_before_any_scoring(
     plan = json.loads(path.read_text())
     ids = [row["id"] for row in ci.stage_images(plan, "discovery")]
     records = {}
-    for index in (0, 2):
-        value = record(ids, 3, index)
+    for index in (0, 1, 3):
+        value = record(ids, 4, index)
         value["plan_sha256"] = digest
         records[index] = value
     write_artifacts(tmp_path / "artifacts", "discovery", records)
-    code = ci.main(["merge", "--stage", "discovery", "--shards", "3", "--plan", str(path),
+    code = ci.main(["merge", "--stage", "discovery", "--shards", "4", "--plan", str(path),
                     "--plan-sha256", digest, "--artifacts", str(tmp_path / "artifacts"),
                     "--work", str(tmp_path / "work"), "--output", str(tmp_path / "out")])
     assert code == 2
-    assert "missing [1]" in capsys.readouterr().err
+    assert "missing [2]" in capsys.readouterr().err
     assert not (tmp_path / "work").exists() and not (tmp_path / "out").exists()
 
 
-def test_merge_command_refuses_no_artifacts_and_foreign_artifacts(activated, tmp_path, monkeypatch):
+def test_merge_command_refuses_no_artifacts_and_foreign_artifacts(
+    activated, tmp_path, monkeypatch, capsys
+):
     path, digest = activated
     for key, value in RUN.items():
         monkeypatch.setenv(key, value)
-    args = ["merge", "--stage", "discovery", "--shards", "2", "--plan", str(path),
+    args = ["merge", "--stage", "discovery", "--shards", "4", "--plan", str(path),
             "--plan-sha256", digest, "--artifacts", str(tmp_path / "artifacts"),
             "--work", str(tmp_path / "work"), "--output", str(tmp_path / "out")]
     assert ci.main(args) == 2  # nothing downloaded: every shard is missing
+    assert "missing [0, 1, 2, 3]" in capsys.readouterr().err
     (tmp_path / "artifacts" / "named-baseline-full-shard-0").mkdir(parents=True)
     with pytest.raises(ValueError, match="Unexpected artifact"):
         ci.read_shard_records(tmp_path / "artifacts", "discovery", 2)
@@ -243,7 +274,8 @@ def test_plumbing_refuses_any_plan_but_the_committed_one(activated):
 def receipt(digest, **changes):
     value = {"plan_id": ci.PLAN_ID, "plan_sha256": digest, "stage": "discovery",
              "status": "completed", "counts": {"completed": 100}, "valid_fraction": 0.95,
-             "timing": {"mean_image_latency_seconds": 60.0, "max_setup_seconds": 900.0}}
+             "timing": {"mean_image_latency_seconds": 55.0, "mean_image_fetch_seconds": 5.0,
+                        "max_fixed_setup_seconds": 900.0}}
     value.update(changes)
     return value
 
@@ -251,7 +283,7 @@ def receipt(digest, **changes):
 def test_full_shard_rule_matches_hand_arithmetic(activated):
     path, digest = activated
     plan = json.loads(path.read_text())
-    # usable = 19800 - 900 - 900 = 18000 s; 1.5 x 60 s = 90 s per image; 200 per shard.
+    # usable = 19800 - 900 - 900 = 18000 s; 1.5 x (55 + 5) s = 90 s per image; 200 per shard.
     assert ci.required_full_shards(plan, receipt(digest)) == 17  # ceil(3333 / 200)
 
 
@@ -301,9 +333,12 @@ def _has_commit(commit):
         return False
 
 
-@pytest.mark.skipif(not _has_commit("85f0865920015fd7e637d2b997bd9d7597dc1e83"),
-                    reason="shallow checkout lacks the frozen evaluator commit")
 def test_frozen_evaluator_materialises_byte_for_byte(tmp_path):
+    if not _has_commit("85f0865920015fd7e637d2b997bd9d7597dc1e83"):
+        if os.environ.get("REQUIRE_FROZEN_COMMIT") == "1":
+            pytest.fail("The frozen evaluator commit is required here but absent")
+        pytest.skip("shallow checkout lacks the frozen evaluator commit; the named-baseline "
+                    "workflow's tests job runs this with full history")
     plan = json.loads(PLAN.read_text())
     source = ci.materialize_evaluator(plan, tmp_path / "frozen")
     assert (source / "vision_rl/vlm_local_evaluation.py").is_file()

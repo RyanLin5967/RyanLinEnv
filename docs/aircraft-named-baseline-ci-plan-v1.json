@@ -6,7 +6,7 @@
   "activation": null,
   "created_date": "2026-10-18",
   "author_agent": "claude (workflow subagent, branch named-baseline-ci.noindex)",
-  "append_only": "Fields of this pre-registration are never edited after commit. Corrections and clarifications are appended to amendments[] with a date and reason, before any VAL inference they could affect. A changed model, prompt, decoding, metric, sample or comparator is a new plan_id, not an amendment. An activated copy adds only activated, activation and status.",
+  "append_only": "Fields of this pre-registration are never edited after commit to main. Corrections and clarifications are appended to amendments[] with a date and reason, before any VAL inference they could affect. A changed model, prompt, decoding, metric, sample, sharding rule or comparator is a new plan_id, not an amendment. An activated copy may differ from this file only in activated, activation and status; the runner compares every other field with the committed plan and refuses any difference.",
   "amendments": [],
   "must_not_run_until": [
     "Root review approves this plan and commits an activated copy (activated true, activation.activated_at, activation.approved_by) before the first VAL dispatch. The workflow and runner refuse anything else and require that copy's SHA256 as a dispatch input.",
@@ -143,7 +143,8 @@
         "confidence_level": 0.95,
         "half_width": 0.13581015157406195
       },
-      "role": "Validity and cost diagnostic. Its receipt feeds the full-VAL gate and shard count. Not a benchmark score."
+      "role": "Validity and cost diagnostic. Its receipt feeds the full-VAL gate and shard count. Not a benchmark score.",
+      "shards_note": "Exactly 4 shards (25 images each); the runner refuses any other count."
     },
     "full": {
       "order": 2,
@@ -154,7 +155,7 @@
         "requires": "A committed discovery receipt (discovery-receipt.json from a merged discovery run) passed as the dispatch input discovery_receipt; it must carry this activated plan's SHA256, status completed and all 100 images completed.",
         "minimum_valid_answer_fraction": 0.9,
         "latency_safety_factor": 1.5,
-        "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_setup_seconds) / (1.5 x discovery mean_image_latency_seconds))); the matrix command refuses a smaller N",
+        "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_fixed_setup_seconds) / (1.5 x (discovery mean_image_latency_seconds + discovery mean_image_fetch_seconds)))). fixed setup = a shard's setup seconds minus its image-fetch seconds (frozen import, model download and rehash, load); fetch seconds are charged per image because a full shard fetches all its images during setup. The matrix command refuses a smaller N.",
         "on_stop": "Report the named comparator as incomplete. Do not change prompt, decoding, model, sample or comparators to rescue it."
       }
     }
@@ -163,8 +164,8 @@
     "assignment": "Stage image i in author order belongs to shard i mod N; each shard runs its images in author order.",
     "shards": {
       "discovery": {
-        "min": 1,
-        "max": 20,
+        "min": 4,
+        "max": 4,
         "declared": 4
       },
       "full": {

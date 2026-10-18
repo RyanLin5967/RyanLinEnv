@@ -7,7 +7,8 @@ Its status is **UNACTIVATED**. The workflow
 plan for every VAL stage. A VAL run needs a root-approved copy with `activated: true` and an
 `activation` record, committed before dispatch; its path and SHA256 are dispatch inputs. The plan is
 append-only: corrections go to `amendments[]` before any inference they could affect, and any
-scientific change is a new `plan_id`.
+scientific change is a new `plan_id`. An activated copy may differ from the committed plan only in
+`activated`, `activation` and `status`; the runner compares every other field and refuses a difference.
 
 ## Why this exists
 
@@ -54,7 +55,7 @@ runners for a public repository cost nothing. A 3B model in bfloat16 (7.51 GB of
    that the frozen `compare_classification` reproduces the committed endpoint report from the
    committed endpoint export.
 1. **Discovery.** The same 100 protocol-defined, one-per-class IDs as the 27B plan (`c8d73a4c…`),
-   read from that plan and checked against it. It uses 4 declared shards (1–20 allowed). The report
+   read from that plan and checked against it. It uses exactly 4 shards; any other count is refused. The report
    gives the accuracy, the Hoeffding 95% interval (±0.1358), the valid fraction, latency and setup
    time. Its `discovery-receipt.json` is committed and feeds the full gate. It is not a benchmark
    score.
@@ -62,7 +63,9 @@ runners for a public repository cost nothing. A 3B model in bfloat16 (7.51 GB of
    unless the committed discovery receipt belongs to this activated plan, completed all 100 images and
    has at least 90% valid answers. It also refuses unless the shard count N satisfies the
    pre-registered rule
-   `N ≥ ceil(3333 / floor((19800 − 900 − max discovery setup s) / (1.5 × discovery mean latency s)))`.
+   `N ≥ ceil(3333 / floor((19800 − 900 − max fixed setup s) / (1.5 × (mean latency s + mean image fetch s))))`.
+   Here fixed setup is a discovery shard's setup minus its image fetches. Image fetch time is charged
+   per image, because a full shard fetches all of its images before generating.
 
 ## Sharding and the merge
 
@@ -87,7 +90,8 @@ anything, it refuses on any of the following:
 
 The unit tests (`tests/test_aircraft_named_baseline_ci.py`) cover these refusals, including a missing
 shard at both the function and the command level. A mutation that drops the missing-shard check fails
-three of them.
+three of them. The workflow's `tests` job runs them with full history, so the frozen-source
+materialisation test must run there and cannot skip.
 
 **Runs policy:** every dispatched VAL run is reported, failed or not. A failed run is never patched by
 re-running shards. A new dispatch is a new run, and the report lists it next to the failed one.
