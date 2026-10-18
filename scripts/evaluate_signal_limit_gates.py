@@ -42,17 +42,33 @@ Interpretations (the study text admits more than one reading; each is a choice m
     (u == u_G(p) and accepted == u >= 0.5 for every entry) and refused if none fits.
     Predicted acceptance and mean u for every G are recomputed from p. The rollout G is
     the common completion count of the groups: 4 at PI, the chosen G at GB0.
-  * Gate A (ii) bounds the winner (the H-select-better of A2*, A3*) against C*; the
-    Bonferroni quantile 0.05/6 pays for the 6 (objective, LR) candidates it was picked
-    from. Gate A (iii) compares the same two endpoints under constrained greedy, both
+  * Gate A (ii) bounds the winner A2* (the screened Dr-GRPO limit, the only RL limit after
+    design-review amendment 1) against C* = the H-select best of A1*, A3*, A5*; the
+    Bonferroni quantile 0.05/3 pays for the 3 (objective, LR) candidates A2 x 3 it was
+    picked from. Gate A (iii) compares the same two endpoints under constrained greedy, both
     decoded with one trie (equal trie_sha256 required). Gate A (iv) compares unconstrained
     H-select validity.
+  * H-split lower bounds (Gate A (ii), G3a) carry the small-n correction of the study's
+    bootstrap block: with n images in every class, each resampled class mean is rescaled by
+    sqrt(n / (n - 1)) about the observed one, so the bootstrap variance is the unbiased one
+    (the plain bootstrap gives (n - 1) / n of it, half at n = 2). With equal n the rescale is
+    one affine map of every draw, so the corrected bound is mean + s x (plain bound - mean);
+    unequal class sizes refuse.
+  * PI is advisory (amendment 1): its checks are a forecast published before Stage A, and
+    its failure no longer stops the study; GB0 at I* is the binding acceptance gate.
   * G2's rolling useful-mixed fraction is over the top RL arm's last 100 accepted updates
-    (all of them at 100). G3 uses the study's fixed mechanism margin 0.05, not d_req.
+    (all of them at 100). G2's invalid check allows the top arm max(2, 2 sqrt(a + b)) more
+    invalid completions than I* (a, b the two invalid counts): two Poisson SDs of the
+    difference, instead of the fixed +2 that fired under the null. G3 uses the study's fixed
+    mechanism margin 0.05, not d_req; G3b gates on LIM-T as well as SFT-T*.
   * Gate pass at G4 needs both verdicts (the robust pool contains the protocol pool, and the
     claim rests on the robust verdict). The seed-42 delta that enters G5's replication mean
-    is the robust one, and G6's strongest SFT is the robust one. The protocol verdict is
-    reported alongside.
+    is the robust one, each replicate seed's pool is the robust one (every seed-independent
+    member of the seed-42 robust pool plus that seed's SFT-E, SFT-T and LIM-T), and G6's
+    strongest SFT is the robust one. The protocol verdict is reported alongside.
+  * A3 (HN-SFT) is not the limit of any RL reward (amendment 1): it is a supervised
+    comparator in C*, an I* candidate, and a protocol-pool member like A1/A5; RL always
+    uses the exact reward and LIM-T always continues A2's objective.
   * W stays in the G4 pools and in each G5 replicate pool next to I*: strongest_sft says
     "the pool only grows" and freshpool's pool held W. Adding a candidate can only raise the
     strongest SFT, so this is the conservative reading.
@@ -67,7 +83,9 @@ update. Run IDs, not adapter bytes, identify controlled400 endpoints, except tha
 
 import argparse
 import json
+import math
 import runpy
+from collections import Counter
 from pathlib import Path
 
 from vision_rl.classification_comparison import (
@@ -98,14 +116,37 @@ P0 = {"candidates": 400, "rollout_images": 64, "rollout_seeds": (42, 314), "u_th
       "mean_u_accepted": 0.60}
 STAGE_A_UPDATES = 600
 STAGE_A_ARMS = ("A1", "A2", "A3", "A4", "A5")
-GATE_A = {"margin": 0.03, "candidates": 6, "lb_quantile": 0.05 / 6}
-POOL_WINDOW = 0.02  # Stage-A A1/A5 endpoints within 2 pp of their family best enter the pool
-G2 = {"updates": 100, "invalid_slack": 2, "rolling_window": 100, "rolling_mixed": 0.6}
+LIMIT_ARMS = ("A2",)  # Gate A candidates: the screened Dr-GRPO limit at every grid LR
+COMPARATOR_ARMS = ("A1", "A3", "A5")  # C* = their H-select best (A3 joined in amendment 1)
+I_STAR_FROM = ("A1", "A2", "A3")
+GATE_A = {"margin": 0.03, "candidates": 3, "lb_quantile": 0.05 / 3}
+POOL_WINDOW = 0.02  # Stage-A A1/A3/A5 endpoints within 2 pp of their family best: pool
+G2 = {"updates": 100, "min_invalid_slack": 2, "invalid_sds": 2.0, "rolling_window": 100,
+      "rolling_mixed": 0.6}
 FINAL_UPDATES = N_ACCEPTED
 G3 = {"margin": 0.05, "lb_quantile": 0.10, "valid": 0.95, "eos": 0.95}
 RL_PROFILE = {"loss_type": "dr_grpo", "scale_rewards": "none"}
-REWARD_BY_WINNER = {"A2": "exact", "A3": "exact_hn"}
+RL_REWARD = "exact"  # the A2 limit's reward; exact_hn is not used by this study
+SEED_BOUND_ARMS = ("SFT-E", "SFT-T", "LIM-T")  # rerun per replicate seed at G5
 ARMS = {"W", "controlled400-SFT", *STAGE_A_ARMS, "RL", "SFT-E", "SFT-T", "LIM-T"}
+
+
+def small_n_lower_bound(comparison, rows):
+    """The plain paired bootstrap bound rescaled for n images per class (study bootstrap
+    block, design-review finding 1): mean + sqrt(n / (n - 1)) x (bound - mean)."""
+    sizes = set(Counter(row["label"] for row in rows).values())
+    if len(sizes) != 1 or min(sizes) < 2:
+        raise ValueError("the small-n correction needs the same n >= 2 images in every class")
+    (n,) = sizes
+    mean = comparison["mean_class_accuracy_difference"]
+    plain = comparison["uncertainty"]["lower_bound"]
+    return mean + math.sqrt(n / (n - 1)) * (plain - mean), plain, math.sqrt(n / (n - 1))
+
+
+def invalid_slack(candidate_invalid, comparator_invalid):
+    """G2: two Poisson SDs of the difference of the two invalid counts, at least 2."""
+    return max(G2["min_invalid_slack"],
+               G2["invalid_sds"] * math.sqrt(candidate_invalid + comparator_invalid))
 
 
 def u_g(p, group):
@@ -192,7 +233,10 @@ def p0_values(doc, adapter, s_b_ids):
 
 
 def gate_pi(doc, s_b_ids):
-    """PI: P0-I at I. Pass needs max over G in {8, 16} of predicted acceptance >= a_floor."""
+    """PI: P0-I at I, advisory since amendment 1. Its checks forecast GB0 (max over G in
+    {8, 16} of predicted acceptance >= a_floor, scorer, EOS, and sampled validity, the most
+    likely GB0 failure); ``forecast_pass`` is published, and the gate never stops the study,
+    because I only proxies I* and Stage A's own result does not depend on it."""
     values = p0_values(doc, I_ADAPTER, s_b_ids)
     if values["rollout_group"] != PI_GROUP:
         raise ValueError("P0-I rollouts must be G4 groups")
@@ -203,9 +247,12 @@ def gate_pi(doc, s_b_ids):
         "scorer_seconds": not above(values["scorer_seconds_per_candidate"],
                                     P0["scorer_seconds"]),
         "eos": at_least(values["eos"], P0["eos"]),
+        "sampled_valid": at_least(values["valid"], P0["valid"]),
     }
-    return {"pass": all(checks.values()), "checks": checks, "a_floor": floor,
-            "label": "necessary, not sufficient: P0' at I* still gates", "values": values}
+    return {"pass": True, "advisory": True, "forecast_pass": all(checks.values()),
+            "checks": checks, "a_floor": floor,
+            "label": "advisory forecast of GB0 at the proxy I; never stops the study",
+            "values": values}
 
 
 def gate_b0(doc, s_b_ids, i_star_adapter, pi_journal_ids):
@@ -304,7 +351,7 @@ class Study(FreshStudy):
                 checks["rl_profile_recorded"] &= (
                     all(e.get(k) == v for k, v in RL_PROFILE.items()) and _zero(e.get("beta"))
                     and e.get("group") == self.chosen_group()
-                    and e.get("reward") == REWARD_BY_WINNER[self.stage_a()["winner_arm"]])
+                    and e.get("reward") == RL_REWARD)
         return checks
 
     # Comparisons.
@@ -337,9 +384,9 @@ class Study(FreshStudy):
             a4 = self.exact_updates(self.family("A4", lrs=[table["A1"]["star"]["lr"]]),
                                     STAGE_A_UPDATES)
             table["A4"] = {"h_select": self.h_scored(a4), "role": "reported control"}
-            c_star = best([table["A1"]["star"], table["A5"]["star"]], "macro")
-            winner = best([table["A2"]["star"], table["A3"]["star"]], "macro")
-            i_star = best([table[arm]["star"] for arm in ("A1", "A2", "A3")], "macro")
+            c_star = best([table[arm]["star"] for arm in COMPARATOR_ARMS], "macro")
+            winner = best([table[arm]["star"] for arm in LIMIT_ARMS], "macro")
+            i_star = best([table[arm]["star"] for arm in I_STAR_FROM], "macro")
             arm_of = {r: self.endpoints[r]["arm"] for r in (winner["run_id"], c_star["run_id"])}
             self._stage_a = {"table": table, "c_star": c_star["run_id"],
                                   "winner": winner["run_id"],
@@ -395,7 +442,7 @@ class Study(FreshStudy):
         if len(tries) != 1 or None in tries:
             raise ValueError("Gate A constrained greedy needs one recorded trie_sha256 for both")
         constrained = self.constrained_macro(winner) - self.constrained_macro(c_star)
-        lb = comparison["uncertainty"]["lower_bound"]
+        lb, plain_lb, scale = small_n_lower_bound(comparison, self.rows["h_select"])
         stage_a = [self.endpoints[c["run_id"]] for arm in selection["table"].values()
                    for c in arm["h_select"]]
         checks = {
@@ -415,6 +462,7 @@ class Study(FreshStudy):
                 "stage_a": selection["table"],
                 "values": {"winner_minus_c_star": comparison["mean_class_accuracy_difference"],
                            "lb_quantile": GATE_A["lb_quantile"], "paired_lb": lb,
+                           "paired_lb_uncorrected": plain_lb, "small_n_scale": scale,
                            "constrained_winner_minus_c_star": constrained,
                            "winner_valid": comparison["candidate"]["valid_fraction"],
                            "c_star_valid": comparison["comparator"]["valid_fraction"]}}
@@ -428,13 +476,13 @@ class Study(FreshStudy):
             raise ValueError("G2 needs one useful-mixed flag per accepted update")
         window = top["useful_mixed"][-G2["rolling_window"]:]
         rolling = sum(window) / len(window)
+        invalid = comparison["candidate"]["invalid_completions_including_missing"]
+        invalid_i = comparison["comparator"]["invalid_completions_including_missing"]
+        slack = invalid_slack(invalid, invalid_i)
         checks = {
             "h_select_delta_vs_i_star_positive": above(
                 comparison["mean_class_accuracy_difference"], 0),
-            "invalid_within_i_star_plus_2": comparison["candidate"][
-                "invalid_completions_including_missing"]
-            <= comparison["comparator"]["invalid_completions_including_missing"]
-            + G2["invalid_slack"],
+            "invalid_within_i_star_plus_slack": invalid <= invalid_i + slack,
             **self.identity(arms),
             "rolling_useful_mixed": at_least(rolling, G2["rolling_mixed"]),
         }
@@ -443,19 +491,20 @@ class Study(FreshStudy):
                 "continue_to_300": [c["run_id"] for c in continuers],
                 "values": {"h_select_delta_vs_i_star":
                            comparison["mean_class_accuracy_difference"],
-                           "trailing_useful_mixed": rolling}}
+                           "invalid": invalid, "i_star_invalid": invalid_i,
+                           "invalid_slack": slack, "trailing_useful_mixed": rolling}}
 
     def gate_g3a(self):
         rl_scored, rl = self.select_rl_star()
         sft_scored, sft, qualifying = self.select_sft_e()
         difference = self._h_gate_difference(rl, sft)
         versus_i = self.compare(rl, self.i_star(), "h_gate", G3["lb_quantile"])
+        lb_i, plain_lb_i, _ = small_n_lower_bound(versus_i, self.rows["h_gate"])
         valid = versus_i["candidate"]["valid_fraction"]
         eos = rl["splits"]["h_gate"]["eos_fraction"]
         checks = {
             "rl_minus_sft_e_at_least_0_05": at_least(difference, G3["margin"]),
-            "rl_minus_i_star_one_sided_90_lb_positive": above(
-                versus_i["uncertainty"]["lower_bound"], 0),
+            "rl_minus_i_star_one_sided_90_lb_positive": above(lb_i, 0),
             "valid_held": at_least(valid, G3["valid"]),
             "eos_held": at_least(eos, G3["eos"]),
             **self.identity([self.endpoints[c["run_id"]] for c in rl_scored]
@@ -467,21 +516,32 @@ class Study(FreshStudy):
                 "sft_t_lrs": qualifying,
                 "values": {"rl_minus_sft_e": difference,
                            "rl_minus_i_star": versus_i["mean_class_accuracy_difference"],
-                           "rl_minus_i_star_lb90": versus_i["uncertainty"]["lower_bound"],
+                           "rl_minus_i_star_lb90": lb_i,
+                           "rl_minus_i_star_lb90_uncorrected": plain_lb_i,
                            "rl_valid": valid, "rl_eos": eos}}
 
     def gate_g3b(self):
+        """SFT-T* as freshpool's G3b, and (amendment 1, design-review finding 5) LIM-T at the
+        same mechanism margin: the claim rests on the robust verdict, so LIM-T gates too."""
         result = super().gate_g3b()
         _, rl = self.select_rl_star()
         lim = self.select_lim_t()
-        result["lim_t"] = {"run_id": lim["run_id"], "gating": False,
-                           "rl_minus_lim_t": self._h_gate_difference(rl, lim)}
+        difference = self._h_gate_difference(rl, lim)
+        result["checks"]["rl_minus_lim_t_at_least_margin"] = at_least(
+            difference, self.branch["g3_margin"])
+        # One identity verdict over every endpoint G3b first uses (SFT-T and LIM-T).
+        result["checks"] |= self.identity(
+            [*(self.endpoints[c["run_id"]] for c in result["sft_t_h_select"]), lim])
+        result["pass"] = all(result["checks"].values())
+        result["lim_t"] = {"run_id": lim["run_id"], "gating": True,
+                           "rl_minus_lim_t": difference}
+        result["values"]["rl_minus_lim_t"] = difference
         return result
 
     def protocol_pool(self):
         table = self.stage_a()["table"]
         _, _, qualifying = self.select_sft_e()
-        close = [self.endpoints[c["run_id"]] for arm in ("A1", "A5")
+        close = [self.endpoints[c["run_id"]] for arm in COMPARATOR_ARMS
                  for c in within(table[arm]["h_select"], "macro", POOL_WINDOW)]
         pool = [self.w, *self.controlled400(), *close, self.i_star(),
                 *self.exact_updates(self.family("SFT-E")),
@@ -492,7 +552,7 @@ class Study(FreshStudy):
     def robust_pool(self):
         table = self.stage_a()["table"]
         extra = [self.select_lim_t(),
-                 *(self.endpoints[table[arm]["star"]["run_id"]] for arm in ("A2", "A3"))]
+                 *(self.endpoints[table[arm]["star"]["run_id"]] for arm in LIMIT_ARMS)]
         return list({e["run_id"]: e for e in [*self.protocol_pool(), *extra]}.values())
 
     def gate_g4(self):
@@ -510,13 +570,19 @@ class Study(FreshStudy):
         _, rl_star = self.select_rl_star()
         _, _, qualifying = self.select_sft_e()
         deltas = {str(PRIMARY_SEED): g4["robust"]["values"]["delta_vs_strongest_sft"]}
+        # The robust pool per seed (amendment 1, design-review finding 5): every member of
+        # the seed-42 robust pool that no replicate reruns (W, controlled400, Stage-A
+        # endpoints incl. I* and A2*), plus the seed's own SFT-E, SFT-T and LIM-T.
+        fixed = [e for e in self.robust_pool() if e["arm"] not in SEED_BOUND_ARMS]
+        winner = self.endpoints[self.stage_a()["winner"]]
         per_seed, used = {}, []
         for seed in REPLICATE_SEEDS:
             (rl,) = self.family("RL", seed, FINAL_UPDATES, lrs=[rl_star["lr"]])
             sft = [*self.exact_updates(self.family("SFT-E", seed, lrs=qualifying)),
-                   *self.bound_to_t_rl(self.family("SFT-T", seed, lrs=qualifying), rl)]
+                   *self.bound_to_t_rl(self.family("SFT-T", seed, lrs=qualifying), rl),
+                   *self.bound_to_t_rl(self.family("LIM-T", seed, lrs=[winner["lr"]]), rl)]
             used += [rl, *sft]
-            pool = [self.w, self.i_star(), *sft]
+            pool = [*fixed, *sft]
             scored = [{"run_id": e["run_id"],
                        "committed_active_seconds": e["committed_active_seconds"],
                        "accuracy": self.val(e)} for e in pool]

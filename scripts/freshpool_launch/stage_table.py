@@ -37,14 +37,16 @@ STAGE_A_ARMS = (
     ("A5", "cce_sft", "grid"),
 )
 STAGE_A_ARM_COUNT = 13
-# Gate A candidates (A2 x3, A3 x3) and the comparator family (C* = max(A1*, A5*)).
-LIMIT_ARMS = ("A2", "A3")
-COMPARATOR_ARMS = ("A1", "A5")
+# Gate A candidates (A2 x3) and the comparator family (C* = max(A1*, A3*, A5*)). Design-review
+# amendment 1 (study.json design_review_v1, finding 3): A3 (HN-SFT) is not the limit of any
+# RL reward, so it is a supervised comparator, not a Gate A candidate.
+LIMIT_ARMS = ("A2",)
+COMPARATOR_ARMS = ("A1", "A3", "A5")
 I_STAR_FROM = ("A1", "A2", "A3")  # Stage B init: "H-select-best endpoint among A1*, A2*, A3*"
-# LIM-T continues the Gate-A-winning limit objective (study.json Stage B controls LIM-T).
-LIM_T_MODES = {"A2": "egsft", "A3": "hn_sft"}
-# Stage B rl.reward: "exact-EOS 0/1 if A2 won Gate A; exact_hn (...) if A3 won".
-RL_REWARDS = {"A2": "exact", "A3": "exact_hn"}
+# LIM-T continues the Gate-A limit objective (study.json Stage B controls LIM-T).
+LIM_T_MODES = {"A2": "egsft"}
+# Stage B rl.reward: "exact-EOS 0/1 ...", the reward whose Dr-GRPO limit A2 is.
+RL_REWARDS = {"A2": "exact"}
 
 STAGES = (
     {"id": "P0-I", "init": "I", "kind": "p0", "group": P0_GROUP, "predict_groups": GROUPS,
@@ -128,7 +130,7 @@ def verify_against_study(study):
             or f"N = {UPDATES['final']}" not in str(rl.get("updates"))):
         problems.append("Stage B RL update schedule differs")
     reward = str(rl.get("reward"))
-    if not all(f"if {arm} won" in reward for arm in RL_REWARDS) or "exact_hn" not in reward:
+    if not reward.startswith("exact-EOS 0/1") or "if A3 won" in reward:
         problems.append("Stage B RL reward rule differs")
     controls = [c.get("id") for c in stages["Stage B"].get("controls") or []]
     if controls != ["SFT-E(lr)", "SFT-T(lr)", "LIM-T"]:

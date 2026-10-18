@@ -61,10 +61,10 @@ from vision_rl import vlm_local_training as vlt
 
 ARM_MODES = {"RL": "grpo", "SFT-E": "sft", "SFT-T": "sft", "EG-SFT": "egsft"}
 # Signal-limit v1 (docs/aircraft-rl-next-study-v1.json stages; stage_table.py): the Stage A
-# objectives, and LIM-T, which continues the Gate-A winner's objective (A2 egsft or A3
-# hn_sft), so it accepts either mode and records which one ran.
+# objectives, and LIM-T, which continues the Gate-A limit objective (A2's egsft; A3 is a
+# supervised comparator since design-review amendment 1, never continued as LIM-T).
 SIGNAL_LIMIT_ARMS = {"A1": ("sft",), "A2": ("egsft",), "A3": ("hn_sft",), "A4": ("hls_sft",),
-                     "A5": ("cce_sft",), "LIM-T": ("egsft", "hn_sft")}
+                     "A5": ("cce_sft",), "LIM-T": ("egsft",)}
 # The trainer entry; module-level so tests substitute a fake, never selectable by a plan.
 TRAINER = vlt.main
 

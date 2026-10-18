@@ -201,7 +201,7 @@
   },
   "prompt_identity": "Question, full ordered100-label list, instruction, family chat template and processor hashes must be frozen before new outputs; no literal answer placeholder.",
   "grammar": "canonical-label-v2/optional-tags",
-  "reward": "Exactly 1 iff the completion terminates with EOS and parses as the exact canonical gold label; otherwise 0 ('exact'), if A2 wins Gate A. If A3 wins, 'exact_hn': 1 for gold, -0.5 for the frozen-confusion-map confuser, 0 otherwise, invalid 0. Optional bounded think block and bare/tagged label follow the shared parser.",
+  "reward": "Exactly 1 iff the completion terminates with EOS and parses as the exact canonical gold label; otherwise 0 ('exact'), the reward whose screened Dr-GRPO limit is Stage-A arm A2. 'exact_hn' is not used (study amendment 1: A3 is not its limit). Optional bounded think block and bare/tagged label follow the shared parser.",
   "format_or_length_bonus": 0.0,
   "forbidden_reward_changes": [
    "No substring/fuzzy matching or answer repair.",
@@ -496,7 +496,7 @@
    {
     "name": "stage_0",
     "init": "W",
-    "work": "cost probe c(G8), c(G16); E0 at G8 beta 0 dr_grpo",
+    "work": "cost probe c(G8), c(G16), each measured over >= 8 screened accepted updates; E0 at G8 and G16, beta 0 dr_grpo",
     "gate": "E0"
    },
    {
@@ -546,16 +546,16 @@
   "stage_boundary": "Continue from 100 to 300 on the same predeclared horizon without resetting optimizer, sampler position or the active-time ledger.",
   "gates": {
    "authority": "docs/aircraft-rl-next-study-v1.json gates G0-G6 and refusal_conditions; evaluator scripts/evaluate_signal_limit_gates.py",
-   "PI": "max over G in {8, 16} of predicted acceptance >= a_floor; scorer <= 2.0 s/candidate; EOS >= 0.95.",
-   "GA": "best of A2*/A3* - C* (max of A1*, A5*) >= +0.03 H-select sampled macro; paired one-sided LB at quantile 0.05/6 > 0; constrained-greedy difference > 0; winner validity >= C* validity.",
+   "PI": "Advisory forecast of GB0 at the proxy I, never a stop (study amendment 1): max over G in {8, 16} of predicted acceptance >= a_floor; scorer <= 2.0 s/candidate; EOS >= 0.95; sampled validity >= 0.95.",
+   "GA": "A2* - C* (max of A1*, A3*, A5*) >= +0.03 H-select sampled macro; paired one-sided LB, small-n corrected, at quantile 0.05/3 > 0; constrained-greedy difference > 0; A2* validity >= C* validity.",
    "GB0": "G = smallest in {8, 16} with predicted acceptance >= a_floor; valid and EOS >= 0.95; observed mixed within +-0.10 of prediction; mean u among accepted >= 0.60; scorer <= 2.0 s.",
-   "G2_futility": "RL at 100, three LRs: best RL H-select sampled macro - I* > 0; invalid <= I* + 2; adapter changed; rolling useful-mixed >= 0.6. Labelled futility, not evidence.",
-   "G3a": "On H-gate: RL* - SFT-E* >= +0.05 sampled macro; RL* - I* one-sided 90% paired LB > 0; validity and EOS >= 0.95.",
-   "G3b": "On H-gate: RL* - SFT-T* >= +0.05; RL* - LIM-T reported, not gating.",
-   "G4": "Seed 42 full native VAL: substantial_gain_gates unchanged; protocol verdict (protocol pool) and robust verdict (+ LIM-T, A2*, A3*); the claim rests on the robust verdict."
+   "G2_futility": "RL at 100, three LRs: best RL H-select sampled macro - I* > 0; invalid <= I* invalid + max(2, 2 sqrt(invalid + I* invalid)); adapter changed; rolling useful-mixed >= 0.6. Labelled futility, not evidence.",
+   "G3a": "On H-gate: RL* - SFT-E* >= +0.05 sampled macro; RL* - I* one-sided 90% paired LB (small-n corrected) > 0; validity and EOS >= 0.95.",
+   "G3b": "On H-gate: RL* - SFT-T* >= +0.05 and RL* - LIM-T >= +0.05.",
+   "G4": "Seed 42 full native VAL: substantial_gain_gates unchanged; protocol verdict (protocol pool) and robust verdict (+ LIM-T, A2*); the claim rests on the robust verdict."
   },
   "arm_caps": "Each arm is capped at 1.25x its forecast active seconds (RL forecasts use Stage 0's c(G)), no reset on resume. A capped or interrupted arm is re-run from scratch and never quoted.",
-  "replication_trigger": "Only if seed 42 passes G4 and the named-baseline discovery/resource decision is viable. Then repeat at 314 and 2718 with RL*'s frozen LR and N = 300; per-seed strongest SFT = SFT-E and SFT-T at every LR within 2.0 pp of the seed-42 best on H-select, plus I*. No new RL LR search.",
+  "replication_trigger": "Only if seed 42 passes G4 and the named-baseline discovery/resource decision is viable. Then repeat at 314 and 2718 with RL*'s frozen LR and N = 300; per-seed strongest SFT = max over that seed's robust pool: every seed-42 robust-pool member no replicate reruns (incl. I* and A2*) plus the seed's SFT-E and SFT-T at every LR within 2.0 pp of the seed-42 best on H-select and the seed's own LIM-T. No new RL LR search.",
   "stop_rule": "Failure of a declared gate or any study refusal_condition (rolling accepted useful-mixed < 0.40 over any 100 accepted updates; scan exhausts S_b before N; NaN, adapter or reference identity change, beta 0 without recorded loss_type; arm hits its 1.25x cap; trie coverage short; c(G) missing at a forecast; an unledgered H or VAL look; disk, RSS or MPS-driver guard; second MPS owner) ends this candidate. Preserve all results; no threshold, margin, seed, N, G set, grid, split salt or confusion map change after any output is seen."
  },
  "supervised_controls": {
@@ -564,8 +564,8 @@
   ],
   "stage_a_arms": {
    "A1": "CE-SFT (gold+EOS), LRs 1e-5, 5e-5, 1e-4",
-   "A2": "screened Dr-GRPO limit: CE x stopgrad[2p] x 1[p in B_8]; images outside B_8 contribute zero loss but count as an update; LRs as A1",
-   "A3": "HN-SFT: CE + 0.5 x -log(1 - pi(c)), c = model's top valid wrong label within the frozen confusion map; no term if none; LRs as A1",
+   "A2": "screened Dr-GRPO limit: CE x stopgrad[2p] x 1[p in B_8]; an image outside B_8 contributes zero loss and takes no optimizer step, its presentation still counted; LRs as A1; the only Gate A candidate",
+   "A3": "HN-SFT: CE + 0.5 x -log(1 - pi(c)), c = model's top valid wrong label within the frozen confusion map; no term if none; LRs as A1; a supervised comparator in C* (not an RL limit)",
    "A4": "hierarchical label smoothing eps 0.1 (taxonomy-train-only) at A1*'s LR; reported control, cannot pass Gate A",
    "A5": "constrained CE: log-softmax over label-trie-allowed tokens; LRs as A1",
    "order": "every arm 600 updates on S_a in one order, random.Random(42).shuffle(sorted(ids))"
@@ -593,7 +593,7 @@
   "arms": {
    "SFT-E": "From I*, each LR in the grid; exactly RL*'s 300 accepted IDs in RL*'s order, 300 updates.",
    "SFT-T": "Every SFT-E LR within 2.0 pp (H-select sampled) of the best SFT-E, continued from its SFT-E endpoint without reset over RL*'s full scanned S_b sequence (accepted and rejected), scan order, cycling, to T_RL.",
-   "LIM-T": "The Gate-A-winning limit objective continued from I* over RL*'s full scanned sequence to T_RL at its Stage-A LR, with the band of the chosen G. Robust verdict only."
+   "LIM-T": "A2's limit objective continued from I* over RL*'s full scanned sequence to T_RL at A2*'s Stage-A LR, with the band of the chosen G. Robust verdict pool, G3b gate, and rerun per replicate seed."
   },
   "equal_update_and_exposure": "SFT-E receives exactly RL*'s 300 accepted presentations and optimizer updates in the same order, from I*.",
   "equal_active_time": "SFT-T and LIM-T run to T_RL, RL*'s checkpoint-bound cumulative committed active seconds including scorer forwards for every scanned candidate, generation, reward and backward; setup, evaluation and I/O are logged separately.",
@@ -601,12 +601,12 @@
   "protocol_strongest_pool": [
    "W (kept: the pool only grows)",
    "every VAL-evaluated controlled400 SFT endpoint",
-   "Stage-A A1 and A5 endpoints at every LR within 2.0 pp of their family best on H-select",
+   "Stage-A A1, A3 and A5 endpoints at every LR within 2.0 pp of their family best on H-select",
    "I*",
    "SFT-E at each grid LR",
    "every qualifying SFT-T"
   ],
-  "robust_strongest_pool": "protocol pool + LIM-T + A2* + A3*",
+  "robust_strongest_pool": "protocol pool + LIM-T + A2*",
   "time_accounting": "Use checkpoint-bound cumulative committed active time across resumes; record setup, validation, I/O and discarded/replayed physical time separately and also report end-to-end wall time. An optimizer-boundary overshoot must be at most one measured update and reported. No fresh time budget after resume.",
   "arm_caps": "1.25x forecast active seconds per arm, no reset on resume; a capped or interrupted arm is re-run from scratch, never quoted.",
   "wall_time_readiness": "Cumulative checkpoint-bound active accounting is implemented and independently verified by root with 85 CPU tests and the actual tiny random-model tiny-active-budget-v3 run. Its original 0.25-second total survives resume; an exhausted checkpoint is rejected before model/forward work. Actual pretrained VLM/MPS timing and resume remain unmeasured.",

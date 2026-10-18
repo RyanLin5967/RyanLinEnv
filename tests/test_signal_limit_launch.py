@@ -73,11 +73,12 @@ def lr_tag(lr):
 # ---------------------------------------------------------------- the fixture design
 # Per endpoint, k = images per class (of 10) answered correctly on every completion; the rest
 # are answered with the other label. Selections that follow (written out by hand):
-#   A1* = stage-a-a1-5e-05 (k 2) is C*; A2* = stage-a-a2-5e-05 (k 7) wins Gate A and is I*.
+#   A1* = stage-a-a1-5e-05 (k 2) is C* (A3* k 1 and A5* k 1 trail it); A2* =
+#   stage-a-a2-5e-05 (k 7) wins Gate A and is I*.
 #   G2 continues rl-1e-04 (k 9) then rl-5e-05 (k 8); RL* = rl-1e-04-s42-u300 (k 10).
 #   SFT-E 5e-5 and 1e-4 tie at k 7; SFT-E* = 5e-5 (100 s < 101 s); both are SFT-T LRs.
 #   SFT-T* = 5e-5 (k 8). LIM-T runs A2's objective (egsft) at A2*'s LR 5e-5.
-STAGE_A_K = {"A1": (1, 2, 0), "A2": (5, 7, 6), "A3": (4, 5, 6), "A5": (0, 1, 0)}
+STAGE_A_K = {"A1": (1, 2, 0), "A2": (5, 7, 6), "A3": (1, 0, 0), "A5": (0, 1, 0)}
 A4_K = 2
 I_STAR = "stage-a-a2-5e-05-s42"
 RL100_K = {1e-5: 6, 5e-5: 8, 1e-4: 9}
@@ -181,7 +182,8 @@ def scenario():
                      "mean_u_accepted": 1 - 2 * 0.5**g} for g in (4, 8, 16)}),
         "Stage-0": {"payload": {
             "checks": dict.fromkeys(signal_limit.STAGE0_CHECKS, True),
-            "sampler_teacher_max_abs_logprob_difference": 0.0005,
+            "sampler_teacher_max_abs_logprob_difference": 0.0005, "e0_groups": [8, 16],
+            "c_accepted_steps": {"8": 8, "16": 8},
             "c_seconds_per_accepted_update": {"8": 10.0, "16": 20.0}}},
         "P0-prime": p0_document(i_star_sha, 8, predicted={
             str(g): {"acceptance": 1.0, "mean_u": 1 - 2 * 0.5**g,
@@ -423,8 +425,8 @@ def evaluate(evidence):
 
     def ga():
         stars = {arm: study.star(arm) for arm in ("A1", "A2", "A3", "A5")}
-        winner = best([stars["A2"], stars["A3"]], "macro")
-        c_star = best([stars["A1"], stars["A5"]], "macro")
+        winner = stars["A2"]  # A3 is a comparator (design-review amendment 1)
+        c_star = best([stars["A1"], stars["A3"], stars["A5"]], "macro")
         tries = {study.endpoints[c["run_id"]]["splits"]["h_select_constrained"]["trie_sha256"]
                  for c in (winner, c_star)}
         i_star = best([stars[a] for a in ("A1", "A2", "A3")], "macro")
@@ -776,7 +778,7 @@ class Fixture:
             found[f"stage_a_{arm}"] = template("train", COMMON + [
                 "--arm", "{arm_label}", "--init", "{init_adapter}", "--train",
                 "{manifest_s_a}", "--", "--lr", "{lr}", "--max-steps", "600"])
-        for arm in ("a2", "a3"):
+        for arm in ("a2",):
             found[f"lim_t_{arm}"] = template("train", COMMON + [
                 "--arm", "{arm_label}", "--", "--lr", "{lr}", "--init", "{init_adapter}",
                 "--train", "{scanned_manifest}", "--stop-after-active-seconds", "{t_rl}",
@@ -971,6 +973,23 @@ def test_missing_c_g_stops_at_stage_0(make):
     fixture.write()
     assert signal_limit.main(fixture.argv) == 2
     assert fixture.state()["stop_reason"] == "stage0_c_g_missing"
+    assert first_order(fixture.stages_called()) == ["P0-I", "Stage-0"]
+
+
+FEW_C_STEPS = "stage0_c_g_not_measured_over_enough_steps"
+
+
+@pytest.mark.parametrize(("change", "reason"), [
+    (lambda p: p.update(e0_groups=[8]), "stage0_e0_not_at_every_g"),
+    (lambda p: p["c_accepted_steps"].update({"16": 7}), FEW_C_STEPS),  # 7 < 8
+    (lambda p: p.pop("c_accepted_steps"), FEW_C_STEPS),
+])
+def test_stage_0_must_measure_c_g_and_prove_e0_at_both_g(make, change, reason):
+    fixture = make()
+    change(fixture.scenario["Stage-0"]["payload"])
+    fixture.write()
+    assert signal_limit.main(fixture.argv) == 2
+    assert fixture.state()["stop_reason"] == reason
     assert first_order(fixture.stages_called()) == ["P0-I", "Stage-0"]
 
 

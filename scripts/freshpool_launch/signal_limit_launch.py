@@ -13,7 +13,10 @@ everything else runs here, serially, on MPS.
 
 Order (study.json stages and gates):
   P0-I at I (G4 rollouts, predicted acceptance and mean u for G in {4,8,16})       -> PI
-  Stage 0 at W: cost probe c(G8), c(G16) and the G8 beta=0 dr_grpo resume proof
+    (advisory since design-review amendment 1: the evaluator reports its forecast and
+    always passes it, so it never stops the study)
+  Stage 0 at W: cost probe c(G8), c(G16), each measured over >= 8 screened accepted steps
+    at that G, and the beta=0 dr_grpo resume proof at G8 and at G16
     (its validator is the E0 check; c(G) is written to the state before any RL forecast)
   Stage A at W: A1, A2, A3, A5 at every grid LR, H-select each (with constrained greedy);
     A1* (evaluator selection), A4 at A1*'s LR, H-select                              -> GA
@@ -88,6 +91,10 @@ STAGE0_CHECKS = (
     "resume_2_plus_2_identical", "resume_1_plus_3_identical", "finite_nonzero_task_gradient",
     "no_reference_forward_at_beta_0", "loss_type_dr_grpo_recorded",
 )
+# Design-review amendment 1 (minor finding on cost caps): c(G) is measured, not extrapolated,
+# at both G in {8, 16}, over at least this many screened accepted steps each, and E0 runs at
+# both G (GB0 may choose either).
+STAGE0_MIN_C_STEPS = 8
 DIAGNOSTIC_STAGES = ("P0-I", "Stage-0", "P0-prime")  # no endpoint of their own
 # trainer_fragment.signal_limit_profile: the RL identity the gates check.
 PROFILE_KEYS = ("mode", "loss_type", "scale_rewards", "beta", "group", "reward")
@@ -391,12 +398,20 @@ class SignalLimitLauncher(L.Launcher):
 
     @staticmethod
     def stage0_validator(f, cap):
-        """Stage 0: every resume / beta-0 check true, sampler-teacher agreement <= 0.001 (as
-        E0), and c(G) > 0 for G8 and G16 (study.json Stage 0 writes)."""
+        """Stage 0: every resume / beta-0 check true at G8 and G16 (``e0_groups``), sampler-
+        teacher agreement <= 0.001 (as E0), and c(G) > 0 for G8 and G16, each measured over
+        at least STAGE0_MIN_C_STEPS accepted steps (study.json Stage 0 writes)."""
         checks = f.get("checks")
         if (not isinstance(checks, dict) or not set(STAGE0_CHECKS) <= set(checks)
                 or any(v is not True for v in checks.values())):
             return "e0_failed"
+        if f.get("e0_groups") != list(T.STAGE_B_GROUPS):
+            return "stage0_e0_not_at_every_g"
+        steps = f.get("c_accepted_steps")
+        if not isinstance(steps, dict) or any(
+                type(steps.get(str(g))) is not int or steps[str(g)] < STAGE0_MIN_C_STEPS
+                for g in T.STAGE_B_GROUPS):
+            return "stage0_c_g_not_measured_over_enough_steps"
         agreement = f.get("sampler_teacher_max_abs_logprob_difference")
         if not is_number(agreement) or not 0 <= agreement <= 0.001:
             return "e0_sampler_teacher_agreement_failed"

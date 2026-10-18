@@ -42,6 +42,8 @@ def test_stage_table_agrees_with_the_study_json():
     (lambda s: s["stages"][3]["rl"].update(N_accepted=600), "Stage B RL N"),
     (lambda s: s["stages"].pop(1), "stage order"),
     (lambda s: s["fixed_profile"].update(assay="H-select: greedy"), "assay G"),
+    (lambda s: s["stages"][3]["rl"].update(
+        reward="exact-EOS 0/1 if A2 won Gate A; exact_hn if A3 won"), "reward rule"),
 ])
 def test_stage_table_refuses_a_study_it_does_not_follow(mutate, expected):
     study = copy.deepcopy(STUDY)
@@ -421,7 +423,7 @@ def test_signal_limit_profile_only_for_new_arms_and_dr_grpo_rl():
     assert trainer_fragment.signal_limit_profile("SFT-E", {"mode": "sft"}, initial) == {}
     assert trainer_fragment.signal_limit_profile("A3", {"mode": "hn_sft"}, initial) == {
         "mode": "hn_sft", "init_sha256": "c" * 64}
-    assert trainer_fragment.SIGNAL_LIMIT_ARMS["LIM-T"] == ("egsft", "hn_sft")
+    assert trainer_fragment.SIGNAL_LIMIT_ARMS["LIM-T"] == ("egsft",)
     assert trainer_fragment.ARM_MODES == {"RL": "grpo", "SFT-E": "sft", "SFT-T": "sft",
                                           "EG-SFT": "egsft"}
 

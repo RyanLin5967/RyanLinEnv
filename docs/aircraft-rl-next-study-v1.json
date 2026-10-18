@@ -3,6 +3,16 @@
  "design_id": "aircraft-signal-limit-v1",
  "status": "PRE-REGISTRATION DRAFT, UNACTIVATED. Needs root review, the new protocol docs/aircraft-rl-protocol-signal-limit-v1.json, the code changes in implementation_work_list, and an activated frozen copy. Amendments are append-only. Nothing here came from running a model. Every number is cited to a file or marked unverified/estimate.",
  "authority": "study.json wins over study.md on conflict",
+ "amendments": [
+  {
+   "id": "amendment 1",
+   "date": "2026-10-18",
+   "before_any_output": true,
+   "source": "PR #26 design review (aircraft-signal-limit-v1): 5 blocking, 10 minor findings; every finding and its verdict is in design_review_v1",
+   "changed": "algebra.hn_reward_limit (corrected), algebra.dr_grpo_nostd_limit.clip_caveat (new), hypotheses (HA, HB_robust, decision_rule_note), fixed_profile.optimizer, stages Stage 0 / Stage A arms A2 and A3 / Stage B condition, rl.reward, SFT-T checkpoints note, LIM-T, strongest_sft pools, gates PI / E0 / GA / G2 / G3a / G3b / G4 wording / G5 / G6, bootstrap (gate_a_quantile, small_n_correction), endpoints.secondary, refusal_conditions, compute_plan_mps_hours, power.h_select, label_trie (upper-bound headroom, disclosures), implementation_work_list, not_used",
+   "code": "implemented in the same branch (implementation_work_list 'amendment 1 implementation'); nothing was run on a model"
+  }
+ ],
  "lineage": {
   "parent": "aircraft-freshpool-screened-grpo-v1 (docs/aircraft-freshpool-study-v1.json); STOPPED at G1, pre-registered and final, not rerun",
   "base": "aircraft-signal-limit-v1, ranked first by all three judges (scores 4/10, 9/10, 7/10)",
@@ -114,15 +124,17 @@
    "claim": "With scale_rewards='none' (Dr-GRPO), E[sum_i (r_i - mean r) grad log pi(y_i)] = (G-1) p grad log pi(gold) = (G-1) grad p, for every G. The limit is CE weighted by p (normalised to 2p at p=0.5), independent of G; it upweights EASY images, the opposite of the std version",
    "check": "exact enumeration equals (G-1)p for G in {4,8,16}, p in {0.1,0.5,0.9} (assert, 1e-12); Monte Carlo 200k draws: G8 p0.3 2.1003 vs 2.1, G4 p0.7 2.1001 vs 2.1 (next/calc.py, python3 -I)",
    "consequence": "This corrects the base design, which called the Dr-GRPO limit 'w8(p)/w8(0.5)'. With screening at band B_G, the screened Dr-GRPO limit is CE x 2p x 1[p in B_G]. Larger G only lowers variance and widens B_G",
-   "ignored": "KL (beta=0 here), token-length normalisation, the max_grad_norm=1.0 clip (binds on every useful RL400 step, runs/aircraft-controlled400-diagnosis-v1/report.md)"
+   "ignored": "KL (beta=0 here), token-length normalisation, the max_grad_norm=1.0 clip (binds on every useful RL400 step, runs/aircraft-controlled400-diagnosis-v1/report.md)",
+  "clip_caveat": "Amendment 1 (design review finding 2). The limit is of the UNCLIPPED expected gradient. With one prompt per update RL's expected step is E[clip(g_hat)], not clip(E[g_hat]), and a supervised arm's step is clip(w x g_CE). Measured: CE pre-clip grad_norm > 1.0 on 47.3% (sft-1e5, 2,464 steps), 34.4% (sft-5e5, 2,864) and 32.6% (sft-1e4, 2,824) of controlled400 SFT steps, and on 137/400 = 34.3% of RL400 steps (all of its mixed steps); instrument: python3 -I over runs/aircraft-controlled400-v1/work/*/trainer_state.json log_history grad_norm (pre-clip; optimizer_audit.jsonl latest_gradient_norm is POST-clip, max 1.0000000107 on RL400). So on roughly a third to a half of CE steps the clip rescales the step to norm 1 and A2's 2p factor is erased there (A2 is then band-masked CE on those steps); the clip is kept (fixed profile, identical for RL and every supervised arm and for the whole strongest-SFT pool lineage), and the Gate A claim is narrowed accordingly (gates GA fail_claim)."
   },
-  "hn_reward_limit": "r(gold)=1, r(c)=-0.5 for a frozen-map confuser c: expected update is the gold gradient plus 0.5 x unlikelihood pressure on c (up to the same group weighting)",
+  "hn_reward_limit": "Corrected by amendment 1 (design review finding 3). For any reward, the Dr-GRPO expected update is (G-1) grad E_pi[r]. For exact_hn (r(gold)=1, r(c)=-0.5 for every frozen-map confuser c of the gold) that is (G-1)[p grad log pi(gold) - 0.5 sum_{c in M(gold)} pi(c) grad log pi(c)], times the screen band: a p-weighted gold term and an unweighted sum over ALL map confusers. A3 (unweighted CE + 0.5 grad[-log(1 - pi(c))] = 0.5 pi(c)/(1 - pi(c)) grad log pi(c) on the single top live confuser, no band) is NOT this limit, and the draft's 'gold gradient plus 0.5 x unlikelihood pressure on c (up to the same group weighting)' was wrong. Resolution: exact_hn is not used by this study; A3 is a supervised comparator (Stage A arms, gates GA), never coupled to an RL reward or to LIM-T.",
   "dense_credit_limit": "family/manufacturer partial credit converges to hierarchical label smoothing"
  },
  "hypotheses": {
-  "HA": "Some answer-only supervised limit of a signal-density RL variant (A2 screened p-weighted CE, A3 CE + confuser unlikelihood) beats the better of plain CE (A1) and constrained CE (A5) on H-select by >= +0.03 sampled macro with a Bonferroni-adjusted paired LB > 0",
-  "HB": "Only if HA: screened Dr-GRPO (beta=0) from I* beats the strongest fair SFT on native VAL by the unchanged substantial_rl margins",
-  "HB_robust": "The HB gain also survives the winning limit objective continued from I* to equal active time"
+  "HA": "Amended (amendment 1). The supervised limit of screened exact-reward Dr-GRPO (A2: CE x stopgrad[2p] x 1[p in B_8], no optimizer step outside the band) beats the best of plain CE (A1), HN-SFT (A3) and constrained CE (A5) on H-select by >= +0.03 sampled macro, with a Bonferroni-adjusted (3 candidates) small-n-corrected paired LB > 0, under the fixed profile (max_grad_norm 1.0, one prompt per update, constant AdamW)",
+  "HB": "Only if HA: screened Dr-GRPO (beta=0, exact reward) from I* beats the strongest fair SFT on native VAL by the unchanged substantial_rl margins",
+  "HB_robust": "The HB gain also survives the limit objective (A2's) continued from I* to equal active time (LIM-T), at seed 42 and in every replicate seed's pool",
+  "decision_rule_note": "Amendment 1 (design review minor finding 10). If RL behaves like its own limit it cannot beat LIM-T (about 13x more updates at G8) by +0.05, so passing Gate A raises the bar for Stage B rather than predicting its success: Stage B can pass only if the clipped, finite-G, single-sample RL update does something its expected-gradient limit does not. That is the hypothesis HB tests; a Gate A pass is necessary for spending on it, not evidence for it"
  },
  "claim_scope": "Label access train400 U S (Stage A trains on S_a, Stage B on S_b scanned). Not a 4-shot claim. Absolute gains from the extra labels are credited to data. W, I, I*, RL and every SFT arm get the same label access within a stage.",
  "protocol_revision": {
@@ -170,14 +182,18 @@
   "lora": "Q/V r8 alpha 16",
   "prompt": "answer-only, full 100-label list",
   "max_tokens": 256,
-  "optimizer": "constant AdamW wd 0, max_grad_norm 1.0, one prompt per update (trainer_kwargs, unchanged)",
+  "optimizer": "constant AdamW wd 0, max_grad_norm 1.0, one prompt per update (trainer_kwargs, unchanged); the clip is kept for every arm, see algebra.dr_grpo_nostd_limit.clip_caveat",
   "assay": "H-select: greedy + 1 G4 seed (5 completions/image); H-gate: greedy + G4 seeds 42,314 (9/image); assay G stays 4 regardless of training G",
   "secondary_decoder": "label-trie constrained greedy, reported on every H assay and in the G0 upper-bound table; never the primary evaluator"
  },
  "label_trie": {
   "build": "scripts/build_label_trie.py, tokenizer only, CPU: every tokenisation of the 100 labels (+EOS) reachable in the vocab, pruned to <= canonical length + 2 tokens; prune list and sha256 frozen at G0",
   "coverage_check": "every valid greedy completion_ids in the 8 controlled400 native-VAL journals lies in T; required 26,191/26,191 (count from the constrained design, recomputed by the script; mismatch in the count refuses)",
-  "upper_bound_table": "per endpoint, macro if every invalid became correct, from existing predictions only (constrained design: W 0.7057, sft-1e5-time 0.7662, sft-5e5-time 0.7702; recomputed at G0)",
+  "upper_bound_table": "per endpoint, macro if every invalid became correct, from existing predictions only (constrained design: W 0.7057, sft-1e5-time 0.7662, sft-5e5-time 0.7702; recomputed at G0: reports/2026-10-18-signal-limit-label-trie/g0-preview.json headroom_pp W 2.73, sft-1e5-time (the strongest SFT) 1.23, sft-5e5-time 1.68)",
+  "disclosures": [
+   "Amendment 1 (design review minor finding 9). The coverage check reads the 8 controlled400 native-VAL journals, so VAL greedy outputs shaped which tokenisations the build was required to cover; it changed nothing (coverage 26,191/26,191 with the pre-declared prune rule, and the rule, not the journals, defines T), and the influence on the A5 training mask is tokeniser-level only: no VAL label or score enters T",
+   "The P0 confusion map was built from the freshpool P0 G4 rollouts (128 groups, 512 completions; data/fgvc-aircraft-2013b/audit/p0-confusion-map.json sources) on the first 64 images of s_scan_seed42, which are S images now split between S_a and S_b. So A3's confuser lists saw outputs on some S_b images; only which wrong labels W produced was used, never an S_b gold score"
+  ],
   "forced_fire": "a planted off-trie token row is masked; a tokenisation absent from T makes the coverage check refuse"
  },
  "stages": [
@@ -192,9 +208,10 @@
   },
   {
    "id": "Stage 0",
-   "work": "cost probe at W on 32 train400 images: one screened G8 beta=0 dr_grpo step vs one G4 beta=0.04 step, both with the screened sampler -> c(G8), c(G16) per accepted update (scorer included); then E0 (4 vs 2+2 vs 1+3 byte-identical) for G8, beta=0, dr_grpo, scale_rewards none",
-   "writes": "c(G) to the study state before any RL forecast or cap reads it",
-   "cost_h_estimate": 1.4
+   "work": "cost probe at W on train400 images: screened beta=0 dr_grpo at G8 and at G16, each until at least 8 accepted updates, with the screened sampler -> c(G8), c(G16) per accepted update (scorer included), both MEASURED (amendment 1: no extrapolation from one step); then E0 (4 vs 2+2 vs 1+3 byte-identical) for beta=0, dr_grpo, scale_rewards none at G8 AND at G16 (GB0 may choose either)",
+   "writes": "c(G) to the study state before any RL forecast or cap reads it; the fragment records e0_groups [8, 16] and c_accepted_steps per G (scripts/freshpool_launch/signal_limit_launch.py stage0_validator refuses fewer than 8)",
+   "cost_h_estimate": 3.0,
+   "cost_basis": "estimate: E0 2165.8 s at G4 scaled ~2x for G8 and ~4x for G16 on the generation part, plus 2 x 8 probe steps"
   },
   {
    "id": "Stage A",
@@ -202,8 +219,8 @@
    "data": "S_a, 600 updates, same order for every arm",
    "arms": [
     {"id": "A1", "objective": "CE-SFT (gold+EOS)", "lrs": [1e-05, 5e-05, 0.0001], "mode": "sft"},
-    {"id": "A2", "objective": "screened Dr-GRPO limit: CE x stopgrad[2p] x 1[p in B_8], p from the same forward; images with p outside B_8 contribute zero loss but count as an update", "lrs": [1e-05, 5e-05, 0.0001], "mode": "egsft with scale_rewards='none' and screen band G=8"},
-    {"id": "A3", "objective": "HN-SFT: CE + 0.5 x -log(1 - pi(c)), c = model's top valid wrong label restricted to the frozen confusion map (taxonomy family U P0 confusion list); no term if none", "lrs": [1e-05, 5e-05, 0.0001], "mode": "hn_sft"},
+    {"id": "A2", "objective": "screened Dr-GRPO limit: CE x stopgrad[2p] x 1[p in B_8], p from the same forward; an image with p outside B_8 contributes zero loss and takes NO optimizer step (AdamW parameters, moments and step count untouched; amendment 1, design review finding 4), as the screened RL sampler takes none on a rejected candidate; its presentation still counts, so A2 sees exactly the same 600 S_a images as every arm (data-matched) and its in-band optimizer-step count is reported", "lrs": [1e-05, 5e-05, 0.0001], "mode": "egsft with scale_rewards='none' and screen band G=8", "role": "the only Gate A candidate"},
+    {"id": "A3", "objective": "HN-SFT: CE + 0.5 x -log(1 - pi(c)), c = model's top valid wrong label restricted to the frozen confusion map (taxonomy family U P0 confusion list); no term if none", "lrs": [1e-05, 5e-05, 0.0001], "mode": "hn_sft", "role": "supervised comparator in C* and an I* candidate; not the limit of any RL reward (amendment 1, algebra.hn_reward_limit)"},
     {"id": "A4", "objective": "hierarchical label smoothing, eps 0.1 split family/manufacturer (taxonomy-train-only)", "lrs": "A1* LR only", "mode": "hls_sft", "role": "reported control; cannot pass Gate A"},
     {"id": "A5", "objective": "constrained CE: log-softmax over trie-allowed tokens at each position", "lrs": [1e-05, 5e-05, 0.0001], "mode": "cce_sft", "graft": "judge 1 / judge 2"}
    ],
@@ -212,13 +229,13 @@
   },
   {
    "id": "Stage B",
-   "condition": "P0-I passed and Gate A passed",
+   "condition": "Gate A passed (PI is advisory since amendment 1)",
    "init": "I* = H-select-best endpoint among A1*, A2*, A3* (identity pinned; also the KL reference identity)",
    "P0_prime": "first 400 S_b candidates scored at I* (same 400 as P0-I) + G-chosen rollouts 64 x 2 seeds",
    "rl": {
     "id": "RL(lr)",
     "algorithm": "screened GRPO at chosen G, loss_type dr_grpo, scale_rewards none, beta 0, T 1.0, top-p 1, top-k 0",
-    "reward": "exact-EOS 0/1 if A2 won Gate A; exact_hn (1 gold, -0.5 frozen-map confuser, 0 otherwise, invalid 0) if A3 won",
+    "reward": "exact-EOS 0/1, the reward whose screened Dr-GRPO limit is A2 (amendment 1: exact_hn is not used, because A3 is not its limit)",
     "screen": "accept u_G(p) >= 0.5, p = P(exact gold+EOS) under the live adapter (existing _ScreenedRepeatSampler)",
     "lrs": [1e-05, 5e-05, 0.0001],
     "updates": "all three LRs to 100 accepted; top two by H-select continue without reset to N = 300; RL* = H-select best at 300",
@@ -226,24 +243,24 @@
    },
    "controls": [
     {"id": "SFT-E(lr)", "graft": "judge 2", "def": "I* continued with plain CE on exactly RL*'s 300 accepted IDs, same order, 300 updates", "lrs": [1e-05, 5e-05, 0.0001], "match": "exposure; isolates data selection by the screen"},
-    {"id": "SFT-T(lr)", "def": "SFT-E(lr) continued without reset over RL*'s full scanned S_b sequence (accepted and rejected), scan order, cycling, to T_RL", "lrs": "every LR within 2.0 pp (H-select) of the best SFT-E", "match": "active time and label access; isolates compute"},
-    {"id": "LIM-T", "def": "the Gate-A-winning limit objective continued from I* over RL*'s full scanned sequence to T_RL at its Stage-A LR, with the band of the chosen G", "match": "objective in expectation; robust verdict pool only"}
+    {"id": "SFT-T(lr)", "def": "SFT-E(lr) continued without reset over RL*'s full scanned S_b sequence (accepted and rejected), scan order, cycling, to T_RL", "lrs": "every LR within 2.0 pp (H-select) of the best SFT-E", "match": "active time and label access; isolates compute", "checkpoints": "no intermediate checkpoint grid (design review minor finding 5, accepted as a disclosure): SFT-E(lr) is SFT-T(lr)'s own start, so G3a's RL* - SFT-E* >= +0.05 and the VAL pool's SFT-E x3 already cover the start of the trajectory and SFT-T covers its end, mirroring RL's 100/300 pair; an overtrained middle is not selected, which is reported as a limitation of G3b"},
+    {"id": "LIM-T", "def": "A2's limit objective (egsft, scale_rewards none, out-of-band images take no optimizer step) continued from I* over RL*'s full scanned sequence to T_RL at A2*'s Stage-A LR, with the band of the chosen G", "match": "objective in expectation; robust verdict pool and the G3b gate (amendment 1); rerun per replicate seed at G5"}
    ]
   }
  ],
  "strongest_sft": {
   "protocol_verdict_pool": [
    "the 6 controlled400 SFT endpoints (VAL reused on identity match; a* = 0.7539, reports/2026-10-17-controlled400-native-val/README.md)",
-   "Stage-A A1 and A5 endpoints at every LR within 2 pp of their family best on H-select",
+   "Stage-A A1, A3 and A5 endpoints at every LR within 2 pp of their family best on H-select (A3 joined in amendment 1 as a supervised comparator)",
    "I* (if not already counted)",
    "SFT-E x3, SFT-T (all qualifying)"
   ],
-  "robust_verdict_pool": "protocol pool + LIM-T + A2*/A3* (the limit objectives)",
+  "robust_verdict_pool": "protocol pool + LIM-T + A2* (the limit objective; A3 is already in the protocol pool since amendment 1)",
   "selection": "max full-VAL mean-class accuracy (unconstrained frozen evaluator); protocol tie rules",
   "note": "the pool only grows; D_req recomputed from the realised a* at G4"
  },
  "budget_matching": {
-  "stage_a": "every arm exactly 600 updates on the same S_a order; same 3-LR grid (A4 single LR, reported control)",
+  "stage_a": "every arm exactly 600 S_a presentations (updates) on the same S_a order; A2's out-of-band presentations take no optimizer step (amendment 1), so A2 is data-matched, not optimizer-step-matched; same 3-LR grid (A4 single LR, reported control)",
   "exposure": "SFT-E: exactly RL*'s 300 accepted presentations in order",
   "active_time": "SFT-T and LIM-T to T_RL = RL*'s checkpoint-bound committed active seconds incl. scorer forwards for every scanned candidate, generation, reward, backward",
   "tuning": "RL and SFT both select on H-select over the same grid; per-family tuning cost reported",
@@ -267,38 +284,43 @@
   {
    "id": "PI",
    "when": "P0-I at I",
-   "pass": [
+   "advisory": "amendment 1 (design review minor finding 4): PI is a published forecast of GB0 and never stops the study. I (2,464 updates on train400) only proxies I* (W + 600 updates on S_a), which is less trained and so holds more mid-p images, and Stage A's own result (including a clean Gate A negative) does not depend on Stage B being feasible",
+   "forecast_checks": [
     "max over G in {8,16} of predicted acceptance >= a_floor",
     "scorer <= 2.0 s/candidate",
-    "EOS >= 0.95"
+    "EOS >= 0.95",
+    "sampled validity >= 0.95 (the most likely GB0 failure: 0.893 at W)"
    ],
-   "report": "sampled validity at I, observed vs predicted G4 mixed, p histogram, non-canonical share",
-   "fail": "STOP the study: no SFT-level init leaves enough mid-p signal for N=300 on S_b. Stage A is not run under this study id",
-   "rationale": "I is a proxy for I*; passing is necessary, not sufficient; P0' at I* still gates"
+   "report": "forecast_pass, sampled validity at I, observed vs predicted G4 mixed, p histogram, non-canonical share",
+   "fail": "publish the failed forecast; continue to Stage 0 and Stage A",
+   "rationale": "GB0 at I* is the binding acceptance gate"
   },
   {
    "id": "E0",
    "when": "Stage 0, before any fit",
    "pass": [
-    "4 vs 2+2 vs 1+3 identical scan position, journal, tokens, rewards, adapter bytes for G8 beta=0 dr_grpo",
+    "4 vs 2+2 vs 1+3 identical scan position, journal, tokens, rewards, adapter bytes for beta=0 dr_grpo at G8 and at G16",
     "no reference forward when beta=0 and reference identity recorded",
     "finite nonzero task gradient",
     "sampler-teacher logprob agreement <= 0.001",
-    "c(G8), c(G16) written"
+    "c(G8), c(G16) written, each measured over >= 8 screened accepted steps"
    ],
    "fail": "engineering fix and rerun, charged to engineering"
   },
   {
    "id": "GA",
    "when": "Stage A complete",
-   "comparator": "C* = max(A1*, A5*) on H-select sampled macro",
+   "comparator": "C* = max(A1*, A3*, A5*) on H-select sampled macro (A3 joined in amendment 1)",
    "pass": [
-    "(i) best of A2*/A3* minus C* >= +0.03 sampled macro (unconstrained)",
-    "(ii) paired class-stratified image-cluster bootstrap one-sided LB at quantile 0.05/6 (Bonferroni over the 6 (objective, LR) candidates A2 x3, A3 x3) > 0",
-    "(iii) under constrained greedy, the winner minus C* (constrained greedy) > 0",
-    "(iv) winner validity >= C* validity"
+    "(i) A2* minus C* >= +0.03 sampled macro (unconstrained)",
+    "(ii) paired class-stratified image-cluster bootstrap one-sided LB, small-n corrected (bootstrap.small_n_correction), at quantile 0.05/3 (Bonferroni over the 3 (objective, LR) candidates A2 x3) > 0",
+    "(iii) under constrained greedy, A2* minus C* (constrained greedy) > 0",
+    "(iv) A2* validity >= C* validity"
    ],
-   "fail": "STOP and publish: no answer-only signal-density RL limit beats CE/cCE here in expectation"
+   "fail": "STOP and publish the negative",
+   "fail_claim": "Narrowed by amendment 1 (design review findings 2 and 4): under the fixed profile (max_grad_norm 1.0, one prompt per update, constant AdamW), the data-matched screened exact-reward Dr-GRPO limit objective (A2) does not beat CE, HN-SFT or constrained CE on H-select by +0.03. It is not evidence about RL itself (E[clip(g)] != clip(E[g])), about other signal-density rewards, or about an unclipped or update-matched limit; the per-arm clip fraction and A2's in-band step count are published with it",
+   "pass_claim": "necessary for Stage B, not a prediction of it (hypotheses.decision_rule_note)",
+   "band_note": "design review minor finding 1, disclosed: Gate A screens A2 at B_8 while GB0 may choose G16 (band [0.042, 0.958]), and A2's token-mean CE weights each image equally where dr_grpo's loss weights it by its completion length (a 1/len(gold) factor, 3-9 tokens here). LIM-T uses the chosen G's band; Stage A is not rerun at B_16"
   },
   {
    "id": "GB0",
@@ -318,7 +340,7 @@
    "when": "RL 3 LRs at 100",
    "pass": [
     "best RL H-select sampled macro minus I* > 0",
-    "invalid <= I* + 2",
+    "invalid <= I* invalid + max(2, 2 x sqrt(invalid + I* invalid)) over the H-select completions (amendment 1, design review minor finding 2: the fixed +2 of 1,000 sampled completions fired under the null, Poisson SD about 7-15 at 50-107 invalid; this is two Poisson SDs of the difference)",
     "adapter changed",
     "rolling useful-mixed >= 0.6"
    ],
@@ -330,7 +352,7 @@
    "split": "H-gate",
    "pass": [
     "RL* - SFT-E* >= +0.05 sampled macro (mechanism mode)",
-    "RL* - I* one-sided 90% paired LB > 0",
+    "RL* - I* one-sided 90% paired LB, small-n corrected, > 0",
     "validity and EOS >= 0.95"
    ],
    "fail": "stop before SFT-T and VAL"
@@ -339,34 +361,34 @@
    "id": "G3b",
    "when": "SFT-T and LIM-T done",
    "split": "H-gate",
-   "pass": ["RL* - SFT-T* >= +0.05"],
-   "report": "RL* - LIM-T (robust), not gating",
+   "pass": ["RL* - SFT-T* >= +0.05", "RL* - LIM-T >= +0.05 (amendment 1, design review finding 5: the claim rests on the robust verdict, so LIM-T gates)"],
    "fail": "stop before VAL"
   },
   {
    "id": "G4",
    "when": "seed 42 VAL",
-   "pass": "protocol substantial_rl unchanged: acc >= 0.80; >= +0.05 vs init W; >= +0.05 vs strongest SFT; relative error reduction >= 0.20; paired 95% class-stratified LB > 0",
-   "verdicts": ["protocol (protocol pool)", "robust (protocol pool + LIM-T + A2*/A3*)"],
+   "pass": "protocol substantial_rl unchanged: acc >= 0.80; >= +0.05 vs W (the protocol's 'init' is W, the study's pre-Stage-A init, although Stage B starts from I*; I* is a member of both pools, so the comparison against I* is made by the strongest-SFT condition); >= +0.05 vs strongest SFT; relative error reduction >= 0.20; paired 95% class-stratified LB > 0",
+   "verdicts": ["protocol (protocol pool)", "robust (protocol pool + LIM-T + A2*; A3 is in the protocol pool since amendment 1)"],
    "claim_rests_on": "robust verdict",
    "fail": "substantial claim FAILED; publish every endpoint"
   },
   {
    "id": "G5",
    "when": "seeds 314, 2718; only if G4 passes",
-   "pass": "protocol replication rule unchanged; per seed strongest SFT = SFT-E and SFT-T at every LR within 2 pp of the seed-42 best, plus I*",
+   "pass": "protocol replication rule unchanged; per seed strongest SFT = max over that seed's ROBUST pool (amendment 1, design review finding 5): every seed-42 robust-pool member no replicate reruns (W, controlled400, the Stage-A pool members incl. I* and A2*) plus the seed's SFT-E and SFT-T at every LR within 2 pp of the seed-42 best and the seed's own LIM-T (run per replicate seed); the seed-42 delta entering the mean is the robust one",
    "fail": "FAILED; publish every seed"
   },
   {
    "id": "G6",
    "when": "once, only if G4 and G5 pass",
-   "work": "TEST for seed-42 RL*, strongest SFT, W; 27B named baseline per strong_baseline unchanged"
+   "work": "TEST for seed-42 RL*, the robust-verdict strongest SFT (amendment 1: named explicitly; it is the max of a superset of the protocol pool, so the conservative comparator), W; 27B named baseline per strong_baseline unchanged"
   }
  ],
  "bootstrap": {
   "h_splits": "paired, class-stratified, image-cluster bootstrap: resample images with replacement within each class, carrying all of an image's completions together, same indices for both arms; 20,000 resamples, seed 2718 (as docs/aircraft-native-val-activation-v1/activated-declaration.json bootstrap)",
-  "gate_a_quantile": "one-sided 0.05/6 = 0.00833",
+  "gate_a_quantile": "one-sided 0.05/3 = 0.01667 (amendment 1: 3 candidates, A2 x 3 LRs)",
   "g3_quantile": "one-sided 0.10 (G3 lb_quantile, scripts/evaluate_freshpool_gates.py)",
+  "small_n_correction": "Amendment 1 (design review finding 1). h_select.jsonl and h_gate.jsonl hold exactly 2 images in each of the 100 classes (counted from runs/aircraft-freshpool-g0-v1/manifests, python3 -I Counter), and the within-class bootstrap of n images has variance (n-1)/n of the unbiased one: half at n = 2, SE x 0.71. Every H-split lower bound that gates (Gate A (ii), G3a) rescales each resampled class mean by sqrt(n/(n-1)) about the observed class mean; with equal n per class that is the affine map LB = mean + sqrt(n/(n-1)) x (plain LB - mean) of every draw, computed in scripts/evaluate_signal_limit_gates.py small_n_lower_bound over the unchanged vision_rl.classification_comparison.compare_repeated_classification bound (unequal class sizes refuse). VAL (about 33 per class) keeps the protocol's unchanged bound",
   "val": "protocol compare_classification stratified_image_ci95 (unchanged)",
   "reason": "completions cluster by image: on the parent P0, iid validity CI [0.8625, 0.9180] vs image-cluster [0.842, 0.9375] (G1 forensics)"
  },
@@ -379,11 +401,10 @@
    "validity and EOS",
    "RL - SFT-E (selection), SFT-E - SFT-T (compute), RL - LIM-T (objective)",
    "per-class delta for 737-500/600, DR-400/SR-20, A318/A319/A320, Gulfstream IV/V, Beechcraft 1900/B200, ERJ 135/145, EMB-120",
-   "acceptance drift over the scan; per-arm pre-clip norm distribution and clip fraction"
+   "acceptance drift over the scan; per-arm pre-clip norm distribution and clip fraction (trainer_state.json log_history grad_norm, pre-clip), and for A2/LIM-T the in-band optimizer-step count and the clip fraction among in-band steps (amendment 1)"
   ]
  },
  "refusal_conditions": [
-  "PI fails (no G in {8,16} predicted >= a_floor at I)",
   "GA fails",
   "GB0 fails, including no G qualifying at I*",
   "scan exhausts S_b before N=300 (incomplete arm, not quoted)",
@@ -391,43 +412,52 @@
   "any arm hits its 1.25x cap",
   "NaN, adapter/reference identity change, beta=0 without recorded loss_type",
   "trie coverage < 26,191/26,191 or count mismatch",
-  "c(G) missing when an RL forecast is computed",
+  "c(G) missing when an RL forecast is computed, or measured over fewer than 8 accepted steps, or E0 not proven at both G8 and G16",
   "any H or VAL look not in the ledger",
   "disk guard (5 GiB reserve), RSS guard, MPS-driver guard, second MPS owner (including the 27B MLX baseline while it runs)",
   "any sealed TEST access before G6"
  ],
  "no_retrospective_changes": "No threshold, margin, seed, N, G set, grid, split salt or confusion map changes after any output is seen; every failure is kept and published",
  "compute_plan_mps_hours": {
-  "status": "ESTIMATE, extrapolated from measured_unit_costs; c(G8)=44 s unmeasured until Stage 0",
+  "status": "ESTIMATE, extrapolated from measured_unit_costs; c(G8)=44 s and c(G16)=88 s unmeasured until Stage 0. Amended by amendment 1: Stage 0 measures both G and proves E0 at both; PI no longer stops; VAL adds A3 pool members; a G16 branch is costed",
   "steps": [
    {"step": "P0-I (scoring + G4 rollouts at I)", "h": 0.25, "cum": 0.25, "basis": "p0 797.4 s"},
-   {"step": "Stage 0 cost probe + E0 at G8/beta0", "h": 1.4, "cum": 1.65, "basis": "E0 2165.8 s at G4, ~2x for G8 (estimate)"},
-   {"step": "Stage A 13 arms x 600 updates", "h": 8.6, "cum": 10.25, "basis": "A1/A4/A5 3.29 s, A2 ~3.5 s, A3 ~6 s per update (A2/A3 estimates)"},
-   {"step": "Stage A 13 H-select assays + constrained greedy", "h": 7.25, "cum": 17.5, "basis": "1815.6 s + ~0.05 h constrained greedy (200 x 0.966 s, options.json)"},
-   {"step": "P0' at I* (G8 rollouts)", "h": 0.4, "cum": 17.9},
-   {"step": "RL 3x100 + 2x200 = 700 accepted updates", "h": 8.6, "cum": 26.5, "basis": "44 s/accepted (unmeasured)"},
-   {"step": "RL H-select x5", "h": 2.5, "cum": 29.0},
-   {"step": "SFT-E x3 (300 updates) + H-select x3", "h": 2.35, "cum": 31.35},
-   {"step": "H-gate RL*, SFT-E*, I* -> G3a", "h": 1.7, "cum": 33.05, "basis": "2015.6 s each"},
-   {"step": "SFT-T x<=2 + LIM-T to T_RL (13,200 s each) + H-select x3", "h": 12.5, "cum": 45.55},
-   {"step": "H-gate SFT-T*, LIM-T -> G3b", "h": 1.15, "cum": 46.7},
-   {"step": "VAL ~11 new endpoints (RL*, SFT-E<=3, SFT-T<=2, LIM-T, A2*/A3*, Stage-A CE within 2 pp ~4 incl I*) -> G4", "h": 10.8, "cum": 57.5}
+   {"step": "Stage 0 cost probe (>= 8 accepted at G8 and at G16) + E0 at G8 and G16", "h": 3.0, "cum": 3.25, "basis": "E0 2165.8 s at G4, ~2x for G8 and ~4x for G16 (estimate)"},
+   {"step": "Stage A 13 arms x 600 updates", "h": 8.6, "cum": 11.85, "basis": "A1/A4/A5 3.29 s, A2 ~3.5 s, A3 ~6 s per update (A2/A3 estimates); A2's out-of-band presentations still pay the forward and backward"},
+   {"step": "Stage A 13 H-select assays + constrained greedy", "h": 7.25, "cum": 19.1, "basis": "1815.6 s + ~0.05 h constrained greedy (200 x 0.966 s, options.json)"},
+   {"step": "P0' at I* (G8 rollouts)", "h": 0.4, "cum": 19.5},
+   {"step": "RL 3x100 + 2x200 = 700 accepted updates", "h": 8.6, "cum": 28.1, "basis": "44 s/accepted (unmeasured)"},
+   {"step": "RL H-select x5", "h": 2.5, "cum": 30.6},
+   {"step": "SFT-E x3 (300 updates) + H-select x3", "h": 2.35, "cum": 32.95},
+   {"step": "H-gate RL*, SFT-E*, I* -> G3a", "h": 1.7, "cum": 34.65, "basis": "2015.6 s each"},
+   {"step": "SFT-T x<=2 + LIM-T to T_RL (13,200 s each) + H-select x3", "h": 12.5, "cum": 47.15},
+   {"step": "H-gate SFT-T*, LIM-T -> G3b", "h": 1.15, "cum": 48.3},
+   {"step": "VAL ~12 new endpoints (RL*, SFT-E<=3, SFT-T<=2, LIM-T, A2*, Stage-A A1/A3/A5 within 2 pp ~4 incl I*) -> G4", "h": 11.8, "cum": 60.1}
   ],
-  "early_stop_cum_h": {"PI": 0.25, "GA": 17.5, "GB0": 17.9, "G2": 26.5, "G3a": 33.05, "G3b": 46.7, "G4": 57.5},
-  "replicate_per_seed_h": "~25-30 (estimate)",
+  "early_stop_cum_h": {"GA": 19.1, "GB0": 19.5, "G2": 28.1, "G3a": 34.65, "G3b": 48.3, "G4": 60.1},
+  "g16_branch": {
+   "status": "ESTIMATE (amendment 1, design review minor finding 7): if GB0 chooses G16, c(G16) ~88 s/accepted (linear in G, unmeasured) doubles every RL-time-bound step",
+   "changed_steps": [
+    {"step": "P0' at I* (G16 rollouts)", "h": 0.8},
+    {"step": "RL 700 accepted updates x 88 s", "h": 17.1},
+    {"step": "SFT-T x<=2 + LIM-T to T_RL (26,400 s each) + H-select x3", "h": 23.5}
+   ],
+   "cum_h_at_G4": 80.0
+  },
+  "replicate_per_seed_h": "~29-34 at G8 (estimate; adds the seed's LIM-T to T_RL, amendment 1), ~50-60 at G16",
   "test_h": 2.9,
-  "full_conditional_total_h": "~115 (estimate)",
-  "expected_spend_h": "~25 = 0.25 + P(PI pass)~0.9 x [17.25 + P(GA pass)~0.25 x 40] (both probabilities are judgement)",
-  "resources": "single MPS owner, serial; nothing runs while the 27B MLX baseline holds the GPU; resume state file before every stage"
+  "full_conditional_total_h": "~125 at G8, ~190 at G16 (estimates)",
+  "expected_spend_h": "~29 = 19.1 + P(GA pass)~0.25 x 41 (G8 branch; P(GA) is judgement, and PI no longer stops before Stage A)",
+  "resources": "single MPS owner, serial (Stage A may run on the UWaterloo CPU hosts, plan stage_a_execution); nothing runs while the 27B MLX baseline holds the GPU; resume state file before every stage"
  },
  "p_substantial": {
   "value": 0.02,
   "range": "0.015-0.02",
   "basis": "judgement; all three designs and all three judges put the base rate at 0.015-0.02; the Dr-GRPO algebra above (limit = p-weighted CE, upweights easy images) gives no reason to raise it",
-  "p_gate_a_pass": "~0.25 (judgement, base design); probably lower given the algebra"
+  "p_gate_a_pass": "~0.25 (judgement, base design); probably lower given the algebra, the clip (algebra clip_caveat) and A2's data-matched step count"
  },
  "power": {
-  "h_select": "200 images x 5 completions; Gate A +0.03 with Bonferroni LB over 6 candidates; null false-pass rate not measured (judge 1 flagged); the LB condition is what bounds it",
+  "h_select": "200 images x 5 completions; Gate A +0.03 with a small-n-corrected Bonferroni LB over 3 candidates; null false-pass rate not measured (judge 1 flagged); the LB condition is what bounds it. Before the correction, the n = 2 per-class bootstrap made the 0.05/6 quantile behave like about 0.045 per comparison (design review finding 1, reviewer's normal approximation, not run)",
   "h_gate": "SE RL-SFT ~2.0-2.7 pp (freshpool study, unverified); +0.05 mechanism margin",
   "val": "D_req = max(0.05, 0.2(1-a*), 0.80-a*); 0.05 at a* = 0.7539 (reports/2026-10-17-controlled400-native-val/README.md); a* is expected to rise with Stage-A CE on S_a (unverified)",
   "replication": "pass ~0.35 at true 5 pp (rigor Monte Carlo, unverified)"
@@ -448,7 +478,7 @@
     "trainer_kwargs (line 444)": "add params loss_type ('grpo'|'dr_grpo', default 'grpo') and scale_rewards ('group'|'none', default 'group') replacing the literals at lines 507-508; refuse beta=0 unless loss_type is passed explicitly",
     "train_local (line 2624)": "accept and forward beta/loss_type/scale_rewards; record them in settings only when non-default so legacy identities stay byte-identical; extend the mode set at line 2680 with 'hn_sft', 'hls_sft', 'cce_sft'; egsft gains egsft_scale ('group'|'none') and egsft_band_group (G for the 1[p in B_G] mask)",
     "expected_gradient_weight (line 1013) / egsft_weight (line 1042)": "add scale_rewards='none' branch with exact enumeration over k=0..G (equals (G-1)p) and the band mask; used at line 1702",
-    "make_reward (line 330)": "separately named 'exact_hn' reward (frozen confusion map, -0.5); 'exact' unchanged",
+    "make_reward (line 330)": "separately named 'exact_hn' reward (frozen confusion map, -0.5); 'exact' unchanged (implemented; unused by this study since amendment 1)",
     "_completion_logprob (line 1047)": "optional allowed-token mask per position (trie) for cce_sft loss and for constrained-greedy scoring; unmasked path byte-identical",
     "new label_trie_logits_processor": "generation-time mask for constrained greedy in assays only; never used in GRPO sampling",
     "new hn/hls loss helpers": "hn: extra teacher-forced pass for confuser c, refuse c == gold; hls: smoothing over taxonomy siblings normalised over the 100 label sequences"
@@ -512,11 +542,42 @@
    "rule": "expected values from fixtures, never from the subject"
   },
   {
+   "file": "amendment 1 implementation (design_review_v1)",
+   "work": [
+    "src/vision_rl/vlm_local_training.py: egsft band skips the optimizer step outside B_G (_skip_flagged_optimizer_steps); load_label_trie / load_confusion_map / load_taxonomy read the committed builder formats, with the trie's content sha256 checked",
+    "scripts/evaluate_signal_limit_gates.py: small_n_lower_bound on Gate A (ii) and G3a; Gate A candidates A2 only, C* over A1/A3/A5, quantile 0.05/3; PI advisory with sampled validity; G2 invalid slack; G3b gates on LIM-T; protocol pool takes A3; G5 robust per-seed pool with the seed's LIM-T",
+    "scripts/freshpool_launch/stage_table.py, trainer_fragment.py, signal_limit_launch.py: A2 the only limit arm, exact reward only, LIM-T egsft only, Stage 0 validator requires e0_groups [8, 16] and >= 8 accepted c-probe steps per G",
+    "tests: hand-computed fixtures for each of the above, including forced fires (the small-n correction flipping a marginal LB, the optimizer step skipped with AdamW state untouched, the trainer refusing a trie whose content no longer hashes to its sha256)"
+   ]
+  },
+  {
    "file": "decision record",
    "work": "at activation: entry recording this study, the Dr-GRPO limit correction and the p prior (not in this PR)"
   }
  ],
+ "design_review_v1": {
+  "source": "PR #26 design review (aircraft-signal-limit-v1), 5 blocking + 10 minor; the reviewer edited nothing and ran nothing. Verdicts below were checked against the repository; where a verdict rests on a measurement, the instrument is named",
+  "confirmed_sound_by_reviewer": "Dr-GRPO (G-1)p claim (re-derived by hand; the gold term includes the ~3% non-canonical tokenisations, which egsft's p already sums), no VAL/TEST in RL selection, max-VAL strongest SFT, C* as a maximum, a_floor and its 375/987 boundary, compute-plan sums, D_req 0.05",
+  "findings": [
+   {"id": "B1", "finding": "n = 2 images per class on H-select and H-gate: the within-class bootstrap has (n-1)/n = 0.5 of the variance, so Gate A and G3 bounds pass too easily", "verdict": "ACCEPTED", "check": "2 images x 100 classes in both manifests (python3 -I Counter over runs/aircraft-freshpool-g0-v1/manifests/h_select.jsonl, h_gate.jsonl); the plug-in variance algebra is standard", "resolution": "bootstrap.small_n_correction, applied to Gate A (ii) and G3a in the evaluator; forced fire in tests (a plain LB of +0.02 becomes -0.013)"},
+   {"id": "B2", "finding": "max_grad_norm 1.0 clip undoes the RL ~ limit premise; Gate A's verdict says nothing about RL", "verdict": "PARTIALLY ACCEPTED", "check": "pre-clip grad_norm > 1 on 32.6-47.3% of controlled400 CE steps and 34.3% of RL400 steps (algebra clip_caveat instrument), i.e. the clip binds often but not on most CE steps", "resolution": "Gate A's negative and positive claims narrowed (gates GA fail_claim / pass_claim), clip fraction per arm and among A2's in-band steps reported. Rejected part: removing the clip in Stage A/B, because the clip is part of the fixed profile shared by RL, every supervised arm and the whole strongest-SFT pool lineage (controlled400, W, I), and dropping it would need its own LR grid and break comparability with the pool; no Stage 0 measurement is added because the pre-clip norm is already logged on every step of every arm (trainer_state.json grad_norm)"},
+   {"id": "B3", "finding": "A3 is not the limit of exact_hn, so the A3 branch of Stage B (RL reward and LIM-T) is uninterpretable", "verdict": "ACCEPTED", "check": "re-derived: Dr-GRPO E[update] = (G-1) grad E[r] for any reward (algebra.hn_reward_limit)", "resolution": "the A3 -> exact_hn coupling is dropped: A2 is the only Gate A candidate (Bonferroni over 3), A3 is a supervised comparator in C* and the protocol pool and stays an I* candidate, RL always uses the exact reward, LIM-T always continues A2. Defining A3 as the exact limit was rejected: it needs a teacher-forced pass with gradient for every map confuser of every image (up to 10, for A320; mean 1.58 over the 100 labels, python3 -I over data/fgvc-aircraft-2013b/audit/p0-confusion-map.json) and a new trainer mode: a modest compute cost but a new, model-untested loss surface added after review, for a reward whose signal the forensics put in a minority of groups (29/128 hold a valid wrong answer, parent_failure_facts.format_only_mixed_groups)"},
+   {"id": "B4", "finding": "A2's out-of-band images count as updates and take phantom AdamW momentum steps; A2 mixes p-weighting, data reduction and momentum noise", "verdict": "ACCEPTED (momentum), DISCLOSED (data reduction)", "check": "constant AdamW with a zero gradient still steps by lr x m_hat / (sqrt(v_hat) + eps); test_egsft_band_skips_the_optimizer_step_and_leaves_adamw_state_untouched", "resolution": "out-of-band images take no optimizer step (parameters, moments and step count untouched), the presentation still counts, so A2 stays data-matched to every arm on the same 600 S_a images; its in-band step count is reported and Gate A's claim is narrowed to the data-matched limit. Matching informative updates instead was rejected: at W's predicted G8 acceptance 0.42, 600 in-band steps need ~1,430 presentations, more than S_a's 1,040 images, so A2 would see more labelled images or repeats than A1/A3/A5 and confound data with objective"},
+   {"id": "B5", "finding": "the claim rests on the robust verdict, but G5, G3b and G6 do not use the robust pool", "verdict": "ACCEPTED", "resolution": "G3b gates on RL* - LIM-T >= +0.05; G5's per-seed pool is the robust one (seed-independent robust members plus the seed's SFT-E, SFT-T and its own LIM-T, run per replicate seed); G6 names the robust-verdict strongest SFT (what the evaluator already did)"},
+   {"id": "M1", "finding": "Gate A tests A2 at B_8 though GB0 may choose G16; token-mean CE vs dr_grpo sequence-sum differ by 1/len(gold)", "verdict": "ACCEPTED AS DISCLOSURE", "resolution": "gates GA band_note; LIM-T already uses the chosen G's band. Rerunning Stage A at B_16 after GB0 would put a Stage A arm after a Stage B look, and changing A2 to a sequence sum would change the EG-SFT objective the lineage measured"},
+   {"id": "M2", "finding": "G2's invalid <= I* + 2 fires under the null", "verdict": "ACCEPTED", "resolution": "slack max(2, 2 sqrt(a + b)), two Poisson SDs of the difference"},
+   {"id": "M3", "finding": "cost caps rest on one probe step; c(G16) extrapolated; E0 only at G8", "verdict": "ACCEPTED", "resolution": "Stage 0 measures c(G8) and c(G16) over >= 8 accepted steps each and proves E0 at both; the launcher refuses a Stage 0 fragment without e0_groups [8, 16] and c_accepted_steps >= 8 per G; +1.6 h estimate"},
+   {"id": "M4", "finding": "PI can stop the whole study on a proxy init, blocking Stage A's clean negative; PI ignores sampled validity", "verdict": "ACCEPTED", "resolution": "PI is advisory: it publishes forecast checks, including sampled validity >= 0.95, and never stops; GB0 at I* stays binding"},
+   {"id": "M5", "finding": "SFT-T has no checkpoint selection; overtraining makes G3b easier", "verdict": "PARTIALLY ACCEPTED (disclosure)", "resolution": "stages Stage B SFT-T checkpoints note: SFT-E(lr) is SFT-T's start and is already gated in G3a and pooled at VAL, mirroring RL's 100/300 two-point selection; an intermediate checkpoint grid was rejected because every extra checkpoint is another H-select assay (~0.5 h each) and another VAL endpoint, and the robust verdict, not G3b, carries the claim"},
+   {"id": "M6", "finding": "the .md's '+1.6 pp' for the strongest SFT is wrong", "verdict": "ACCEPTED", "check": "g0-preview.json headroom_pp: sft-1e5-time 1.23, sft-5e5-time 1.68", "resolution": ".md section 4 now says +1.2 pp (sft-1e5-time, the strongest) and +1.7 pp for sft-5e5-time"},
+   {"id": "M7", "finding": "the compute plan only budgets G8", "verdict": "ACCEPTED", "resolution": "compute_plan_mps_hours.g16_branch"},
+   {"id": "M8", "finding": "G4 says 'vs init W' but Stage B starts from I*", "verdict": "ACCEPTED (wording)", "resolution": "G4 pass text states the protocol's init is W and I* sits in both pools"},
+   {"id": "M9", "finding": "VAL journals touch trie construction; the P0 confusion map saw S images now in S_b", "verdict": "ACCEPTED AS DISCLOSURE", "resolution": "label_trie.disclosures"},
+   {"id": "M10", "finding": "Stage B's success depends on the algebra being wrong; Gate A raises the bar rather than predicting success", "verdict": "ACCEPTED", "resolution": "hypotheses.decision_rule_note and gates GA pass_claim"}
+  ]
+ },
  "not_used": [
+  "exact_hn reward in Stage B (amendment 1: A3 is not its Dr-GRPO limit; the trainer keeps the named reward, unused here)",
   "trie mask inside GRPO sampling/loss",
   "temperature changes (sharpen an already bimodal p)",
   "dense hierarchy credit as RL (1 of 30 all-wrong groups gain contrast, G1 forensics; 1 of 50 in runs/aircraft-hierarchical-opportunity-v1)",

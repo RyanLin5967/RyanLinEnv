@@ -6,6 +6,7 @@ study's formulas with literal arithmetic; none is read back from the subject.
 
 import copy
 import json
+import math
 import random
 import runpy
 from pathlib import Path
@@ -17,8 +18,9 @@ from vision_rl.classification_comparison import compare_repeated_classification
 ROOT = Path(__file__).resolve().parents[1]
 GATES = runpy.run_path(str(ROOT / "scripts/evaluate_signal_limit_gates.py"))
 FRESH = runpy.run_path(str(ROOT / "scripts/evaluate_freshpool_gates.py"))
-evaluate, a_floor, u_g, gate_pi, at_least, p0_values = (
-    GATES[name] for name in ("evaluate", "a_floor", "u_g", "gate_pi", "at_least", "p0_values"))
+evaluate, a_floor, u_g, gate_pi, at_least, p0_values, small_n_lower_bound = (
+    GATES[name] for name in ("evaluate", "a_floor", "u_g", "gate_pi", "at_least", "p0_values",
+                             "small_n_lower_bound"))
 W_ADAPTER, I_ADAPTER = GATES["W_ADAPTER"], GATES["I_ADAPTER"]
 
 LABELS = [f"C{i}" for i in range(10)]
@@ -120,12 +122,12 @@ def evidence():
         endpoint("a2-1e-5", "A2", 1e-5, hs=40, **sa),
         endpoint("a2-5e-5", "A2", 5e-5, hs=20, **sa),
         endpoint(I_STAR, "A2", 1e-4, **{**sa, "cg": 2}, hs=60, hg=80, val=14),
-        # A3 .20, .41, .20 -> A3* = 5e-5 (robust pool only).
+        # A3 .20, .39, .20 -> A3* = 5e-5: a comparator (C* family) and a pool member.
         endpoint("a3-1e-5", "A3", 1e-5, hs=20, **sa),
-        endpoint("a3-5e-5", "A3", 5e-5, hs=41, val=15, **sa),
+        endpoint("a3-5e-5", "A3", 5e-5, hs=39, val=15, **sa),
         endpoint("a3-1e-4", "A3", 1e-4, hs=20, **sa),
         endpoint("a4-5e-5", "A4", 5e-5, hs=30, **sa),  # A1*'s LR; reported control
-        # A5 .20, .37, .20 -> A5* = 5e-5, C* = max(A1* .40, A5* .37) = A1*.
+        # A5 .20, .37, .20 -> A5* = 5e-5, C* = max(A1* .40, A3* .39, A5* .37) = A1*.
         endpoint("a5-1e-5", "A5", 1e-5, hs=20, **sa),
         endpoint("a5-5e-5", "A5", 5e-5, hs=37, val=13, **sa),
         endpoint("a5-1e-4", "A5", 1e-4, hs=20, **sa),
@@ -165,9 +167,12 @@ def evidence():
                                   init=None, val=11 + index % 3,
                                   adapter=I_ADAPTER if run_id == "sft-1e5-time" else None))
     # Replicates: seed 314 RL .85 vs SFT max .75 (+.10); seed 2718 RL .85 vs .80 (+.05).
+    # Each seed's LIM-T (at A2*'s LR 1e-4) sits .05 under that seed's SFT maximum.
     for seed, sft in ((314, 15), (2718, 16)):
         endpoints.append(endpoint(f"rl-{seed}", "RL", 1e-5, seed, 300, 13000.0, init=I_STAR,
                                   val=17, **RL_EXTRA))
+        endpoints.append(endpoint(f"limt-{seed}", "LIM-T", 1e-4, seed, 3700, 13010.0,
+                                  init=I_STAR, val=sft - 1))
         for lr, correct in ((5e-5, sft), (1e-4, sft - 1)):
             endpoints.append(endpoint(f"sfte-{lr}-{seed}", "SFT-E", lr, seed, 300, 1000.0,
                                       init=I_STAR, val=correct))
@@ -223,11 +228,26 @@ def test_pi_passes_at_152_accepted_and_refuses_at_151():
     assert result["values"]["observed_useful_mixed"] == 0.875  # 112 / 128
     assert result["values"]["predicted_useful_mixed"] == 0.875
     assert result["values"]["journal_groups"] == [4]
-    assert result["pass"]
+    assert result["pass"] and result["advisory"] and result["forecast_pass"]
     low = [0.5] * 100 + [0.9] * 51 + [0.999] * 249  # 151 / 400 = .3775 < .37994
     failed = gate_pi(p0_doc(I_ADAPTER, low, 4, 112), S_B)
     assert not failed["checks"]["max_predicted_acceptance_g8_g16_at_least_a_floor"]
     assert failed["checks"]["eos"] and failed["checks"]["scorer_seconds"]
+    # Advisory since amendment 1: the forecast fails, the gate never stops the study.
+    assert failed["pass"] and not failed["forecast_pass"]
+
+
+def test_pi_forecast_includes_sampled_validity():
+    # 7 of the 512 rollout completions invalid: .98633 >= .95 passes; 26 invalid: .94922 fails.
+    for invalid, ok in ((7, True), (26, False)):
+        doc = p0_doc(I_ADAPTER, PI_PS, 4, 112)
+        completions = [c for g in doc["rollouts"] for c in g["completions"]]
+        for c in completions[:invalid]:
+            c["valid"] = False
+        result = gate_pi(doc, S_B)
+        assert result["values"]["valid"] == pytest.approx((512 - invalid) / 512)
+        assert result["checks"]["sampled_valid"] is ok and result["forecast_pass"] is ok
+        assert result["pass"]
 
 
 def test_pi_refuses_wrong_adapter_wrong_group_forged_journal_and_foreign_scan():
@@ -263,7 +283,9 @@ def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
         "a1-5e-5", I_STAR, "A2", I_STAR)
     assert ga["values"]["winner_minus_c_star"] == pytest.approx(0.2)  # .60 - .40
     assert ga["values"]["paired_lb"] == pytest.approx(0.2)  # every image +1/5
-    assert ga["values"]["lb_quantile"] == pytest.approx(0.05 / 6)
+    assert ga["values"]["paired_lb_uncorrected"] == pytest.approx(0.2)  # no spread to rescale
+    assert ga["values"]["small_n_scale"] == pytest.approx(math.sqrt(2))  # n = 2 per class
+    assert ga["values"]["lb_quantile"] == pytest.approx(0.05 / 3)
     assert ga["values"]["constrained_winner_minus_c_star"] == pytest.approx(0.5)  # 1 - .5
     assert ga["pass"]
     gb0 = gates["GB0"]
@@ -286,20 +308,21 @@ def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
     assert gates["G3a"]["values"]["rl_minus_i_star_lb90"] == pytest.approx(3 / 9)
     assert gates["G3b"]["sft_t_star"] == "sftt-5e-5"
     assert gates["G3b"]["values"]["rl_minus_sft_t"] == pytest.approx(1 / 9)
-    assert gates["G3b"]["lim_t"]["rl_minus_lim_t"] == pytest.approx(2 / 9)
+    assert gates["G3b"]["lim_t"]["rl_minus_lim_t"] == pytest.approx(2 / 9)  # 7/9 - 5/9
+    assert gates["G3b"]["lim_t"]["gating"] and gates["G3b"]["pass"]
     protocol, robust = gates["G4"]["protocol"], gates["G4"]["robust"]
-    # Protocol pool tie at .70: I* (2000 s), sfte-5e-5 and sfte-1e-4 (1000 s), sftt-5e-5
-    # (13000 s) -> fewer seconds, then run ID: sfte-1e-4.
-    assert protocol["strongest_sft"] == "sfte-1e-4"
+    # Protocol pool: A3* (H-select .39, the A3 family best) joins as a comparator and holds
+    # the pool maximum, VAL .75; RL* .90 is +.15 ahead, RER 1 - .10/.25 = .6.
+    assert protocol["strongest_sft"] == "a3-5e-5"
     assert {e["run_id"] for e in protocol["pool"]} == {
-        "w", *C400, "a1-5e-5", "a1-1e-4", "a5-5e-5", I_STAR, "sfte-1e-5", "sfte-5e-5",
-        "sfte-1e-4", "sftt-5e-5", "sftt-1e-4"}
-    assert protocol["values"]["delta_vs_strongest_sft"] == pytest.approx(0.2)
-    assert protocol["values"]["relative_error_reduction"] == pytest.approx(2 / 3)
-    # Robust pool adds LIM-T .80 and A3* .75: LIM-T is strongest; +.10, RER .5.
+        "w", *C400, "a1-5e-5", "a1-1e-4", "a3-5e-5", "a5-5e-5", I_STAR, "sfte-1e-5",
+        "sfte-5e-5", "sfte-1e-4", "sftt-5e-5", "sftt-1e-4"}
+    assert protocol["values"]["delta_vs_strongest_sft"] == pytest.approx(0.15)
+    assert protocol["values"]["relative_error_reduction"] == pytest.approx(0.6)
+    # Robust pool adds LIM-T .80 (A2* is I*, already in): LIM-T is strongest; +.10, RER .5.
     assert robust["strongest_sft"] == "limt"
     assert {e["run_id"] for e in robust["pool"]} - {e["run_id"] for e in protocol["pool"]} == {
-        "limt", "a3-5e-5"}
+        "limt"}
     assert robust["values"]["delta_vs_strongest_sft"] == pytest.approx(0.1)
     assert robust["values"]["relative_error_reduction"] == pytest.approx(0.5)
     # Each class differs on 2 of 20 images; a zero draw needs all 10 classes zero
@@ -318,13 +341,13 @@ def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
     assert json.loads(json.dumps(report, allow_nan=False)) == report
 
 
-def test_pi_failure_stops_before_stage_a():
+def test_pi_forecast_failure_does_not_stop_stage_a():
     document = evidence()
     document["pi"] = p0_doc(I_ADAPTER, [0.5] * 100 + [0.9] * 51 + [0.999] * 249, 4, 112)
     report = evaluate(document)
-    assert report["failed_at"] == "PI"
-    assert report["gates"]["GA"]["status"] == "not_evaluated"
-    assert "GA" in report["evidence_after_stop"]
+    assert report["gates"]["PI"]["forecast_pass"] is False
+    assert report["failed_at"] is None and report["awaiting"] == "G6"
+    assert report["gates"]["GA"]["status"] == "evaluated" and report["gates"]["GA"]["pass"]
 
 
 def gate_a_after(change):
@@ -352,7 +375,8 @@ def test_gate_a_uses_the_bonferroni_quantile_not_0_10():
     # Winner: C0, C1 at (5, 0), the rest as C*: total 46 = .46, mean +.06.
     # Class C0 / C1 deltas (+.8, -.2): resampled class means -.2, +.3, +.8 w.p. 1/4, 1/2,
     # 1/4. The overall draw (sum / 10) is -.04 w.p. 1/16 = .0625 and +.01 w.p. 1/4.
-    # So the .05/6 = .0083 quantile is -.04 (fails) while the .10 quantile is +.01.
+    # So the .05/3 = .0167 quantile is -.04 (fails) while the .10 quantile is +.01. With the
+    # small-n rescale (n = 2, sqrt 2) the gated bound is .06 + sqrt(2) x (-.04 - .06).
     c_star = [1, 1, 1, 1, 3, 3, 3, 3] + [2] * 12
     winner = [5, 0, 5, 0, 3, 3, 3, 3] + [2] * 12
 
@@ -362,7 +386,9 @@ def test_gate_a_uses_the_bonferroni_quantile_not_0_10():
     report = gate_a_after(change)
     ga = report["gates"]["GA"]
     assert ga["values"]["winner_minus_c_star"] == pytest.approx(0.06)
-    assert ga["values"]["paired_lb"] == pytest.approx(-0.04)
+    assert ga["values"]["lb_quantile"] == pytest.approx(0.05 / 3)
+    assert ga["values"]["paired_lb_uncorrected"] == pytest.approx(-0.04)
+    assert ga["values"]["paired_lb"] == pytest.approx(0.06 - math.sqrt(2) * 0.1)
     assert [k for k, v in ga["checks"].items() if not v] == ["bonferroni_paired_lb_positive"]
     rows = [{"id": i, "label": label} for i, label in H_SELECT]
     at_10 = compare_repeated_classification(
@@ -471,11 +497,23 @@ def test_g2_delta_and_invalid_conditions():
         find(document, run_id)["splits"]["h_select"]["predictions"] = repeated(
             H_SELECT, spread(60), 5)  # equal to I* (.60): delta 0 is not > 0
     assert not evaluate(document)["gates"]["G2"]["checks"]["h_select_delta_vs_i_star_positive"]
-    document = evidence()
-    # Three invalid images on the top arm vs I*'s 0: over the +2 slack.
-    find(document, "rl100-5e-5")["splits"]["h_select"]["predictions"] = repeated(
-        H_SELECT, spread(70), 5, invalid=(0, 1, 2))
-    assert not evaluate(document)["gates"]["G2"]["checks"]["invalid_within_i_star_plus_2"]
+    # Slack max(2, 2 sqrt(a + b)) with I* at b = 0: four invalid -> slack 2 x 2 = 4, passes
+    # at the boundary; five -> 2 sqrt 5 = 4.47 < 5, fails.
+    for images, ok in (((0, 1, 2, 3), True), ((0, 1, 2, 3, 4), False)):
+        document = evidence()
+        find(document, "rl100-5e-5")["splits"]["h_select"]["predictions"] = repeated(
+            H_SELECT, spread(70), 5, invalid=images)
+        g2 = evaluate(document)["gates"]["G2"]
+        assert g2["values"]["invalid"] == len(images) and g2["values"]["i_star_invalid"] == 0
+        assert g2["values"]["invalid_slack"] == pytest.approx(max(2, 2 * math.sqrt(len(images))))
+        assert g2["checks"]["invalid_within_i_star_plus_slack"] is ok
+
+
+def test_g2_invalid_slack_is_two_poisson_sds_of_the_difference():
+    slack = GATES["invalid_slack"]
+    assert slack(0, 0) == 2  # floor
+    assert slack(50, 50) == pytest.approx(20.0)  # 2 x sqrt(100)
+    assert slack(1, 0) == 2  # 2 x 1 = 2
 
 
 def test_g3a_requires_five_points_over_sft_e():
@@ -489,17 +527,28 @@ def test_g3a_requires_five_points_over_sft_e():
         "rl_minus_sft_e_at_least_0_05"]
 
 
-def test_g3b_requires_five_points_over_sft_t_and_lim_t_does_not_gate():
+def test_g3b_requires_five_points_over_sft_t():
     document = evidence()
     # SFT-T* H-gate 132/180: RL* 140/180 - 132/180 = 8/180 = .044 < .05.
     find(document, "sftt-5e-5")["splits"]["h_gate"]["predictions"] = repeated(
         H_GATE, spread(132), 9)
-    # LIM-T equal to RL* on H-gate is reported only.
-    find(document, "limt")["splits"]["h_gate"]["predictions"] = repeated(H_GATE, spread(140), 9)
     report = evaluate(document)
     assert report["failed_at"] == "G3b"
     assert report["gates"]["G3b"]["values"]["rl_minus_sft_t"] == pytest.approx(8 / 180)
-    assert report["gates"]["G3b"]["lim_t"]["rl_minus_lim_t"] == 0
+    assert [k for k, v in report["gates"]["G3b"]["checks"].items() if not v] == [
+        "rl_minus_sft_t_at_least_margin"]
+
+
+def test_g3b_gates_on_lim_t_too():
+    document = evidence()
+    # LIM-T H-gate 132/180: RL* - LIM-T = 8/180 = .044 < .05 (amendment 1: it gates).
+    find(document, "limt")["splits"]["h_gate"]["predictions"] = repeated(H_GATE, spread(132), 9)
+    report = evaluate(document)
+    assert report["failed_at"] == "G3b"
+    assert report["gates"]["G3b"]["lim_t"]["rl_minus_lim_t"] == pytest.approx(8 / 180)
+    assert [k for k, v in report["gates"]["G3b"]["checks"].items() if not v] == [
+        "rl_minus_lim_t_at_least_margin"]
+    assert report["gates"]["G4"]["status"] == "not_evaluated"
 
 
 def test_g4_fails_on_the_robust_verdict_alone():
@@ -526,12 +575,14 @@ def test_g4_pool_carries_stage_a_ce_endpoints():
 
 def test_g5_pool_includes_i_star_and_every_seed_must_be_positive():
     document = evidence()
+    find(document, "a3-5e-5")["splits"]["val"]["predictions"] = greedy(13)  # A3* to .65
     for seed in (314,):
         for lr in (5e-5, 1e-4):
             for arm in ("sfte", "sftt"):
                 find(document, f"{arm}-{lr}-{seed}")["splits"]["val"]["predictions"] = greedy(13)
+        find(document, f"limt-{seed}")["splits"]["val"]["predictions"] = greedy(13)
     g5 = evaluate(document)["gates"]["G5"]
-    assert g5["seeds"]["314"]["strongest_sft"] == I_STAR  # I* .70 > SFT .65
+    assert g5["seeds"]["314"]["strongest_sft"] == I_STAR  # I* .70 > every other .65
     assert g5["deltas"]["314"] == pytest.approx(0.15)
     document = evidence()
     for lr in (5e-5, 1e-4):
@@ -541,6 +592,67 @@ def test_g5_pool_includes_i_star_and_every_seed_must_be_positive():
     assert report["failed_at"] == "G5"
     assert report["gates"]["G5"]["deltas"]["2718"] == pytest.approx(0.0)
     assert not report["gates"]["G5"]["checks"]["every_seed_delta_positive"]
+
+
+def test_g5_uses_the_robust_pool_per_seed():
+    # Seed 314's own LIM-T at .85 equals RL; seed-independent A3* (.75) and seed-42 robust
+    # members stay in the pool. Delta 0 at seed 314 fails the replication.
+    document = evidence()
+    find(document, "limt-314")["splits"]["val"]["predictions"] = greedy(17)
+    report = evaluate(document)
+    g5 = report["gates"]["G5"]
+    assert g5["seeds"]["314"]["strongest_sft"] == "limt-314"
+    assert g5["deltas"]["314"] == pytest.approx(0.0)
+    assert report["failed_at"] == "G5"
+    pool = {item["run_id"] for item in g5["seeds"]["2718"]["pool"]}
+    assert {"a3-5e-5", I_STAR, "w", "limt-2718"} <= pool
+    assert not pool & {"limt", "sfte-5e-5", "sftt-5e-5", "limt-314"}
+    document = evidence()
+    document["endpoints"] = [e for e in document["endpoints"] if e["run_id"] != "limt-2718"]
+    with pytest.raises(ValueError, match="LIM-T at seed 2718"):
+        evaluate(document)
+
+
+def test_small_n_correction_rescales_about_the_mean_and_flips_a_marginal_bound():
+    # Unit: n = 2 -> scale sqrt 2; mean .10, plain bound .02 -> .10 - sqrt 2 x .08.
+    rows = [{"id": i, "label": label} for i, label in H_SELECT]
+    comparison = {"mean_class_accuracy_difference": 0.10, "uncertainty": {"lower_bound": 0.02}}
+    corrected, plain, scale = small_n_lower_bound(comparison, rows)
+    assert (plain, scale) == (0.02, math.sqrt(2))
+    assert corrected == pytest.approx(0.10 - math.sqrt(2) * 0.08)  # -.0131
+    with pytest.raises(ValueError, match="same n"):
+        small_n_lower_bound(comparison, rows[:-1])
+    # Gate A forced fire. Per image correct counts (classes C0..C9, two images each):
+    # C* (A1*): C0 (0, 3), C1-C3 (2, 2), C4 (3, 2), C5-C9 (2, 2): 40 = .40.
+    # Winner A2*: C0 (5, 0), C1-C3 (3, 3), C4 (4, 3), C5-C9 as C*: 50 = .50.
+    # Deltas: C0 (+1, -.6), C1-C4 both +.2, C5-C9 0; mean (.2 + 4 x .2) / 10 = .10 >= .03.
+    # C0's resampled mean is -.6 with probability 1/4 > .0167, so the plain bound is
+    # (-.6 + .8) / 10 = .02 > 0, and the corrected one .10 + sqrt 2 (.02 - .10) < 0.
+    c_star = [0, 3] + [2] * 6 + [3, 2] + [2] * 10
+    winner = [5, 0] + [3] * 6 + [4, 3] + [2] * 10
+
+    def change(d):
+        find(d, "a1-5e-5")["splits"]["h_select"]["predictions"] = repeated(H_SELECT, c_star, 5)
+        find(d, I_STAR)["splits"]["h_select"]["predictions"] = repeated(H_SELECT, winner, 5)
+    report = gate_a_after(change)
+    ga = report["gates"]["GA"]
+    assert ga["values"]["winner_minus_c_star"] == pytest.approx(0.10)
+    assert ga["values"]["paired_lb_uncorrected"] == pytest.approx(0.02)
+    assert ga["values"]["paired_lb"] == pytest.approx(0.10 - math.sqrt(2) * 0.08)
+    assert [k for k, v in ga["checks"].items() if not v] == ["bonferroni_paired_lb_positive"]
+
+
+def test_c_star_may_be_a3_and_a3_never_wins_gate_a():
+    # A3* at .70 beats A2* (.60): A3 is a comparator, so it becomes C* and Gate A fails;
+    # the winner is still A2*, and A3* becomes I* (H-select best of A1*/A2*/A3*).
+    def change(d):
+        find(d, "a3-5e-5")["splits"]["h_select"]["predictions"] = repeated(
+            H_SELECT, spread(70), 5)
+    ga = gate_a_after(change)["gates"]["GA"]
+    assert (ga["c_star"], ga["winner"], ga["winner_arm"], ga["i_star"]) == (
+        "a3-5e-5", I_STAR, "A2", "a3-5e-5")
+    assert ga["values"]["winner_minus_c_star"] == pytest.approx(-0.1)
+    assert not ga["pass"]
 
 
 def test_refusals_for_identities_the_evaluator_pins():
