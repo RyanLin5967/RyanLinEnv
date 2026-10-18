@@ -381,3 +381,8 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 - Closed unmerged (branches kept): #20 and #23 (duplicates from agents that died; superseded by reviewed #25 and #27); #19 contingency draft (fresh verification found unresolved blocking issues; superseded by PR #26 and the exploratory sweep PR #29).
 - 27B MLX baseline run 2 paused permanently on the Mac after full invocations 1-3 (37.5 GB wired memory lagged Ryan's Mac). Replacement: v2 plan on UWaterloo big-RAM CPU hosts (PR #28), a different engine identity; v1 run-2 partial results are not merged with v2.
 - Heavy compute moved to UWaterloo Engineering hosts via uwrun (Ryan's order). Exploratory sweeps there use TRAIN-derived holdouts only; native VAL and sealed TEST are untouched until a recipe is pre-registered.
+
+## D32 — Harbor dogfood reproduced on a free GitHub runner (run 39126983510, 2026-10-18)
+- Workflow from PR #25, dispatched on main against plan sha256 62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901 (the local v4 PASS plan). Every step succeeded; ci-criteria.json reports C1-C4 all pass, missing_criteria [], driver_error null, native VAL and TEST unused.
+- C2 delta L2 0.0104217 matches local v4 (0.01042); 112 changed tensors. Final adapter sha 2a4964bd... differs from local ee0e7d0f... (x86 runner vs aarch64 Colima; floating-point order differs). C3 verifier hash equals the RL adapter hash in the same run, which is the criterion.
+- Evidence downloaded to runs/harbor-ci-dogfood-39126983510/ (local, ignored). Integration only: not learning, not held-out, not an RL-vs-SFT result. The real-pretrained Harbor dogfood requirement now holds locally (v4) and on CI.
