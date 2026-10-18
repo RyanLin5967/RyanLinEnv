@@ -34,7 +34,12 @@ pick_root() {
 }
 ROOT=$(pick_root); mkdir -p "$ROOT"; echo "ROOT=$ROOT host=$HOST"
 exec 9>"$ROOT/.bootstrap.lock"; flock -n 9 || { echo "REFUSE: another bootstrap holds $ROOT" >&2; exit 4; }
-grep -q -w avx2 /proc/cpuinfo || { echo "REFUSE: $HOST has no AVX2" >&2; exit 5; }
+# No-AVX2 hosts only on explicit opt-in (coordinator 2026-10-18: the trainer ran on iccad3 without
+# SIGILL; numerics check against an AVX2 host pending, so such results are tagged until it passes).
+if ! grep -q -w avx2 /proc/cpuinfo; then
+  [ "${ALLOW_NO_AVX2:-0}" = 1 ] || { echo "REFUSE: $HOST has no AVX2" >&2; exit 5; }
+  echo "WARNING-TAG: $HOST has no AVX2 (ALLOW_NO_AVX2=1): numerics pending"
+fi
 SWEEP=$(dirname "$ROOT")/r226lin-rlesweep
 if [ -f "$SWEEP/RECEIPT.json" ]; then
   if [ ! -d "$ROOT/venv" ] && "$SWEEP/venv/bin/python" -c 'import torch,trl,transformers,peft' 2>/dev/null; then
