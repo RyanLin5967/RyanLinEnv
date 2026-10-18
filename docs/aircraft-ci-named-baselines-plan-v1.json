@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-ci-named-baselines-v1",
+  "status": "PRE_REGISTERED_UNACTIVATED",
+  "activated": false,
+  "activation": null,
+  "created_date": "2026-10-18",
+  "author_agent": "claude (workflow subagent, branch named-baseline-ci-shards.noindex)",
+  "must_not_run_until": [
+    "Root review approves this plan and commits an activated copy (activated true, activation.activated_at, activation.approved_by) before the first dispatch; the runner refuses anything else and every job requires that copy's SHA256 as a workflow input.",
+    "Discovery for a model runs, merges and its merged report is committed (path in stages.full.discovery_report) before that model's full stage is dispatched; full refuses otherwise."
+  ],
+  "scope": "Additional named open-weight comparators on FGVC-Aircraft 2013b native VALIDATION only, on free GitHub-hosted ubuntu-24.04 runners (4 vCPU, 16 GB RAM, CPU only). No TEST image is listed, downloaded, decoded or predicted: only IDs from the committed native-VAL manifest are ever fetched. No training, no hosted model APIs, no paid runners.",
+  "relation_to_other_plans": "Separate from docs/aircraft-named-baseline-plan-v1.json (Qwen3.8-27B-8bit on the Mac GPU), which is unchanged. This plan reuses its inputs block, discovery sample and stage manifests verbatim and its stage_inputs function in code.",
+  "execution": {
+    "workflow": ".github/workflows/aircraft-named-baseline-ci.yml (workflow_dispatch only)",
+    "runner": "scripts/aircraft_ci_named_baseline.py",
+    "shard_bookkeeping": "src/vision_rl/ci_shards.py",
+    "runs_on": "ubuntu-24.04",
+    "cpu_threads": 4,
+    "device": "cpu",
+    "max_parallel_shards": 20,
+    "job_timeout_minutes": 345,
+    "shard_wall_seconds": 19800,
+    "load_deadline_seconds": 1800,
+    "image_seconds": 600,
+    "image_seconds_note": "Per-image hard deadline (the evaluator's _deadline guard). It is a wall guard only; it never changes decoding. 600 s replaces the evaluator's 120 s MPS value because CPU generation is slower (unmeasured until discovery).",
+    "rule_new_image": "A shard starts an image only if its elapsed seconds + image_seconds <= shard_wall_seconds; otherwise it stops partial and the merge refuses.",
+    "dispatch_policy": "Every dispatch of every (model, stage) is reported, with its run ID. All shard records merged together must share one run_id and one run_attempt, so re-running only failed shards is refused (no shard-level cherry-picking). At most two complete-stage dispatches per (model, stage); the first one whose merge succeeds is the result and later ones are not run. Decoding is greedy, so a re-dispatch cannot sample a more favourable answer.",
+    "inputs_in_ci": "docs/aircraft-ci-named-baseline-v1/inputs/fgvc-aircraft-2013b holds byte-identical committed copies of the three pinned inputs (SHA256 in inputs). The workflow copies them to data/fgvc-aircraft-2013b and downloads only the stage's native-VAL JPEGs from the pinned mirror, each checked against encoded_sha256 before use; stage_inputs then rehashes every pinned input and JPEG.",
+    "full_safety_factor": 1.5
+  },
+  "image_source": {
+    "mirror_repo": "Shiym/ViT-FineTune",
+    "mirror_revision": "16c6368266640c62cafa0cd59b9abb01291b7072",
+    "url_template": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/{id}.jpg",
+    "url_evidence": "Same mirror and revision as data/fgvc-aircraft-2013b/candidates/fourshot-seed791/provenance.json. Spot check 2026-10-18: VAL 0034309 fetched by curl hashed (shasum -a 256) to its encoded_sha256 07a4a1be...",
+    "checked_against": "val-images.json encoded_sha256 and encoded_bytes per image; the evaluator's author-byte clearance established that these bytes equal the author archive"
+  },
+  "models": {
+    "qwen2-vl-2b-instruct": {
+      "order": 1,
+      "repository": "Qwen/Qwen2-VL-2B-Instruct",
+      "revision": "895c3a49bc3fa70a340399125c650a463535e71c",
+      "license": "Apache-2.0",
+      "model_type": "qwen2_vl",
+      "dtype": "float32",
+      "claim_label": "Qwen2-VL-2B-Instruct zero-shot (the untrained base of every controlled400 arm, no adapter), greedy",
+      "why": "Same base weights, dtype and profile as the eight evaluated endpoints with the LoRA removed: it isolates what the 400-image warm start and every later arm added over the pretrained instruct model.",
+      "files_evidence": "sha256: base.file_sha256 of reports/2026-10-17-controlled400-native-val/plan.json (the frozen evaluator plan); bytes: Hugging Face paths-info API at this revision, 2026-10-18 (total 4,429,621,382 equals base.total_bytes)",
+      "files": {
+        "LICENSE": {
+          "bytes": 11343,
+          "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+        },
+        "README.md": {
+          "bytes": 17392,
+          "sha256": "74fbe869df708593087ae2ee66a6605d33fc2025937644721dc1360963d037f4"
+        },
+        "chat_template.json": {
+          "bytes": 1050,
+          "sha256": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96"
+        },
+        "config.json": {
+          "bytes": 1196,
+          "sha256": "422adefa19e62dd175961cec85bc0400344fe5bf9b22bd1182e05aaae78556e0"
+        },
+        "generation_config.json": {
+          "bytes": 272,
+          "sha256": "d2864bf1edea5863d331edfff48106b586a366f5a2c41aa77731fadc53aa25d2"
+        },
+        "merges.txt": {
+          "bytes": 1671839,
+          "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+        },
+        "model-00001-of-00002.safetensors": {
+          "bytes": 3988609112,
+          "sha256": "994ac2b03f97de8bc647d0fe5eba2e4b632b3e28dc03574c29bdfc36cf47e1b9"
+        },
+        "model-00002-of-00002.safetensors": {
+          "bytes": 429441656,
+          "sha256": "92540d8353c8d226a589a3b179bdb33851c970ee2cc2ac7ba035f79425e7b833"
+        },
+        "model.safetensors.index.json": {
+          "bytes": 56411,
+          "sha256": "260ab9fa1418d6d6ab79daa1d9da2c47264f3b72edb4630fc799077ac67d27c6"
+        },
+        "preprocessor_config.json": {
+          "bytes": 347,
+          "sha256": "b5eaad0c2815f07631535dcc58f3c462b0d73693638ad21d19f3c50820eae1cc"
+        },
+        "tokenizer.json": {
+          "bytes": 7029741,
+          "sha256": "cb63a0a23eef3d5b01063a9880a1925a65aaf4d1591d519910ee3527852950a0"
+        },
+        "tokenizer_config.json": {
+          "bytes": 4190,
+          "sha256": "ff5c4fd898fe8c39591eb70e5d39d2782802d4204d6ae9ba1223252f354842a0"
+        },
+        "vocab.json": {
+          "bytes": 2776833,
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        }
+      }
+    },
+    "qwen2.5-vl-3b-instruct": {
+      "order": 2,
+      "repository": "Qwen/Qwen2.5-VL-3B-Instruct",
+      "revision": "66285546d2b821cf421d4f5eb2576359d3770cd3",
+      "license": "Qwen Research License (non-commercial research use); LICENSE file pinned below",
+      "model_type": "qwen2_5_vl",
+      "dtype": "bfloat16",
+      "dtype_note": "The checkpoint's own torch_dtype. FP32 (about 15 GB of weights) does not fit a 16 GB runner, so this is a disclosed difference from the FP32 endpoints.",
+      "claim_label": "Qwen2.5-VL-3B-Instruct zero-shot, BF16 on CPU, greedy",
+      "files_evidence": "Large files: lfs.oid from the Hugging Face paths-info API at this revision, 2026-10-18 (not hashed locally; every CI download is hashed and refused on mismatch). Small files: downloaded by curl at this revision and hashed with Python hashlib on 2026-10-18.",
+      "files": {
+        "LICENSE": {
+          "bytes": 7387,
+          "sha256": "b5c0e5cf74cf51af1ecbc4af597cfcd13fd9925611838884a681070838a14a50"
+        },
+        "README.md": {
+          "bytes": 18276,
+          "sha256": "0b6da5a154b923da4dc66e416140c9b7f235f9b08fbbcc27fd9df7b586e3150d"
+        },
+        "chat_template.json": {
+          "bytes": 1050,
+          "sha256": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96"
+        },
+        "config.json": {
+          "bytes": 1373,
+          "sha256": "7ed3eed5be6924cc800e8a5e53fc405c1aab1aaf36bad65c33403b36c56827f5"
+        },
+        "generation_config.json": {
+          "bytes": 216,
+          "sha256": "533f191cc257b7de37a4fccd0a7a1706d75e1aa660f93efaa54e5a2a9f9aace9"
+        },
+        "merges.txt": {
+          "bytes": 1671839,
+          "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3"
+        },
+        "model-00001-of-00002.safetensors": {
+          "bytes": 3982649232,
+          "sha256": "41a8895c164b4d32bae6b302f4603fcbc1797f32dafa45c7e9bcda23c6755df8"
+        },
+        "model-00002-of-00002.safetensors": {
+          "bytes": 3526688744,
+          "sha256": "365531ff8752420e89dee707b79d021fb2d6e25abafe486f080555a4fe6972e4"
+        },
+        "model.safetensors.index.json": {
+          "bytes": 65448,
+          "sha256": "c7dd78a4c6bea60b51332f1baf37b8f8124ecab2c35395a29a29825bf2619768"
+        },
+        "preprocessor_config.json": {
+          "bytes": 350,
+          "sha256": "f2058c716eef96ccaed1cc1e2d0c08306b62586d535b28d9d08e691b2fab7ca0"
+        },
+        "tokenizer.json": {
+          "bytes": 7031645,
+          "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+        },
+        "tokenizer_config.json": {
+          "bytes": 5702,
+          "sha256": "4abd3520120e266da84c0864fee064d1fb10806f02225911a47253dd38dc5f56"
+        },
+        "vocab.json": {
+          "bytes": 2776833,
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        }
+      }
+    }
+  },
+  "runtime": {
+    "accelerate": "1.15.0",
+    "datasets": "5.1.0",
+    "fsspec": "2026.7.0",
+    "numpy": "2.5.4",
+    "peft": "0.21.2",
+    "pillow": "12.3.0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "transformers": "5.20.0",
+    "trl": "1.16.0"
+  },
+  "runtime_source": "runtime block of the frozen evaluator plan (reports/2026-10-17-controlled400-native-val/plan.json); installed exactly as the ci.yml local-vlm job does (uv sync --extra dev --locked, CPU torch 2.14.1/torchvision 0.29.1, requirements-vlm-local.lock) and checked by vlm_local_task_builder._check_runtime",
+  "profile": {
+    "dtype": "per model (models.<key>.dtype)",
+    "lora_rank": 8,
+    "max_completion_length": 256,
+    "max_pixels": 200704,
+    "max_prompt_tokens": 2048,
+    "min_pixels": 50176,
+    "num_generations": 4,
+    "response_format": "answer_only",
+    "temperature": 1.0
+  },
+  "profile_source": "study.profile of docs/aircraft-native-val-activation-v1/activated-declaration.json (the evaluator's profile). lora_rank, num_generations and temperature are carried only so the shared Profile validates; no adapter is loaded and decoding is greedy.",
+  "generation": {
+    "decoding": "greedy: vlm_local_evaluation._generation_kwargs(profile) = max_new_tokens 256, do_sample False, use_cache True; the same as the eight endpoints",
+    "prediction_code": "vlm_local_evaluation.Backend.predict reused unchanged (native _inputs chat template, untruncated prompt cap, termination = last token in the EOS set)",
+    "seed": "transformers.set_seed(42), as the evaluator Backend",
+    "model_loading": "AutoModelForImageTextToText.from_pretrained(local_files_only, trust_remote_code False, use_safetensors, sdpa), config.model_type must equal models.<key>.model_type; every snapshot file rehashed against models.<key>.files before load"
+  },
+  "prompt_and_parser": {
+    "same_as": "vision_rl.vlm_local_evaluation (eight-endpoint native-VAL evaluator): prompt_text(spec, \"answer_only\") over the complete 100-label vocabulary, parse_label(response, labels, allow_reasoning=True) only for a normally terminated generation",
+    "response_format": "answer_only",
+    "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+    "prompt_sha256_evidence": "Equal to prompt_sha256 in runs/aircraft-native-val-activation-v1/bundle/plan.json and to runs/local-qwen8bit/aircraft-native-instruct-plan/prompt.txt (shasum -a 256, 2026-10-17); recomputed from data_spec by jq with the prompt_text formula.",
+    "output_grammar": "canonical-label-v2/optional-tags",
+    "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca",
+    "parser_source_sha256_evidence": "sha256 of the parse_label source text in the evaluator frozen copy (runs/aircraft-native-val-activation-v1/frozen/src) and on main c966df4 (identical), equal to parser_source_sha256 in the native-instruct probe plan.",
+    "terminated_rule": "finish_reason == \"stop\"; otherwise the answer is None (invalid, counted wrong)",
+    "no_repair": "Raw generated text is retained; no answer repair, fuzzy matching or retry."
+  },
+  "inputs": {
+    "dataset_root": "data/fgvc-aircraft-2013b",
+    "val_images": {
+      "path": "audit/val-images.json",
+      "sha256": "046320db26084151ad73f138f75ce9e655f356257780b130815edd5a83561420"
+    },
+    "validation": {
+      "path": "development/validation.jsonl",
+      "sha256": "27d5cd01bd7e8e007211623ac2186f94ecb308afa4a02745ce39c92fb504b9cb"
+    },
+    "data_spec": {
+      "path": "candidates/fourshot-seed791/data_spec.json",
+      "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a"
+    },
+    "image_preprocessing": "fgvc-aircraft-rgb-remove-bottom20-v1 (shared aircraft_data transform; original JPEG, RGB, bottom 20 rows removed, no box crop, no external resize, no EXIF transposition); run_local rehashes model-visible pixels before each image",
+    "hash_instrument": "shasum -a 256 on the main checkout, 2026-10-17"
+  },
+  "stages": {
+    "discovery": {
+      "order": 1,
+      "definition": "strong_baseline.validation_discovery of docs/aircraft-rl-protocol-freshpool-v1.json",
+      "selection": "Within each of the 100 classes, the native-VAL ID with the lowest SHA256 of compact JSON [\"fgvc-aircraft-2013b\",\"fgvc-aircraft-freshpool-screened-grpo-v1\",\"baseline-discovery\",791,label,id] (salt pinned by decision D13); evaluated in author order. Metadata only; no image or model output consulted.",
+      "images": 100,
+      "ids": [
+        "0067396",
+        "0091362",
+        "0092976",
+        "0097108",
+        "0098072",
+        "0118429",
+        "0136167",
+        "0182724",
+        "0195002",
+        "0295861",
+        "0302868",
+        "0368821",
+        "0388910",
+        "0447773",
+        "0458784",
+        "0491938",
+        "0558247",
+        "0591254",
+        "0598742",
+        "0692142",
+        "0699595",
+        "0722894",
+        "0730793",
+        "0737639",
+        "0842400",
+        "0851614",
+        "0858585",
+        "0875351",
+        "0890355",
+        "0903124",
+        "0907752",
+        "0917396",
+        "0927430",
+        "0950326",
+        "0962633",
+        "0973103",
+        "0977265",
+        "1018862",
+        "1026133",
+        "1027348",
+        "1031522",
+        "1042843",
+        "1047792",
+        "1053984",
+        "1094917",
+        "1097303",
+        "1110803",
+        "1119082",
+        "1131594",
+        "1149050",
+        "1152495",
+        "1157334",
+        "1161864",
+        "1164553",
+        "1168016",
+        "1168209",
+        "1170152",
+        "1193564",
+        "1231212",
+        "1246392",
+        "1269238",
+        "1288661",
+        "1294506",
+        "1334472",
+        "1345202",
+        "1351207",
+        "1365711",
+        "1372373",
+        "1389713",
+        "1391858",
+        "1393629",
+        "1510899",
+        "1555557",
+        "1570201",
+        "1584007",
+        "1594799",
+        "1602047",
+        "1605065",
+        "1608837",
+        "1691790",
+        "1783696",
+        "1795992",
+        "1816331",
+        "1838250",
+        "1839351",
+        "1861128",
+        "1879799",
+        "1895885",
+        "1898332",
+        "1980084",
+        "2015169",
+        "2091953",
+        "2103000",
+        "2115048",
+        "2127863",
+        "2137099",
+        "2179973",
+        "2190106",
+        "2226295",
+        "2227920"
+      ],
+      "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
+      "shards": 4,
+      "uncertainty": {
+        "method": "Hoeffding, 100 bounded outcomes, clipped to [0,1]",
+        "confidence_level": 0.95,
+        "half_width": 0.13581015157406195
+      },
+      "role": "Cost and validity diagnostic, never a benchmark score. It sizes the full stage."
+    },
+    "full": {
+      "order": 2,
+      "images": 3333,
+      "ids_sha256": "c33a8794a287122d2237f0906996fd1988f7f16604ecf887786229b398cef0cd",
+      "discovery_report": "reports/aircraft-ci-named-baselines-v1/{model}/discovery-merged.json",
+      "gate": {
+        "requires": "the committed discovery report merged all 4 shards with zero refusals (merge_shard_records), which means 100 completed outcomes and no unknown or generation-error outcome",
+        "overhead_seconds": "max over discovery shards of (shard elapsed seconds - summed image latencies): download, hashing and model load",
+        "shards_rule": "ci_shards.full_shard_count(3333, mean_latency = discovery mean image latency, overhead, shard_wall_seconds 19800, image_seconds 600, safety_factor 1.5)",
+        "max_latency_rule": "stop if the largest discovery image latency exceeds image_seconds / 2 (300 s)",
+        "on_stop": "Report this model as incomplete. Profile, prompt, budget and sample stay fixed; any change is a new plan version.",
+        "validity": "Not gated: invalid answers are part of the zero-shot baseline and count as wrong. This deviates from the 27B plan's 0.9 floor, which existed to protect GPU time; CI time costs nothing here."
+      },
+      "shards": "derived by the gate; the full workflow input must equal it, and run-shard and merge both recompute it from the committed discovery report"
+    }
+  },
+  "analysis": {
+    "metric": "mean(diag(row_normalized_confusion)) via vision_rl.classification_comparison (_inputs/_score), micro accuracy supplemental; invalid, unterminated and missing answers stay in their class denominators",
+    "canonical_rule": "canonical_label = parse_label(response, labels, allow_reasoning=True) if status completed and terminated else None; the merge re-parses every response and refuses any stored label that differs",
+    "comparisons": "compare_classification(gold, endpoint, baseline, labels, resamples 20000, seed 2718) for each endpoint, so delta = endpoint minus named baseline; stratified-image and class-cluster bootstrap as implemented there",
+    "endpoints": {
+      "common": "W, warm SFT initialization",
+      "rl-exposure": "RL400",
+      "sft-1e5-time": "strongest declared SFT (comparison.json strongest_declared_sft)"
+    },
+    "endpoint_predictions": {
+      "path": "reports/2026-10-18-ci-named-baseline-endpoints/endpoint-predictions.json",
+      "sha256": "81b73adb8f3c4f41c38e84017c4db0b2d55584a1b4f4b09de64fb664b00ce155",
+      "evidence": "Extracted 2026-10-18 by plain Python (no vision_rl import) from runs/aircraft-native-val-activation-v1/bundle/arms/<arm>/predictions.jsonl outcome events (result.canonical_label). Each journal's SHA256 equals prediction_journal_sha256 in reports/2026-10-17-controlled400-native-val/comparison.json, and the recomputed macro accuracy equals that file's value for all three arms (difference < 1e-12)."
+    },
+    "claim_limits": "Development (VAL) comparison only. VAL is the selection set for the strongest-SFT choice. A named baseline claim requires all 3,333 predictions merged with zero refusals. Pretraining contamination of public FGVC images is not excluded. TEST stays sealed."
+  },
+  "comparison": {
+    "resamples": 20000,
+    "seed": 2718
+  },
+  "deviations": [
+    "CPU instead of MPS, 4 torch threads instead of 2: numerics can differ from the endpoints' MPS runs at the last bit; disclosed, not equalised.",
+    "Qwen2.5-VL-3B runs in BF16 (its checkpoint dtype) because FP32 does not fit a 16 GB runner.",
+    "Per-image deadline 600 s instead of 120 s (CPU speed); it is a guard, not a decoding change.",
+    "No validity floor in the discovery gate (see stages.full.gate.validity)."
+  ]
+}

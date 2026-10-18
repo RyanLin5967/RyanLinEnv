@@ -1,0 +1,175 @@
+name: Aircraft named baselines on native VAL (CPU shards)
+run-name: named-baseline ${{ inputs.model }} ${{ inputs.stage }} x${{ inputs.shards }}
+# Pre-registered by docs/aircraft-ci-named-baselines-plan-v1.json. Every job refuses the
+# committed (unactivated) plan; a dispatch needs a committed activated copy and its SHA256.
+on:
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: Committed ACTIVATED plan copy (repository path)
+        type: string
+        required: true
+      plan_sha256:
+        description: SHA256 of that activated plan file
+        type: string
+        required: true
+      model:
+        description: Pre-registered model key
+        type: choice
+        options:
+          - qwen2-vl-2b-instruct
+          - qwen2.5-vl-3b-instruct
+      stage:
+        description: discovery (4 shards) first; full only after its discovery report is committed
+        type: choice
+        options:
+          - discovery
+          - full
+      shards:
+        description: Shard count; must equal the plan (discovery 4) or the committed discovery gate
+        type: number
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: named-baseline-${{ inputs.model }}-${{ inputs.stage }}
+  cancel-in-progress: false
+env:
+  PLAN: ${{ inputs.plan }}
+  PLAN_SHA256: ${{ inputs.plan_sha256 }}
+  MODEL: ${{ inputs.model }}
+  STAGE: ${{ inputs.stage }}
+  SHARDS: ${{ inputs.shards }}
+  MODEL_DIR: runs/aircraft-ci-named-baseline/model
+  IMAGES_DIR: data/fgvc-aircraft-2013b/development/images/validation
+jobs:
+  prepare:
+    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free runner disk for the model snapshot and its cache archive
+        run: timeout 600 sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Refuse an unactivated plan or a shard count the plan does not fix
+        id: matrix
+        run: |
+          matrix="$(python3 -I scripts/aircraft_ci_named_baseline.py matrix --plan "$PLAN" \
+            --expected-plan-sha256 "$PLAN_SHA256" --model "$MODEL" --stage "$STAGE" \
+            --shards "$SHARDS")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - name: Fetch only this stage's native-VAL JPEGs, each checked against its pinned SHA256
+        run: >-
+          python3 -I scripts/aircraft_ci_named_baseline.py fetch-images --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --stage "$STAGE"
+      - name: Fetch the pinned model snapshot, every file checked against its pinned SHA256
+        run: >-
+          python3 -I scripts/aircraft_ci_named_baseline.py fetch-model --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --model "$MODEL" --model-directory "$MODEL_DIR"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGES_DIR }}
+          key: named-baseline-images-${{ inputs.stage }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.MODEL_DIR }}
+          key: named-baseline-model-${{ inputs.model }}-${{ github.run_id }}-${{ github.run_attempt }}
+  shard:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      OMP_NUM_THREADS: "4"
+      TOKENIZERS_PARALLELISM: "false"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_DATASETS_OFFLINE: "1"
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Free runner disk for the model snapshot and its cache archive
+        run: timeout 600 sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      # The exact install of the ci.yml local-vlm job (the evaluator's pinned CPU stack).
+      - run: uv sync --extra dev --locked
+      - run: uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision==0.29.1
+      - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip check
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGES_DIR }}
+          key: named-baseline-images-${{ inputs.stage }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.MODEL_DIR }}
+          key: named-baseline-model-${{ inputs.model }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Copy the committed pinned inputs to the dataset root (hash-checked again)
+        run: >-
+          .venv/bin/python -I scripts/aircraft_ci_named_baseline.py fetch-images --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --stage "$STAGE"
+      - name: Score this shard once (greedy, frozen evaluator predict, no retries)
+        run: >-
+          .venv/bin/python -I scripts/aircraft_ci_named_baseline.py run-shard --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --model "$MODEL" --stage "$STAGE"
+          --shard "$SHARD" --shards "$SHARDS" --model-directory "$MODEL_DIR"
+          --output runs/aircraft-ci-named-baseline/shards
+      - name: Keep the shard record and journal (also on failure)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: named-baseline-shard-${{ matrix.shard }}
+          path: runs/aircraft-ci-named-baseline/shards/
+          retention-days: 30
+          if-no-files-found: warn
+  merge:
+    needs: [prepare, shard]
+    # Runs even when shards failed, so a gap is an explicit refusal rather than a skip.
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGES_DIR }}
+          key: named-baseline-images-${{ inputs.stage }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Copy the committed pinned inputs to the dataset root (hash-checked again)
+        run: >-
+          .venv/bin/python -I scripts/aircraft_ci_named_baseline.py fetch-images --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --stage "$STAGE"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: named-baseline-shard-*
+          path: runs/aircraft-ci-named-baseline/records
+          merge-multiple: true
+      - name: Merge; refuse unless every image was scored exactly once
+        run: >-
+          .venv/bin/python -I scripts/aircraft_ci_named_baseline.py merge --plan "$PLAN"
+          --expected-plan-sha256 "$PLAN_SHA256" --model "$MODEL" --stage "$STAGE"
+          --shards "$SHARDS" --records runs/aircraft-ci-named-baseline/records
+          --output "runs/aircraft-ci-named-baseline/${{ inputs.model }}/${{ inputs.stage }}-merged.json"
+      - name: Keep the merged report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: named-baseline-merged-${{ inputs.model }}-${{ inputs.stage }}
+          path: runs/aircraft-ci-named-baseline/${{ inputs.model }}/
+          retention-days: 90
+          if-no-files-found: error
