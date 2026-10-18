@@ -4,7 +4,8 @@ Launcher entry ``h_assay:main`` (scripts/freshpool_launch/launch.py, template ``
 Usage, after the phase worker's ``--``:
 
   --run-id ID --split {h_select,h_gate} --manifest H.jsonl --adapter ADAPTER_DIR
-  --fragment F --stage-dir DIR --data-spec SPEC --model-directory MODEL [--device mps]
+  --fragment F --stage-dir DIR --data-spec SPEC --model-directory MODEL
+  [--device mps|cpu|cuda] [--threads N] [--precision-transfer PARENT-to-DTYPE]
   [profile options, default answer-only as study.json fixed_profile]
 
 Completions per image (study.json; scripts/evaluate_freshpool_gates.py COMPLETIONS):
@@ -87,21 +88,29 @@ def read_rows(path):
     return rows
 
 
-def answer(completion, labels):
-    """Exact-EOS canonical scoring, as the GRPO reward: a label only if terminated."""
+def answer(completion, labels, profile=PROFILE):
+    """Exact-EOS canonical scoring, as the GRPO reward: a label only if terminated.
+
+    A legacy profile scores exactly as before; an exploratory response format scores
+    with that format's grammar (vlt._format_kwargs), as its GRPO reward does."""
     if not completion.get("terminated"):
         return None, False
-    return vlt.parse_label(completion.get("response", ""), labels, allow_reasoning=True), True
+    return vlt.parse_answer(completion.get("response", ""), labels, allow_reasoning=True,
+                           **vlt._format_kwargs(profile)), True
 
 
 def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
-          label_trie=None):
+          label_trie=None, threads=None, precision_transfer=None):
     labels = vlt.load_spec(Path(data_spec))["labels"]
     adapter_sha = file_sha256(Path(adapter) / "adapter_model.safetensors")
     answers = {row["id"]: [] for row in rows}
     terminated = total = 0
     common = {"data_spec": Path(data_spec), "model_directory": Path(model_directory),
               "device": device, "profile": profile, "init_adapter": Path(adapter)}
+    if threads is not None:
+        common["threads"] = threads
+    if precision_transfer is not None:
+        common["precision_transfer"] = precision_transfer
     chunks = [rows[i:i + CHUNK] for i in range(0, len(rows), CHUNK)]
     constrained = {} if label_trie is not None else None
     constrained_terminated = 0
@@ -141,6 +150,10 @@ def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device
             initial = record.get("initial_adapter") or {}
             if initial.get("weights_sha256") != adapter_sha:
                 raise RuntimeError("generation ran under a different adapter than assayed")
+            if precision_transfer is not None and (
+                (initial.get("precision_transfer") or {}).get("profile") != precision_transfer
+            ):
+                raise RuntimeError("generation did not record the declared precision transfer")
             expected = 1 if seed is None else profile.num_generations
             for row in chunk:
                 completions = per_row[row["id"]]
@@ -148,7 +161,7 @@ def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device
                     raise RuntimeError(f"{row['id']}: {len(completions)} completions, "
                                        f"expected {expected}")
                 for completion in completions:
-                    value, ended = answer(completion, labels)
+                    value, ended = answer(completion, labels, profile)
                     answers[row["id"]].append(value)
                     terminated += ended
                     total += 1
@@ -175,10 +188,13 @@ def main(argv=None):
     parser.add_argument("--stage-dir", type=Path, required=True)
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=vlt.DEVICES, default="mps")
     parser.add_argument("--training-group", type=int, choices=TRAINING_GROUPS)
     parser.add_argument("--label-trie", type=Path)
     parser.add_argument("--label-trie-sha256")
+    parser.add_argument("--threads", type=int, help="torch intra-op CPU threads (default 2)")
+    parser.add_argument("--precision-transfer", choices=vlt.INFERENCE_PRECISION_TRANSFERS,
+                        help="run the endpoint on another base dtype (recorded per chunk)")
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
@@ -197,7 +213,8 @@ def main(argv=None):
     rows = read_rows(args["manifest"])
     result = assay(rows, args["split"], args["adapter"], args["stage_dir"],
                    data_spec=args["data_spec"], model_directory=args["model_directory"],
-                   device=args["device"], profile=profile, label_trie=trie)
+                   device=args["device"], profile=profile, label_trie=trie,
+                   threads=args["threads"], precision_transfer=args["precision_transfer"])
     fragment = {"run_id": args["run_id"], "split": args["split"],
                 "manifest_sha256": file_sha256(args["manifest"]),
                 "seeds": list(SEEDS[args["split"]]), "completion_order":
