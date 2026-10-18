@@ -171,7 +171,7 @@
         "latency_safety_factor": 3.0,
         "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_fixed_setup_seconds) / max(330, 3.0 x (discovery max_shard_mean_image_latency_seconds + discovery mean_image_fetch_seconds)))). max_shard_mean_image_latency_seconds is the largest of the four discovery shards' mean generation latencies. fixed setup = a shard's setup seconds minus its image-fetch seconds (frozen import, model download and rehash, load); fetch seconds are charged per image because a full shard fetches all its images during setup. The matrix command refuses a smaller N, and refuses a receipt whose timing values are not positive numbers.",
         "on_stop": "Report the named comparator as incomplete. Do not change prompt, decoding, model, sample or comparators to rescue it.",
-        "latency_safety_factor_basis": "Measured runner-to-runner spread on identical free ubuntu-24.04 runners (4 vCPU, 16 GB): plumbing means 113.07 s (run 39105775526) and 297.80 / 297.87 s (runs 39106885360, 39106233184) per image, a 2.63x ratio, with identical responses. 3.0 is above that ratio, so shards sized from an all-fast discovery still fit a slow host: 55 images x (297.8 + 1.1) s + 65 s = 16,503 s, inside the 18,900 s start limit.",
+        "latency_safety_factor_basis": "Measured runner-to-runner spread on identical free ubuntu-24.04 runners (4 vCPU, 16 GB): plumbing means 113.07 s (run 39105775526) and 297.80 / 297.87 s (runs 39106885360, 39106233184) per image, a 2.63x ratio, with identical responses. 3.0 is above that ratio, so shards sized from an all-fast discovery still fit a slow host: budget max(330, 3.0 x (113.07 + 1.1)) = 342.5 s gives floor(18835 / 342.5) = 54 images, and 54 x (297.8 + 1.1) s + 65 s = 16,206 s, inside the 18,900 s start limit.",
         "latency_floor_seconds": 330,
         "latency_floor_basis": "About 1.1x the slowest per-image mean measured on a free runner (297.9 s plus ~1 s fetch), so a discovery on fast hosts never sizes shards below what a slow host needs: 57 images x 298.9 s + 65 s = 17,102 s, inside the 18,900 s start limit.",
         "on_slow_host": "A host slower than the per-image budget (max of 330 s and 3.0x the slowest discovery shard) stops its shard as partial at the start rule; the merge refuses the run, which is reported under runs_policy and never patched. Each shard records host cpu_model and cpu_flags, and the receipt lists each shard's cpu_model and mean latency, so the spread can be attributed. CPU model is deliberately not part of the merge identity: shards of one run land on mixed hosts."
@@ -244,7 +244,7 @@
   "runner": "scripts/aircraft_named_baseline_ci.py (tests: tests/test_aircraft_named_baseline_ci.py, CPU only, no model)",
   "workflow": ".github/workflows/aircraft-named-baseline-ci.yml",
   "measured_cost": {
-    "instrument": "PR plumbing job, artifact named-baseline-plumbing/shard.json, fetched with `gh run download <run> -n named-baseline-plumbing` on 2026-10-18. Three pinned TRAIN images per run, each run on one free ubuntu-24.04 runner (4 vCPU, 16.77 GB MemTotal, ~90 GB free disk); same model, threads (4), generation config (repetition_penalty 1.0) and identical responses in all three runs.",
+    "instrument": "PR plumbing job, artifact named-baseline-plumbing/shard.json, fetched with `gh run download <run> -n named-baseline-plumbing` on 2026-10-18. Three pinned TRAIN images per run, each run on one free ubuntu-24.04 runner (4 vCPU, 16.77 GB MemTotal, ~90 GB free disk); same model, threads (4) and generation config (repetition_penalty 1.0). Runs 1-4 gave identical responses; run 5 (default kernels, AVX-512 bf16 host) changed one; run 6 (pinned cpu_numerics, AVX2, oneDNN off) reproduced the pre-registered canary answers.",
     "runs": [
       {
         "run_id": "39105775526",
@@ -328,6 +328,33 @@
           "DC-8"
         ],
         "note": "Default kernels (before cpu_numerics). Image 0056978 answered differently from every other run; this run led to cpu_numerics."
+      },
+      {
+        "run_id": "39110959125",
+        "head_commit": "0df4cdc82c8812bbf7b796cf67d43cd25a531162",
+        "artifact_run_sha": "718ef819750c309d71023e930fdc1b383a643122",
+        "cpu_model": "AMD EPYC 7763 64-Core Processor",
+        "cpu_flags_note": "no avx512f, avx512_bf16 or amx flags",
+        "cpu_numerics": {
+          "aten_cpu_capability": "AVX2",
+          "mkldnn_enabled": false
+        },
+        "per_image_latency_seconds": [
+          302.0,
+          294.8,
+          295.3
+        ],
+        "setup_seconds": 55.7,
+        "load_seconds": 18.0,
+        "fixed_setup_seconds": 54.2,
+        "image_fetch_seconds": 1.5,
+        "elapsed_seconds": 947.8,
+        "responses": [
+          "DC-8",
+          "Global Express",
+          "DC-8"
+        ],
+        "note": "First run under the pinned kernel path (ATen AVX2, oneDNN off). Canary matched. Latency on this slow AVX2 host is unchanged from default kernels (297.35 s mean vs 297.73-297.87 s)."
       }
     ],
     "run_sha_note": "artifact_run_sha is GITHUB_SHA of the pull_request run, i.e. GitHub's merge commit of the head into main at that time, not the head commit; both are given so the instrument can be re-located.",
@@ -337,7 +364,7 @@
       983
     ],
     "all_terminated": true,
-    "spread": "Under default kernels: ~9.4 s per image on an AMD EPYC 9V45 (AVX-512 bf16), 113.07 s on one host whose CPU was not recorded, and 297.73-297.87 s on three others, one recorded as AMD EPYC 7763 (AVX2, no AVX-512). The 9V45 also changed one answer. Latency under the pinned AVX2 kernel path has not been measured on the 9V45; the latency floor and factor do not depend on it.",
+    "spread": "Under default kernels: ~9.4 s per image on an AMD EPYC 9V45 (AVX-512 bf16), 113.07 s on one host whose CPU was not recorded, and 297.73-297.87 s on three others, one recorded as AMD EPYC 7763 (AVX2, no AVX-512). The 9V45 also changed one answer. Under the pinned AVX2 kernel path, run 39110959125 on an EPYC 7763 took 297.35 s per image with the canary answers. Latency under the pinned path has not been measured on the 9V45 or on the unrecorded 113 s host; the latency floor and factor do not depend on it.",
     "endpoint_export_check": "verify-endpoints in each of these jobs: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
     "projection_unverified": "Three images per run are not a forecast. Full VAL generation is 3333 x 113 s = ~105 runner-hours to 3333 x 298 s = ~276 runner-hours on AVX2-class hosts, free on a public repository. The shard rule (floor 330 s, factor 3.0, fixed setup ~65 s) gives N = ceil(3333 / floor(18835 / 330)) = 59 shards whenever the slowest discovery shard averages under ~109 s, and ceil(3333 / floor(18835 / (3.0 x 298.9))) = 159 if it is slow; both are within the 256 maximum. The binding numbers come from the committed discovery receipt, not from this record."
   }
