@@ -254,3 +254,13 @@ rung 3 (if promoted there, it is recorded as infeasible and not replaced); at ru
 screened run whose scan yields fewer than 600 accepted prompts refuses and is recorded as
 failed. `design_files_sha256` in the JSON twin is updated; the old hashes are kept in its
 `amendments` list.
+
+## Engineering fix (2026-10-18, plan-neutral): constant save_steps across stages
+
+`arm_exec.py` passed `--save-steps` equal to the current stage's stop. The trainer stores
+save_steps in its settings and refuses a resume whose settings differ, so every multi-stop arm
+refused at its second stage (found by the GPU lane: 3 of 3 multi-stop GPU arms). It now passes
+the gcd of the declared stops and any `resume_stop`, which is the same in every stage and still
+saves at every boundary. Nothing about updates, data or schedules changes. The sftall arms
+launched before the fix will refuse their epoch-2 stage; each is continued from its kept
+checkpoint-2329 under the fixed payload, on the same host.

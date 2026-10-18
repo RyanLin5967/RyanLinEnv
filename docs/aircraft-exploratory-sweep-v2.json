@@ -11,6 +11,13 @@
    },
    "what": "screened GRPO-W arms (screen_threshold 0.5, 15 arms) and their controls declare max_steps_total 600 (rung-2 total) instead of 1500",
    "why": "the first screened arm (grpo-W-04, uwrun rlesweep-grpo-W-04-lr1e-6-g16-b0_1-t1_0-s-326254823, iccad13) refused at start: the trainer requires screened max_steps == target_accepted and at least that many UNIQUE scan rows ('screen scan is shorter than target_accepted; it would exhaust S'); s_train has 1424 rows, so 1500 accepted updates are impossible"
+  },
+  {
+   "at": "2026-10-18T18:45Z",
+   "effect": "no update, data, or schedule changes; single-stop rung-1 arms (stops [150]) get the same value as before; rung-1 sftall arms launched under the old payload will refuse their epoch-2 stage and are continued from their kept checkpoint-2329 under the new payload",
+   "kind": "engineering (plan-neutral, not science)",
+   "what": "arm_exec passes --save-steps gcd(declared stops + resume_stop) instead of the current stage's stop",
+   "why": "save_steps is part of the trainer's resume identity; with a per-stage value every multi-stop arm refuses its second stage (rc=2, 'resume must preserve exact model/data/profile/settings'); found by the GPU lane (3/3 multi-stop GPU arms, ecetesla2/4), fix ported from its acdab57; regression test fails on the old code, passes on the new (uwrun rlesweep-savesteps-test2-1792349070)"
   }
  ],
  "base_settings": {
