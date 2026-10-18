@@ -605,13 +605,27 @@ def test_launch_refuses_a_host_whose_device_differs_from_the_arm(tmp_path):
     ampere = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 3070"}
     turing = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 2080 Ti"}
     gpu_arm = {"id": "g", "device": "cuda", "gpu": "rtx3070"}
-    runner.valid_receipt(state(ampere), "h", ["cuda"], gpu_arm)
+    runner.valid_receipt(state(ampere), "h", ["cuda"], gpu_arm)  # listed feature: accepted
+    with pytest.raises(SystemExit, match=r"lacks features \['dapo'\]"):  # only the absent one
+        runner.valid_receipt(state(ampere), "h", ["cuda", "dapo"], gpu_arm)
     for device, match in ((cpu, "declares cuda"), (turing, "declares GPU rtx3070")):
         with pytest.raises(SystemExit, match=match):
             runner.valid_receipt(state(device), "h", ["cuda"], gpu_arm)
     with pytest.raises(SystemExit, match="declares cpu"):
         runner.valid_receipt(state(ampere), "h", [], {"id": "c", "device": "cpu"})
     runner.valid_receipt(state(cpu), "h", [], {"id": "c"})  # a wave-1 arm: cpu by default
+
+
+def test_rft_continuation_accepts_a_round_boundary_past_its_stop_never_short():
+    spec = {"id": "r", "mode": "rft", "stops": [150, 600], "max_steps_total": 1500}
+    past = {"label": "step150", "steps": 163}
+    cont = runner.continuation_spec(spec, {"endpoints": [past]})
+    assert (cont["stops"], cont["resume_stop"]) == ([600], 150)
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(spec, {"endpoints": [dict(past, steps=140)]})
+    sft = dict(spec, mode="sft")  # every other mode: steps must equal the stop
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(sft, {"endpoints": [past]})
 
 
 def test_one_gpu_arm_per_host():

@@ -259,7 +259,9 @@ def valid_receipt(state: dict, host: str, features, spec: dict | None = None) ->
         raise SystemExit(f"REFUSE: {host} has no valid bootstrap receipt (run `receipts`)")
     if r["payload_sha256"] != state.get("payload", {}).get("sha256"):
         raise SystemExit(f"REFUSE: {host} receipt is for another payload")
-    missing = sorted(set(features) | {"exploratory_sweep"} - set(r["features"]))
+    # parenthesised: `a | b - c` is `a | (b - c)`, which listed every declared feature as
+    # missing, so no feature-gated (wave-2) arm could ever launch
+    missing = sorted((set(features) | {"exploratory_sweep"}) - set(r["features"]))
     if missing:
         raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
     if spec is not None:
@@ -351,11 +353,14 @@ def continuation_spec(spec: dict, summary: dict) -> dict:
     Refuses unless the completed `step` endpoints are exactly a proper prefix of the stops."""
     # a continuation keeps the arm's full stop list, so it can itself be continued
     stops = [int(x) for x in spec.get("stops_all") or spec.get("stops") or []]
-    # the stop each endpoint was cut at (label stepN): an RFT endpoint's `steps` can pass its
-    # stop (round-granular boundary); for every other mode label and steps agree
-    done = [int(str(e["label"])[4:]) for e in summary.get("endpoints", [])
-            if str(e.get("label", "")).startswith("step")]
-    if not done or done != stops[:len(done)] or len(done) >= len(stops):
+    # the stop each endpoint was cut at (label stepN). Its `steps` must equal that stop, except
+    # RFT, whose round-granular boundary may pass it (never fall short)
+    ends = [e for e in summary.get("endpoints", []) if str(e.get("label", "")).startswith("step")]
+    done = [int(str(e["label"])[4:]) for e in ends]
+    rft = spec.get("mode") == "rft"
+    reached = all(int(e["steps"]) >= d if rft else int(e["steps"]) == d
+                  for e, d in zip(ends, done))
+    if not reached or not done or done != stops[:len(done)] or len(done) >= len(stops):
         raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
     cont = dict(spec)
     cont.update(stops=stops[len(done):], stops_all=stops, resume_stop=done[-1],
