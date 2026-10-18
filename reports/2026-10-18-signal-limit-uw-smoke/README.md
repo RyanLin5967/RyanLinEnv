@@ -28,3 +28,21 @@ The 2-step resume is byte-identical on CPU FP32 (adapter bytes, screen journal, 
 with completion token IDs, exposure), the beta-0 path leaves no reference trace, and the
 `--remote-cpu` child flag reached every trainer part. `ecetesla1/guards/` holds each process's
 receipt (peak RSS, wall).
+
+## Re-run under uwrun v5 (the package's frozen copy)
+
+`smoke_stage0.sh` at commit `d0688e5ac569facbfa4a4aa9568d67f029df9906`
+(`ecetesla4-uwrun-v5/ARCHIVED_HEAD`), launched with that commit's
+`signal_limit_production/uwrun.frozen` (uwrun v5) on ecetesla4, 16 threads, `--timeout 14400`
+(run `slsmoke-v5-ecetesla4-5`, rc 0, wall 5,123 s). Same scope and data as above.
+
+| Field | Value (`ecetesla4-uwrun-v5/fragment.json`) |
+|---|---|
+| checks at G8 (13) | all true |
+| sampler-teacher max abs log-prob difference | 4.53e-06 |
+| c(G8), 1 accepted update | 443.83 s (ecetesla4 at load 15-20 of 24 threads during the run; 247.68 s on ecetesla1 earlier) |
+
+A first v5 attempt on ecetesla1 (`slsmoke-v5-ecetesla1-4`) ended `DONE rc=124 timedout` at its
+5,400 s bound with 2 of 4 trajectories done: the host ran at load 38-43 on 24 threads (another
+user plus other sessions of this account). The same contention inside the study would stop an arm
+at its 1.25x cap; `min_idle_threads` (16) refuses such a host only when a stage starts.
