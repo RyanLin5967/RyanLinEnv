@@ -561,5 +561,10 @@ def test_h_assay_precision_transfer_must_reach_every_chunk(tmp_path, monkeypatch
     assert h_assay.main(argv + flag) == 0
     assert all(k["precision_transfer"] == "float16-to-float32" for k in seen)
     monkeypatch.setattr(vlt, "predict_train_subset", predict)  # records no transfer
+    fresh = tmp_path / "stage-2"  # the first assay's chunk outputs must not be reused
+    fresh.mkdir()
+    rerun = [str(fresh) if a == str(stage) else
+             str(fresh / "fragment.json") if a == str(stage / "fragment.json") else a
+             for a in argv]
     with pytest.raises(RuntimeError, match="precision transfer"):
-        h_assay.main(argv + flag)
+        h_assay.main(rerun + flag)
