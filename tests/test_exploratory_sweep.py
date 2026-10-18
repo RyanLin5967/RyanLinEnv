@@ -448,3 +448,176 @@ def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, mon
     arms = json.loads(path.read_text())["arms"]
     assert list(arms) == ["s"] and arms["s"]["status"] == "FAILED"
     assert "retired_reason" not in arms["s"]
+
+
+# ---- wave 2 (plan amendment 3): concrete arms reach the trainer with their features ------
+wave2 = load("wave2_arms")
+HIERARCHY_ASSET = ROOT / "src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json"
+
+
+def _fake_root(tmp_path):
+    root = tmp_path / "root"
+    adapter = root / "payload" / "adapters" / "W" / "final_adapter"
+    adapter.mkdir(parents=True)
+    (adapter.parent / "local_training.json").write_text(
+        json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
+    asset = root / "payload/code/src/vision_rl/aircraft_assets" / HIERARCHY_ASSET.name
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(HIERARCHY_ASSET.read_bytes())
+    return root, asset
+
+
+def _trainer_call(local, monkeypatch, argv):
+    """Run the trainer's own CLI on arm_exec's argv; return (function, kwargs) it would call."""
+    seen = []
+    monkeypatch.setattr(local, "train_local", lambda **k: seen.append(("train", k)) or {})
+    monkeypatch.setattr(local, "rft_local", lambda *a, **k: seen.append(("rft", k)) or {})
+    assert argv[:2] == ["-m", "vision_rl.vlm_local_training"]
+    assert local.main(argv[2:]) == 0
+    assert len(seen) == 1
+    return seen[0]
+
+
+def test_wave2_table_is_reproducible_and_every_arm_declares_its_device():
+    assert wave2.OUT.read_bytes() == wave2.render()
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    assert len(arms) == 42
+    for a in arms:
+        assert a["device"] in ("cpu", "cuda") and a["device_class"] in wave2.DEVICES
+        assert (a["device"] == "cuda") == ("cuda" in a["features"]) == ("gpu" in a)
+        assert a["wave"] == 2 and a["id"].startswith("wave2-")
+    rl = [a for a in arms if a["track"] == "rl"]
+    assert {a["updates"] for a in rl} == {150} and {tuple(a["stops"]) for a in rl} == {(150,)}
+    by_id = {a["id"]: a for a in arms}
+    for c in (a for a in arms if a["track"] == "control"):
+        parent = by_id[c["control_of"]]
+        assert (c["device"], c["dtype"], c.get("gpu")) == (
+            parent["device"], parent["dtype"], parent.get("gpu"))
+    used = {a["device_class"] for a in rl}
+    evals = {(a["init"], a["device_class"]) for a in arms if a["mode"] == "eval"}
+    assert evals == {(i, c) for i in ("W", "I") for c in used}  # W/I control per device
+
+
+def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch):
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    checked = 0
+    for a in arms:
+        if a["mode"] == "eval":
+            continue
+        arm = arm_exec.Arm(root, a, tmp_path / "r")
+        argv = arm.trainer_args(tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
+        kind, kw = _trainer_call(local, monkeypatch, argv)
+        assert kw["device"] == a["device"] and kw["profile"].dtype == a["dtype"]
+        assert kw["profile"].response_format == a["response_format"]
+        if a["device"] == "cuda":
+            assert kw["threads"] == 4
+            assert kw["initial_adapter_precision_transfer"] == f"float32-to-{a['dtype']}"
+        if a["mode"] == "rft":
+            assert kind == "rft" and kw["stop_after_steps"] == 150 and kw["max_steps"] == 1500
+            assert (kw["rounds"], kw["prompts_per_round"]) == (400, 32)
+            assert kw["profile"].num_generations == 8 and kw["profile"].temperature == 1.0
+        else:
+            assert kind == "train" and kw["stop_after_steps"] == 150
+        fam = a["family"]
+        if fam in ("wave2-hier", "wave2-fmtpen"):
+            assert kw["label_hierarchy"] == asset.resolve()
+        if fam == "wave2-hier":
+            assert (kw["family_credit"], kw["manufacturer_credit"]) == (0.5, 0.25)
+        if fam == "wave2-fmtpen":
+            assert (kw["family_credit"], kw["invalid_reward"]) == (0.0, -0.5)
+        if fam == "wave2-dapo":
+            assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
+            assert kw["dynamic_sampling_max_draws"] == 4
+        if fam == "wave2-drgrpo":
+            assert kw["grpo_overrides"] == {"loss_type": "dr_grpo", "scale_rewards": "none"}
+        if fam == "wave2-mu2":
+            assert kw["grpo_overrides"] == {"num_iterations": 2}
+        if a["track"] == "control" or fam in ("wave2-closedset", "wave2-cot"):
+            assert "grpo_overrides" not in kw and kw.get("label_hierarchy") is None
+        checked += 1
+    assert checked == 36  # 18 RL arms + 18 controls
+
+
+def test_payload_args_refuse_paths_outside_the_payload(tmp_path):
+    root, _ = _fake_root(tmp_path)
+    arm = arm_exec.Arm(root, {"id": "a"}, tmp_path / "r")
+    (root / "outside.json").write_text("{}")
+    for bad in ("@payload/../outside.json", "@payload/code/missing.json"):
+        with pytest.raises(SystemExit, match="not a file in the payload"):
+            arm.payload_arg(bad)
+    assert arm.payload_arg("--x") == "--x"
+
+
+def _rft_out(tmp_path, rounds, stop_reason="stop_after_steps", epochs=1):
+    out = tmp_path / "root" / "arms" / "a" / "train"
+    (out / "final_adapter").mkdir(parents=True)
+    (out / "final_adapter" / "adapter_model.safetensors").write_bytes(b"w")
+    entries = []
+    for i, (kept, steps) in enumerate(rounds):
+        (out / f"round-{i:02d}").mkdir()
+        (out / f"round-{i:02d}" / "kept.json").write_text(json.dumps({"kept": kept}))
+        entries.append({"round": i, "optimizer_steps": steps})
+    total = sum(s for _, s in rounds)
+    (out / "local_training.json").write_text(json.dumps({
+        "status": "completed", "stop_reason": stop_reason, "optimizer_steps": total,
+        "active_seconds": 12.5, "settings": {"epochs_per_round": epochs},
+        "final_adapter_sha256": arm_exec.sha_file(out / "final_adapter" /
+                                                  "adapter_model.safetensors"),
+        "rounds": entries}))
+    return arm_exec.Arm(tmp_path / "root", {"id": "a", "mode": "rft"}, tmp_path / "r")
+
+
+def test_rft_receipt_lists_one_prompt_per_update_in_round_order(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"], "p2": ["y", "z"]}, 3), ({"p3": ["x"]}, 1)])
+    r = arm.rft_receipt()
+    assert r["committed_prompt_ids"] == ["p1", "p2", "p2", "p3"]
+    assert r["global_step"] == 4 and r["status"] == "boundary_reached"
+    assert r["committed_active_seconds"] == 12.5
+    two = _rft_out(tmp_path / "e", [({"p1": ["x"], "p2": ["y"]}, 3)], "max_steps", epochs=2)
+    got = two.rft_receipt()
+    assert got["committed_prompt_ids"] == ["p1", "p2", "p1"]  # 2 epochs, capped at 3 updates
+    assert got["status"] == "total_budget_exhausted"
+
+
+def test_rft_receipt_refuses_unbound_or_unaccounted_endpoints(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 2)])  # 2 updates, 1 kept example, 1 epoch
+    with pytest.raises(SystemExit, match="do not account"):
+        arm.rft_receipt()
+    arm = _rft_out(tmp_path / "b", [({"p1": ["x"]}, 1)])
+    (arm.out / "final_adapter" / "adapter_model.safetensors").write_bytes(b"changed")
+    with pytest.raises(SystemExit, match="differs from its record"):
+        arm.rft_receipt()
+    arm = _rft_out(tmp_path / "c", [({"p1": ["x"]}, 1)], stop_reason="stop_after_rounds")
+    with pytest.raises(SystemExit, match="RFT stage ended"):
+        arm.rft_receipt()
+
+
+def test_launch_refuses_a_host_whose_device_differs_from_the_arm(tmp_path):
+    def state(device):
+        return {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": {
+            "valid": True, "payload_sha256": "P", "features": ["exploratory_sweep", "cuda"],
+            "device": device}}}}
+
+    cpu = {"kind": "cpu"}
+    ampere = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 3070"}
+    turing = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 2080 Ti"}
+    gpu_arm = {"id": "g", "device": "cuda", "gpu": "rtx3070"}
+    runner.valid_receipt(state(ampere), "h", ["cuda"], gpu_arm)
+    for device, match in ((cpu, "declares cuda"), (turing, "declares GPU rtx3070")):
+        with pytest.raises(SystemExit, match=match):
+            runner.valid_receipt(state(device), "h", ["cuda"], gpu_arm)
+    with pytest.raises(SystemExit, match="declares cpu"):
+        runner.valid_receipt(state(ampere), "h", [], {"id": "c", "device": "cpu"})
+    runner.valid_receipt(state(cpu), "h", [], {"id": "c"})  # a wave-1 arm: cpu by default
+
+
+def test_one_gpu_arm_per_host():
+    hosts = {"h": {"load1": 0.0, "nproc": 72, "cores": 36, "avail_gb": 200.0}}
+    busy = {"arms": {"g": {"host": "h", "status": "RUNNING", "device": "cuda", "threads": 4,
+                           "launched_ts": 0}}}
+    assert runner.capacity(busy, hosts, "h", 4, "cuda") == 0
+    assert runner.capacity(busy, hosts, "h", 4, "cpu") > 0
+    assert runner.capacity({"arms": {}}, hosts, "h", 4, "cuda") > 0
