@@ -288,49 +288,74 @@ checkpoint-2329 under the fixed payload, on the same host.
 
 The wave-2 rows of `arms-rung1.json` name a feature but no trainer arguments, so no runner
 can launch them. Three of the features have now been built and merged (branch
-`sweep-wave2-integration.noindex`): hierarchical partial-credit reward, RFT / expert
-iteration, and the format + DAPO-style GRPO knobs. CUDA training has also been merged
-(bf16 on compute capability ≥ 8.0, fp16 with GradScaler on older GPUs). The concrete arms
-are in a separate table, `aircraft-exploratory-sweep-v2/arms-wave2-rung1.json`, which
+`sweep-wave2-integration.noindex`): RFT / expert iteration, the format and DAPO-style GRPO
+knobs, and an invalid-answer penalty (the hierarchical-reward mechanism with zero credits).
+CUDA training has also been merged. The concrete arms are in a separate table,
+`aircraft-exploratory-sweep-v2/arms-wave2-rung1.json`, which
 `scripts/exploratory_sweep/wave2_arms.py` (`--check`) generates byte-reproducibly. The
 pre-registered `arms-rung1.json` is unchanged, and its abstract `w2-*` rows are never
 launched. The new ids start with `wave2-`, so they cannot collide with those rows.
 
-The rung-1 budget is the plan's: 150 updates, seed 42, declared total 1,500, GRPO-W G 8 at
-LR {5e-6, 1e-5} per family, and RFT at LR {1e-5, 3e-5}. Each arm declares its device
-(`device`, `dtype`, `gpu`, `device_class`).
+**Root RL corrections (binding, 2026-10-18 ~22:30Z).** The table follows
+`runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md` (root checkout; evidence in its
+`audit.md` C2–C7, C12, C17 and `critic.md` M6, M9).
 
-| family | device | trainer arguments |
-|---|---|---|
-| wave2-hier | CPU fp32 | `--label-hierarchy` (TRAIN-only, shipped in the payload), family 0.5, manufacturer 0.25 |
-| wave2-fmtpen | CPU fp32 | the same hierarchy with credits 0/0, `--invalid-reward -0.5` (exact reward minus an invalid-answer penalty) |
-| wave2-closedset | CPU fp32 | response format `closed_set_answer_only` |
-| wave2-drgrpo | CPU fp32 | `--loss-type dr_grpo --scale-rewards none` |
-| wave2-mu2 | CPU fp32 | `--num-iterations 2` |
-| wave2-dapo | RTX 3070 bf16 | `--loss-type dapo --epsilon-high 0.28 --dynamic-sampling-max-draws 4` |
-| wave2-rft | RTX 3070 bf16 | RFT: K 8 at T 1.0, 32 prompts per round, keep 1 correct, 1 epoch, 400 rounds, cap 1,500 updates |
-| wave2-cot | RTX 2080 Ti fp16 | response format `think_answer` (reward on the answer tag) |
-| wave2-closedset-cot | RTX 2080 Ti fp16 | response format `closed_set_think_answer` |
+- **Init.** Every family starts from I, because GRPO-W loses to I by 5–9 pp on dev800.
+- **β and LR.** GRPO uses β 0 and LR {1e-5, 2e-5, 5e-5}. Dr-GRPO also gets 3e-5. One
+  3e-6 plain GRPO-I arm guards against forgetting.
+- **Precision.** GRPO runs only in fp32, on CPU or an RTX 2080 Ti: bf16 failed
+  sampler–teacher parity (0.028 against a 0.02 tolerance), and fp16 has no parity
+  evidence. RFT has no importance ratio and is SFT on the policy's own samples, so it keeps
+  bf16 on the RTX 3070. Each trajectory stays on one device class.
+- **Dropped families.** Hierarchical partial credit is refuted: it gave contrast in 1 of
+  30–50 groups. Both CoT formats are refuted: valid answers fell from 94.9% to 82.8%, and
+  accuracy from 70.7% to 55.5%.
+- **Dynamic sampling.** At least 8 draws.
 
-- **Matched controls.** Every RL arm has its matched SFT control (plan rule). The control
-  runs on the RL arm's own host and device. An RFT arm's examples-matched control replays
-  the prompt of each kept SFT example, one per update, in round order. Within a round the
-  trainer shuffles its examples, so the per-round multiset is exact but the order is canonical.
-- **Device controls.** Assay-only evals of W and of I run on each of the three device
-  classes (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against W/I measured under its
-  own numerics, and each GPU eval against the CPU fp32 eval. A comparison never crosses
-  device classes without them.
+| family | device | trainer arguments | LR |
+|---|---|---|---|
+| wave2-fmtpen | CPU fp32 | exact reward, `--invalid-reward -0.5` (hierarchy file with both credits 0) | {1e-5, 2e-5, 5e-5} |
+| wave2-closedset | CPU fp32 | response format `closed_set_answer_only` | {1e-5, 2e-5, 5e-5} |
+| wave2-drgrpo | CPU fp32 | `--loss-type dr_grpo --scale-rewards none` | {1e-5, 2e-5, 3e-5, 5e-5} |
+| wave2-mu2 | CPU fp32 | `--num-iterations 2` | {1e-5, 2e-5, 5e-5} |
+| wave2-dapo | RTX 2080 Ti fp32 | `--loss-type dapo --epsilon-high 0.28 --dynamic-sampling-max-draws 8` | {1e-5, 2e-5, 5e-5} |
+| wave2-guard | CPU fp32 | plain GRPO-I | 3e-6 |
+| wave2-rft | RTX 3070 bf16 | RFT: K 8 at T 1.0, 32 prompts per round, keep 1 correct, 1 epoch, 400 rounds, cap 1,500 updates | {1e-5, 2e-5, 5e-5} |
+
+All arms use G 8 (RFT: K 8) and the plan's rung-1 budget: 150 updates, seed 42, declared
+total 1,500. Each arm declares its device (`device`, `dtype`, `gpu`, `device_class`).
+The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control evals.
+
+- **Matched controls.** Each RL arm has a matched SFT-from-I control on its own host and
+  device. The control LRs give each family the same number of LRs as its RL arms (C4): the
+  RL arm at the k-th LR of {1e-5, 2e-5, 5e-5} gets its control at the k-th of
+  {5e-6, 1e-5, 2e-5}, so a family's best-of-k compares with its controls' best-of-k at the
+  same k. Dr-GRPO's 3e-5 maps to 2e-5, and the guard's 3e-6 to 5e-6. Promotion keeps each
+  arm's control LR (`matched_control_lr`).
+- **RFT controls.** An RFT arm's examples-matched control replays the prompt of each kept SFT
+  example, one per update, in round order. Within a round the trainer shuffles its examples,
+  so the per-round multiset is exact but the order is canonical.
+- **Device controls.** W and I are each assayed on every device class
+  (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against I measured under its own
+  numerics, and each GPU eval against the CPU fp32 eval.
 - **RFT stops.** An RFT rung stop is round-granular (`--rft-stop-after-steps`). The endpoint
   is published at the first round boundary at or past 150 updates and records its true
   update count. The trajectory does not depend on where it was stopped.
 - **Launch gate.** The runner launches an arm only on a host whose receipt reports the
   arm's device kind and GPU model, with at most one GPU arm per host at a time.
-  `host_verify.FEATURE_FLAGS` now uses the built features' real flags. Response formats are
-  detected from the trainer's `RESPONSE_FORMATS`.
-- **Promotion.** The wave-2 arms rank at rung 1 in the `rl` track together with wave 1,
-  under the plan's late-entrant rule. That ranking mixes device classes. It is read
-  against the device-control offsets (each class's W/I versus CPU fp32). A paired comparison
-  (arm against its matched control, or against W/I) never crosses classes.
-- **Known limit.** With `--num-iterations 1`, DAPO's clip-higher term never binds, because
-  every update is on-policy. The dapo family is therefore effectively token-level loss plus
-  dynamic sampling. wave2-mu2 is the arm where clipping is active.
+  `host_verify.FEATURE_FLAGS` now uses the built features' real flags.
+- **Gate 0.** The corrections forbid launching any new GRPO-I arm until all four Gate-0
+  measurements exist: P0-I headroom, the SFT-from-I curve, dev800 calibration, and the
+  placebo. This table defines the arms; it launches nothing.
+- **Promotion.** Wave-2 arms rank at rung 1 in the `rl` track together with wave 1, under
+  the plan's late-entrant rule. That ranking mixes device classes, so it is read against
+  the device-control offsets. A paired comparison (arm against its matched control, or
+  against I) never crosses device classes.
+- **Not in this table.** The multi-image-update family (M3: P images per optimizer step)
+  needs a trainer feature (`prompts_per_update`) that is not built. The receipt check
+  refuses it until it is.
+- **Known limits.** First, with `--num-iterations 1` DAPO's clip-higher term never binds,
+  because every update is on-policy. The dapo family is therefore effectively token-level
+  loss plus dynamic sampling. wave2-mu2 is the arm where clipping is active. Second, C5
+  requires discarded generation seconds to be charged to RL time; whether the trainer's
+  active-time audit charges them for dynamic sampling is unverified.

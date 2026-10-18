@@ -457,10 +457,11 @@ HIERARCHY_ASSET = ROOT / "scripts/exploratory_sweep/label-hierarchy-train-v1.jso
 
 def _fake_root(tmp_path):
     root = tmp_path / "root"
-    adapter = root / "payload" / "adapters" / "W" / "final_adapter"
-    adapter.mkdir(parents=True)
-    (adapter.parent / "local_training.json").write_text(
-        json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
+    for init in ("W", "I"):
+        adapter = root / "payload" / "adapters" / init / "final_adapter"
+        adapter.mkdir(parents=True)
+        (adapter.parent / "local_training.json").write_text(
+            json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
     asset = root / "payload/code/scripts/exploratory_sweep" / HIERARCHY_ASSET.name
     asset.parent.mkdir(parents=True)
     asset.write_bytes(HIERARCHY_ASSET.read_bytes())
@@ -481,7 +482,9 @@ def _trainer_call(local, monkeypatch, argv):
 def test_wave2_table_is_reproducible_and_every_arm_declares_its_device():
     assert wave2.OUT.read_bytes() == wave2.render()
     arms = json.loads(wave2.OUT.read_text())["arms"]
-    assert len(arms) == 42
+    # 5 GRPO families x 3 LRs + Dr-GRPO's 3e-5 + the 3e-6 guard + RFT x 3 = 20 RL arms,
+    # 20 matched controls, W and I evaluated on each of the 3 device classes = 6
+    assert len(arms) == 46
     for a in arms:
         assert a["device"] in ("cpu", "cuda") and a["device_class"] in wave2.DEVICES
         assert (a["device"] == "cuda") == ("cuda" in a["features"]) == ("gpu" in a)
@@ -496,6 +499,37 @@ def test_wave2_table_is_reproducible_and_every_arm_declares_its_device():
     used = {a["device_class"] for a in rl}
     evals = {(a["init"], a["device_class"]) for a in arms if a["mode"] == "eval"}
     assert evals == {(i, c) for i in ("W", "I") for c in used}  # W/I control per device
+
+
+def test_wave2_table_follows_the_root_rl_corrections():
+    """runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (root checkout), binding 2026-10-18."""
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    trained = [a for a in arms if a["mode"] != "eval"]
+    assert {a["init"] for a in trained} == {"I"}  # GRPO-W loses to I by 5-9 pp
+    fams = {a["family"] for a in arms if a["track"] == "rl"}
+    assert fams == {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo", "wave2-mu2",
+                    "wave2-dapo", "wave2-guard", "wave2-rft"}  # hier and both CoT dropped
+    assert not any("think" in a["response_format"] for a in arms)
+    grpo = [a for a in arms if a["mode"] == "grpo"]
+    assert {a["beta"] for a in grpo} == {0.0}
+    assert {a["dtype"] for a in grpo} == {"float32"}  # GRPO in fp32 only
+    lrs = {}
+    for a in grpo + [a for a in arms if a["mode"] == "rft"]:
+        lrs.setdefault(a["family"], set()).add(a["lr"])
+    main = {1e-5, 2e-5, 5e-5}
+    assert lrs == {"wave2-fmtpen": main, "wave2-closedset": main, "wave2-mu2": main,
+                   "wave2-dapo": main, "wave2-rft": main, "wave2-drgrpo": main | {3e-5},
+                   "wave2-guard": {3e-6}}
+    dapo = [a for a in grpo if a["family"] == "wave2-dapo"]
+    assert all(a["extra_trainer_args"][-2:] == ["--dynamic-sampling-max-draws", "8"]
+               for a in dapo)
+    by_id = {a["id"]: a for a in arms}
+    want = {3e-6: 5e-6, 1e-5: 5e-6, 2e-5: 1e-5, 3e-5: 2e-5, 5e-5: 2e-5}  # same LR count
+    for c in (a for a in arms if a["track"] == "control"):
+        rl = by_id[c["control_of"]]
+        assert c["init"] == "I" and c["mode"] == "sft" and c["lr"] == want[rl["lr"]]
+        # a promoted control (runner.control_for) keeps the same LR
+        assert runner.control_for(rl, {"W": 1e-5, "I": 5e-6})["lr"] == want[rl["lr"]]
 
 
 def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch):
@@ -514,7 +548,8 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         assert kw["profile"].response_format == a["response_format"]
         if a["device"] == "cuda":
             assert kw["threads"] == 4
-            assert kw["initial_adapter_precision_transfer"] == f"float32-to-{a['dtype']}"
+            assert kw["initial_adapter_precision_transfer"] == (
+                None if a["dtype"] == "float32" else f"float32-to-{a['dtype']}")
         if a["mode"] == "rft":
             assert kind == "rft" and kw["stop_after_steps"] == 150 and kw["max_steps"] == 1500
             assert (kw["rounds"], kw["prompts_per_round"]) == (400, 32)
@@ -522,23 +557,22 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         else:
             assert kind == "train" and kw["stop_after_steps"] == 150
         fam = a["family"]
-        if fam in ("wave2-hier", "wave2-fmtpen"):
-            assert kw["label_hierarchy"] == asset.resolve()
-        if fam == "wave2-hier":
-            assert (kw["family_credit"], kw["manufacturer_credit"]) == (0.5, 0.25)
         if fam == "wave2-fmtpen":
+            assert kw["label_hierarchy"] == asset.resolve()
             assert (kw["family_credit"], kw["invalid_reward"]) == (0.0, -0.5)
         if fam == "wave2-dapo":
             assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
-            assert kw["dynamic_sampling_max_draws"] == 4
+            assert kw["dynamic_sampling_max_draws"] == 8
         if fam == "wave2-drgrpo":
             assert kw["grpo_overrides"] == {"loss_type": "dr_grpo", "scale_rewards": "none"}
         if fam == "wave2-mu2":
             assert kw["grpo_overrides"] == {"num_iterations": 2}
-        if a["track"] == "control" or fam in ("wave2-closedset", "wave2-cot"):
+        if a["mode"] == "grpo":
+            assert kw["beta"] == 0.0 and kw["profile"].dtype == "float32"
+        if a["track"] == "control" or fam in ("wave2-closedset", "wave2-guard"):
             assert "grpo_overrides" not in kw and kw.get("label_hierarchy") is None
         checked += 1
-    assert checked == 36  # 18 RL arms + 18 controls
+    assert checked == 40  # 20 RL arms + 20 controls
 
 
 def test_payload_args_refuse_paths_outside_the_payload(tmp_path):
@@ -639,7 +673,7 @@ def test_every_table_arm_builds_its_assay_profile_and_present_keys_pass_unchange
             for k in arm_exec.PROFILE_KEYS:  # the spec's own value, or the default if absent
                 assert getattr(profile, k) == a.get(k, getattr(local.Profile(), k))
             controls += a["track"] == "control"
-    assert controls == 40 + 29 + 18  # wave-1 and pre-registered wave-2 controls, and ours
+    assert controls == 40 + 29 + 20  # wave-1 and pre-registered wave-2 controls, and ours
 
 
 def test_receipt_gpu_matches_whole_model_numbers():

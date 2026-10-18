@@ -547,6 +547,8 @@ def control_for(rl: dict, control_lr: dict) -> dict:
             "rung", "max_steps_total")
     ctl = {k: rl[k] for k in keep if k in rl}
     lr = control_lr.get(rl["init"], 5e-6) if isinstance(rl["init"], str) else 5e-6
+    if rl.get("matched_control_lr"):  # wave 2: each family's controls span its LR count
+        lr = float(rl["matched_control_lr"])
     ctl.update(id=f"{rl['id']}~ctl", track="control", family="control", mode="sft", lr=lr,
                control_of=rl["id"], depends_on=[rl["id"]], same_host_as=rl["id"],
                order="sequential", cycle=True, train_manifest=f"@consumed:{rl['id']}",
