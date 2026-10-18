@@ -26,3 +26,8 @@ dev800 only; never native VAL or sealed TEST.
   Workers run in tmux and continue. NEXT: when reachable -> fetch, raw, commit; then
   `control --of gpu-rtx2080ti-grpo-W-lr1e-05-g8-b0-t1-n --host eceubuntu2` and
   `control --of gpu-rtx3070-grpo-W-lr1e-05-g8-b0-t1-n --host ecetesla2` once those arms are done.
+- 18:30Z SSH back (Mac on hotspot; ~/.ssh/config tunnels via eceterm1; test with `uwrun ssh H true`, not nc).
+- BUG: arm_exec save_steps changed per stage -> every multi-stop arm refused at train-300. Fixed acdab57
+  (gcd of stops); payload-acdab57 re-bootstrapped on all 3 hosts. Arms that STARTED before the fix fail at 300:
+  requeue each with `gpu_lane.py continue --of ARM --host H --resume-stop 150` (done for ecetesla2 03,10;
+  ecetesla4 03; eceubuntu2 03 pre-queued). Watch: ecetesla2 11 and ecetesla4 10 probably started on old code.
