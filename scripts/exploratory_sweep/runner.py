@@ -236,10 +236,32 @@ def drained_stale_hosts(state: dict) -> list:
                   and host not in live and h.get("boot_payload_sha256") != pinned)
 
 
+def continuable_hosts(state: dict) -> set:
+    """Hosts of FAILED arms in CONTINUE_FAMILIES whose summary has a completed step stop."""
+    out = set()
+    for x in state["arms"].values():
+        if x.get("status") != "FAILED" or not x.get("results_dir"):
+            continue
+        try:
+            spec = json.loads(Path(x["spec_path"]).read_text())
+            summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+        except (OSError, ValueError, KeyError):
+            continue
+        if spec.get("family") in CONTINUE_FAMILIES and any(
+                str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+            out.add(x["host"])
+    return out
+
+
 def cmd_refresh(a, state_path: Path) -> int:
     """Bootstrap the pinned payload on every drained host whose receipt is stale."""
     state = read_state(state_path)
     hosts = drained_stale_hosts(state)
+    if not gate0_passed(state):  # amendment 3: leave freed cores to the GATE 0 SFT lane
+        keep = continuable_hosts(state)
+        for host in sorted(set(hosts) - keep):
+            print(f"refresh: skip {host}: no continuable arm there (amendment 3, GATE 0 open)")
+        hosts = [h for h in hosts if h in keep]
     low = low_disk_hosts(host_table(), hosts)
     for host in low:
         print(f"refresh: skip {host}: < {MIN_LOCAL_GB} GB free in /var/tmp")
@@ -362,6 +384,38 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     return name
 
 
+# Plan amendment 3 (2026-10-18, exploratory, before any VAL use; RL lessons audit C8/C11):
+# GRPO-from-W loses to I by 5-9 pp on dev800 and GATE 0 SFT is starved on our own hosts.
+# The 22 running rung-1 arms finish and are recorded as exploratory. New launches are an
+# ALLOWLIST: only grpo-I arms and their matched controls, and only once GATE 0 has passed
+# (state["gate0"]["passed"] is True, written by whoever records GATE 0). `continue` is
+# allowed only for the sftall families. No W-init unit is promoted. Freed cores stay idle
+# for the GATE 0 SFT lane, so `refresh` bootstraps only hosts holding a continuable arm.
+LAUNCH_FAMILIES = {"grpo-I"}
+CONTINUE_FAMILIES = {"sftall-I", "sftall-W"}
+
+
+def gate0_passed(state: dict) -> bool:
+    return (state.get("gate0") or {}).get("passed") is True
+
+
+def launch_hold(state: dict, spec: dict, table_by_id: dict):
+    """None if amendment 3 allows launching `spec` now, else the reason it is held."""
+    family = spec.get("family")
+    if spec.get("track") == "control":
+        family = (table_by_id.get(spec.get("control_of")) or {}).get("family")
+    if family not in LAUNCH_FAMILIES:
+        return f"held (amendment 3): family {family} is not on the launch allowlist"
+    if not gate0_passed(state):
+        return "held (amendment 3): GATE 0 has not passed"
+    return None
+
+
+def is_w_init(arm: dict) -> bool:
+    init = arm.get("init")
+    return init == "W" or (isinstance(init, dict) and str(init.get("arm", "")).find("-W") >= 0)
+
+
 def continuation_spec(spec: dict, summary: dict) -> dict:
     """The rest of a FAILED multi-stop arm, resumed in place from its last completed stop.
 
@@ -388,6 +442,9 @@ def cmd_continue(a, state_path: Path) -> int:
     if x.get("status") != "FAILED":
         raise SystemExit(f"REFUSE: {a.arm} is {x.get('status')}, not FAILED")
     spec = json.loads(Path(x["spec_path"]).read_text())
+    if spec.get("family") not in CONTINUE_FAMILIES:
+        raise SystemExit(f"REFUSE (amendment 3): only {sorted(CONTINUE_FAMILIES)} continue; "
+                         f"{a.arm} is {spec.get('family')}")
     summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
     cont = continuation_spec(spec, summary)
     cont["continued_from_run"] = x["run"]
@@ -447,9 +504,14 @@ def cmd_launch(a, state_path: Path) -> int:
         raise SystemExit("REFUSE: no host has a valid receipt; run bootstrap and receipts")
     launched = 0
     skipped = []
+    by_id = {x["id"]: x for x in table["arms"]}
     for spec in arms:
         if launched >= a.max_launch:
             break
+        held = launch_hold(state, spec, by_id)
+        if held:
+            skipped.append(f"{spec['id']}: {held}")
+            continue
         if spec["track"] == "control":
             try:
                 spec = control_spec(read_state(state_path), spec)
@@ -680,6 +742,9 @@ def cmd_promote(a, state_path: Path) -> int:
     for x in table["arms"]:
         if x["track"] in ("sft", "rl") and x["rung"] == r:
             units.setdefault(x.get("unit", x["id"]), []).append(x)
+    # amendment 3: no W-init unit is promoted (they are recorded, exploratory, not ranked)
+    held_w = sorted(u for u, xs in units.items() if any(is_w_init(x) for x in xs))
+    units = {u: xs for u, xs in units.items() if u not in held_w}
     entered = {u: xs for u, xs in units.items()
                if all(x["id"] in state["arms"] for x in xs)}
     pending = [x["id"] for xs in entered.values() for x in xs
@@ -743,7 +808,7 @@ def cmd_promote(a, state_path: Path) -> int:
             arms += promoted_arms(u, entered[u], track, r, table)
     out = dict(table, rung=r + 1, arms=arms, promoted_from=str(src),
                promotion={t: list(keep[t]) for t in keep}, infeasible=infeasible,
-               created_at=now())
+               held_w_init=held_w, created_at=now())
     path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
     with state_lock(state_path) as st:
         st.setdefault("promotions", {})[key] = {

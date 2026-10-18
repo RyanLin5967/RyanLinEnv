@@ -113,7 +113,8 @@ def make_table(arms):
 
 def base_arm(arm_id, track):
     return {
-        "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "W", "mode": "grpo",
+        "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "I", "mode": "grpo",
+        "family": "grpo-I",
         "lr": 1e-5, "stops": [150], "max_steps_total": 1500, "wave": 1, "num_generations": 8,
         "train_manifest": "s_train_scan_seed42.jsonl", "features": [],
     }
@@ -330,7 +331,7 @@ def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, 
                             "features": ["exploratory_sweep"]}},
         "new": {"receipt": {"valid": True, "payload_sha256": "NEW", "root": "/r",
                             "features": ["exploratory_sweep"]}}},
-        "payload": {"sha256": "NEW"}, "uwrun_runs": []}
+        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True}}
     finish(tmp_path, state, "rl0", 0.5)
     state["arms"]["rl0"]["host"] = "old"
     path = setup(tmp_path, monkeypatch, state)
@@ -422,7 +423,7 @@ def test_a_continuation_can_itself_be_continued():
 
 def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, monkeypatch):
     spec = {"id": "s", "stops": [2329, 4658], "max_steps_total": 4658, "mode": "sft",
-            "features": []}
+            "features": [], "family": "sftall-W"}
     res = tmp_path / "res"
     res.mkdir()
     (res / "summary.json").write_text(json.dumps(
@@ -561,3 +562,66 @@ def test_launch_one_omits_mem_for_an_unmeasured_kind(tmp_path, monkeypatch):
                       False)
     assert "--mem" not in calls[0]
     assert json.loads(path.read_text())["arms"]["e"]["mem_gb"] is None
+
+
+def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
+    table = {"g": {"id": "g", "family": "grpo-I"}, "w": {"id": "w", "family": "grpo-W"}}
+    closed, opened = {}, {"gate0": {"passed": True}}
+    for state in (closed, opened):
+        for spec in ({"id": "w", "family": "grpo-W", "track": "rl"},
+                     {"id": "w~ctl", "family": "control", "track": "control", "control_of": "w"},
+                     {"id": "s", "family": "sft-I", "track": "sft"},
+                     {"id": "x", "family": "sftall-rl", "track": "rl"}):
+            assert "allowlist" in runner.launch_hold(state, spec, table)
+    g = {"id": "g", "family": "grpo-I", "track": "rl"}
+    gc = {"id": "g~ctl", "family": "control", "track": "control", "control_of": "g"}
+    assert "GATE 0" in runner.launch_hold(closed, g, table)
+    assert "GATE 0" in runner.launch_hold({"gate0": {"passed": "yes"}}, gc, table)
+    assert runner.launch_hold(opened, g, table) is None
+    assert runner.launch_hold(opened, gc, table) is None
+
+
+def test_amendment3_promotion_never_ranks_w_init_units(tmp_path, monkeypatch):
+    w = [dict(base_arm(f"w{k}", "rl"), init="W", family="grpo-W") for k in range(3)]
+    i = [base_arm(f"i{k}", "rl") for k in range(3)]
+    state = {"arms": {}, "hosts": {}}
+    for k, arm in enumerate(w):
+        finish(tmp_path, state, arm["id"], 0.90 + k / 100)  # W would win if ranked
+    for k, arm in enumerate(i):
+        finish(tmp_path, state, arm["id"], 0.60 + k / 100)
+    path = setup(tmp_path, monkeypatch, state)
+    (tmp_path / "design" / "arms-rung1.json").write_text(json.dumps(make_table(w + i)))
+
+    class A:
+        from_rung, late, overwrite = 1, False, False
+
+    assert runner.cmd_promote(A, path) == 0
+    out = json.loads((tmp_path / "sweep" / "arms-rung2.json").read_text())
+    assert out["promotion"]["rl"] == ["i2"] and out["held_w_init"] == ["w0", "w1", "w2"]
+    assert not [a for a in out["arms"] if a["id"].startswith("w")]
+
+
+def test_amendment3_continue_only_for_sftall(tmp_path, monkeypatch):
+    (tmp_path / "arm.json").write_text(json.dumps({"id": "g", "family": "grpo-W"}))
+    path = setup(tmp_path, monkeypatch, {"hosts": {}, "arms": {"g": {
+        "status": "FAILED", "spec_path": str(tmp_path / "arm.json"), "results_dir": "/x"}}})
+
+    class A:
+        arm, reason, timeout, dry_run = "g", "r", 60, True
+
+    with pytest.raises(SystemExit, match="amendment 3"):
+        runner.cmd_continue(A, path)
+
+
+def test_amendment3_refresh_targets_only_continuable_hosts_while_gate0_open(tmp_path):
+    res = tmp_path / "r"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [{"label": "step2329"}]}))
+    (tmp_path / "a.json").write_text(json.dumps({"family": "sftall-W"}))
+    (tmp_path / "b.json").write_text(json.dumps({"family": "grpo-W"}))
+    state = {"arms": {
+        "s": {"status": "FAILED", "host": "iccad13", "spec_path": str(tmp_path / "a.json"),
+              "results_dir": str(res)},
+        "g": {"status": "FAILED", "host": "iccad8", "spec_path": str(tmp_path / "b.json"),
+              "results_dir": str(res)}}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
