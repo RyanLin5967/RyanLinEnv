@@ -386,3 +386,7 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 - Workflow from PR #25, dispatched on main against plan sha256 62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901 (the local v4 PASS plan). Every step succeeded; ci-criteria.json reports C1-C4 all pass, missing_criteria [], driver_error null, native VAL and TEST unused.
 - C2 delta L2 0.0104217 matches local v4 (0.01042); 112 changed tensors. Final adapter sha 2a4964bd... differs from local ee0e7d0f... (x86 runner vs aarch64 Colima; floating-point order differs). C3 verifier hash equals the RL adapter hash in the same run, which is the criterion.
 - Evidence downloaded to runs/harbor-ci-dogfood-39126983510/ (local, ignored). Integration only: not learning, not held-out, not an RL-vs-SFT result. The real-pretrained Harbor dogfood requirement now holds locally (v4) and on CI.
+
+## D33 — Qwen2.5-VL-3B free-CI named baseline activated (discovery first)
+- Activated copy docs/aircraft-named-baseline-ci-plan-v1-activated.json, sha256 8ae93e9969f636084329a875801e50c73f6cb149b1603dcf78bd0addd71e0901, from source plan 6914b1ad... (PR #27). Differs only in activated, status and activation. Plumbing passed on PR #27 head fca62ef, and every pipeline file is byte-identical on main.
+- Next: dispatch discovery (exactly 4 shards) from main with this copy. Commit the merged discovery-receipt.json before full VAL. Native VAL only; sealed TEST untouched.

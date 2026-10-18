@@ -1,0 +1,408 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-named-baseline-ci-qwen2.5-vl-3b-v1",
+  "status": "ACTIVATED for discovery then full VAL on free CI; TEST untouched",
+  "activated": true,
+  "activation": {
+    "activated_at": "2026-10-18T13:34:13.633751+00:00",
+    "approved_by": "root (Claude session adopting the 2026-10-16 handoff)",
+    "source_plan_sha256": "6914b1adea6e6fe0c02d00588a3c232a0166581849a65285332455c01e94abc9",
+    "checklist": {
+      "1_plumbing_passed": "PR #27 head fca62ef74bc63a0de74d7c62e1a099d2880ddd2e: plumbing job SUCCESS; every pipeline path in the workflow's pull_request filter is byte-identical between fca62ef and main 2b07077",
+      "2_root_review": "PR #27 independently reviewed before merge (D30); root approves; this copy's SHA256 is recorded in decision D33",
+      "3_discovery_first": "discovery (4 shards) dispatched with this copy; its discovery-receipt.json is committed before full VAL"
+    },
+    "change_from_source": "only activated, status and this activation record"
+  },
+  "created_date": "2026-10-18",
+  "author_agent": "claude (workflow subagent, branch named-baseline-ci.noindex)",
+  "append_only": "Fields of this pre-registration are never edited after commit to main. Corrections and clarifications are appended to amendments[] with a date and reason, before any VAL inference they could affect. A changed model, prompt, decoding, metric, sample, sharding rule or comparator is a new plan_id, not an amendment. An activated copy may differ from this file only in activated, activation and status; the runner compares every other field with the committed plan and refuses any difference.",
+  "amendments": [],
+  "must_not_run_until": [
+    "Root review approves this plan and commits an activated copy (activated true, activation.activated_at, activation.approved_by) before the first VAL dispatch. The workflow and runner refuse anything else and require that copy's SHA256 as a dispatch input.",
+    "The PR plumbing job (three pinned TRAIN images, never scored) has passed on the commit to be activated, so the runner, model download and frozen evaluator path are known to work on a free GitHub-hosted runner."
+  ],
+  "scope": "Named open-weight comparator on FGVC-Aircraft 2013b native VALIDATION only, run on free GitHub-hosted ubuntu-24.04 runners (no paid runners, no hosted API). No TEST image or TEST metadata is opened, downloaded, decoded or predicted: VAL stages fetch only image IDs listed in the committed native-VAL author manifest, and plumbing fetches only three pinned TRAIN IDs. No training.",
+  "why_ci": "The Mac GPU is held by a live study; public-repository GitHub-hosted runners are free. A 3B-parameter model in bfloat16 (7.52 GB of weights) fits a 16 GB CPU runner; the 27B MLX baseline (docs/aircraft-named-baseline-plan-v1.json) does not.",
+  "baseline_identity": {
+    "name": "Qwen2.5-VL-3B-Instruct (official bfloat16 weights), zero-shot, no adapter",
+    "repository": "Qwen/Qwen2.5-VL-3B-Instruct",
+    "revision": "66285546d2b821cf421d4f5eb2576359d3770cd3",
+    "revision_evidence": "Equal to MODEL_REVISIONS['Qwen/Qwen2.5-VL-3B-Instruct'] in the frozen evaluator's vlm_local_training.py at 85f0865, so the frozen _verified_model_directory accepts exactly this revision.",
+    "manifest": {
+      "path": "docs/aircraft-named-baseline-ci-v1/inputs/qwen2.5-vl-3b-instruct-model-source.json",
+      "sha256": "2878a2187351097260fdcfa852d55e57981954f39a264782af48b831142c3abe"
+    },
+    "weights_bytes": 7509337976,
+    "license": "Qwen RESEARCH LICENSE AGREEMENT (non-commercial research or evaluation use); this is a research evaluation",
+    "claim_label": "Qwen2.5-VL-3B-Instruct zero-shot, bfloat16 on CPU, greedy, evaluator prompt and parser",
+    "not_claimed": "Not the strongest open-weight model or the strongest Qwen2.5-VL profile; not a tuned or few-shot baseline; not a TEST result. bfloat16 CPU numerics are not shown to equal float32 or GPU numerics."
+  },
+  "evaluator_identity": {
+    "commit": "85f0865920015fd7e637d2b997bd9d7597dc1e83",
+    "plan": {
+      "path": "reports/2026-10-17-controlled400-native-val/plan.json",
+      "sha256": "cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896"
+    },
+    "plan_note": "This is the evaluator bundle plan (sha256 cf871cfb..., equal to comparison.json plan_sha256). Its source_sha256 lists the 41 frozen evaluator files; every one equals the file at commit 85f0865 (git show | shasum -a 256, 2026-10-18). The runner materialises those 41 files from that commit, refuses on any byte difference, imports only them, and checks the SHA256 of every vision_rl module that actually executed.",
+    "source_files": 41,
+    "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+    "reused_unchanged": {
+      "prompt": "vlm_local_training.prompt_text(spec, 'answer_only') through _processor and _inputs (same chat template file: chat_template.json sha256 ad60d902... is byte-identical in Qwen2-VL-2B and Qwen2.5-VL-3B at the pinned revisions)",
+      "predict": "vlm_local_evaluation.Backend.predict, called on a Backend holding the named model instead of base+LoRA: greedy, _generation_kwargs(profile) = max_new_tokens 256, do_sample false, use_cache true; terminated iff the last generated token is an EOS id",
+      "parse": "vlm_local_training.parse_label(response, labels, allow_reasoning=True) only when terminated, else None, exactly as run_chunk; the merge re-parses every raw response and refuses any difference, as compare does",
+      "deadline": "vlm_local_evaluation._deadline per image; an interrupted image is unknown_after_interruption and never regenerated",
+      "pixels": "aircraft_data.aircraft_pixel_sha256 checked against the author manifest's model_rgb_sha256 before every image, as run_chunk",
+      "metric": "classification_comparison._score (mean diagonal of the row-normalised confusion; invalid and missing answers stay in class denominators) and compare_classification for paired comparisons"
+    }
+  },
+  "generation": {
+    "model_type": "qwen2_5_vl",
+    "profile": {
+      "response_format": "answer_only",
+      "dtype": "bfloat16",
+      "min_pixels": 50176,
+      "max_pixels": 200704,
+      "max_prompt_tokens": 2048,
+      "max_completion_length": 256,
+      "num_generations": 4,
+      "lora_rank": 8,
+      "temperature": 1.0
+    },
+    "profile_note": "Identical to the evaluator study profile except dtype. num_generations, lora_rank and temperature are unused at inference (greedy, no adapter); they are kept so Profile.validate and the identity match the evaluator's.",
+    "generation_config_overrides": {
+      "repetition_penalty": 1.0
+    },
+    "generation_config_override_reason": "The pinned Qwen2.5-VL-3B generation_config.json sets repetition_penalty 1.05, which Backend.predict would apply under greedy decoding and which penalises copying label tokens that appear in the prompt's allowed list. The endpoints' base config (Qwen2-VL-2B @895c3a49) has repetition_penalty 1.0. Overriding to 1.0 makes decoding pure greedy, equal to the endpoints. Chosen before any inference.",
+    "torch_threads": 4,
+    "device": "cpu",
+    "cpu_numerics": {
+      "aten_cpu_capability_env": "avx2",
+      "aten_cpu_capability": "AVX2",
+      "mkldnn_enabled": false,
+      "reason": "PR plumbing run 39110248770 landed on an AMD EPYC 9V45 (native avx512_bf16) and answered 'DC-8' for TRAIN image 0056978, where four runs on AVX2-class hosts (one recorded as AMD EPYC 7763) answered 'Global Express'; it was also ~30x faster (9.4 s per image). So with default kernels the bf16 outputs depend on the host a shard lands on. The runner sets ATEN_CPU_CAPABILITY=avx2 before torch is imported, disables oneDNN (torch.backends.mkldnn.enabled = False), and refuses unless torch reports capability AVX2 with oneDNN off; both values are in every shard identity, so the merge refuses a mix. Whether this equalises the 9V45's answers is checked by the plumbing canary (stages.plumbing.expected_responses) on every PR, not assumed."
+    },
+    "deviations_from_endpoints": [
+      "dtype bfloat16 on CPU instead of float32 on MPS: float32 weights (about 15 GB) do not fit a 16 GB runner",
+      "repetition_penalty override (above), which equalises rather than changes decoding",
+      "torch threads 4 (runner vCPUs) instead of 2",
+      "CPU kernels pinned to ATen AVX2 with oneDNN disabled (cpu_numerics), so every host runs one kernel path"
+    ]
+  },
+  "inputs": {
+    "val_images": {
+      "path": "docs/aircraft-named-baseline-ci-v1/inputs/val-images.json",
+      "sha256": "046320db26084151ad73f138f75ce9e655f356257780b130815edd5a83561420"
+    },
+    "validation": {
+      "path": "docs/aircraft-named-baseline-ci-v1/inputs/validation.jsonl",
+      "sha256": "27d5cd01bd7e8e007211623ac2186f94ecb308afa4a02745ce39c92fb504b9cb"
+    },
+    "data_spec": {
+      "path": "docs/aircraft-named-baseline-ci-v1/inputs/data_spec.json",
+      "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a"
+    },
+    "inputs_note": "Byte copies of data/fgvc-aircraft-2013b/audit/val-images.json, development/validation.jsonl and candidates/fourshot-seed791/data_spec.json; the SHA256 values equal both the evaluator plan's input_sha256 and docs/aircraft-named-baseline-plan-v1.json (shasum -a 256, 2026-10-18).",
+    "image_mirror": {
+      "repository": "datasets/Shiym/ViT-FineTune",
+      "revision": "16c6368266640c62cafa0cd59b9abb01291b7072",
+      "url_template": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/{revision}/fgvc-aircraft-2013b/data/images/{id}.jpg",
+      "verification": "Every downloaded JPEG must match the author manifest's encoded_bytes and encoded_sha256 (the author archive's bytes), and its model-visible pixels its model_rgb_sha256; any difference refuses the shard. Spot check before registration: 3 of 3 VAL images (0034309, 0067396, 2227920) matched by curl + shasum -a 256 on 2026-10-18.",
+      "same_mirror_as": "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/provenance.json mirror_repo/mirror_revision"
+    },
+    "image_preprocessing": "fgvc-aircraft-rgb-remove-bottom20-v1 via the frozen vlm_local_training._load_rgb (data_spec preprocessing_id)"
+  },
+  "stages": {
+    "plumbing": {
+      "order": 0,
+      "purpose": "Prove on a free runner that pinned downloads, the frozen evaluator import, model load and Backend.predict work; record setup seconds and per-image latency. Runs on pull requests that touch this pipeline. Never scored, never a result, needs no activation.",
+      "split": "train",
+      "images": [
+        {
+          "id": "0450014",
+          "path": "development/images/train/0450014.jpg",
+          "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0450014.jpg",
+          "bytes": 562540,
+          "encoded_sha256": "a68cccfb73c2f12f7f836d1b4f856cb71718863290571e8a632b586ccf339f70",
+          "model_rgb_sha256": "b40d8949f0e3cc7a6cd48654b28a2b4bc4efed1c85d92f3b1f11cc117692f072"
+        },
+        {
+          "id": "0056978",
+          "path": "development/images/train/0056978.jpg",
+          "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0056978.jpg",
+          "bytes": 87983,
+          "encoded_sha256": "c12f9edc9dd1bf138e792c9899c545458ca25846dac7b9a3745809a342fd3557",
+          "model_rgb_sha256": "240192cd6cfe769444e4b8065508565b95e862119028675297c3c1b74608f77c"
+        },
+        {
+          "id": "2223757",
+          "path": "development/images/train/2223757.jpg",
+          "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2223757.jpg",
+          "bytes": 362152,
+          "encoded_sha256": "dc06ad41c23d3f6657b31c49130df60c2303311ceacd379903d72b3573e7ca18",
+          "model_rgb_sha256": "ff9d52382fd4ab70e3ade428de39975a2bd9b5c918fb02784448afc5d9e3b920"
+        }
+      ],
+      "ids_sha256": "40f44df2e98e3e677d71206b440e5cf09c37f047fab9e70216b9688fad5ff803",
+      "scored": false,
+      "expected_responses": [
+        "DC-8",
+        "Global Express",
+        "DC-8"
+      ],
+      "expected_responses_evidence": "Identical greedy responses in runs 39105775526, 39106233184, 39106885360 and 39109149251 (default kernels, AVX2-class hosts). The plumbing command fails unless a host reproduces them under the pinned cpu_numerics: a cross-host determinism canary on TRAIN images, never scored."
+    },
+    "discovery": {
+      "order": 1,
+      "images": 100,
+      "ids": {
+        "path": "docs/aircraft-named-baseline-ci-v1/inputs/discovery-ids.json",
+        "sha256": "77b28b4486098f327efbf1e27c06a92b8c418214fc5b3ea03f7dbf93895cb903"
+      },
+      "ids_provenance": "Copied on 2026-10-18 from stages.discovery.ids of docs/aircraft-named-baseline-plan-v1.json (sha256 832a9088567ff82fdd9b045f62c02a15d4a13de52484db6f75c6e41e71b242da, the same bytes on main at 5cc4b08). Held here as this plan's own pinned input so amendments to that live, append-only plan cannot change or block this sample. Both the copy's compact-JSON ids_sha256 and the source plan's equal c8d73a4c...",
+      "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
+      "definition": "The same protocol-defined 100-image, one-per-class discovery sample as the 27B named-baseline plan (strong_baseline.validation_discovery, salt pinned by D13), held as this plan's pinned input discovery-ids.json and checked against ids_sha256.",
+      "uncertainty": {
+        "method": "Hoeffding, 100 bounded outcomes, clipped to [0,1]",
+        "confidence_level": 0.95,
+        "half_width": 0.13581015157406195
+      },
+      "role": "Validity and cost diagnostic. Its receipt feeds the full-VAL gate and shard count. Not a benchmark score.",
+      "shards_note": "Exactly 4 shards (25 images each); the runner refuses any other count."
+    },
+    "full": {
+      "order": 2,
+      "images": 3333,
+      "ids_sha256": "c33a8794a287122d2237f0906996fd1988f7f16604ecf887786229b398cef0cd",
+      "regenerates_discovery_images": "Yes: full VAL is its own run; discovery outputs are never copied into it.",
+      "gate": {
+        "requires": "A committed discovery receipt (discovery-receipt.json from a merged discovery run) passed as the dispatch input discovery_receipt. It must carry this activated plan's SHA256, status completed, the pre-registered discovery ids_sha256, all 100 images completed of 100, one first-attempt run on refs/heads/main, an identity whose plan_sha256, stage, run_id and sha match the receipt, and the same runner_sha256 and workflow_sha256 as the checkout dispatching full VAL.",
+        "minimum_valid_answer_fraction": 0.9,
+        "latency_safety_factor": 3.0,
+        "shard_rule": "N >= ceil(3333 / floor((shard_wall_seconds - image_seconds - discovery max_fixed_setup_seconds) / max(330, 3.0 x (discovery max_shard_mean_image_latency_seconds + discovery mean_image_fetch_seconds)))). max_shard_mean_image_latency_seconds is the largest of the four discovery shards' mean generation latencies. fixed setup = a shard's setup seconds minus its image-fetch seconds (frozen import, model download and rehash, load); fetch seconds are charged per image because a full shard fetches all its images during setup. The matrix command refuses a smaller N, and refuses a receipt whose timing values are not positive numbers.",
+        "on_stop": "Report the named comparator as incomplete. Do not change prompt, decoding, model, sample or comparators to rescue it.",
+        "latency_safety_factor_basis": "Measured runner-to-runner spread on identical free ubuntu-24.04 runners (4 vCPU, 16 GB): plumbing means 113.07 s (run 39105775526) and 297.80 / 297.87 s (runs 39106885360, 39106233184) per image, a 2.63x ratio, with identical responses. 3.0 is above that ratio, so shards sized from an all-fast discovery still fit a slow host: budget max(330, 3.0 x (113.07 + 1.1)) = 342.5 s gives floor(18835 / 342.5) = 54 images, and 54 x (297.8 + 1.1) s + 65 s = 16,206 s, inside the 18,900 s start limit. Under the pinned kernel path the measured spread is 2.89x (297.35 s on an EPYC 7763, 102.98 s on an EPYC 9V45); a discovery all on 9V45 hosts gets the 330 s floor (3.0 x (102.98 + 1.1) = 312.2 s), 57 images, and 57 x (297.35 + 1.1) s + 65 s = 17,077 s, still inside the limit.",
+        "latency_floor_seconds": 330,
+        "latency_floor_basis": "About 1.1x the slowest per-image mean measured on a free runner (297.9 s plus ~1 s fetch), so a discovery on fast hosts never sizes shards below what a slow host needs: 57 images x 298.9 s + 65 s = 17,102 s, inside the 18,900 s start limit.",
+        "on_slow_host": "A host slower than the per-image budget (max of 330 s and 3.0x the slowest discovery shard) stops its shard as partial at the start rule; the merge refuses the run, which is reported under runs_policy and never patched. Each shard records host cpu_model and cpu_flags, and the receipt lists each shard's cpu_model and mean latency, so the spread can be attributed. CPU model is deliberately not part of the merge identity: shards of one run land on mixed hosts."
+      }
+    }
+  },
+  "sharding": {
+    "assignment": "Stage image i in author order belongs to shard i mod N; each shard runs its images in author order.",
+    "dispatch_ref": "refs/heads/main only. The workflow's setup job and the runner's shard and merge commands refuse any other ref, because a branch could edit the plan and the runner together and pass the activated-copy lock. Each shard identity records runner_sha256 and workflow_sha256.",
+    "shards": {
+      "discovery": {
+        "min": 4,
+        "max": 4,
+        "declared": 4
+      },
+      "full": {
+        "min": 1,
+        "max": 256
+      }
+    },
+    "shard_wall_seconds": 19800,
+    "image_seconds": 900,
+    "job_timeout_minutes": 355,
+    "start_rule": "A shard starts an image only if its elapsed seconds plus image_seconds stay within shard_wall_seconds; otherwise it stops as partial, so no image is cut by the 6 h GitHub job limit.",
+    "max_parallel": 20,
+    "stop_rule": "A shard stops at its first generation error, interrupted image or budget stop and fails; nothing is retried or regenerated.",
+    "merge_refuses": [
+      "any shard index in [0, N) without a completed shard record, or any unexpected artifact",
+      "any image missing, duplicated, out of its partition or outside the stage manifest; every image must be scored exactly once",
+      "any non-completed outcome (generation error, unknown after interruption, partial shard)",
+      "any shard from a re-run attempt (GITHUB_RUN_ATTEMPT != 1), another workflow run or another commit",
+      "any shard whose model, runtime, profile, generation config, prompt or frozen-source identity differs from the others",
+      "any canonical label that differs from the frozen parser applied to the raw response"
+    ],
+    "runs_policy": "Every dispatched VAL run is reported, failed or not. A failed run is never patched by re-running shards; a new dispatch is a new run and the report lists it next to the failed one. The first run that merges is the result for its stage. Dispatched runs never cancel each other: the workflow's concurrency group is per run for workflow_dispatch."
+  },
+  "analysis": {
+    "metric": "mean(diag(row_normalized_confusion)) via the frozen classification_comparison; micro accuracy supplemental",
+    "comparators": {
+      "W": "common",
+      "RL400": "rl-exposure",
+      "strongest_sft": "sft-1e5-time"
+    },
+    "comparison_direction": "compare_classification(gold, named_baseline, endpoint): candidate is the named baseline, comparator the endpoint, on all 3,333 images and the full vocabulary",
+    "bootstrap": {
+      "resamples": 20000,
+      "seed": 2718
+    },
+    "endpoint_predictions": {
+      "path": "docs/aircraft-named-baseline-ci-v1/inputs/endpoint-predictions.json",
+      "sha256": "900addb95e871cc605f9c97f8c9660e2be9d80d9c6e79259f01a13fa240b077a"
+    },
+    "endpoint_report": {
+      "path": "reports/2026-10-17-controlled400-native-val/comparison.json",
+      "sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5"
+    },
+    "reproduce_against_report": [
+      "rl-exposure",
+      "sft-1e5-time"
+    ],
+    "endpoint_export_check": "Before any baseline comparison, the merge recomputes compare_classification(gold, arm, common) for RL400 and the strongest SFT from the committed export with the frozen code and requires the full result (scores, per-class differences, bootstrap intervals, input_sha256) to equal versus_common_initialization[arm] in the committed report. The export was made by scripts/export_native_val_endpoint_predictions.py from the evaluator journals whose SHA256 the report records, and it reproduced both input_sha256 values at export time.",
+    "endpoint_scores_for_reference": {
+      "W": 0.6784,
+      "RL400": 0.6982,
+      "strongest_sft": 0.7539
+    },
+    "discovery_reporting": "numerator, denominator, macro (= micro by balance), Hoeffding interval, valid fraction, unterminated answers, latency and setup seconds; no paired comparison on the 100-image sample",
+    "claim_limits": "A named native-VAL baseline claim requires all 3,333 predictions with zero non-completed outcomes from one merged run. VAL was the selection set for the strongest SFT, so a comparison against it is a development comparison. Nothing here touches the frozen native TEST."
+  },
+  "runner": "scripts/aircraft_named_baseline_ci.py (tests: tests/test_aircraft_named_baseline_ci.py, CPU only, no model)",
+  "workflow": ".github/workflows/aircraft-named-baseline-ci.yml",
+  "measured_cost": {
+    "instrument": "PR plumbing job, artifact named-baseline-plumbing/shard.json, fetched with `gh run download <run> -n named-baseline-plumbing` on 2026-10-18. Three pinned TRAIN images per run, each run on one free ubuntu-24.04 runner (4 vCPU, 16.77 GB MemTotal, ~90 GB free disk); same model, threads (4) and generation config (repetition_penalty 1.0). Runs 1-4 gave identical responses; run 5 (default kernels, AVX-512 bf16 host) changed one; runs 6 and 7 (pinned cpu_numerics, AVX2, oneDNN off; an EPYC 7763 and an EPYC 9V45) both reproduced the pre-registered canary answers.",
+    "runs": [
+      {
+        "run_id": "39105775526",
+        "head_commit": "e3c1fbd346cbef5da876074fb221a55b69e2f090",
+        "artifact_run_sha": "539c87c288ed1f2320767246d9bb506ca8cd115c",
+        "per_image_latency_seconds": [
+          115.0,
+          112.0,
+          112.2
+        ],
+        "setup_seconds": 66.6,
+        "load_seconds": 18.7,
+        "elapsed_seconds": 405.9
+      },
+      {
+        "run_id": "39106233184",
+        "head_commit": "b59e234b2b1a733c9c87f1cef603aba110dbb9be",
+        "artifact_run_sha": "d5021f8b801d9778765eadb5fbfa842d9635b7ad",
+        "per_image_latency_seconds": [
+          302.4,
+          295.5,
+          295.7
+        ],
+        "setup_seconds": 41.7,
+        "load_seconds": 18.1,
+        "fixed_setup_seconds": 40.2,
+        "image_fetch_seconds": 1.5,
+        "elapsed_seconds": 935.3
+      },
+      {
+        "run_id": "39106885360",
+        "head_commit": "e8f25fdc55960f5d5cf6ccdfe0ace84194486f24",
+        "artifact_run_sha": "7f54ec84523af1c914ea14f5cc9a4048589d0985",
+        "per_image_latency_seconds": [
+          302.5,
+          295.3,
+          295.6
+        ],
+        "setup_seconds": 68.7,
+        "load_seconds": 18.1,
+        "fixed_setup_seconds": 65.4,
+        "image_fetch_seconds": 3.2,
+        "elapsed_seconds": 962.0
+      },
+      {
+        "run_id": "39109149251",
+        "head_commit": "f9168deace05c7f795ce3632ba0a15d258a7c422",
+        "artifact_run_sha": "d4f2eecf30e4eb7f1b1912d30ece3a566af47000",
+        "cpu_model": "AMD EPYC 7763 64-Core Processor",
+        "cpu_flags_note": "102 flags; no avx512f, avx512_bf16 or amx flags",
+        "per_image_latency_seconds": [
+          302.3,
+          295.3,
+          295.6
+        ],
+        "setup_seconds": 63.6,
+        "load_seconds": 18.6,
+        "fixed_setup_seconds": 62.4,
+        "image_fetch_seconds": 1.2,
+        "elapsed_seconds": 956.8
+      },
+      {
+        "run_id": "39110248770",
+        "head_commit": "b042dd940f6e28d05795c80e00faf6bf73f750a1",
+        "artifact_run_sha": "1b748ea53e9948df163eed83849d5a8de954bc30",
+        "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+        "cpu_flags_note": "has avx512f and avx512_bf16",
+        "per_image_latency_seconds": [
+          9.9,
+          9.3,
+          9.1
+        ],
+        "setup_seconds": 64.5,
+        "load_seconds": 12.1,
+        "fixed_setup_seconds": 62.3,
+        "image_fetch_seconds": 2.2,
+        "elapsed_seconds": 92.9,
+        "responses": [
+          "DC-8",
+          "DC-8",
+          "DC-8"
+        ],
+        "note": "Default kernels (before cpu_numerics). Image 0056978 answered differently from every other run; this run led to cpu_numerics."
+      },
+      {
+        "run_id": "39110959125",
+        "head_commit": "0df4cdc82c8812bbf7b796cf67d43cd25a531162",
+        "artifact_run_sha": "718ef819750c309d71023e930fdc1b383a643122",
+        "cpu_model": "AMD EPYC 7763 64-Core Processor",
+        "cpu_flags_note": "no avx512f, avx512_bf16 or amx flags",
+        "cpu_numerics": {
+          "aten_cpu_capability": "AVX2",
+          "mkldnn_enabled": false
+        },
+        "per_image_latency_seconds": [
+          302.0,
+          294.8,
+          295.3
+        ],
+        "setup_seconds": 55.7,
+        "load_seconds": 18.0,
+        "fixed_setup_seconds": 54.2,
+        "image_fetch_seconds": 1.5,
+        "elapsed_seconds": 947.8,
+        "responses": [
+          "DC-8",
+          "Global Express",
+          "DC-8"
+        ],
+        "note": "First run under the pinned kernel path (ATen AVX2, oneDNN off). Canary matched. Latency on this slow AVX2 host is unchanged from default kernels (297.35 s mean vs 297.73-297.87 s)."
+      },
+      {
+        "run_id": "39124326521",
+        "head_commit": "abba851022374d364ac27c2c3f43abb9fdd93ba0",
+        "artifact_run_sha": "5f7b64b732a98fa3c0222ae4e7bc4cc661442cbb",
+        "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+        "cpu_flags_note": "has avx512f and avx512_bf16; torch held to AVX2 by cpu_numerics",
+        "cpu_numerics": {
+          "aten_cpu_capability": "AVX2",
+          "mkldnn_enabled": false
+        },
+        "per_image_latency_seconds": [
+          106.1,
+          101.3,
+          101.5
+        ],
+        "setup_seconds": 53.6,
+        "load_seconds": 12.2,
+        "fixed_setup_seconds": 51.0,
+        "image_fetch_seconds": 2.5,
+        "elapsed_seconds": 362.6,
+        "responses": [
+          "DC-8",
+          "Global Express",
+          "DC-8"
+        ],
+        "note": "The host type whose default kernels changed image 0056978 (run 39110248770) gives the pre-registered answers under the pinned path, at 102.98 s mean per image."
+      }
+    ],
+    "run_sha_note": "artifact_run_sha is GITHUB_SHA of the pull_request run, i.e. GitHub's merge commit of the head into main at that time, not the head commit; both are given so the instrument can be re-located.",
+    "prompt_tokens": [
+      996,
+      983,
+      983
+    ],
+    "all_terminated": true,
+    "spread": "Under default kernels: ~9.4 s per image on an AMD EPYC 9V45 (AVX-512 bf16), 113.07 s on one host whose CPU was not recorded, and 297.73-297.87 s on three others, one recorded as AMD EPYC 7763 (AVX2, no AVX-512). The 9V45 also changed one answer. Under the pinned AVX2 kernel path, with the canary answers in both: 297.35 s per image on an EPYC 7763 (run 39110959125) and 102.98 s on an EPYC 9V45 (run 39124326521), a 2.89x spread, still below the factor 3.0. The pinned path has not been measured on the unrecorded 113 s host; the latency floor and factor do not depend on it.",
+    "endpoint_export_check": "verify-endpoints in each of these jobs: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
+    "projection_unverified": "Three images per run are not a forecast. Full VAL generation is 3333 x 113 s = ~105 runner-hours to 3333 x 298 s = ~276 runner-hours on AVX2-class hosts, free on a public repository. The shard rule (floor 330 s, factor 3.0, fixed setup ~65 s) gives N = ceil(3333 / floor(18835 / 330)) = 59 shards whenever the slowest discovery shard averages under ~109 s, and ceil(3333 / floor(18835 / (3.0 x 298.9))) = 159 if it is slow; both are within the 256 maximum. The binding numbers come from the committed discovery receipt, not from this record."
+  }
+}
