@@ -674,7 +674,7 @@ def verify_pins(plan):
         raise Stop("unpinned_importable_file", files=sorted(unpinned)[:10])
 
 
-def verify_manifest_content(directory, manifest, base, evaluator):
+def verify_manifest_content(directory, manifest, base, evaluator, images_sha256=None):
     """G0 'manifests hashed' and 'pHash audit with forced fire passing', by content."""
     labels = base.get("labels")
     if not isinstance(labels, list) or not labels or len(set(labels)) != len(labels):
@@ -707,7 +707,7 @@ def verify_manifest_content(directory, manifest, base, evaluator):
         raise Stop("g0_scan_invalid_or_overlaps_holdout")
     if scan != evaluator["scan_order"](scan, SEED):
         raise Stop("g0_scan_not_seed42_order")
-    verify_manifest_images(directory)
+    verify_manifest_images(directory, images_sha256)
     audit = read_json(directory / "phash_audit.json")
     verify_pool(directory, manifest, audit, holdout, scan)
     fire = (audit or {}).get("forced_fire") if isinstance(audit, dict) else None
@@ -725,19 +725,39 @@ def verify_manifest_content(directory, manifest, base, evaluator):
     return {"split_ids": splits, "scan_ids": scan}
 
 
-def verify_manifest_images(directory):
+IMAGE_MANIFESTS = ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl")
+
+
+def images_digest(directory):
+    """SHA256 over ``<manifest>\\t<id>\\t<image file sha256>\\n`` for every row a stage reads,
+    in manifest order: the image CONTENT the G0 manifests name, as one pin."""
+    digest = hashlib.sha256()
+    for name in IMAGE_MANIFESTS:
+        for row in read_jsonl(directory / name):
+            digest.update(f"{name}\t{row['id']}\t{sha((directory / row['image']).resolve())}\n"
+                          .encode())
+    return digest.hexdigest()
+
+
+def verify_manifest_images(directory, expected_sha256):
     """Every row a stage reads (H-select, H-gate, S_scan_seed42) names an image file that
     exists, resolved the way the trainer and the assays resolve it: against the manifest's
-    own directory. The G0 manifests carry paths relative to the development directory, so
-    without this check a launch would pass G0 and die at E0's first image."""
+    own directory, and the images' bytes hash to the plan's ``g0.images_sha256``. The G0
+    manifests carry paths relative to the development directory, so without the first check
+    a launch would pass G0 and die at E0's first image; without the second a replaced image
+    would be trained on unseen."""
     missing = []
-    for name in ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl"):
+    for name in IMAGE_MANIFESTS:
         for row in read_jsonl(directory / name):
             image = row.get("image") if isinstance(row, dict) else None
             if not isinstance(image, str) or not (directory / image).resolve().is_file():
                 missing.append(f"{name}:{row.get('id') if isinstance(row, dict) else row}")
     if missing:
         raise Stop("g0_manifest_image_missing", count=len(missing), first=missing[:5])
+    if not HEX64.fullmatch(str(expected_sha256)):
+        raise Stop("g0_images_not_pinned")
+    if images_digest(directory) != expected_sha256:
+        raise Stop("g0_image_content_differs")
 
 
 def verify_pool(directory, manifest, audit, holdout, scan):
@@ -893,7 +913,8 @@ def verify_g0(plan, evaluator):
     branch = read_json(branch_path)
     if not isinstance(base, dict) or not isinstance(branch, dict):
         raise Stop("g0_branch_or_evidence_unreadable")
-    content = verify_manifest_content(directory, manifest, base, evaluator)
+    content = verify_manifest_content(directory, manifest, base, evaluator,
+                                      g0.get("images_sha256"))
     verify_protocol(resolve(receipts["protocol_revision"]["path"]))
     verify_decision_record(resolve(receipts["decision_record"]["path"]))
     if not git_committed(branch_path):

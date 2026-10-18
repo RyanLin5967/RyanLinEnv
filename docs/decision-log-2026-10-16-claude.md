@@ -301,7 +301,8 @@ diagnostics, never held-out results.
   file in it pinned, so an untracked `src/sitecustomize.py` stops it. (14) A latent crash: macOS
   answers `killpg` with EPERM for an all-zombie group, which escaped `stop_group` as an
   `unexpected_exception` study stop when a stage exited between polls; EPERM is now settled by the
-  member list.
+  member list. (15) G0 checked that each image exists, not its bytes: the plan now pins
+  `g0.images_sha256` over every H and S_scan_seed42 image file (`launch.images_digest`).
 - Interpretations in `scripts/evaluate_freshpool_gates.py`, ratified at this activation: sampled
   macro over every completion per image, greedy included (one reading, used identically for every
   arm, so it cannot favour one); G2's rolling useful-mixed fraction over the last 100 accepted

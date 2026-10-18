@@ -503,7 +503,8 @@ def write_plan(fixture, directory, sentinel):
                        "adapter_path": str(fixture["w_adapter"])},
         "owner_patterns": [sentinel],
         "g0": {"manifest_dir": str(fixture["manifest_dir"]), "manifest_sha256": sha(manifest),
-               "receipts": fixture["receipts"]},
+               "receipts": fixture["receipts"],
+               "images_sha256": load_launch().images_digest(fixture["manifest_dir"])},
         "evidence_base": fixture["evidence"],
     }
     path = directory / "plan.json"

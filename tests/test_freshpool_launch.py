@@ -473,9 +473,18 @@ class Fixture:
             evidence_rows["h_gate"] = o["evidence_h_gate"]
         base.write_text(json.dumps({"labels": LABELS, "a_star": 0.75,
                                     "b4_edge_extension": False, "rows": evidence_rows}))
+        # The image-content pin, written out from its definition (manifest, id, file sha256
+        # per row, in manifest order); every fixture image holds b"jpg".
+        jpg = sha_text("jpg")
+        listing = "".join(f"{name}\t{i}\t{jpg}\n" for name, ids in (
+            ("h_select.jsonl", [i for i, _ in h_select]), ("h_gate.jsonl", [i for i, _ in H_GATE]),
+            ("s_scan_seed42.jsonl", list(scan))) for i in ids)
         self.g0 = {"manifest_dir": str(manifests),
                    "manifest_sha256": sha_file(manifests / "manifest.json"),
-                   "receipts": receipts}
+                   "receipts": receipts,
+                   "images_sha256": o.get("images_sha256", sha_text(listing))}
+        if "replaced_image" in o:
+            (images / f"{o['replaced_image']}.jpg").write_bytes(b"another jpg")
         self.base = {"path": str(base), "sha256": sha_file(base)}
 
     def write(self):
@@ -1207,6 +1216,10 @@ def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):
     # Every image a stage reads must exist where the trainer resolves it.
     ({"missing_image": SCAN[700]}, "g0_manifest_image_missing"),
     ({"missing_image": "c2"}, "g0_manifest_image_missing"),
+    # ... with the bytes G0 pinned.
+    ({"replaced_image": SCAN[5]}, "g0_image_content_differs"),
+    ({"replaced_image": "a1"}, "g0_image_content_differs"),
+    ({"images_sha256": None}, "g0_images_not_pinned"),
 ])
 def test_g0_failure_does_not_launch(tmp_path, monkeypatch, capsys, override, reason):
     launch = load_launch()

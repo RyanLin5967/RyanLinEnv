@@ -21,7 +21,7 @@
   "TOKENIZERS_PARALLELISM": "false"
  },
  "file_sha256": {
-  "scripts/freshpool_launch/launch.py": "5220bb91a7095a355e1829243734d24d3bde1785379bb186f6ac811be3f9788f",
+  "scripts/freshpool_launch/launch.py": "2f5a0be93269e04bb29e1b88fbd0461dffde81394b9282751723b4cd3575af68",
   "scripts/freshpool_launch/phase_worker.py": "d9fa40f189be3578c416714a27bc8213e79daad73c87d732b7c1a2b94c5acf05",
   "scripts/freshpool_launch/e0_gate.py": "d91d95fbff12a247f47ca6f319fae2ea8bec771c52de94018dba3d34987f6c7f",
   "scripts/freshpool_launch/trainer_fragment.py": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
@@ -678,13 +678,14 @@
    },
    "decision_record": {
     "path": "docs/decision-log-2026-10-16-claude.md",
-    "sha256": "981b84617512f4a08da3f8b729b7875fdd50f6d4a65976ee108d52750eb172b1"
+    "sha256": "d6f0fd14e63583f419afdf50b2076c81ac0b3452d230882662ac7f8b2415de59"
    },
    "branch": {
     "path": "docs/aircraft-freshpool-branch-receipt-v1.json",
     "sha256": "846716f56654991e5a8f2571b60af79b911c71dc6c391d6f712023ea037ab630"
    }
-  }
+  },
+  "images_sha256": "2fd1bdd81ce292a44574d05b44789836861346fb4306ffc05234d5ce1ee713f1"
  },
  "evidence_base": {
   "path": "scripts/freshpool_launch/production/evidence-base.json",

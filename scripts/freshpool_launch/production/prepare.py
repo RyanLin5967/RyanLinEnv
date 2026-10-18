@@ -151,6 +151,10 @@ def evaluator():
     return runpy.run_path(str(REPO / "scripts" / "evaluate_freshpool_gates.py"))
 
 
+def launcher():
+    return runpy.run_path(str(REPO / "scripts" / "freshpool_launch" / "launch.py"))
+
+
 # ---------------------------------------------------------------- receipts
 
 
@@ -481,7 +485,10 @@ def launch_plan(receipt_paths, evidence_path, b4):
         "owner_patterns": OWNER_PATTERNS,
         "g0": {"manifest_dir": str(MANIFESTS), "manifest_sha256": sha(manifest),
                "receipts": {name: {"path": path, "sha256": sha(REPO / path)}
-                            for name, path in receipt_paths.items()}},
+                            for name, path in receipt_paths.items()},
+               # The bytes of every H and S_scan_seed42 image a stage reads (launch.py
+               # images_digest, the same function G0 checks with).
+               "images_sha256": launcher()["images_digest"](MANIFESTS)},
         "evidence_base": {"path": evidence_path, "sha256": sha(REPO / evidence_path)},
     }
 
