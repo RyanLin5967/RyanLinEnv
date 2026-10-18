@@ -391,7 +391,11 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 - Activated copy docs/aircraft-named-baseline-ci-plan-v1-activated.json, sha256 8ae93e9969f636084329a875801e50c73f6cb149b1603dcf78bd0addd71e0901, from source plan 6914b1ad... (PR #27). Differs only in activated, status and activation. Plumbing passed on PR #27 head fca62ef, and every pipeline file is byte-identical on main.
 - Next: dispatch discovery (exactly 4 shards) from main with this copy. Commit the merged discovery-receipt.json before full VAL. Native VAL only; sealed TEST untouched.
 
-## D34 — Signal-limit v1 production package on UW hosts; activation awaits root (PR #34)
+## D34 — Qwen2.5-VL-3B CI discovery receipt (run 39133341093)
+- Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
+- Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
+
+## D35 — Signal-limit v1 production package on UW hosts; activation awaits root (PR #34)
 - Package `scripts/freshpool_launch/signal_limit_production/` (prepare, start with `--dry-run`, provision, unit-cost and smoke scripts). Plan `plan.json`, sha256 in `plan.sha256`; every stage runs on UWaterloo hosts through uwrun (`execution: uwaterloo`); the Mac only sequences, gates and journals.
 - Activated copies `docs/aircraft-rl-next-study-v1-activated.json` and `docs/aircraft-rl-protocol-signal-limit-v1-activated.json` differ from their sources only in status, activated and activation; `approved_by: root` is a placeholder. **Root activates by appending a line here naming both copies' sha256**; `start.py` refuses without it. protocol_id is unchanged (the split salt is a pinned literal).
 - Device (declared in each activation record): CPU FP32, Ryzen 9 5900X hosts ecetesla1/2/4, 16 threads. The 2080 Ti ran out of memory at GRPO G16 FP32, which Stage 0 must run; costs and the choice in `reports/2026-10-18-signal-limit-uw-cost/README.md`. Disclosed: W, I and the controlled400 pool were trained on MPS.
