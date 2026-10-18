@@ -1,0 +1,16 @@
+{
+  "kind": "named-baseline-v2-smoke-bf16-attempt",
+  "uwrun_name": "qwen38hf-smoke-bf16-iccad3-r3",
+  "host": "iccad3 (2x Xeon E5-2667 v2, AVX without AVX2, torch cpu_capability DEFAULT), shared with other jobs",
+  "dtype": "bfloat16",
+  "threads": 32,
+  "process_started_utc": "2026-10-18T11:57:05Z",
+  "first_model_forward_log_line_utc": "2026-10-18T12:00:48Z",
+  "stopped_utc": "2026-10-18T12:52:55Z",
+  "stopped_by": "uwrun stop (deliberate; bf16 judged impractical)",
+  "images_completed": 0,
+  "first_image": "0447760 (TRAIN)",
+  "observation": "Image 0447760 had not finished after about 3,120 s of generation (12:00:48Z to 12:52:55Z). py-spy at about 12:20Z showed it in the decode loop (causal_conv1d_update inside generate). The same image took 504.6 s in float32 on iccad3 and 859.7 s on iccad1.",
+  "instrument": "uwrun logs and status timestamps; ps etime; py-spy dump",
+  "code": "smoke tree staged from branch named-baseline-v2-hf-cpu.noindex at 5e6ff2d (engine then at src/vision_rl/local_hf.py)"
+}
