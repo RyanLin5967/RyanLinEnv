@@ -1,0 +1,108 @@
+{
+ "coverage": {
+  "arms": [
+   "common",
+   "rl-exposure",
+   "sft-1e4-exposure",
+   "sft-1e4-time",
+   "sft-1e5-exposure",
+   "sft-1e5-time",
+   "sft-5e5-exposure",
+   "sft-5e5-time"
+  ],
+  "expected": 26191,
+  "in_trie": 26191,
+  "journals_sha256": {
+   "common": "2c39d423e8f112ea834f86a19dde406348d1bba80ae18aadb702aded17a87618",
+   "rl-exposure": "8b690e4cb3bfda17e37451ee2d706728266fcbb395ec29274cdac694b85fda67",
+   "sft-1e4-exposure": "7d5f60269136f1cf1b22bd5aa2b193a3e739cb9ddd58dabfa151c404b240ef19",
+   "sft-1e4-time": "067171f7f60b1329222f7411c350b16c7a045353c3d14e229d8e886d20e45ced",
+   "sft-1e5-exposure": "b5ed7723e3eccb9efb851e6d560b23adc9910ec93e85383198bbce1f38d253cf",
+   "sft-1e5-time": "12abe0617f29dd2a8cd3eb2188915180ef1cfe47e6f2db606ef5e8ff2f94abe9",
+   "sft-5e5-exposure": "04ea5df84c40add8eafa5e3afdaced6f4a62f60d964265c6b2035a1f8f6fe628",
+   "sft-5e5-time": "fc88fa12637dae7c9d7c39917686f00de6501ff018cf00b45f51fcaf9bcda2c1"
+  },
+  "valid_completions": 26191
+ },
+ "files_sha256": {
+  "data/fgvc-aircraft-2013b/audit/label-trie-qwen2vl2b.json": "dbefedbfbd16a06753b9a3c08b1d8ed3ccef826f3f26bf2be9e5fe3b8c91c314",
+  "data/fgvc-aircraft-2013b/audit/p0-confusion-map.json": "575b5406424d89f05e29a97cff3e4664e6c6267a42224b5413c2a35c713e63fc",
+  "data/fgvc-aircraft-2013b/audit/taxonomy-train-only.json": "ac2ae10d096871ecabd12fdfddd803ff92d4bc5222dbb86310ed9c819cf3f2a9"
+ },
+ "schema_version": 1,
+ "status": "pre-G0 build from existing artifacts; recomputed and frozen at G0",
+ "study": "aircraft-rl-next-study-v1 (unactivated); G0 items label_trie + confusion map",
+ "trie": {
+  "content_sha256": "7c1fbe9e9cea8ba9495c91742ed0604e7438ca0cbea274e21ba251a24e7c067e",
+  "eos_ids": [
+   151643,
+   151645
+  ],
+  "label_paths": 1092,
+  "non_canonical_valid_completions": 142,
+  "paths_with_eos": 2184,
+  "pruned_tokenisations": 37483,
+  "slack": 2
+ },
+ "upper_bound": {
+  "gold": {
+   "path": "runs/aircraft-native-val-activation-v1/bundle/gold.json",
+   "sha256": "6d6d12061366891e0554f27abb97eaadc671d0d0f57694251cfbb41759e0b122"
+  },
+  "per_arm": {
+   "common": {
+    "headroom_pp": 2.729946524064175,
+    "invalid_or_missing": 91,
+    "macro": 0.6784313725490196,
+    "upper_bound_macro": 0.7057308377896614
+   },
+   "rl-exposure": {
+    "headroom_pp": 2.311942959001778,
+    "invalid_or_missing": 77,
+    "macro": 0.6981818181818181,
+    "upper_bound_macro": 0.7213012477718359
+   },
+   "sft-1e4-exposure": {
+    "headroom_pp": 1.0231729055258487,
+    "invalid_or_missing": 34,
+    "macro": 0.7301426024955436,
+    "upper_bound_macro": 0.7403743315508021
+   },
+   "sft-1e4-time": {
+    "headroom_pp": 1.2602495543671988,
+    "invalid_or_missing": 42,
+    "macro": 0.7520499108734403,
+    "upper_bound_macro": 0.7646524064171123
+   },
+   "sft-1e5-exposure": {
+    "headroom_pp": 2.2834224598930475,
+    "invalid_or_missing": 76,
+    "macro": 0.7109001782531195,
+    "upper_bound_macro": 0.7337344028520499
+   },
+   "sft-1e5-time": {
+    "headroom_pp": 1.231729055258468,
+    "invalid_or_missing": 41,
+    "macro": 0.7539126559714795,
+    "upper_bound_macro": 0.7662299465240642
+   },
+   "sft-5e5-exposure": {
+    "headroom_pp": 1.6844919786096146,
+    "invalid_or_missing": 56,
+    "macro": 0.7399286987522282,
+    "upper_bound_macro": 0.7567736185383244
+   },
+   "sft-5e5-time": {
+    "headroom_pp": 1.680035650623879,
+    "invalid_or_missing": 56,
+    "macro": 0.7534135472370767,
+    "upper_bound_macro": 0.7702139037433154
+   }
+  },
+  "rule": "macro if every invalid/missing answer became the gold label; from existing predictions only",
+  "source": {
+   "path": "reports/2026-10-17-controlled400-native-val/comparison.json",
+   "sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5"
+  }
+ }
+}
