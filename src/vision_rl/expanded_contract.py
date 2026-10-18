@@ -411,6 +411,12 @@ def endpoint_payload(output, *, initial_path=None):
     validate_checkpoint(checkpoint, initial, mode)
     values, weights = read_numeric(output / "final_adapter/adapter_model.safetensors")
     validate_saved_config(output / "final_adapter/adapter_config.json")
+    if weights == initial["weights_sha256"] or (
+        tensor_fingerprint(values)["sha256"] == initial["initial_reference"]["sha256"]
+    ):
+        # global_step >= 1 alone admits a zero-update run (e.g. GRPO with zero advantage
+        # and zero KL gradient at init): its weights are INIT's, so it is not a fit.
+        raise ValueError("expanded endpoint weights equal the approved INIT; not a trained fit")
     committed, _ = read_numeric(checkpoint / "adapter_model.safetensors")
     if weights != receipt["final_adapter"]["weights_sha256"] or any(
         value.tobytes() != committed[name].tobytes() for name, value in values.items()

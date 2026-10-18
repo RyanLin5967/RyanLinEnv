@@ -779,14 +779,20 @@ def predict_train_subset(
     sample_groups: bool = False,
     seed: int = 42,
     init_adapter: Path | None = None,
+    expanded_initial_path: Path | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
     This permits a prospectively selected subset of classes while retaining the
     complete task vocabulary. Its mean-class score covers only represented
     classes and is explicitly not a held-out benchmark result.
+
+    ``expanded_initial_path`` is this machine's copy of the approved expanded INIT,
+    used to re-verify a registered expanded endpoint (default: the trainer's path).
     """
     profile.validate()
+    if expanded_initial_path is not None and not _expanded.is_expanded(profile):
+        raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
         raise ValueError("sample_groups must be boolean and seed a nonnegative integer")
     if model not in MODEL_REVISIONS:
@@ -844,7 +850,9 @@ def predict_train_subset(
     if _expanded.is_expanded(profile) and not init_adapter:
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
-        _inference_adapter_identity(Path(init_adapter).resolve(), record, profile)
+        _inference_adapter_identity(
+            Path(init_adapter).resolve(), record, profile, initial_path=expanded_initial_path
+        )
         if init_adapter
         else None
     )
@@ -884,6 +892,7 @@ def predict_train_subset(
                     Path(init_adapter).resolve(),
                     expected_weights_sha256=initial["weights_sha256"],
                     is_trainable=False,
+                    initial_path=expanded_initial_path,
                 )
                 if _expanded.is_expanded(profile)
                 else import_module("peft").PeftModel.from_pretrained(
@@ -2109,10 +2118,16 @@ def _verify_initial_adapter_tensors(policy, path: Path) -> dict:
     return {"exact_saved_tensors": True, "tensor_count": len(expected), "dtype": "float32"}
 
 
-def _inference_adapter_identity(path: Path, identity: dict, profile: Profile) -> dict:
+def _inference_adapter_identity(
+    path: Path, identity: dict, profile: Profile, *, initial_path: Path | None = None
+) -> dict:
     """Only a hash-bound completed endpoint may be used for a TRAIN assay."""
     if _expanded.is_expanded(profile):
-        return _expanded.artifact_identity(path, identity, profile, inference=True)
+        return _expanded.artifact_identity(
+            path, identity, profile, inference=True, initial_path=initial_path
+        )
+    if initial_path is not None:
+        raise ValueError("initial_path applies only to the expanded profile")
     initial = _adapter_identity(path, identity, profile)
     parent = json.loads((path.parent / "local_training.json").read_text())
     if initial["parent_data_identity"]["data_spec_sha256"] != identity["data_spec_sha256"]:
