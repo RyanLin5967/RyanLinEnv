@@ -15,8 +15,8 @@ the same ``final_answer`` rule and the same ``classification_response`` field.
 Sampling replicates mlx-vlm 0.6.8 (``mlx_vlm.sample_utils``) instead of Hugging Face's
 warpers, whose order differs: presence penalty over the unique tokens among the last 20
 entries of mlx-vlm's token history (the prompt, or only its last token when the prompt is
-prefilled in 2048-token chunks, followed by the generated tokens), then log-softmax, then top-p on the untempered distribution, then top-k, then a categorical draw
-at the declared temperature. The draw happens inside the logits processor with a per-image
+prefilled in 2048-token chunks, followed by the generated tokens), then log-softmax, then
+top-p on the untempered distribution, then top-k, then a categorical draw at the declared temperature. The draw happens inside the logits processor with a per-image
 ``torch.Generator``; it hands generate() a one-hot score row and generate() runs greedy
 (``do_sample=False``), so no Hugging Face warper or model generation default can change the
 token. After generation the emitted tokens are compared with the drawn ones and any
