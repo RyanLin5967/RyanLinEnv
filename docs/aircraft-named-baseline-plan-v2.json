@@ -34,7 +34,7 @@
     "directory_on_hosts": "Host-local /dev/shm/r226lin-qwen38-27b/weights, passed as run --model-directory. The NFS home has a per-user quota (about 25 GB, inferred from a Disk quota exceeded at that usage on 2026-10-18) that cannot hold the 55.6 GB snapshot, and the only writable local disk (root /var/tmp) has 19-56 GB free; /dev/shm is a 252 GB tmpfs on each ram-pool host. The location is not part of the identity: every file is rehashed against the pinned integrity record before every load.",
     "integrity": "docs/aircraft-named-baseline-v2-model-integrity.json",
     "integrity_sha256": "fd72f40857ce193ceef23f7c99521a41ae933dc499836c64167dd7736b385162",
-    "integrity_instrument": "python -m vision_rl.local_vlm_hf integrity on iccad1 (2026-10-18, uwrun run aircraft-v2-setup1) over the downloaded snapshot: each LFS file's sha256 equals the Hub API's lfs.sha256 and each small file's git blob sha1 equals the Hub API's blobId for this revision; missing, extra or symlinked files are refused",
+    "integrity_instrument": "python -I scripts/aircraft_named_baseline_hf.py integrity on iccad1 (2026-10-18, uwrun run aircraft-v2-setup1) over the downloaded snapshot: each LFS file's sha256 equals the Hub API's lfs.sha256 and each small file's git blob sha1 equals the Hub API's blobId for this revision; missing, extra or symlinked files are refused",
     "hub_metadata": "docs/aircraft-named-baseline-v2-hub-metadata.json",
     "hub_metadata_sha256": "9f29625ab9f80a1c05c460b316fb42f475b1d1e30df46447d7a4c64b7284ba52",
     "hub_metadata_source": "https://huggingface.co/api/models/Qwen/Qwen3.8-27B/revision/1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0?blobs=true (fetched 2026-10-18)",
@@ -67,7 +67,7 @@
       "enable_thinking": false
     },
     "sampling_source": "vision_rl.local_vlm.INSTRUCT_GENERATION (author-card native instruct values); identical to the measured chunk1 probe",
-    "sampler": "vision_rl.local_vlm_hf.mlx_instruct_probs re-states the released mlx-vlm 0.6.8 generate_step for these settings: presence penalty 1.5 subtracted once per distinct token among the last 20 context tokens (prompt included, as mlx-vlm concatenates the prompt on the first step), log-softmax, nucleus 0.8 on the untempered distribution, top-k 20, then softmax(logprobs / 0.7). transformers drives its own decode loop and cache in greedy mode over a one-hot of that sample, so no transformers warper touches the logits.",
+    "sampler": "scripts/aircraft_named_baseline_hf.py mlx_instruct_probs re-states the released mlx-vlm 0.6.8 generate_step for these settings: presence penalty 1.5 subtracted once per distinct token among the last 20 context tokens (prompt included, as mlx-vlm concatenates the prompt on the first step), log-softmax, nucleus 0.8 on the untempered distribution, top-k 20, then softmax(logprobs / 0.7). transformers drives its own decode loop and cache in greedy mode over a one-hot of that sample, so no transformers warper touches the logits.",
     "assistant_prefill": "<think>\n\n</think>\n\n",
     "seed": 1729,
     "per_image_seed": "int(sha256(canonical([1729, id]))[:8], 16) as in run_local; the per-image seed seeds a torch.Generator, so sampled tokens differ from MLX's RNG for the same seed",
@@ -111,7 +111,7 @@
   "sources_pinned": {
     "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
     "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
-    "src/vision_rl/local_vlm_hf.py": "1f44f4a4cb05974ab5b06762af25082cc3c1094e959096128545bd7fdae5b908"
+    "scripts/aircraft_named_baseline_hf.py": "08188f36bf5b4f15eef9053cb23bcf49e4b0bc61c89476429c90f15c7da7da00"
   },
   "sources_pinned_note": "local_vlm.py (the journaled core _run_locked, final_answer, prepare_local) and local_vlm_execution.py are byte-identical to v1's pins. The remaining runner sources are hashed into each unit's ledger at its first invocation and must not change afterwards; full VAL refuses unless every discovery shard ran under this plan and the same sources.",
   "sharding": {
@@ -344,5 +344,5 @@
     "Engine and artifact differ from v1 (identity_change above). Decoding uses the same native instruct settings, re-stated for torch; per-image seeds feed a different RNG."
   ],
   "resume_and_journal": "run_local attempts.jsonl: each image is reserved (fsynced) before generation; an interrupted reservation is unknown_after_interruption and never regenerated; completed answers, including invalid ones, are never repeated; a resume with any identity change (model files, prompt, pixels, seed, profile, runtime versions, dtype, engine, sources) is refused before model load. The runner's ledger.jsonl carries the budget clock. Each shard has its own journal and ledger.",
-  "runner": "scripts/aircraft_named_baseline.py with src/vision_rl/local_vlm_hf.py (tests: tests/test_aircraft_named_baseline_v2.py and tests/test_aircraft_named_baseline.py, fake backend, CPU only)"
+  "runner": "scripts/aircraft_named_baseline.py with scripts/aircraft_named_baseline_hf.py, the engine kept outside src/vision_rl because the freshpool production plan pins every tracked src/vision_rl module (tests: tests/test_aircraft_named_baseline_v2.py and tests/test_aircraft_named_baseline.py, fake backend, CPU only)"
 }

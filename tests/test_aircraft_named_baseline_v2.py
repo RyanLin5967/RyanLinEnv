@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vision_rl import local_vlm, local_vlm_hf
+from vision_rl import local_vlm
 from vision_rl.aircraft_data import aircraft_pixel_sha256
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -39,6 +39,8 @@ def _load(name, path):
     return module
 
 
+local_vlm_hf = _load("aircraft_named_baseline_hf",
+                     REPOSITORY / "scripts/aircraft_named_baseline_hf.py")
 V1_TESTS = _load("named_baseline_v1_tests", Path(__file__).with_name(
     "test_aircraft_named_baseline.py"))
 fake_backend, latency_of = V1_TESTS.fake_backend, V1_TESTS.latency_of
@@ -69,7 +71,7 @@ def runner(monkeypatch, clock):
     monkeypatch.setattr(module, "time", fake_time)
     monkeypatch.setattr(local_vlm, "time", fake_time)
     monkeypatch.setattr(module, "NATIVE_IMAGES", 100 * PER_CLASS)
-    monkeypatch.setattr(local_vlm_hf, "runtime_versions", lambda pins: dict(pins))
+    monkeypatch.setattr(module.local_vlm_hf, "runtime_versions", lambda pins: dict(pins))
     return module
 
 
@@ -232,7 +234,7 @@ def test_committed_v2_plan_pins_match_this_tree_and_v1(runner):
                                 "assignment": runner.SHARD_ASSIGNMENT}
     for name, digest in plan["sources_pinned"].items():
         assert sha(REPOSITORY / name) == digest, name
-    assert "src/vision_rl/local_vlm_hf.py" in plan["sources_pinned"]
+    assert "scripts/aircraft_named_baseline_hf.py" in plan["sources_pinned"]
     # Same prompt, parser, inputs, discovery sample, full manifest and sampling as v1.
     for key in ("prompt_sha256", "parser_source_sha256", "output_grammar", "response_format"):
         assert plan["prompt_and_parser"][key] == v1["prompt_and_parser"][key]

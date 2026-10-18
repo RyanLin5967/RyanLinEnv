@@ -15,7 +15,9 @@ stated rather than hidden:
             penalty over the last 20 context tokens, nucleus filter on the untempered
             distribution, top-k, then temperature), driven by a seeded torch.Generator
 
-Importing this module loads no model and imports no torch.
+Importing this module loads no model and imports no torch. It lives beside the runner,
+not in src/vision_rl, because the freshpool production plan pins every tracked
+src/vision_rl module and must not change.
 
 Blind spots, stated on purpose: the sampler equivalence is checked against a written
 re-statement of mlx-vlm 0.6.8 (tests), not by running MLX; the RSS telemetry is the
@@ -37,10 +39,10 @@ import threading
 import time
 from pathlib import Path
 
-from . import local_vlm
-from .frontier import _append, _digest, _now, _public
-from .local_vlm import model_image, native_profile, prepare_local, sha_file
-from .local_vlm_execution import plan_chunk
+from vision_rl import local_vlm
+from vision_rl.frontier import _append, _digest, _now, _public
+from vision_rl.local_vlm import model_image, native_profile, prepare_local, sha_file
+from vision_rl.local_vlm_execution import plan_chunk
 
 REPOSITORY = "Qwen/Qwen3.8-27B"
 REVISION = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
@@ -103,7 +105,7 @@ def build_integrity(directory, metadata):
             raise ValueError(f"Git blob id differs from the Hub: {name}")
         files.append({"path": name, "bytes": entry["size"], "sha256": digest})
     return {"model_repository": REPOSITORY, "revision": REVISION, "weights_dtype": "bfloat16",
-            "instrument": "vision_rl.local_vlm_hf.build_integrity against the Hub API "
+            "instrument": "scripts/aircraft_named_baseline_hf.py build_integrity against the Hub API "
                           "revision listing (?blobs=true)", "files": files}
 
 
@@ -415,7 +417,7 @@ class TransformersCPUBackend:
             "peak_memory_unit": "decimal GB, process peak RSS (ru_maxrss)",
             "generation_tokens_semantics": "every sampled token, including the EOS that "
                                            "stopped generation; text excludes that EOS",
-            "sampler": "vision_rl.local_vlm_hf.mlx_instruct_sample (seeded torch.Generator)",
+            "sampler": "aircraft_named_baseline_hf.mlx_instruct_sample (seeded torch.Generator)",
         }
         return {"native_response": native, "preprocessing": metadata,
                 "peak_memory_bytes": _peak_rss_bytes(), "rss_bytes_after_inference": _rss_bytes()}
@@ -471,7 +473,7 @@ def run_local_hf(
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
     model = verify_snapshot(model_directory, integrity, integrity_sha256)
-    from . import local_vlm_execution
+    from vision_rl import local_vlm_execution
 
     config = {
         "phase": phase, "seed": seed, **mode, "engine": "transformers-cpu", "dtype": dtype,
@@ -487,7 +489,7 @@ def run_local_hf(
         "expected_formatted_prompt_sha256": expected_formatted_prompt_sha256,
     }
     if preprocessing_id is not None:
-        from . import aircraft_data
+        from vision_rl import aircraft_data
 
         config["preprocessing_id"] = preprocessing_id
         config["preprocessing_source_sha256"] = sha_file(aircraft_data.__file__)
@@ -528,7 +530,7 @@ def run_local_hf(
 
 
 def main(argv=None):
-    """``python -m vision_rl.local_vlm_hf integrity --snapshot DIR --metadata JSON --write OUT``"""
+    """``python -I scripts/aircraft_named_baseline_hf.py integrity --snapshot DIR --metadata JSON --write OUT``"""
     import argparse
 
     parser = argparse.ArgumentParser(description="Hash a downloaded snapshot against the Hub")

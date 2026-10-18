@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import importlib.util
 import inspect
 import json
 import math
@@ -53,7 +54,7 @@ import sys
 import time
 from pathlib import Path
 
-from vision_rl import local_vlm, local_vlm_hf
+from vision_rl import local_vlm
 from vision_rl.aircraft_data import PREPROCESSING_ID
 from vision_rl.classification_comparison import _inputs, _score, compare_classification
 from vision_rl.vlm_local_training import OUTPUT_GRAMMAR, load_spec, parse_label, prompt_text
@@ -79,8 +80,19 @@ SOURCE_MODULES = {
     "src/vision_rl/frontier.py": "vision_rl.frontier",
     "src/vision_rl/vlm_local_training.py": "vision_rl.vlm_local_training",
     "src/vision_rl/classification_comparison.py": "vision_rl.classification_comparison",
-    "src/vision_rl/local_vlm_hf.py": "vision_rl.local_vlm_hf",
 }
+HF_ENGINE = Path(__file__).with_name("aircraft_named_baseline_hf.py")
+
+
+def _load_hf_engine():
+    # Loaded by path: python -I keeps the script directory off sys.path.
+    spec = importlib.util.spec_from_file_location("aircraft_named_baseline_hf", HF_ENGINE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+local_vlm_hf = _load_hf_engine()
 
 
 def compact(value):
@@ -286,6 +298,7 @@ def source_hashes():
         for name, module in SOURCE_MODULES.items()
     }
     hashes["scripts/aircraft_named_baseline.py"] = local_vlm.sha_file(__file__)
+    hashes["scripts/aircraft_named_baseline_hf.py"] = local_vlm.sha_file(local_vlm_hf.__file__)
     return hashes
 
 
