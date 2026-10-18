@@ -31,3 +31,10 @@ dev800 only; never native VAL or sealed TEST.
   (gcd of stops); payload-acdab57 re-bootstrapped on all 3 hosts. Arms that STARTED before the fix fail at 300:
   requeue each with `gpu_lane.py continue --of ARM --host H --resume-stop 150` (done for ecetesla2 03,10;
   ecetesla4 03; eceubuntu2 03 pre-queued). Watch: ecetesla2 11 and ecetesla4 10 probably started on old code.
+- Carried save_steps rule (c8a7b62): continuation specs carry `save_steps` from the table spec (150); use
+  `gpu_lane.py continue` only (tests/test_gpu_lane.py, 16 passed on iccad0; mutant without the carry fails 2).
+- eceubuntu2: another user (x2524wan, Qwen3.5 ruler eval, ~7 GB) took the 2080 Ti; arms 03@c150, 04, 05, 06
+  OOMed. Worker now waits for NEED_MIB free (10500 on eceubuntu2). New worker rlegpu-worker-eceubuntu2-1792354860;
+  04/05/06 requeued from scratch (arm dirs wiped), 03 continuation requeued as @c150r2.
+- Payload re-bootstrap: code-only via scratchpad/sh/boot_code.sh (hardlinks data from host payload; host_verify rehashes all).
+- 3070 workers (started 17:43/17:49) still run the OLD worker script (no GPU-free wait); arm_exec is re-read per arm.

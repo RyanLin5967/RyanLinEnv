@@ -166,8 +166,10 @@ def cmd_worker(a) -> int:
     need = {"eceubuntu2": 10500}.get(a.host, 6500)  # MiB free before an arm starts
     inner = (f"R={ROOT}; NEED_MIB={need} exec bash \"$R/payload/code/scripts/exploratory_sweep/gpu_worker.sh\" "
              f"\"$R\" \"$PWD/results\"")
-    uw("run", "--host", a.host, "--threads", "4", "--timeout", str(a.timeout), "--name", name,
-       "--", "bash", "-c", inner, timeout=600)
+    # --mem: host RSS cap for the uwrun memory guard (a GPU arm's trainer + assay child hold
+    # the model in host RAM while loading; 24 GB is headroom over that, not a measurement).
+    uw("run", "--host", a.host, "--threads", "4", "--timeout", str(a.timeout), "--mem", "24",
+       "--name", name, "--", "bash", "-c", inner, timeout=600)
     state["workers"].setdefault(a.host, []).append({"name": name, "at": now()})
     save_state(state)
     print(f"worker {name}")
@@ -253,7 +255,7 @@ def cmd_continue(a) -> int:
     t, state = table(), load_state()
     extra = [int(x) for x in a.extra_stops.split(",")] if a.extra_stops else []
     spec = continue_spec(t[a.of], a.resume_stop, extra)
-    push(a.host, spec, a.prio, state, suffix=f"@c{a.resume_stop}")
+    push(a.host, spec, a.prio, state, suffix=f"@c{a.resume_stop}{a.retry}")
     return 0
 
 
@@ -410,6 +412,7 @@ def main(argv=None) -> int:
     k.add_argument("--resume-stop", type=int, required=True)
     k.add_argument("--extra-stops", default="")
     k.add_argument("--prio", default="04")
+    k.add_argument("--retry", default="", help="suffix for a re-queue of the same continuation")
     r = sub.add_parser("report")
     r.add_argument("--resamples", type=int, default=20000)
     a = p.parse_args(argv)
