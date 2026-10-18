@@ -4,7 +4,8 @@ Modelled on runs/aircraft-controlled400-launch-v1/phase_worker.py. The launcher 
 file once per stage in a new session (process group); this file refuses unless the frozen
 environment is set, imports exactly one entry ``module:function`` whose source file has the
 SHA256 the launcher pinned (an allowlist by content, not by name), samples MPS driver
-allocation every 0.5 s for model-owning kinds, and writes a summary receipt.
+allocation every 0.5 s for model-owning kinds (the guard), records the peak MPS tensor
+allocation alongside it (reported, not guarded), and writes a summary receipt.
 
 The device is the frozen ``ACCELERATE_TORCH_DEVICE``, which is what Accelerate (and so the
 trainer) actually uses. It must be ``mps``, except that ``--dry-run`` (passed by the launcher
@@ -122,6 +123,7 @@ def main(argv=None):
         "status": "running",
         "driver_limit_bytes": DRIVER_LIMIT_BYTES,
         "peak_driver_allocated_bytes": 0,
+        "peak_tensor_allocated_bytes": 0,
         "sampling_interval_seconds": SAMPLE_SECONDS,
     }
     write(summary, stats)
@@ -151,12 +153,17 @@ def main(argv=None):
                     with (args.guard_dir / (identifier + ".jsonl")).open("x") as handle:
                         while not done.is_set():
                             driver = torch.mps.driver_allocated_memory()
+                            tensor = torch.mps.current_allocated_memory()
                             stats["peak_driver_allocated_bytes"] = max(
                                 stats["peak_driver_allocated_bytes"], driver
+                            )
+                            stats["peak_tensor_allocated_bytes"] = max(
+                                stats["peak_tensor_allocated_bytes"], tensor
                             )
                             handle.write(json.dumps({
                                 "elapsed_seconds": time.monotonic() - started,
                                 "driver_allocated_bytes": driver,
+                                "tensor_allocated_bytes": tensor,
                             }) + "\n")
                             handle.flush()
                             write(summary, stats)
@@ -183,6 +190,10 @@ def main(argv=None):
         if thread is not None:
             thread.join(timeout=2)
         stats["elapsed_seconds"] = time.monotonic() - started
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS, KiB Linux
+        stats["peak_rss_bytes"] = peak if sys.platform == "darwin" else peak * 1024
         write(summary, stats)
 
 

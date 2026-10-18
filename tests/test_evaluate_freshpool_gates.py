@@ -84,7 +84,8 @@ def rollouts(mixed_groups=112):
             mixed = len(groups) < mixed_groups
             outcomes = [True, False, False, False] if mixed else [False] * 4
             groups.append({"id": SCAN[index], "seed": seed, "completions": [
-                {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True}
+                {"correct": c, "valid": True, "eos": True, "canonical_tokenization": True,
+                 "label_only": True}
                 for c in outcomes]})
     return groups
 
@@ -218,6 +219,27 @@ def test_g1_hand_fixture_passes_and_each_threshold_fires():
     forged[300]["accepted"] = True
     with pytest.raises(ValueError, match="disagrees"):
         gate_g1(g1(forged), "w")
+
+
+def test_g1_non_canonical_share_counts_only_bare_label_alternates():
+    """112 mixed groups x 1 correct = 112 correct completions. 2 bare-label alternates
+    (1.79%) and 4 think-block answers with other token IDs: the share is 2/112, under the
+    study's 2%, not 6/112. A correct completion that does not state label_only refuses."""
+    groups = rollouts()
+    correct = [c for g in groups for c in g["completions"] if c["correct"]]
+    for c in correct[:2]:
+        c["canonical_tokenization"] = False
+    for c in correct[2:6]:
+        c.update(canonical_tokenization=False, label_only=False)
+    share = gate_g1(g1(groups=groups), "w")["values"]["non_canonical_share_of_correct"]
+    assert share == 2 / 112
+    for c in correct[6:9]:
+        c["canonical_tokenization"] = False  # 5 bare-label alternates: 5/112 > 2%
+    assert gate_g1(g1(groups=groups), "w")["values"]["non_canonical_share_of_correct"] == (
+        5 / 112)
+    del correct[0]["label_only"]
+    with pytest.raises(ValueError, match="label_only"):
+        gate_g1(g1(groups=groups), "w")
 
 
 def test_full_hand_fixture_selects_and_gates_as_computed_by_hand():
