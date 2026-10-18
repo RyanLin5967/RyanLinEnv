@@ -97,7 +97,10 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   `merge` and `compare` need the activated plan and its SHA256, and they refuse any shard whose
   ledger started under a different plan. `report` is diagnostic only.
 - **Pinned files.** `sources_pinned` lists all 9 files the runner hashes, and the runner refuses
-  an activated plan whose list differs. The plan also pins the snapshot record's SHA256, which
+  an activated plan whose list differs. Three entries are pinned now: v1's two engine files and
+  v1's runner, which must stay byte-identical. The other six are null until activation and are
+  then filled from the activated commit: the two v2 scripts, plus four shared `vision_rl` modules
+  that other work keeps changing on main. An activated plan with any null pin is refused. The plan also pins the snapshot record's SHA256, which
   `run` and `smoke` check before they rehash the weights.
 - **Gate from discovery to full VAL.** The gate is projected per shard:
   `ceil(3333/6) × discovery mean latency + chunks × per-invocation overhead`. The gate stops if

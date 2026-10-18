@@ -114,15 +114,15 @@
   "sources_pinned": {
     "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
     "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
-    "src/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
-    "src/vision_rl/frontier.py": "95c75d8a7f131aa179307ecd03eb3ff903a53c64fad978f0899d83e080ac9ecf",
-    "src/vision_rl/vlm_local_training.py": "c6d8419a41fd2328b0d518215a618fbc94d92a15c5d53d9258f28a5507e42f7e",
-    "src/vision_rl/classification_comparison.py": "269b2d789f4197b215e5bc6b29e226e688ce4bf9e3df93cb7bbf1222c7d46861",
+    "src/vision_rl/aircraft_data.py": null,
+    "src/vision_rl/frontier.py": null,
+    "src/vision_rl/vlm_local_training.py": null,
+    "src/vision_rl/classification_comparison.py": null,
     "scripts/aircraft_named_baseline_hf.py": null,
     "scripts/aircraft_named_baseline.py": "26b8f4dbe5a20e180c1b611f1f5819929f8c47ec65e2cb6608b1e184d85c64a6",
     "scripts/aircraft_named_baseline_v2.py": null
   },
-  "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). Every source the runner hashes is listed (the runner refuses an activated plan whose keys differ from its hashed set). The two null pins are filled at activation with the merged commit's file hashes; an activated plan with any null pin is refused. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
+  "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). Every source the runner hashes is listed (the runner refuses an activated plan whose keys differ from its hashed set). The null pins (the two v2 scripts and the four shared vision_rl modules other work keeps changing on main) are filled at activation with the activated commit's file hashes; an activated plan with any null pin is refused, so activation pins every hashed source. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
   "sharding": {
     "shards": 6,
     "assignment": "author-order position i of the stage manifest belongs to shard i mod 6 (metadata only): discovery 17/17/17/17/16/16, full VAL 556/556/556/555/555/555",
