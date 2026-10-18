@@ -771,11 +771,26 @@ def test_a_shard_never_changes_host(runner, world, clock):
     runner.fixture_host = dict(HOSTS[1])
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     before = ledger.read_text()
-    with pytest.raises(ValueError, match=r"recorded run identity in \['host'\]"):
+    with pytest.raises(ValueError, match="ledger started on another host"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"], backend_factory=fake_backend(answers, calls))
     assert len(calls) == 20  # nothing ran on the second host
     assert ledger.read_text() == before  # and no invocation was charged
+
+
+def test_resume_under_other_kernels_is_refused_before_charging(runner, world, clock,
+                                                                monkeypatch):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
+    ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
+    before = ledger.read_text()
+    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "OTHER-FP")
+    with pytest.raises(ValueError, match=r"recorded run identity in \['kernel_fingerprint'\]"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    assert len(calls) == 20 and ledger.read_text() == before
 
 
 def test_merge_refuses_a_shard_whose_kernels_computed_differently(runner, world, clock,
