@@ -54,6 +54,12 @@ CONTROL_LR = {"W": 1e-5, "I": 5e-6}
 # 400 updates (every sweep run declares the rung-3 total). 72 h is a ceiling, never a target:
 # stage boundaries are update counts, or, for a time-matched control, the RL arm's seconds.
 SFT_ACTIVE_CAP_SECONDS = 259200.0
+# Amendment 2 (2026-10-18, after the first screened arm refused at start, before any accuracy):
+# a screened run's trainer needs max_steps == target_accepted and at least that many UNIQUE
+# scan rows; s_train has 1,424, so 1,500 accepted updates are impossible. Screened arms declare
+# the rung-2 total (600) instead. The LR schedule is constant with no warmup, so the declared
+# total changes nothing before the stop; a screened unit cannot run rung 3.
+SCREENED_TOTAL = RUNG_UPDATES[2]
 BASE = {"beta": 0.04, "temperature": 1.0, "num_generations": 4, "screen_threshold": None,
         "response_format": "answer_only", "max_pixels": 200704, "min_pixels": 50176,
         "max_completion_length": 256, "adapter_profile": "legacy-qv-v1", "threads": 16,
@@ -248,7 +254,8 @@ def rung1_arms():
             f"grpo-W-{n:02d}-lr{lr_tag(d['lr'])}-g{d['num_generations']}-b{d['beta']}"
             f"-t{d['temperature']}-{sc}", track="rl", family="grpo-W", init="W", mode="grpo",
             lr=d["lr"], num_generations=d["num_generations"], beta=d["beta"],
-            temperature=d["temperature"], screen_threshold=d["screen_threshold"]))
+            temperature=d["temperature"], screen_threshold=d["screen_threshold"],
+            **({"max_steps_total": SCREENED_TOTAL} if d["screen_threshold"] else {})))
     for lr, g in itertools.product((1e-6, 5e-6, 1e-5), (4, 8)):
         arms.append(arm(f"grpo-I-lr{lr_tag(lr)}-g{g}", track="rl", family="grpo-I", init="I",
                         mode="grpo", lr=lr, num_generations=g))

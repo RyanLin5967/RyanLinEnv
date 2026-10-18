@@ -241,3 +241,16 @@ hosts, so each number is labelled with its host. Raw rows: `aircraft-exploratory
 
 At 16 threads the two host types measured the same. GRPO cost scales about linearly in G
 (G8 / G4 ≈ 1.93 on both hosts).
+
+## Amendment 2 (2026-10-18, before any accuracy was read): screened arms declare 600 updates
+
+The first screened GRPO-W arm (`grpo-W-04…-s`, uwrun `rlesweep-grpo-W-04-lr1e-6-g16-b0_1-t1_0-s-326254823`,
+iccad13) refused at start: a screened trainer run needs `max_steps == target_accepted` and at
+least that many **unique** scan rows, and s_train has 1,424. So 1,500 accepted updates cannot
+exist. The 15 screened GRPO-W arms, and their matched controls, now declare `max_steps_total`
+600 (the rung-2 total). The trainer's LR schedule is constant with no warmup, so the declared
+total changes no update before a stop. Consequences, fixed now: a screened unit cannot run
+rung 3 (if promoted there, it is recorded as infeasible and not replaced); at rung 2, a
+screened run whose scan yields fewer than 600 accepted prompts refuses and is recorded as
+failed. `design_files_sha256` in the JSON twin is updated; the old hashes are kept in its
+`amendments` list.

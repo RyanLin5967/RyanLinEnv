@@ -1,4 +1,18 @@
 {
+ "amendments": [
+  {
+   "at": "2026-10-18T12:40Z",
+   "before_any_accuracy": true,
+   "effect": "none before the stop: lr_scheduler_type constant, warmup 0, so the declared total does not change any update; a screened unit cannot run rung 3 (it is ranked, but a rung-3 promotion of it is recorded infeasible); at rung 2 a screened run whose scan holds fewer than 600 accepted prompts refuses and is recorded failed",
+   "previous_design_files_sha256": {
+    "arms-rung1.json": "c39c8bd0e805aa429e09f87738669cf3e13d736753653cce974d31a415ff36b0",
+    "scripts/exploratory_sweep/design.py": "9515dcee18135c21e71a0ed5c5e761d2ff39e01cb5b2f8ded55cf9b17fa4082e",
+    "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
+   },
+   "what": "screened GRPO-W arms (screen_threshold 0.5, 15 arms) and their controls declare max_steps_total 600 (rung-2 total) instead of 1500",
+   "why": "the first screened arm (grpo-W-04, uwrun rlesweep-grpo-W-04-lr1e-6-g16-b0_1-t1_0-s-326254823, iccad13) refused at start: the trainer requires screened max_steps == target_accepted and at least that many UNIQUE scan rows ('screen scan is shorter than target_accepted; it would exhaust S'); s_train has 1424 rows, so 1500 accepted updates are impossible"
+  }
+ ],
  "base_settings": {
   "adapter_profile": "legacy-qv-v1",
   "device": "cpu",
@@ -41,8 +55,8 @@
   "then": "each candidate and the best SFT unit assayed once on h_gate_final; reported as is; no re-selection"
  },
  "design_files_sha256": {
-  "arms-rung1.json": "c39c8bd0e805aa429e09f87738669cf3e13d736753653cce974d31a415ff36b0",
-  "scripts/exploratory_sweep/design.py": "9515dcee18135c21e71a0ed5c5e761d2ff39e01cb5b2f8ded55cf9b17fa4082e",
+  "arms-rung1.json": "cfdbf2c872b307af8216335f2f8507829696363023e8bc33d94ef934b3e9cabc",
+  "scripts/exploratory_sweep/design.py": "adc155dd4c72ff4f4dc1fcd296099fb791dab9ad9e322d24cf179e0dc1f38a12",
   "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
  },
  "design_reproduce": "python3 -I scripts/exploratory_sweep/design.py --check",
