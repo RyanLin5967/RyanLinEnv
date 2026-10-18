@@ -66,7 +66,8 @@ the study's 8,16 / 4 / 8; anything else exists only for a smoke and the launcher
 stage0_validator refuses it), checks, c_accepted_steps, c_seconds_per_accepted_update,
 sampler_teacher_max_abs_logprob_difference (the largest over every probe and E0 run at every
 G; null if any run lacks it), detail and measurements (per G: per invocation peak RSS, MPS
-driver and tensor bytes and wall seconds; probe committed seconds and scorer seconds; update
+driver and tensor bytes (null off MPS), peak CUDA bytes (UW GPU path), wall seconds and the
+child wall bound (child_timeout_seconds); probe committed seconds and scorer seconds; update
 seconds; generated tokens; checkpoint bytes).
 
 A check that fails is written false, never raised. A trainer invocation that fails raises: no
@@ -137,6 +138,13 @@ def child_execution_flags(environ):
     return []
 
 
+def child_timeout_seconds(group, updates):
+    """Wall bound for one trainer child: e0_gate's CHILD_TIMEOUT_SECONDS was sized for its
+    4 updates at G4 (16 group-updates); scale it linearly in G x updates, never below it.
+    A bound only (the launcher's stage cap governs cost); a child past it fails the stage."""
+    return E.CHILD_TIMEOUT_SECONDS * max(1.0, group * updates / 16)
+
+
 class Runner(E.Runner):
     """e0_gate.Runner, labelled per G and carrying the parent's execution path
     (child_execution_flags) instead of e0_gate's cpu-means-dry-run rule."""
@@ -146,24 +154,33 @@ class Runner(E.Runner):
         self.mode = child_execution_flags(os.environ)
         self.dry_run = self.mode == ["--dry-run"]
 
-    def __call__(self, label, argv):
+    def __call__(self, label, argv, group, updates):
         before = set(self.guard_dir.glob("*.json")) if self.guard_dir.is_dir() else set()
         mode = self.mode
         command = [sys.executable, "-B", str(HERE / "phase_worker.py"),
                    "--guard-dir", str(self.guard_dir), "--stage", f"stage0-{label}",
                    "--kind", "train", "--entry", ENTRY, "--entry-sha256", self.trainer_sha256,
                    *mode, "--", *argv]
-        print(json.dumps({"stage0_invocation": label}), flush=True)
-        completed = subprocess.run(command, timeout=E.CHILD_TIMEOUT_SECONDS)
+        timeout = child_timeout_seconds(group, updates)
+        print(json.dumps({"stage0_invocation": label, "timeout_seconds": timeout}), flush=True)
+        try:
+            completed = subprocess.run(command, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise E.E0Error(f"{label} exceeded its {timeout:.0f} s child wall") from exc
         guards = sorted(set(self.guard_dir.glob("*.json")) - before)
         guard = json.loads(guards[-1].read_text()) if guards else {}
+        execution = mode[0][2:] if mode else "mps"
+        mps = execution == "mps"  # phase_worker starts the MPS peaks at 0 on every device
         self.invocations.append({
-            "label": label, "exit_code": completed.returncode,
-            "execution": mode[0][2:] if mode else "mps",
+            "label": label, "exit_code": completed.returncode, "execution": execution,
+            "timeout_seconds": timeout,
             "elapsed_seconds": guard.get("elapsed_seconds"),
             "peak_rss_bytes": guard.get("peak_rss_bytes"),
-            "peak_mps_driver_allocated_bytes": guard.get("peak_driver_allocated_bytes"),
-            "peak_mps_tensor_allocated_bytes": guard.get("peak_tensor_allocated_bytes")})
+            "peak_mps_driver_allocated_bytes":
+                guard.get("peak_driver_allocated_bytes") if mps else None,
+            "peak_mps_tensor_allocated_bytes":
+                guard.get("peak_tensor_allocated_bytes") if mps else None,
+            "peak_cuda_allocated_bytes": guard.get("peak_cuda_allocated_bytes")})
         return completed.returncode
 
 
@@ -183,7 +200,8 @@ def trajectory(run, common, group, steps, name, parts, directory):
     for number, part in enumerate(parts):
         target = done + part
         label = f"g{group}-{name}-part{number + 1}"
-        code = run(label, trainer_argv(common, group, steps, directory, target, done))
+        code = run(label, trainer_argv(common, group, steps, directory, target, done),
+                   group, part)
         if code != 0:
             raise E.E0Error(f"trainer exited {code} on {label}")
         (directory.parent / f"{name}-part{number + 1}-record.json").write_bytes(
@@ -194,7 +212,7 @@ def trajectory(run, common, group, steps, name, parts, directory):
 
 def probe(run, common, group, accepted, directory):
     code = run(f"g{group}-probe", trainer_argv(common, group, accepted, directory, accepted, 0,
-                                               save_steps=accepted))
+                                               save_steps=accepted), group, accepted)
     if code != 0:
         raise E.E0Error(f"trainer exited {code} on the G{group} cost probe")
     (directory.parent / "probe-part1-record.json").write_bytes(

@@ -146,9 +146,14 @@ def main(argv):
         ids = [[5, 2]] + [[9, 2]] * (group - 2) + [[5, 2]]
         if resumed and fire("diverge"):
             ids = [[5, 2], [8, 2]] + [[9, 2]] * (group - 3) + [[5, 2]]
+        if fire("short_rewards"):  # G - 1 rewards: a group not at this G
+            rewards, ids = rewards[:-1], ids[:-1]
+        row = {"step": step, "completed_state_active_seconds": seconds,
+               "latest_gradient_norm": 0.75}
+        if fire("audit_row_reference"):
+            row["reference_sha256"] = "identity-of-W"
         with (output / "optimizer_audit.jsonl").open("a") as handle:
-            handle.write(json.dumps({"step": step, "completed_state_active_seconds": seconds,
-                                     "latest_gradient_norm": 0.75}) + "\n")
+            handle.write(json.dumps(row) + "\n")
         with (output / "reward_groups.jsonl").open("a") as handle:
             handle.write(json.dumps({
                 "id": accepted[step - 1], "rewards": rewards, "completion_ids": ids,
@@ -157,6 +162,8 @@ def main(argv):
         log = {"step": step, "loss": 0.125, "reward": 0.25}
         if fire("kl_logged"):
             log["kl"] = 0.0
+        if fire("drop_loss_at_step") == step:
+            del log["loss"]
         history.append(log)
         if step % save and step != stop:
             continue
@@ -197,14 +204,24 @@ def main(argv):
         optimizer_audit={"active_time": {
             "fixture": True, "observed_scorer_seconds_within_active":
                 0.25 * len(screen) + (SCENARIO.get("scorer_drift", 0.0) if on else 0.0)},
-                         "changed_tensors": 2})
+                         "changed_tensors": 2,
+                         **({"reference_unchanged": True}
+                            if fire("audit_reference_keys") else {})})
     record["environment"]["adapter_source_sha256"] = sha(output / "adapter-source.py")
     (output / "local_training.json").write_text(json.dumps(record))
     vlt._publish_endpoint_receipt(output, record, stop)
     return 0
 '''
 
-TRUE = dict.fromkeys(stage0_gate.CHECKS, True)
+# Written out, not read from the entry: the launcher's five plus e0_gate's beta-0 checks.
+CHECK_NAMES = (
+    "resume_2_plus_2_identical", "resume_1_plus_3_identical", "finite_nonzero_task_gradient",
+    "no_reference_forward_at_beta_0", "loss_type_dr_grpo_recorded",
+    "scan_follows_train_manifest", "initial_adapter_is_w", "useful_mixed_group",
+    "lora_parameter_changed", "scorer_uses_sampler_transform",
+    "active_time_ledger_cumulative", "scorer_seconds_within_active_time", "group_size_is_g",
+)
+TRUE = dict.fromkeys(CHECK_NAMES, True)
 
 
 def sha_bytes(data):
@@ -297,6 +314,11 @@ def test_study_defaults_measure_c_and_prove_e0_at_g8_and_g16(tmp_path, monkeypat
     ({"ref_adapter": True}, {"no_reference_forward_at_beta_0"}),
     ({"reference_record": True}, {"no_reference_forward_at_beta_0"}),
     ({"parity_reference": True}, {"no_reference_forward_at_beta_0"}),
+    ({"audit_reference_keys": True}, {"no_reference_forward_at_beta_0"}),
+    ({"audit_row_reference": True}, {"no_reference_forward_at_beta_0"}),
+    # A log_history without a logged loss at step 2 does not prove the kl metric's absence.
+    ({"drop_loss_at_step": 2}, {"no_reference_forward_at_beta_0"}),
+    ({"short_rewards": True}, {"group_size_is_g"}),
     ({"scorer_drift": 0.5}, {"scorer_seconds_within_active_time"}),
 ])
 def test_each_forced_fire_is_written_false_at_its_own_g(tmp_path, monkeypatch, scenario,
@@ -347,13 +369,69 @@ def test_evaluate_refuses_true_without_evidence(tmp_path, monkeypatch):
     assert checks["no_reference_forward_at_beta_0"] is False
     # A malformed run makes every check false rather than raising.
     checks, detail = stage0_gate.evaluate({}, probe, 8, 2, w, fixture.scan_ids)
-    assert checks == dict.fromkeys(stage0_gate.CHECKS, False) and "error" in detail
+    assert checks == dict.fromkeys(CHECK_NAMES, False) and "error" in detail
     # A run at another G cannot be keyed under this one.
     checks, _ = stage0_gate.evaluate(runs, probe, 16, 2, w, fixture.scan_ids)
     assert checks["group_size_is_g"] is False
     # A different W is not the init.
     checks, _ = stage0_gate.evaluate(runs, probe, 8, 2, sha_bytes(b"other"), fixture.scan_ids)
     assert checks["initial_adapter_is_w"] is False
+
+
+def read_smoke(fixture):
+    root = fixture.stage / "g8"
+    runs = {name: stage0_gate.E.read_run(root / name, name)
+            for name in ("uninterrupted", "resume_2_plus_2", "resume_1_plus_3")}
+    return runs, stage0_gate.E.read_run(root / "probe", "probe")
+
+
+def failed_after(change, fixture):
+    runs, probe = read_smoke(fixture)
+    change(runs, probe)
+    checks, _ = stage0_gate.evaluate(runs, probe, 8, 2, sha_bytes(b"W weights"),
+                                     fixture.scan_ids)
+    return {k for k, v in checks.items() if v is not True}
+
+
+def set_receipt_reference(runs, probe):
+    runs["resume_1_plus_3"]["receipt"]["reference_sha256"] = "identity-of-W"
+
+
+def decreasing_ledger(runs, probe):
+    runs["resume_2_plus_2"]["audit_rows"][1]["completed_state_active_seconds"] = 5.0
+
+
+def ledger_end_not_receipt(runs, probe):
+    probe["receipt"]["committed_active_seconds"] = 21.0
+
+
+@pytest.mark.parametrize("change, failed", [
+    (set_receipt_reference, {"no_reference_forward_at_beta_0"}),
+    (decreasing_ledger, {"active_time_ledger_cumulative"}),
+    # 21 s != the probe's last ledger value 20 s; the scorer check still holds (0.5 <= 21).
+    (ledger_end_not_receipt, {"active_time_ledger_cumulative"}),
+])
+def test_evaluate_fires_on_one_field(tmp_path, monkeypatch, change, failed):
+    fixture = Stage0Fixture(tmp_path, monkeypatch)
+    fixture.run(["--groups", "8", "--e0-steps", "2", "--probe-accepted", "2"])
+    assert failed_after(lambda runs, probe: None, fixture) == set()
+    assert failed_after(change, fixture) == failed
+
+
+def test_cost_requires_every_condition(tmp_path, monkeypatch):
+    fixture = Stage0Fixture(tmp_path, monkeypatch)
+    fixture.run(["--groups", "8", "--e0-steps", "2", "--probe-accepted", "2"])
+    _, probe = read_smoke(fixture)
+    # probe of 2 at G8: 2 * 10 s committed over 2 accepted updates
+    assert stage0_gate.cost(probe, 2) == (10.0, 2, None)
+    assert stage0_gate.cost(probe, 3)[0] is None  # target 3, 2 accepted
+    shorter = dict(probe, exposure=probe["exposure"][:1])
+    assert stage0_gate.cost(shorter, 2)[0] is None
+    other_step = dict(probe, global_step=3)
+    assert stage0_gate.cost(other_step, 2)[0] is None
+    zero = dict(probe, receipt=dict(probe["receipt"], committed_active_seconds=0.0))
+    assert stage0_gate.cost(zero, 2)[:2] == (None, 2)
+    assert "seconds" in stage0_gate.cost(zero, 2)[2]
 
 
 @pytest.mark.parametrize("change, message", [
@@ -423,15 +501,100 @@ def test_remote_cpu_parent_forwards_remote_cpu_to_every_child(tmp_path, monkeypa
     monkeypatch.setenv("VISION_RL_TORCH_THREADS", "6")
     monkeypatch.setattr(stage0_gate.subprocess, "run", fake_run)
     runner = stage0_gate.Runner(tmp_path, "0" * 64)
-    assert runner("g8-probe", ["--device", "cpu"]) == 0
+    assert runner("g8-probe", ["--device", "cpu"], 8, 8) == 0
     worker, trainer = commands[0][:commands[0].index("--")], commands[0][
         commands[0].index("--") + 1:]
     assert "--remote-cpu" in worker and "--dry-run" not in worker
     assert trainer == ["--device", "cpu"]
-    assert runner.invocations[0]["execution"] == "remote-cpu"
+    invocation = runner.invocations[0]
+    assert invocation["execution"] == "remote-cpu"
+    assert invocation["timeout_seconds"] == 14400.0  # 3600 * (8 * 8 / 16)
+    # off MPS the worker's zero-initialised MPS peaks are not reported as measurements
+    assert invocation["peak_mps_driver_allocated_bytes"] is None
+    assert invocation["peak_mps_tensor_allocated_bytes"] is None
+
+
+@pytest.mark.parametrize("group, updates, seconds", [
+    (4, 4, 3600.0),     # e0_gate's own size: unchanged
+    (2, 1, 3600.0),     # never below it
+    (8, 4, 7200.0),     # 32 / 16 = 2
+    (16, 8, 28800.0),   # the G16 probe: 128 / 16 = 8
+])
+def test_child_wall_scales_with_group_and_updates(group, updates, seconds):
+    assert stage0_gate.child_timeout_seconds(group, updates) == seconds
+
+
+def test_a_child_past_its_wall_fails_the_stage_naming_it(tmp_path, monkeypatch):
+    def too_slow(command, timeout):
+        raise stage0_gate.subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setenv("ACCELERATE_TORCH_DEVICE", "mps")
+    monkeypatch.delenv("VISION_RL_TORCH_THREADS", raising=False)
+    monkeypatch.setattr(stage0_gate.subprocess, "run", too_slow)
+    runner = stage0_gate.Runner(tmp_path, "0" * 64)
+    with pytest.raises(stage0_gate.E.E0Error, match="g16-probe exceeded its 28800 s"):
+        runner("g16-probe", ["--device", "mps"], 16, 8)
+
+
+NOOP_ENTRY = "def main(argv):\n    return 0\n"
+FAKE_CUDA = '''
+
+class _Cuda:
+    def is_available(self):
+        return True
+
+    def device_count(self):
+        return 1
+
+    def get_device_name(self, index):
+        return "fake"
+
+    def max_memory_allocated(self):
+        return 5
+
+
+cuda = _Cuda()
+'''
+
+
+@pytest.mark.parametrize("environ", [
+    {"ACCELERATE_TORCH_DEVICE": "mps"},
+    {"ACCELERATE_TORCH_DEVICE": "cpu"},
+    {"ACCELERATE_TORCH_DEVICE": "cpu", "VISION_RL_TORCH_THREADS": "6", "UWRUN_THREADS": "6"},
+    {"ACCELERATE_TORCH_DEVICE": "cuda", "VISION_RL_TORCH_THREADS": "6", "UWRUN_THREADS": "6",
+     "CUDA_VISIBLE_DEVICES": "0"},
+])
+def test_every_child_flag_is_accepted_by_the_real_phase_worker(tmp_path, monkeypatch, environ):
+    """Each flag child_execution_flags returns, through the real phase_worker.py, in the
+    environment that selects it: a flag the worker does not define exits non-zero."""
+    import subprocess
+
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "torch.py").write_text(FAKE_TORCH + FAKE_CUDA)
+    (pkg / "noop_stage0_entry.py").write_text(NOOP_ENTRY)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("VISION_RL_TORCH_THREADS", "UWRUN_THREADS", "CUDA_VISIBLE_DEVICES")}
+    env.update(PYTHONPATH=str(pkg), PYTORCH_ENABLE_MPS_FALLBACK="0", HF_HUB_OFFLINE="1",
+               **environ)
+    flags = stage0_gate.child_execution_flags(env)
+    command = [sys.executable, "-B", str(PACKAGE / "phase_worker.py"),
+               "--guard-dir", str(tmp_path / "guards"), "--stage", "flag-check",
+               "--kind", "train", "--entry", "noop_stage0_entry:main",
+               "--entry-sha256", sha_bytes(NOOP_ENTRY.encode()), *flags, "--",
+               "--device", environ["ACCELERATE_TORCH_DEVICE"]]
+    completed = subprocess.run(command, env=env, capture_output=True, text=True, timeout=120)
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    # Forced fire: the same command with a flag the worker does not define is refused.
+    bogus = [part if part not in ("--remote-cpu", "--remote-cuda", "--dry-run")
+             else "--remote-bogus" for part in command]
+    if flags:
+        refused = subprocess.run(bogus, env=env, capture_output=True, text=True, timeout=120)
+        assert refused.returncode != 0 and "--remote-bogus" in refused.stderr
 
 
 def test_entry_checks_cover_the_launchers_stage0_checks():
+    assert stage0_gate.CHECKS == CHECK_NAMES
     assert stage0_gate.CHECKS[:5] == signal_limit.STAGE0_CHECKS
     assert signal_limit.STAGE0_E0_STEPS == stage0_gate.STUDY_E0_STEPS == 4
     assert signal_limit.STAGE0_MIN_C_STEPS == stage0_gate.STUDY_PROBE_ACCEPTED == 8
