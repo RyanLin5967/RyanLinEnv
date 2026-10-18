@@ -595,6 +595,8 @@ def test_every_child_flag_is_accepted_by_the_real_phase_worker(tmp_path, monkeyp
 
 def test_entry_checks_cover_the_launchers_stage0_checks():
     assert stage0_gate.CHECKS == CHECK_NAMES
-    assert stage0_gate.CHECKS[:5] == signal_limit.STAGE0_CHECKS
+    # The launcher requires every check the entry computes (PR #34 review N6), not the
+    # study's five named ones only: the hand-written list above is the specification.
+    assert signal_limit.STAGE0_CHECKS == CHECK_NAMES
     assert signal_limit.STAGE0_E0_STEPS == stage0_gate.STUDY_E0_STEPS == 4
     assert signal_limit.STAGE0_MIN_C_STEPS == stage0_gate.STUDY_PROBE_ACCEPTED == 8

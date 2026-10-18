@@ -708,3 +708,31 @@ def test_uw_script_exports_the_remote_device_and_not_the_plans_thread_pins(
     assert f"phase_worker.py --remote-{device} " in text
     # The pin check is the first command that reads the bundle, before the worker.
     assert text.index("remote-check") < text.index("phase_worker.py")
+
+
+@pytest.mark.parametrize("flags, reason", [
+    (set(), None),
+    ({"timedout"}, "arm_cap"),
+    ({"stopped"}, "uw_run_stopped_externally"),
+    ({"oom-guard"}, "uw_host_guard_stopped"),
+    ({"overquota"}, "uw_host_guard_stopped"),
+    ({"leaked:123,456,"}, "uw_stage_left_processes"),
+    ({"timedout", "leaked:9,"}, "uw_stage_left_processes"),
+    ({"somethingnew"}, "uw_status_flag_unknown"),
+])
+def test_uw_status_flags_are_an_allowlist(flags, reason):
+    assert uw_stage_a.UWRunner.flag_reason(flags) == reason
+
+
+def test_uw_script_checks_the_checker_before_running_it(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    runner = _runner(tmp_path, monkeypatch, root, environment={"PYTHONPATH": str(root / "src")})
+    runner.uw = {"python": "/var/tmp/env/bin/python", "device": "cpu"}
+    runner.device = "cpu"
+    context = {"stage_id": "s", "template": {"kind": "train", "entry": "m:main",
+                                             "entry_sha256": "0" * 64}}
+    text = runner.script(context, ["--device", "cpu"], "f" * 64)
+    digest = hashlib.sha256((PACKAGE / "uw_stage_a.py").read_bytes()).hexdigest()
+    check = f"echo {digest}'  repo/scripts/freshpool_launch/uw_stage_a.py' | sha256sum -c"
+    assert check in text and text.index(check) < text.index("remote-check")

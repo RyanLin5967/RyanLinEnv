@@ -37,6 +37,7 @@ refusal (exit 2, one JSON line naming the reason) rather than a warning:
 
 import argparse
 import hashlib
+import re
 import importlib.util
 import json
 import os
@@ -53,9 +54,10 @@ import prepare  # noqa: E402  (constants; nothing heavy at import)
 GiB = 1024**3
 RESERVE_BYTES = 5 * GiB
 # Fetched outputs: 13 Stage A runs + 8 Stage B runs + 2 voided re-runs, each a trainer run
-# with checkpoints (<= 107,084 KiB, controlled400 work/rl, du -sk 2026-10-17) plus its
-# bundle (the shipped init run: <= 107,084 KiB again), + 1 GiB of assays and journals.
-STUDY_OUTPUT_BYTES = 23 * 2 * 107084 * 1024 + GiB
+# with checkpoints (<= 107,084 KiB, controlled400 work/rl, du -sk 2026-10-17); bundles are
+# hard links of files already here; Stage 0's out/ (per-step checkpoints of 8 trainer runs:
+# the 2-step smoke fetched 232 MB, so at most 3 GiB); + 1 GiB of assays and journals.
+STUDY_OUTPUT_BYTES = 23 * 107084 * 1024 + 3 * GiB + GiB
 CONFIRM_SECONDS = 1800
 # chain.py's bound, then a resumable SIGTERM (UW runs stopped, their instances voided):
 # 10 days, above the study's 60-80 h MPS estimate scaled by the measured UW unit costs.
@@ -69,6 +71,10 @@ class Refused(Exception):
     def __init__(self, reason, **detail):
         super().__init__(reason)
         self.reason, self.detail = reason, detail
+
+
+class Unconfirmed(Refused):
+    """The chain was started but its launcher has not journalled its start yet."""
 
 
 def sha(path):
@@ -103,16 +109,28 @@ def frozen_worktree(here=HERE, frozen=prepare.FROZEN):
     return commit
 
 
+ROOT_LINE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*)?Root activation:", re.I)
+ROOT_HEDGE = re.compile(
+    r"\b(?:not|no|pending|proposed|withdrawn|revoked|reverted|unapproved|rejected)\b", re.I)
+
+
 def root_activation(repo):
-    """Root approves by committing a decision-log line that names both activated copies'
-    SHA256. The activation record's approved_by 'root' is only a placeholder."""
+    """Root approves by committing ONE decision-log line that starts with
+    ``- Root activation:``, names both activated copies' SHA256 and carries no hedge (not,
+    pending, withdrawn, revoked, ...). A SHA256 mentioned anywhere else ("NOT approved:
+    <sha>") does not count. The activation record's approved_by 'root' is a placeholder."""
     text = (repo / DECISION_LOG).read_text()
     found = {path: sha(repo / path) for path in (prepare.STUDY_ACTIVATED,
                                                 prepare.PROTOCOL_ACTIVATED)}
-    missing = [path for path, digest in found.items() if digest not in text]
-    if missing:
+    lines = [line for line in text.splitlines() if ROOT_LINE.match(line)
+             and not ROOT_HEDGE.search(line) and all(d in line for d in found.values())]
+    if not lines:
+        missing = [path for path, digest in found.items()
+                   if not any(digest in line for line in text.splitlines()
+                              if ROOT_LINE.match(line) and not ROOT_HEDGE.search(line))]
         raise Refused("root_activation_line_missing", decision_log=DECISION_LOG,
-                      need_sha256=found, missing=missing)
+                      need_sha256=found, missing=missing,
+                      form="- Root activation: <study sha256> <protocol sha256>")
     return found
 
 
@@ -255,7 +273,9 @@ def confirm_started(process, log, since, resume, seconds=CONFIRM_SECONDS):
             raise Refused("launcher_exited_before_starting", chain_exit_code=process.returncode,
                           chain_log=str(log), log_tail=tail)
         time.sleep(1)
-    raise Refused("launcher_start_not_confirmed", seconds=seconds, chain_pid=process.pid)
+    raise Unconfirmed("launcher_start_not_confirmed", seconds=seconds, chain_pid=process.pid,
+                      chain_log=str(log), note="the chain is STILL RUNNING in its own session: "
+                      "read status.py before anything else; do not start again")
 
 
 def main(argv=None):
@@ -285,6 +305,10 @@ def main(argv=None):
         since = time.time()
         process, log = start_chain(repo, plan, plan_sha, env, args.resume)
         confirmed = confirm_started(process, log, since, args.resume)
+    except Unconfirmed as unconfirmed:
+        print(json.dumps({"status": "started_unconfirmed", "reason": unconfirmed.reason,
+                          **unconfirmed.detail}, default=str))
+        return 4
     except Refused as refused:
         print(json.dumps({"status": "refused", "reason": refused.reason, **refused.detail},
                          default=str))

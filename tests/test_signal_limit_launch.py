@@ -682,6 +682,10 @@ def main(argv):
             (run / "work" / "out" / "stage" / "fragment.json").unlink()
         if info["fault"] == "no_hardware":
             (run / "work" / "out" / "hardware.json").unlink()
+        if info["fault"] == "oom_guard":
+            (run / "oom-guard").write_text("")  # uwrun v5's host memory guard stopped it
+        if info["fault"] == "leaked":
+            (run / "leaked").write_text("4242\\n")  # processes outlived the kill passes
         (run / "rc").write_text(str(rc))
         return 0
     if command == "status":
@@ -691,7 +695,10 @@ def main(argv):
             return 0
         host = meta(name)["host"]
         if (ROOT / name / "rc").exists():
-            flags = [f for f in ("timedout", "stopped") if (ROOT / name / f).exists()]
+            flags = [f for f in ("timedout", "stopped", "oom-guard")
+                     if (ROOT / name / f).exists()]
+            if (ROOT / name / "leaked").exists():
+                flags.append("leaked:" + (ROOT / name / "leaked").read_text().strip() + ",")
             print(" ".join([name, host, "DONE", "rc=" + (ROOT / name / "rc").read_text(),
                             *flags]))
         elif alive(name):
@@ -1428,6 +1435,7 @@ def test_uw_fetch_failure_interrupts_and_the_resume_reaps_and_reruns(make):
     ({"stage-a-a1-5e-05": "stopped"}, {}, "uw_run_stopped_externally"),
     ({"stage-a-a1-5e-05": "no_fragment"}, {}, "stage_fragment_missing"),
     ({"stage-a-a1-5e-05": "no_hardware"}, {}, "uw_hardware_record_missing_or_pins_failed"),
+    ({"stage-a-a1-1e-05": "leaked"}, {}, "uw_stage_left_processes"),
     ({"stage-a-a1-1e-05": "tamper_pins"}, {}, "stage_failed"),  # rc 95, pins.json
     ({"stage-a-a1-1e-05": "tamper_repo"}, {}, "stage_failed"),  # rc 95, the changed file
 ])
@@ -1450,6 +1458,22 @@ def test_uw_remote_failures_stop_and_clean_up(make, faults, patch, reason):
         assert hardware[0]["hardware"]["pins_failed"] == tamper
     removed = {e["name"] for e in fixture.uw_log() if e["event"] == "rm"}
     assert {e["uw_name"] for e in finished} <= removed
+
+
+def test_uw_host_memory_guard_kill_interrupts_and_the_resume_reruns_it(make):
+    # uwrun v5 stopped the run because the HOST ran short of RAM (another user's load): not
+    # the stage's failure, so the launch ends resumable and the instance is re-run.
+    fixture = make(uw=True, faults={"stage-a-a2-1e-05": "oom_guard"})
+    assert signal_limit.main(fixture.argv) == 3
+    state = fixture.state()
+    assert state["status"] == "running"
+    assert [e["stage"] for e in fixture.journal() if e["event"] == "uw_host_guard_stopped"] == [
+        "stage-a-a2-1e-05-s42"]
+    assert signal_limit.main([*fixture.argv, "--resume"]) == 0
+    state = fixture.state()
+    assert state["status"] == "completed"
+    assert ("stage-a-a2-1e-05-s42", 1) in [
+        (v["stage"], v["instance"]) for v in state["void_instances"]]
 
 
 def test_uw_arm_wall_time_reaches_state_while_a_stage_runs(make, monkeypatch):

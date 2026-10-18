@@ -79,6 +79,7 @@ PROTOCOL_ACTIVATED = "docs/aircraft-rl-protocol-signal-limit-v1-activated.json"
 EVIDENCE = "scripts/freshpool_launch/signal_limit_production/evidence-base.json"
 PLAN = "scripts/freshpool_launch/signal_limit_production/plan.json"
 PLAN_SHA = "scripts/freshpool_launch/signal_limit_production/plan.sha256"
+CONFLICTS = "docs/aircraft-rl-next-study-v1-corrections-conflicts.md"
 COST_REPORT = "reports/2026-10-18-signal-limit-uw-cost/README.md"
 SMOKE_REPORT = "reports/2026-10-18-signal-limit-uw-smoke/README.md"
 ACTIVATION_KEYS = ("status", "activated", "activation")
@@ -139,6 +140,11 @@ UNIT = {
 # TRAIN diagnostic predictions, checkpoint IO): wall minus summed active seconds was 331-431 s
 # per process in the same run. The caps are on launcher wall time, so it is forecast.
 PROCESS_OVERHEAD = 450.0
+# The cap also charges the upload of the stage's bundle and the fetch of its out/ (both on
+# launcher wall time, possibly over a slow link from this Mac): a fixed allowance per stage,
+# larger for Stage 0, whose out/ holds per-step checkpoints of 8 trainer runs (the 2-step
+# smoke's out/ was 232 MB). Not measured at study scale: a guard margin, stated as such.
+TRANSFER_ALLOWANCE = {"stage0": 3600.0, "default": 900.0}
 
 PROFILE = ["--response-format", "answer_only", "--dtype", "float32", "--min-pixels", "50176",
            "--max-pixels", "200704", "--max-prompt-tokens", "2048",
@@ -209,6 +215,16 @@ def g0_manifests():
             if row.get("split") != "train" or not str(row.get("image", "")).startswith(
                     "images/train/") or ".." in row["image"].split("/"):
                 raise SystemExit(f"G0 row outside native TRAIN images: {name} {row.get('id')}")
+    audit = read_json(FRESHPOOL_G0 / "phash_audit.json")
+    holdout_partners = {e["pool_id"] for e in audit["external_near_duplicates"]
+                        if e["reference_split"] in ("validation", "test")}
+    if len(holdout_partners) != 477:
+        # CORRECTIONS.md C15 counts 477 pHash near-duplicates of native VAL/TEST in TRAIN.
+        raise SystemExit(f"expected the 477 VAL/TEST near-duplicates, read {len(holdout_partners)}")
+    for name, text in out.items():
+        found = {json.loads(line)["id"] for line in text.splitlines()} & holdout_partners
+        if found:
+            raise SystemExit(f"{name} holds VAL/TEST near-duplicates: {sorted(found)[:5]}")
     ids = [set(json.loads(line)["id"] for line in text.splitlines()) for text in out.values()]
     if any(a & b for n, a in enumerate(ids) for b in ids[n + 1:]):
         raise SystemExit("G0 manifests overlap")
@@ -347,6 +363,11 @@ def activation(source_path, kind):
         "execution": execution_record(),
         "frozen_identities": frozen_identities(),
         "kind": kind,
+        "corrections_conflicts": {
+            "path": CONFLICTS, "sha256": sha(REPO / CONFLICTS),
+            "note": "CORRECTIONS.md (D35) is binding for every RL lane and postdates this "
+                    "design; the file lists each conflict. Root's activation line must say "
+                    "how each is resolved (amend before any output, or accept as disclosed)."},
     }
 
 
@@ -465,18 +486,20 @@ def forecasts():
     if any(v is None for v in u.values()):
         raise SystemExit(f"measured unit costs missing: {[k for k, v in u.items() if v is None]}")
     h, o = 200, PROCESS_OVERHEAD  # images per H split; per-process overhead
+    t, t0 = TRANSFER_ALLOWANCE["default"], TRANSFER_ALLOWANCE["stage0"]
 
     def arm(units, unit):
-        return round(units * u[unit] + o, 1)
+        return round(units * u[unit] + o + t, 1)
 
     return {
         # 400 scored candidates + 64 images x seeds 42, 314 of G4 rollouts; two model loads.
-        "p0": round(400 * u["scorer"] + 128 * u["g4_image"] + 2 * o, 1),
+        "p0": round(400 * u["scorer"] + 128 * u["g4_image"] + 2 * o + t, 1),
         # Per G: probe 8 + E0 4 + (2+2) + (1+3) accepted updates in 6 trainer processes.
-        "stage0": round(sum(20 * u[f"grpo_g{g}_update"] + 6 * o for g in (8, 16)), 1),
+        "stage0": round(sum(20 * u[f"grpo_g{g}_update"] + 6 * o for g in (8, 16)) + t0, 1),
         # Assays are not budget-matched; the cap only stops a hang, so x2.
-        "assay_h_select": round(2 * (h * (u["greedy_image"] + u["g4_image"]) + 2 * o), 1),
-        "assay_h_gate": round(2 * (h * (u["greedy_image"] + 2 * u["g4_image"]) + 3 * o), 1),
+        "assay_h_select": round(2 * (h * (u["greedy_image"] + u["g4_image"]) + 2 * o + t), 1),
+        "assay_h_gate": round(2 * (h * (u["greedy_image"] + 2 * u["g4_image"]) + 3 * o + t),
+                              1),
         "sft_e": arm(300, "sft_update"),
         "stage_a_sft": arm(600, "sft_update"),
         "stage_a_egsft": arm(600, "egsft_update"),
@@ -492,8 +515,8 @@ def repo_pins():
     files = tracked.stdout.split()
     if TRAINER not in files:
         raise SystemExit("git ls-files found no trainer: wrong repository")
-    return (*LAUNCH_PINS, UWRUN_FROZEN, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED, LABEL_TRIE,
-            CONFUSION_MAP, TAXONOMY, G0_PREVIEW, *files)
+    return (*LAUNCH_PINS, UWRUN_FROZEN, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED, CONFLICTS,
+            LABEL_TRIE, CONFUSION_MAP, TAXONOMY, G0_PREVIEW, *files)
 
 
 def runtime_pins():
@@ -537,6 +560,7 @@ def launch_plan():
                    "stage_headroom_bytes": 4 * 2 * 107084 * 1024},
         "forecast_seconds": forecasts(),
         "forecast_sources": {"unit_seconds": UNIT, "process_overhead_seconds": PROCESS_OVERHEAD,
+                             "transfer_allowance_seconds": TRANSFER_ALLOWANCE,
                              "receipts": COST_REPORT,
                              "rule": "forecast = measured unit cost x planned units on the "
                                      "chosen device; cap = 1.25 x forecast (launch.py "

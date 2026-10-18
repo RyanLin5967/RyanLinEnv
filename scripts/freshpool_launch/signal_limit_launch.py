@@ -103,6 +103,12 @@ W_PREFIX = re.compile(r"W \(([0-9a-f]{8,})\.\.\.\)")
 STAGE0_CHECKS = (
     "resume_2_plus_2_identical", "resume_1_plus_3_identical", "finite_nonzero_task_gradient",
     "no_reference_forward_at_beta_0", "loss_type_dr_grpo_recorded",
+    # stage0_gate.py's remaining checks (every one it computes is required, so a fragment
+    # that drops one cannot pass on the five above)
+    "scan_follows_train_manifest", "initial_adapter_is_w", "useful_mixed_group",
+    "lora_parameter_changed", "scorer_uses_sampler_transform",
+    "active_time_ledger_cumulative", "scorer_seconds_within_active_time",
+    "group_size_is_g",
 )
 # Design-review amendment 1 (minor finding on cost caps): c(G) is measured, not extrapolated,
 # at both G in {8, 16}, over at least this many screened accepted steps each, and E0 runs at

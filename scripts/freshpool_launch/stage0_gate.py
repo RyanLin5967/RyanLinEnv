@@ -103,7 +103,8 @@ OWNED = (*E.OWNED, "--num-generations")
 REQUIRED = ("--mode", "--train", "--init-adapter", "--device", "--beta", "--loss-type",
             "--scale-rewards")
 CHECKS = (
-    # signal_limit_launch.STAGE0_CHECKS, written out (the launcher does not import this file)
+    # signal_limit_launch.STAGE0_CHECKS lists all 13, written out (the launcher does not
+    # import this file); the study's five named checks:
     "resume_2_plus_2_identical", "resume_1_plus_3_identical", "finite_nonzero_task_gradient",
     "no_reference_forward_at_beta_0", "loss_type_dr_grpo_recorded",
     # e0_gate's checks that apply at beta 0

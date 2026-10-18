@@ -98,14 +98,43 @@ def _repo(tmp_path, log_text):
 
 def test_start_refuses_without_roots_decision_log_line_naming_both_copies(tmp_path):
     study, protocol = sha_text('{"a": 1}'), sha_text('{"p": 1}')
-    for text, missing in (("", 2), (f"D99 study {study}\n", 1),
-                          (f"D99 protocol {protocol}\n", 1)):
+    for n, text in enumerate((
+            "",
+            f"- Root activation: {study}\n",  # one copy only
+            f"- D99 mentions {study} {protocol}\n",  # not a root activation line
+            f"- Root activation: NOT approved {study} {protocol}\n",  # hedged
+            f"- Root activation: pending {study} {protocol}\n",
+            f"Notes: Root activation: {study} {protocol}\n")):  # not at the line start
         with pytest.raises(start.Refused) as refused:
-            start.root_activation(_repo(tmp_path / str(len(text)), text))
+            start.root_activation(_repo(tmp_path / str(n), text))
         assert refused.value.reason == "root_activation_line_missing"
-        assert len(refused.value.detail["missing"]) == missing
-    found = start.root_activation(_repo(tmp_path / "ok", f"D99 {study} and {protocol}\n"))
-    assert found == {prepare.STUDY_ACTIVATED: study, prepare.PROTOCOL_ACTIVATED: protocol}
+    for n, text in enumerate((f"- Root activation: {study} {protocol}\n",
+                              f"- **Root activation:** study {study}, protocol {protocol}\n")):
+        found = start.root_activation(_repo(tmp_path / f"ok{n}", text))
+        assert found == {prepare.STUDY_ACTIVATED: study, prepare.PROTOCOL_ACTIVATED: protocol}
+
+
+def test_an_unconfirmed_start_is_reported_as_started_not_refused(tmp_path, monkeypatch,
+                                                                 capsys):
+    plan = tmp_path / "plan.json"
+    plan.write_text('{"python": "python3"}')
+    monkeypatch.setattr(start, "frozen_worktree", lambda: "c0ffee")
+    for name in ("root_activation", "prepare_check", "check_state", "probe_hosts"):
+        monkeypatch.setattr(start, name, lambda *a, **k: {})
+    monkeypatch.setattr(start, "plan_identity", lambda repo: (plan, "f" * 64))
+    monkeypatch.setattr(start, "check_disk", lambda *a: 1)
+    monkeypatch.setattr(start, "environment", lambda plan: {})
+    monkeypatch.setattr(start, "verify", lambda *a, **k: {})
+
+    class Process:
+        pid = 4242
+
+    monkeypatch.setattr(start, "start_chain", lambda *a: (Process(), Path("/nonexistent")))
+    monkeypatch.setattr(start, "confirm_started", lambda *a, **k: (_ for _ in ()).throw(
+        start.Unconfirmed("launcher_start_not_confirmed", chain_pid=4242)))
+    assert start.main([]) == 4
+    out = capsys.readouterr().out
+    assert '"started_unconfirmed"' in out and "4242" in out
 
 
 def test_start_refuses_a_plan_whose_bytes_differ_from_plan_sha256(tmp_path):

@@ -95,7 +95,9 @@ NOT_PATHS = ("python", "stage_dir", "arm_dir", "fragment", "model_directory", "d
              "stage_id", "arm", "seed", "run_id", "lr", "split", "a_floor", "init_role",
              "label_trie_sha256", "training_group", "arm_label", "active_cap", "arm_cap",
              "t_rl", "group")
-# One line per host: load1 nproc availGB uwruns localGB provisioned avx2 (uwrun's own probe,
+# One line per host: load1 nproc availGB uwruns localGB provisioned avx2 (uwruns: OUR uwrun
+# tmux sessions on it, from every session of this account; other users' work shows only in
+# load1. Otherwise uwrun's own probe,
 # plus whether the plan's remote python and model directory exist there, plus AVX2: the torch
 # CPU wheel dies with SIGILL rc=132 on hosts without it, iccad1/2/3, measured 2026-10-18 in
 # ~/uwaterloo-access/FINDINGS.md [rlenv-sweep-v2]).
@@ -240,6 +242,16 @@ def names_local_path(argument, allowed_roots):
     return ".." in re.split(r"[/=:,\s'\"]", argument)
 
 
+def link_file(source, target):
+    """copytree's copy_function: a hard link where the filesystem allows (a bundle of a
+    trainer run then costs no disk), else a copy."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+    return target
+
+
 def link_or_copy(source, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -257,15 +269,42 @@ class UWRunner:
         self.ledger, self.state = launcher.ledger, launcher.state
         self.state.setdefault("uw_running", {})
         self.last_save = time.monotonic()
+        self.running = {}  # name -> entry of every stage this runner has on a host now
 
     # -- uwrun
-    def uwrun(self, *args, timeout=600):
-        try:
-            result = subprocess.run([self.uw["uwrun"], *args], capture_output=True, text=True,
-                                    timeout=timeout, stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            return 124, "", "uwrun timed out"
-        return result.returncode, result.stdout, result.stderr
+    def uwrun(self, *args, timeout=600, extra=()):
+        """``uwrun ARGS`` -> (rc, stdout, stderr). While it blocks (an upload or a fetch can
+        take an hour), the arm clock of every running stage, plus any ``extra`` (context,
+        started) pairs, keeps reaching state.json every SAVE_SECONDS: an interrupt at any
+        point voids each instance with its full wall time charged."""
+        with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+            process = subprocess.Popen([self.uw["uwrun"], *args], stdout=out, stderr=err,
+                                       stdin=subprocess.DEVNULL, text=True)
+            try:
+                deadline = time.monotonic() + timeout
+                while process.poll() is None:
+                    self.charge_running(extra)
+                    if time.monotonic() >= deadline:
+                        process.kill()
+                        process.wait()
+                        return 124, "", "uwrun timed out"
+                    time.sleep(0.1)
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            out.seek(0)
+            err.seek(0)
+            return process.returncode, out.read(), err.read()
+
+    def charge_running(self, extra=(), save=False):
+        for entry in list(getattr(self, "running", {}).values()):
+            self.charge(entry["context"], entry["started"])
+        for context, started in extra:
+            self.charge(context, started)
+        if save and getattr(self, "running", None):
+            self.ledger.save()
+            self.last_save = time.monotonic()
 
     def hosts(self):
         """{host: (load1, nproc, avail_gb, uwruns, local_gb, ready)} for every reachable
@@ -280,13 +319,16 @@ class UWRunner:
                                           stdin=subprocess.DEVNULL, text=True)
                    for host in self.uw["hosts"]}
         found = {}
+        deadline = time.monotonic() + 120
+        while any(p.poll() is None for p in running.values()) and time.monotonic() < deadline:
+            self.charge_running()  # a slow probe does not stop the running stages' clocks
+            time.sleep(0.1)
         for host, process in running.items():
-            try:
-                out, _ = process.communicate(timeout=120)
-            except subprocess.TimeoutExpired:
+            if process.poll() is None:
                 process.kill()
                 process.communicate()
                 continue
+            out, _ = process.communicate()
             for line in out.splitlines():
                 parts = line.split()
                 if len(parts) in (8, 9) and parts[0] == "uwprobe":
@@ -326,7 +368,8 @@ class UWRunner:
                     or max(uwruns, ours.get(host, 0)) >= self.uw["per_host"]
                     # Idle cores for the stage's whole thread count, by load1: a stage
                     # squeezed onto a busy host runs slower against its fixed wall cap.
-                    or nproc - load < self.uw.get("min_idle_threads", 0)):
+                    or nproc - max(load, ours.get(host, 0) * self.uw["threads"])
+                    < self.uw.get("min_idle_threads", 0)):
                 continue
             key = (uwruns, load / max(nproc, 1), host)
             if best is None or key < best[0]:
@@ -393,12 +436,11 @@ class UWRunner:
                 # ships, under its own name, and the remote path keeps the
                 # parent/name layout the trainer checks (final_adapter, checkpoint-N).
                 target = directory / "inputs" / key / path.parent.name
-                shutil.copytree(path.parent, target, copy_function=shutil.copy2,
-                                symlinks=False)
+                shutil.copytree(path.parent, target, copy_function=link_file, symlinks=False)
                 remote[key] = f"inputs/{key}/{path.parent.name}/{path.name}"
             elif path.is_dir():
                 target = directory / "inputs" / key
-                shutil.copytree(path, target, copy_function=shutil.copy2, symlinks=False)
+                shutil.copytree(path, target, copy_function=link_file, symlinks=False)
                 remote[key] = f"inputs/{key}"
             elif path.suffix == ".jsonl":
                 remote[key] = self.bundle_manifest(path, directory, key)
@@ -463,7 +505,7 @@ class UWRunner:
         environment.update(ACCELERATE_TORCH_DEVICE=self.device)
         if self.device == "cuda":
             # The trainer refuses more than one visible device (no DataParallel split).
-            environment.update(CUDA_VISIBLE_DEVICES="0")
+            environment.update(CUDA_VISIBLE_DEVICES="0", CUDA_DEVICE_ORDER="PCI_BUS_ID")
         exports = " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(environment.items()))
         python = shlex.quote(self.uw["python"])
         template = context["template"]
@@ -488,6 +530,10 @@ class UWRunner:
             # The first command that reads the bundle, with pins.json's own hash from this
             # command line: anything that changed repo/, inputs/ or pins.json after the
             # launcher hashed them (the sync, the host) is seen here.
+            # The checker's own bytes first, by the host's sha256sum against the hash this
+            # launcher computed, so a changed checker cannot vouch for itself.
+            f"echo {file_sha256(Path(__file__))}'  repo/scripts/freshpool_launch/uw_stage_a.py'"
+            " | sha256sum -c --quiet - || exit 95",
             f"{python} -I -B repo/scripts/freshpool_launch/uw_stage_a.py remote-check "
             f"pins.json out/hardware.json {pins_sha256} || exit 95",
             "exec " + " ".join(shlex.quote(part) for part in worker),
@@ -527,7 +573,7 @@ class UWRunner:
         # reaches state.json every SAVE_SECONDS WHILE the upload runs, so a launcher killed
         # mid-upload still charges that time to the arm on resume.
         started = time.monotonic()
-        code, out, err = self.uwrun_charged(context, started, command, timeout=4000)
+        code, out, err = self.uwrun(*command, timeout=4000, extra=((context, started),))
         self.charge(context, started, save=True)
         if code != 0 or (out.strip().splitlines() or [""])[-1] != name:
             self.ledger.append("uw_launch_failed", stage=job["stage_id"], uw_name=name,
@@ -539,28 +585,6 @@ class UWRunner:
         running[name] = {"job": job, "context": context, "host": host, "bundle": directory,
                          "started": started, "unreachable_since": None, "monitor": monitor,
                          "mirrored": 0.0}
-
-    def uwrun_charged(self, context, started, args, timeout):
-        """``uwrun ARGS`` like :meth:`uwrun`, charging the arm clock while it runs."""
-        with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
-            process = subprocess.Popen([self.uw["uwrun"], *args], stdout=out, stderr=err,
-                                       stdin=subprocess.DEVNULL, text=True)
-            try:
-                deadline = time.monotonic() + timeout
-                while process.poll() is None:
-                    self.charge(context, started)
-                    if time.monotonic() >= deadline:
-                        process.kill()
-                        process.wait()
-                        return 124, "", "uwrun timed out"
-                    time.sleep(min(0.1, SAVE_SECONDS))
-            except BaseException:
-                process.kill()
-                process.wait()
-                raise
-            out.seek(0)
-            err.seek(0)
-            return process.returncode, out.read(), err.read()
 
     def charge(self, context, started, save=False):
         """The instance's wall time so far onto its arm (state), saved at least every
@@ -582,26 +606,40 @@ class UWRunner:
         # --all: uwrun v5 refuses a fetch over 2 GB without it; a stage's whole out/ (Stage 0:
         # four trainer runs per G with per-step checkpoints) is what the launcher validates.
         code, _, err = self.uwrun("fetch", "--all", name, "work/out/", str(destination),
-                                  timeout=4000)
+                                  timeout=4000, extra=((context, entry["started"]),))
         if code != 0:
             self.ledger.append("uw_fetch_failed", stage=stage_id, uw_name=name, stderr=err[-2000:])
             raise UWInterrupted()
         hardware = launch.read_json(destination / "hardware.json")
-        guards = [launch.read_json(p) for p in sorted((destination / "guards").glob("*.json"))]
+        # Every phase worker's receipt under out/ (Stage 0 writes its children's under
+        # out/stage/guards), so the peaks cover child processes too.
+        guards = [launch.read_json(p) for p in sorted(destination.rglob("*.json"))
+                  if p.parent.name == "guards"]
         peak = max((g.get("peak_rss_bytes") or 0 for g in guards if isinstance(g, dict)),
                    default=None)
         self.ledger.append("uw_stage_hardware", stage=stage_id, uw_name=name, host=host,
                            hardware=hardware, remote_peak_rss_bytes=peak)
-        reason = ("arm_cap" if "timedout" in flags
-                  else "uw_run_stopped_externally" if "stopped" in flags else None)
+        reason = self.flag_reason(flags)
+        if reason == "uw_host_guard_stopped":
+            # uwrun's host memory guard (another user's load) or shm quota killed it: like a
+            # lost host, the instance is voided and re-run on resume, never quoted.
+            self.ledger.append("uw_host_guard_stopped", stage=stage_id, uw_name=name,
+                               host=host, flags=sorted(flags))
+            self.state["uw_running"].pop(name, None)
+            self.ledger.save()
+            self.remove(name)
+            raise UWInterrupted()
         if reason is None and rc == 0:
             if (not isinstance(hardware, dict) or not isinstance(hardware.get("hostname"), str)
                     or hardware.get("pins_failed") != []):
                 # Every UW stage is journalled with its hardware, and its pins all held.
                 reason = "uw_hardware_record_missing_or_pins_failed"
             else:
-                reason = self.import_fragment(destination, context["fragment"],
-                                              entry.get("bundle"))
+                try:
+                    reason = self.import_fragment(destination, context["fragment"],
+                                                  entry.get("bundle"))
+                except (OSError, ValueError, TypeError, KeyError) as exc:
+                    reason = f"uw_fetched_fragment_unreadable: {type(exc).__name__}"
         monitor = entry.get("monitor")
         if reason is None and rc == 0 and monitor is not None:
             reason = self.complete_mirror(context["arm_dir"], destination / "arm")
@@ -623,6 +661,26 @@ class UWRunner:
             self.remove(name)
         if "look" in entry["job"]:
             launcher.record_look(*entry["job"]["look"])
+
+    @staticmethod
+    def flag_reason(flags):
+        """uwrun v5 status flags after ``DONE rc=N``, as an allowlist: timedout (the remote
+        bound is the arm cap), stopped (someone ran uwrun stop), oom-guard / overquota (the
+        host's guard), leaked:PIDS (processes outlived the kill passes, as locally
+        stage_exited_with_owned_descendants). Anything else refuses."""
+        leaked = [f for f in flags if f.startswith("leaked:")]
+        unknown = set(flags) - {"timedout", "stopped", "oom-guard", "overquota", *leaked}
+        if unknown:
+            return "uw_status_flag_unknown"
+        if "oom-guard" in flags or "overquota" in flags:
+            return "uw_host_guard_stopped"
+        if leaked:
+            return "uw_stage_left_processes"
+        if "timedout" in flags:
+            return "arm_cap"
+        if "stopped" in flags:
+            return "uw_run_stopped_externally"
+        return None
 
     def remove(self, name):
         code, out, err = self.uwrun("rm", name, timeout=600)
@@ -711,8 +769,8 @@ class UWRunner:
             for key, value in list(fragment.items()):
                 if not key.endswith("_manifest") or not isinstance(value, str):
                     continue
-                path = Path(value)
-                if not path.is_file() or not path.is_relative_to(destination):
+                path = Path(value).resolve()
+                if not path.is_file() or not path.is_relative_to(Path(destination).resolve()):
                     return "uw_fetched_manifest_missing"
                 rows = []
                 for line in path.read_text().splitlines():
@@ -744,10 +802,18 @@ class UWRunner:
         Path(local_fragment).write_text(json.dumps(fragment, indent=2, allow_nan=False) + "\n")
         return None
 
-    def stop(self, name):
-        code, out, err = self.uwrun("stop", name, timeout=300)
-        self.ledger.append("uw_stop", uw_name=name, exit_code=code, output=(out + err)[-500:])
-        return code == 0 and "WARNING" not in out
+    def stop(self, name, attempts=1):
+        for attempt in range(attempts):
+            code, out, err = self.uwrun("stop", name, timeout=300)
+            self.ledger.append("uw_stop", uw_name=name, exit_code=code, attempt=attempt + 1,
+                               output=(out + err)[-500:])
+            if code == 0 and "WARNING" not in out:
+                return True
+        if attempts > 1:
+            # Still alive: its own uwrun --timeout (the remaining cap at launch) bounds it.
+            self.ledger.append("uw_run_not_stopped", uw_name=name,
+                               bound="its uwrun --timeout, the arm's remaining cap at launch")
+        return False
 
     def reap(self):
         """Stop what a previous launcher left running before anything is relaunched: their
@@ -760,18 +826,28 @@ class UWRunner:
                                    **self.state["uw_running"].pop(name))
                 self.ledger.save()
                 self.remove(name)
-            elif self.status(name)[0] == "UNKNOWN":
-                self.ledger.append("uw_orphan_absent", uw_name=name,
-                                   **self.state["uw_running"].pop(name))
-                self.ledger.save()
             else:
-                raise self.launch.Pause("uw_orphan_run_not_stopped", uw_name=name)
+                word = self.status(name)[0]
+                if word == "UNKNOWN":
+                    self.ledger.append("uw_orphan_absent", uw_name=name,
+                                       **self.state["uw_running"].pop(name))
+                    self.ledger.save()
+                elif word == "DONE":
+                    # The stop warned (e.g. leaked processes it then reported), but the run
+                    # has ended: nothing of it is read; its instance is voided.
+                    self.ledger.append("uw_orphan_done", uw_name=name,
+                                       **self.state["uw_running"].pop(name))
+                    self.ledger.save()
+                    self.remove(name)
+                else:
+                    raise self.launch.Pause("uw_orphan_run_not_stopped", uw_name=name)
 
     # -- a batch
     def run_batch(self, jobs):
         self.reap()
         pending = [j for j in jobs if j["stage_id"] not in self.state["completed"]]
         running, waited = {}, None
+        self.running = running
         try:
             while pending or running:
                 launched = False
@@ -789,6 +865,9 @@ class UWRunner:
                 if not launched and (pending or running):
                     time.sleep(self.uw["poll_seconds"])
         except BaseException:
+            # Charge every running stage's wall time to its arm first: its instance is voided
+            # on resume, and the void must carry all of it.
+            self.charge_running(save=True)
             for name in list(running):
                 if self.stop(name):
                     self.state["uw_running"].pop(name, None)
@@ -798,6 +877,7 @@ class UWRunner:
             raise
 
     def poll(self, running):
+        self.charge_running()
         for name in list(running):
             entry = running[name]
             word, rc, flags, host = self.status(name)
@@ -828,7 +908,7 @@ class UWRunner:
                 if mixed:
                     # The live standing stop, as launch.supervise: stop the remote run now.
                     del running[name]
-                    if self.stop(name):
+                    if self.stop(name, attempts=3):
                         self.state["uw_running"].pop(name, None)
                         self.remove(name)
                     self.ledger.save()
@@ -836,21 +916,23 @@ class UWRunner:
                         "exit_code": None, "reason": mixed, "elapsed_seconds": elapsed,
                         "arm_wall_seconds": context["used"] + elapsed,
                         "peak_group_rss_bytes": None, "demoted": None,
-                        "executor": "uwaterloo", "uw_name": name, "host": entry["host"]},
-                        entry["job"]["validate"])
+                        "executor": "uwaterloo", "uw_name": name, "host": entry["host"],
+                        "device": self.device}, entry["job"]["validate"])
                     continue
             if context["used"] + elapsed >= context["cap"]:
                 del running[name]
-                if self.stop(name):
+                if self.stop(name, attempts=3):
                     self.state["uw_running"].pop(name, None)
                     self.remove(name)
-                # else it stays in uw_running: a later reap() stops it, never forgotten.
+                # else it stays in uw_running (journalled uw_run_not_stopped) and ends at its
+                # own --timeout, which was the arm's remaining cap at launch.
                 self.ledger.save()
                 self.launcher.finish(context, {
                     "exit_code": None, "reason": "arm_cap", "elapsed_seconds": elapsed,
                     "arm_wall_seconds": context["used"] + elapsed,
                     "peak_group_rss_bytes": None, "demoted": None, "executor": "uwaterloo",
-                    "uw_name": name, "host": entry["host"]}, entry["job"]["validate"])
+                    "uw_name": name, "host": entry["host"], "device": self.device},
+                    entry["job"]["validate"])
 
 
 # ---------------------------------------------------------------- remote side (stdlib only)

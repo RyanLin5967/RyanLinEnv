@@ -65,6 +65,11 @@ pre = vlt.preflight(device)
 vlt._verified_model_directory(model.resolve(), vlt.DEFAULT_MODEL)
 records = sorted(glob.glob(f"{env}/lib/python3.12/site-packages/torch-*.dist-info/RECORD"))
 import torch
+# An existing env is reused, so it must be the build this device needs (the path does not
+# encode cpu vs cuda): a CUDA wheel on a cpu plan, or the reverse, refuses.
+if (device == "cuda") != (torch.version.cuda is not None):
+    sys.exit(f"{env} holds torch {torch.__version__} (cuda {torch.version.cuda}); "
+             f"device {device} needs the other build: remove the env and provision again")
 receipt = {"host": socket.gethostname(), "device": device, "python": env + "/bin/python",
            "preflight": pre, "model_directory": str(model), "model_verified": True,
            "torch": torch.__version__, "torch_cuda": torch.version.cuda,
