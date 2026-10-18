@@ -1,15 +1,16 @@
-# RL campaign I: TRAIN-only hard-example pools (branch rl-campaign-pools.noindex)
+# RL campaign I: TRAIN-only RL pools from I (branch rl-campaign-pools.noindex)
 
-Worktree: /Users/idide/wt/RyanLinEnv-rl-campaign-pools.noindex
-Scripts: scripts/rl_campaign_pools/{setup_host.sh,score_worker.py,build_pools.py,make_fixture.py}
-UW state (NFS): ~/rlpools/v1/bin (staged scripts), ~/rlpools/v1/state/{claims,results} (shard-NNN.json)
-Hosts: own env at /var/tmp/r226lin-pools on ecetesla1, ecetesla0, iccad6 (setup runs rlpools-setup-H-N).
-Pool scored: payload-9d9a09f data/manifests/all_train.jsonl (2,329 rows, sha 9bed5893...), 73 shards of 32.
+Rules: runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (C9, C10, M8). P0-I rollouts moved to the GPU lane
+(coordinator, 2026-10-18); this branch builds pools only.
 
-Done: scripts written; setup launched.
-Next action: when setups print POOLS SETUP OK, launch workers
-  uwrun run --host H --threads T --mem 40 --disk 5 --timeout 43200 --name rlpools-score-H-N -- \
-    /var/tmp/r226lin-pools/venv/bin/python -I ~/rlpools/v1/bin/score_worker.py \
-    --root /var/tmp/r226lin-pools --state ~/rlpools/v1/state --threads T
-then, when all 73 results exist, run build_pools.py --self-test and the build on a UW host,
-fetch the out dir, commit manifests + receipts to docs/aircraft-rl-campaign-I/pools/, push.
+Scripts: scripts/rl_campaign_pools/{setup_host.sh, score_worker.py, build_pools.py, make_fixture.py, exclusions.json}
+- eligible = all_train (2,329) - train400 (400) - 477 VAL/TEST pHash near-duplicates = 1,452 rows, 46 units of 32
+- p_gold = trie-summed P(gold+EOS) at T 1.0 (label-trie 656dc02f, from commit 552d490); each unit cross-checks
+  one row against the trainer's own _batch_gold_probability (canonical and all alternatives), refuses > 1e-4
+- smoke (ecetesla1, row 0038598): trainer vs cached-trie |diff| 9.5e-8 (T 1.0), 1.2e-7 (T 1.3)
+- builder self-test on fixture: 30/30 planted overlaps refused (id, content, pool-level for 10 reference sets)
+
+UW state: ~/rlpools/v2/state/{claims,results}; workers rlpools2-score-{ecetesla0-a,ecetesla1-a,iccad6-a,
+iccad7-a,iccad7-b,iccad8-c,iccad0-a}. VOID: ~/rlpools/v1/state-canonical-only-void (pre-correction run).
+Next action: when all 46 results exist, run build_pools.py on a UW host (see fixture.sh pattern), fetch out/,
+commit into docs/aircraft-rl-campaign-I/pools/, push.

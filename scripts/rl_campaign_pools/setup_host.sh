@@ -18,10 +18,10 @@ set -euo pipefail
 export PATH=$HOME/.local/bin:$PATH
 PAY=$(cd "${1:-.}" && pwd); cd "$PAY"
 HOST=$(hostname -s | tr 'A-Z' 'a-z')
-ROOT=/var/tmp/r226lin-pools
+ROOT=${POOLS_ROOT:-/var/tmp/r226lin-pools}  # /dev/shm/r226lin-pools where /var/tmp is a tight shared root fs
 free_gb() { df -P -BG "$1" 2>/dev/null | awk 'NR==2{gsub("G","",$4); print $4}'; }
-if [ ! -f "$ROOT/RECEIPT.json" ] && [ "$(free_gb /var/tmp)" -lt 20 ]; then
-  echo "REFUSE: < 20 GB free in /var/tmp on $HOST" >&2; exit 3; fi
+if [ ! -f "$ROOT/RECEIPT.json" ] && [ "$(free_gb "$(dirname "$ROOT")")" -lt 20 ]; then
+  echo "REFUSE: < 20 GB free under $(dirname $ROOT) on $HOST" >&2; exit 3; fi
 mkdir -p "$ROOT"; echo "ROOT=$ROOT host=$HOST"
 exec 9>"$ROOT/.setup.lock"; flock -n 9 || { echo "REFUSE: another setup holds $ROOT" >&2; exit 4; }
 grep -q -w avx2 /proc/cpuinfo || { echo "REFUSE: $HOST has no AVX2" >&2; exit 5; }
