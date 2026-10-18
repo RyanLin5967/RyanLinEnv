@@ -40,7 +40,12 @@ runners for a public repository cost nothing. A 3B model in bfloat16 (7.51 GB of
   - `repetition_penalty` set to 1.0. The model's own config sets 1.05, which would penalise copying
     label tokens from the prompt. The endpoints' base config uses 1.0, so the override makes decoding
     pure greedy, the same as the endpoints;
-  - 4 torch threads instead of 2.
+  - 4 torch threads instead of 2;
+  - one CPU kernel path on every host: ATen held to AVX2 and oneDNN disabled. Plumbing run
+    39110248770 landed on an AMD EPYC 9V45 with native AVX-512 bf16. It answered one TRAIN image
+    differently from four runs on AVX2-class hosts, so default kernels make answers depend on the
+    host. The kernel path is in every shard identity, and the PR plumbing job fails unless its
+    host reproduces the pre-registered TRAIN answers (`DC-8`, `Global Express`, `DC-8`).
 - **Images:** the original native-VAL JPEGs, fetched one by one from the pinned Hugging Face mirror
   (`Shiym/ViT-FineTune@16c63682…`), the same mirror the four-shot candidate used. Each file must match
   the author manifest's bytes and SHA256, and its model-visible pixels must match `model_rgb_sha256`.
@@ -70,13 +75,14 @@ runners for a public repository cost nothing. A 3B model in bfloat16 (7.51 GB of
    - was produced by the same runner and workflow files (SHA256) as the checkout dispatching full VAL.
 
    It also refuses unless the shard count N satisfies the pre-registered rule
-   `N ≥ ceil(3333 / floor((19800 − 900 − max fixed setup s) / (3.0 × (slowest discovery shard's mean latency s + mean image fetch s))))`.
+   `N ≥ ceil(3333 / floor((19800 − 900 − max fixed setup s) / max(330, 3.0 × (slowest discovery shard's mean latency s + mean image fetch s))))`.
    Fixed setup is a discovery shard's setup minus its image fetches. Image fetch time is charged per
    image, because a full shard fetches all of its images before generating. The rule uses the slowest
    of the four discovery shards, not the overall mean. The factor 3.0 is above the 2.63× latency
-   spread measured between free runners (see the measured cost below). So shards sized from an
-   all-fast discovery still fit a slow host: 55 images × ~299 s + 65 s = 16,503 s, inside the
-   18,900 s start limit. A host slower still stops its shard as partial, and the merge refuses the run.
+   spread measured between AVX2-class free runners (see the measured cost below). The 330 s floor
+   is about 1.1× the slowest host measured, so a discovery that lands only on fast hosts cannot
+   size shards that a slow host overruns: 57 images × ~299 s + 65 s = 17,102 s, inside the 18,900 s
+   start limit. A host slower still stops its shard as partial, and the merge refuses the run.
 
 ## Sharding and the merge
 
@@ -140,8 +146,10 @@ accepted only if two checks pass:
 
 Source: the PR plumbing job's `named-baseline-plumbing/shard.json`, fetched with
 `gh run download <run> -n named-baseline-plumbing`. Each run used one free ubuntu-24.04 runner
-(4 vCPU, 16.8 GB) with the same model, 4 threads and generation config. All three runs gave
-identical responses (about 990 prompt tokens each), and every answer terminated.
+(4 vCPU, 16.8 GB) with the same model, 4 threads and generation config, under default kernels.
+Every answer terminated (about 990 prompt tokens each). The first four runs gave identical
+responses. The fifth, on an AMD EPYC 9V45 with AVX-512 bf16, answered `DC-8` instead of
+`Global Express` for image 0056978; this is why the kernel path is now pinned.
 
 | Run | Head commit | Run SHA (PR merge ref) | s per TRAIN image | Setup s |
 |---|---|---|---|---|
@@ -149,16 +157,18 @@ identical responses (about 990 prompt tokens each), and every answer terminated.
 | 39106233184 | b59e234 | d5021f8 | 302.4, 295.5, 295.7 | 41.7 |
 | 39106885360 | e8f25fd | 7f54ec8 | 302.5, 295.3, 295.6 | 68.7 |
 | 39109149251 | f9168de | d4f2eec | 302.3, 295.3, 295.6 | 63.6 |
+| 39110248770 | b042dd9 | 1b748ea | 9.9, 9.3, 9.1 | 64.5 |
 
-Per-image latency differs 2.63× between runners that report the same vCPU count and memory. Only
-run 39109149251 recorded the CPU: AMD EPYC 7763 with no AVX-512 or bf16 instructions, a slow host. The
-fast host's CPU was not recorded, so the cause is only partly attributed. In each job,
+Per-image latency differs 2.63× between AVX2-class runners that report the same vCPU count and
+memory: 113 s on one host whose CPU was not recorded, and 298 s on three others, one recorded as an
+AMD EPYC 7763. The 9V45 took 9.4 s under default kernels; its latency under the pinned AVX2 path has
+not been measured, and the floor and factor do not depend on it. In each job,
 `verify-endpoints` reproduced the committed RL400 and strongest-SFT comparisons exactly from the export.
 
 Three images per run are not a forecast; this projection is unverified. Full VAL generation is about
 105 runner-hours on fast hosts (3,333 × 113 s) and 276 on slow ones (3,333 × 298 s), free on a public
-repository. The shard rule gives 61 shards if every discovery shard is fast and 159 if any is slow,
-both within the 256 maximum. The binding numbers come from the discovery receipt.
+repository. The shard rule gives 59 shards whenever the slowest discovery shard averages under
+~109 s, and 159 if it is slow, both within the 256 maximum. The binding numbers come from the discovery receipt.
 
 ## Limits
 
@@ -168,9 +178,12 @@ both within the 256 maximum. The binding numbers come from the discovery receipt
   merged run.
 - bfloat16 CPU numerics are not shown to equal float32 or GPU numerics. The claim label says
   "bfloat16 on CPU".
-- Latency on free runners varied 2.63× across three plumbing runs. Discovery sets the binding
-  numbers; a host more than 3.0× slower than the slowest discovery shard fails closed as a partial
-  shard, and the run is reported, not patched.
+- Latency on free runners varied 2.63× across AVX2-class hosts, and 30× including an AVX-512 bf16
+  host under default kernels. Discovery sets the binding numbers. A host slower than the per-image
+  budget fails closed as a partial shard, and the run is reported, not patched.
+- The plumbing canary checks one host per PR. It does not prove that every host type gives the
+  same answers under the pinned kernel path. The merge identity proves that every shard ran that
+  path.
 
 ## Activation checklist (all required, none done)
 
