@@ -585,6 +585,11 @@ def run_local_hf(
     if (checked["runtime_versions"] != runtime_pins
             or checked["runtime_lock_sha256"] != _digest(runtime_lock)):
         raise ValueError("The preflight was made for another runtime or lock")
+    if preflight is not None and (
+            kernel_fingerprint(engine["threads"]) != engine.get("kernel_fingerprint_sha256")
+            or checked["kernel_fingerprint"] != engine.get("kernel_fingerprint_sha256")):
+        # Recomputed here, in this process and after the pin, rather than trusted.
+        raise ValueError("Kernel fingerprint is not the plan's pinned value")
     model = checked["model"]
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,

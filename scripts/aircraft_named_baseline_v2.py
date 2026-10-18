@@ -49,6 +49,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -119,8 +120,9 @@ def check_plan_consistency(plan):
         if type(stall) is not int or not 0 < stall < invocation_wall_seconds(budget):
             raise ValueError(f"Plan {stage} budget needs an integer stall_seconds below its "
                              "invocation wall cap")
-    if type(plan["engine"].get("kernel_fingerprint_sha256")) is not str:
-        raise ValueError("Plan must pin the expected kernel fingerprint")
+    fingerprint = plan["engine"].get("kernel_fingerprint_sha256")
+    if type(fingerprint) is not str or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        raise ValueError("Plan must pin the expected kernel fingerprint as 64 lowercase hex")
 
 
 def load_plan(path, expected_sha256=None, *, require_activated=True):
@@ -267,6 +269,30 @@ def effective_shard_directory(output, stage, shard, shards):
     return rerun, json.loads(lost.read_text())
 
 
+def check_rerun_reproduces(lost, base, rerun_journal, assigned, labels, shard):
+    """A rerun counts only if it reproduces every answer the lost attempt had completed.
+
+    The lost attempt's journal is re-read (it must still hash to what lost.json recorded),
+    and for every image both completed, the rerun's scored answer must equal the lost one.
+    Otherwise the merge refuses: a kill timed after unwelcome answers could otherwise buy a
+    different outcome.
+    """
+    path = base / "run" / "attempts.jsonl"
+    if _sha_or_none(path) != lost.get("discarded_journal_sha256"):
+        raise ValueError(f"Shard {shard}: the lost attempt's journal changed since its loss "
+                         "was recorded")
+    discarded = discarded_predictions(v1.journal_state(base / "run", list(assigned)), labels)
+    if discarded != lost.get("discarded_predictions"):
+        raise ValueError(f"Shard {shard}: lost.json does not match the lost attempt's journal")
+    differ = sorted(identifier for identifier, event in rerun_journal["completed"].items()
+                    if identifier in discarded
+                    and v1.canonical(event["prediction"], labels) != discarded[identifier])
+    if differ:
+        raise ValueError(f"Shard {shard} rerun answered {len(differ)} image(s) differently "
+                         f"from the lost attempt ({differ[:10]}); refused, because an "
+                         "outcome-dependent retry cannot be ruled out")
+
+
 def _shared_identity(identity):
     """Run identity minus what legitimately differs between shards of one stage."""
     shared = json.loads(json.dumps(identity))
@@ -326,6 +352,9 @@ def merged_report(plan, stage, repository, output, *, plan_sha256=None, score=Tr
         completed.update(journal["completed"])
         unknown += journal["unknown"]
         hard_stop += journal["hard_stop"]
+        if lost is not None:
+            check_rerun_reproduces(lost, shard_directory(output, stage, shard, shards),
+                                   journal, assigned, inputs["labels"], shard)
         ledger = v1.ledger_state(directory / "ledger.jsonl")
         if (journal["reserved"] or journal["completed"]) and not (
                 ledger["started"] and recorded is not None):
@@ -575,24 +604,42 @@ def recover_shard(plan_path, expected_sha256, stage, shard, repository, output, 
     lost_host = ledger["started"][-1]["host"]
     if lost_host == host:
         raise ValueError("A lost shard is re-run on another host, not on the one it was lost on")
-    with (base / "lost.json").open("x") as handle:
-        handle.write(json.dumps({
-            "event": "lost", "time": clock(), "stage": stage, "shard": shard,
-            "lost_host": lost_host, "unfinished_invocations": ledger["unfinished"],
-            "unknown_images": journal["unknown"],
-            "discarded_completed_images": len(journal["completed"]),
-            "ledger_sha256": local_vlm.sha_file(base / "ledger.jsonl"),
-            "charged_active_seconds": ledger["charged_active_seconds"],
-            "plan_sha256": local_vlm.sha_file(plan_path),
-        }, indent=2) + "\n")
+    labels = stage_inputs(plan, stage, repository)["labels"]
+    record = {
+        "event": "lost", "time": clock(), "stage": stage, "shard": shard,
+        "lost_host": lost_host, "unfinished_invocations": ledger["unfinished"],
+        "unknown_images": journal["unknown"],
+        "discarded_completed_images": len(journal["completed"]),
+        # The merge requires the rerun to reproduce every one of these, so a kill timed
+        # after seeing unwelcome answers cannot buy a different outcome.
+        "discarded_predictions": discarded_predictions(journal, labels),
+        "discarded_journal_sha256": _sha_or_none(base / "run" / "attempts.jsonl"),
+        "ledger_sha256": local_vlm.sha_file(base / "ledger.jsonl"),
+        "charged_active_seconds": ledger["charged_active_seconds"],
+        "plan_sha256": local_vlm.sha_file(plan_path),
+    }
+    # lost.json is written by run_shard only after this host passed every check (gate,
+    # budget, preflight, fingerprint), just before the rerun's first invocation is charged.
     return run_shard(plan_path, expected_sha256, stage, shard, repository, output, weights,
                      backend_factory=backend_factory, clock=clock, rerun=True,
-                     on_stall=on_stall)
+                     on_stall=on_stall, loss_record=record)
+
+
+def _sha_or_none(path):
+    return local_vlm.sha_file(path) if Path(path).exists() else None
+
+
+def discarded_predictions(journal, labels):
+    """The scored answer (v1.canonical) of every image a journal completed."""
+    return {identifier: v1.canonical(event["prediction"], labels)
+            for identifier, event in sorted(journal["completed"].items())}
 
 
 def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weights,
-              *, backend_factory=None, clock=time.time, rerun=False, on_stall=None):
-    """One bounded invocation of one shard of one stage (of its rerun, with rerun=True)."""
+              *, backend_factory=None, clock=time.time, rerun=False, on_stall=None,
+              loss_record=None):
+    """One bounded invocation of one shard of one stage (of its rerun, with rerun=True;
+    recover_shard passes loss_record, written as lost.json once every check passed)."""
     repository, output = Path(repository).resolve(), Path(output).resolve()
     plan = load_plan(plan_path, expected_sha256)
     plan_sha = local_vlm.sha_file(plan_path)
@@ -623,16 +670,20 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
     if not rerun and lost_path.exists():
         raise ValueError("This shard's process was declared lost; it continues only as its "
                          "rerun (run --rerun)")
+    if loss_record is not None and (not rerun or lost_path.exists()):
+        raise ValueError("Shard was already recovered once; a second loss needs a new plan "
+                         "version")
     if rerun:
-        if not lost_path.exists():
+        if loss_record is None and not lost_path.exists():
             raise ValueError("A rerun needs a recorded loss (use recover)")
-        if json.loads(lost_path.read_text())["lost_host"] == host:
+        lost = loss_record or json.loads(lost_path.read_text())
+        if lost["lost_host"] == host:
             raise ValueError("A lost shard is re-run on another host, not on the one it was "
                              "lost on")
     budget = stage_budget(plan, stage, repository, output, plan_sha, host)
     lock = runtime_lock(plan, repository)
     directory = shard_directory(output, stage, shard, shards, rerun=rerun)
-    directory.mkdir(parents=True, exist_ok=True)
+    # Created only right before the first charge, so a refusal leaves no directory behind.
     ledger_path, run_directory = directory / "ledger.jsonl", directory / "run"
     ledger = v1.ledger_state(ledger_path)
     if ledger["first"] is not None and (
@@ -680,6 +731,10 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
             raise ValueError(f"This machine differs from this shard's recorded run identity in "
                              f"{differ}; a shard resumes only where and as it started "
                              "(refused before any invocation is charged)")
+    if loss_record is not None:
+        with lost_path.open("x") as handle:
+            handle.write(json.dumps(loss_record, indent=2) + "\n")
+    directory.mkdir(parents=True, exist_ok=True)
     number = ledger["invocations"] + 1
     v1._append(ledger_path, {
         "event": "started", "invocation": number, "time": clock(), "stage": stage,

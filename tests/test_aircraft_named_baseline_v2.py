@@ -88,13 +88,14 @@ def runner(monkeypatch, clock):
     # The kernel pin imports torch; the fake backend never computes, so record a fixed path.
     monkeypatch.setattr(module.local_hf, "pin_cpu_numerics",
                         lambda numerics: {"aten_cpu_capability": "FIXTURE"})
-    monkeypatch.setattr(module.local_hf, "kernel_fingerprint", lambda threads: "FIXTURE-FP")
+    monkeypatch.setattr(module.local_hf, "kernel_fingerprint", lambda threads: FIXTURE_FP)
     # Tests move the runner between allowlisted fixture hosts by editing fixture_host.
     module.fixture_host = dict(HOSTS[0])
     monkeypatch.setattr(module.local_hf, "host_identity", lambda: dict(module.fixture_host))
     return module
 
 
+FIXTURE_FP = "f1" * 32  # the fixture plan's pinned kernel fingerprint
 HOSTS = [{"hostname": "fixture-a", "cpu_model": "Fixture CPU A"},
          {"hostname": "fixture-b", "cpu_model": "Fixture CPU B"},
          {"hostname": "fixture-c", "cpu_model": "Fixture CPU C"}]
@@ -191,7 +192,7 @@ def world(tmp_path):
     plan["stages"]["full"]["gate"]["max_projected_shard_active_seconds"] = 172800
     plan["stages"]["full"]["gate"]["max_shard_active_seconds"] = 345600
     plan["sharding"]["shards"] = {"discovery": 3, "full": 3}
-    plan["engine"]["kernel_fingerprint_sha256"] = "FIXTURE-FP"
+    plan["engine"]["kernel_fingerprint_sha256"] = FIXTURE_FP
     plan["sharding"]["hosts"] = {host["hostname"]: host["cpu_model"] for host in HOSTS}
     freeze = repo / plan["model"]["runtime_lock"]["freeze"]
     freeze.write_text("fixture-package==1.0\n")
@@ -770,7 +771,7 @@ def test_a_shard_never_changes_host(runner, world, clock):
                      world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
     run_json = world["out"] / "stage-discovery/shard-0-of-3/run/run.json"
     config = json.loads(run_json.read_text())["identity"]["config"]
-    assert config["host"] == HOSTS[0] and config["kernel_fingerprint"] == "FIXTURE-FP"
+    assert config["host"] == HOSTS[0] and config["kernel_fingerprint"] == FIXTURE_FP
     runner.fixture_host = dict(HOSTS[1])
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     before = ledger.read_text()
@@ -1175,14 +1176,23 @@ def lose_process(world, shard=0):
     return directory, next_id
 
 
-def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runner, world,
-                                                                             clock):
+def lose_shard_zero(runner, world, clock):
+    """Shards 1 and 2 complete on host A; shard 0 completes 20 images there, then its
+    process is lost. Returns the plan path, digest, the 20 completed and the rest."""
     path, digest = write_plan(world)
     answers, calls = answers_for(world), []
     run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[1, 2])
     runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                      world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
     original, unknown = lose_process(world)
+    shard0 = world["discovery"][0::3]
+    return path, digest, original, unknown, shard0[:20], shard0[20:]
+
+
+def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runner, world,
+                                                                             clock):
+    path, digest, original, unknown, done, rest = lose_shard_zero(runner, world, clock)
+    answers, calls = answers_for(world), []
     with pytest.raises(ValueError, match="previous invocation never recorded its finish"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"], backend_factory=fake_backend(answers, calls))
@@ -1190,8 +1200,9 @@ def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runne
         runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                              world["weights"], backend_factory=fake_backend(answers, calls))
     assert not (original / "lost.json").exists()
-    # The rerun answers every shard-0 image wrongly, so its answers are distinguishable.
-    rerun_answers = answers_for(world, wrong=set(world["discovery"][0::3]))
+    # The rerun reproduces the 20 answers the lost attempt completed and answers the other
+    # 14 wrongly, so where the merged answers come from is visible.
+    rerun_answers = answers_for(world, wrong=set(rest))
     runner.fixture_host = dict(HOSTS[1])
     runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"],
@@ -1199,6 +1210,7 @@ def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runne
     lost = json.loads((original / "lost.json").read_text())
     assert lost["lost_host"] == HOSTS[0] and lost["unknown_images"] == [unknown]
     assert lost["discarded_completed_images"] == 20
+    assert lost["discarded_predictions"] == {i: world["gold"][i] for i in done}
     for _ in range(2):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"], rerun=True,
@@ -1214,9 +1226,72 @@ def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runne
     assert merged["per_shard"][0]["recovered_after_lost_process"] is True
     assert merged["per_shard"][0]["host"] == HOSTS[1]
     assert merged["lost_process_charged_active_seconds"] > 0
-    shard0 = world["discovery"][0::3]
-    assert all(merged["predictions"][i] != world["gold"][i] for i in shard0)
-    assert merged["metric"]["correct"] == 100 - len(shard0)
+    assert all(merged["predictions"][i] != world["gold"][i] for i in rest)
+    assert merged["metric"]["correct"] == 100 - len(rest)
+
+
+def test_a_rerun_that_changes_a_completed_answer_is_refused(runner, world, clock):
+    path, digest, original, unknown, done, rest = lose_shard_zero(runner, world, clock)
+    calls = []
+    changed = answers_for(world, wrong={done[3]})
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match=r"rerun answered 1 image\(s\) differently"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"],
+                             backend_factory=fake_backend(changed, calls, clock=clock))
+    with pytest.raises(ValueError, match=rf"differently from the lost attempt \(\['{done[3]}'\]"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    # Rewriting the loss record to agree with the rerun is caught against the lost journal.
+    lost_path = original / "lost.json"
+    lost = json.loads(lost_path.read_text())
+    lost["discarded_predictions"][done[3]] = changed[done[3]]
+    lost_path.write_text(json.dumps(lost))
+    with pytest.raises(ValueError, match="lost.json does not match the lost attempt's journal"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_loss_is_recorded_only_after_the_new_host_passes_its_checks(runner, world, clock,
+                                                                    monkeypatch):
+    path, digest, original, unknown, done, rest = lose_shard_zero(runner, world, clock)
+    runner.fixture_host = dict(HOSTS[1])
+    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "0" * 64)
+    with pytest.raises(ValueError, match="is not the plan's"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend({}, []))
+    assert not (original / "lost.json").exists()
+    assert not (world["out"] / "stage-discovery/shard-0-of-3-rerun").exists()
+
+
+def test_merge_refuses_a_run_json_whose_identity_hash_was_edited(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    run_json = world["out"] / "stage-discovery/shard-1-of-3/run/run.json"
+    record = json.loads(run_json.read_text())
+    record["identity_sha256"] = "0" * 64
+    run_json.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match="does not hash to its recorded identity_sha256"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_the_real_stall_exit_ends_the_process_with_code_75(tmp_path):
+    import subprocess
+
+    run = tmp_path / "run"
+    run.mkdir()
+    script = str(REPOSITORY / "scripts/aircraft_named_baseline_v2.py")
+    marker = str(tmp_path / "stalled-1.json")
+    program = (
+        "import importlib.util, threading, sys\n"
+        f"spec = importlib.util.spec_from_file_location('v2', {script!r})\n"
+        "v2 = importlib.util.module_from_spec(spec); spec.loader.exec_module(v2)\n"
+        f"v2._stall_watchdog({str(run)!r}, v2.Path({marker!r}), 1, threading.Event(),"
+        " v2._stall_exit)\n"
+        "sys.exit(0)\n")
+    result = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True,
+                            timeout=120)
+    assert result.returncode == 75, result.stderr
+    assert json.loads((tmp_path / "stalled-1.json").read_text())["stall_seconds"] == 1
 
 
 def test_recovery_is_refused_without_a_lost_process(runner, world, clock):
@@ -1308,3 +1383,36 @@ def test_plan_must_pin_the_fingerprint_and_a_stall_timeout(runner, world):
     committed = json.loads(PLAN.read_text())
     assert committed["engine"]["kernel_fingerprint_sha256"] == (
         "9d149dab64c57b7aa064767439b4f96d775c5a744d4c5d37857d4fb24f368d61")
+
+
+def test_engine_recomputes_the_fingerprint_even_with_a_preflight(world, tmp_path,
+                                                                  monkeypatch):
+    identifier = world["author"][0]["image_id"]
+    root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
+    rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
+             "prompt": "x"}]
+    engine = {"name": "transformers-cpu", "dtype": "float32", "threads": 32,
+              "formatted_prompt_sha256": "a" * 64, "cpu_numerics": {},
+              "kernel_fingerprint_sha256": FIXTURE_FP}
+    lock = {"freeze": "a==1\n", "python": "3.12.15"}
+    preflight = {"model": {}, "runtime_versions": {"torch": "1"},
+                 "runtime_lock_sha256": local_hf._digest(lock), "kernel_fingerprint": FIXTURE_FP,
+                 **{key: None for key in ("observed_cpu_numerics", "host", "python")}}
+    monkeypatch.setattr(local_hf, "kernel_fingerprint", lambda threads: "0" * 64)
+    with pytest.raises(ValueError, match="Kernel fingerprint is not the plan's pinned value"):
+        local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
+                              integrity=world["integrity"], engine=engine,
+                              runtime_pins={"torch": "1"}, runtime_lock=lock,
+                              preflight=preflight, phase="validation", image_root=root,
+                              task_contract={"task": "classification"},
+                              preprocessing_id=None)
+    assert not (tmp_path / "x").exists()
+
+
+def test_plan_fingerprint_pin_must_be_64_lowercase_hex(runner, world):
+    for bad in ("", "FIXTURE-FP", "F1" * 32, "f1" * 31):
+        plan = json.loads(json.dumps(world["plan"]))
+        plan["engine"]["kernel_fingerprint_sha256"] = bad
+        path, digest = write_plan(world, plan)
+        with pytest.raises(ValueError, match="64 lowercase hex"):
+            runner.load_plan(path, digest)
