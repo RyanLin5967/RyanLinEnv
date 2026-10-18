@@ -769,7 +769,8 @@ def test_a_shard_never_changes_host(runner, world, clock):
     runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                      world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
     run_json = world["out"] / "stage-discovery/shard-0-of-3/run/run.json"
-    assert json.loads(run_json.read_text())["identity"]["config"]["host"] == HOSTS[0]
+    config = json.loads(run_json.read_text())["identity"]["config"]
+    assert config["host"] == HOSTS[0] and config["kernel_fingerprint"] == "FIXTURE-FP"
     runner.fixture_host = dict(HOSTS[1])
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     before = ledger.read_text()
