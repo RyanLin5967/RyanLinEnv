@@ -18,9 +18,9 @@ held-out, not a benchmark, not an RL-vs-SFT result. Status: **not yet dispatched
 | Frozen 37-file source, data spec, warm adapter `f05840be…`, model, 7 fixture JPEGs | `scripts/aircraft_ci_continue.setup_runtime` with the CPU7946 descriptor `docs/aircraft-cpu-experiment-plan.json` |
 | Runtime image | same `setup_runtime` build (`vision-rl:aircraft-cpu7946-continuation`, 1200 s cap) |
 | Harbor host | `uv sync --extra harbor --locked --no-install-project` of the pinned project; Harbor version must equal the plan's `0.24.0` |
-| Kernel preflight, packaging | plan README steps 3 and 6, the same commands |
+| Kernel preflight, packaging | plan README steps 3 and 6, the same pass lines (cgroup `13958643712 0 0`, host MemAvailable ≥ 14 GiB, root free ≥ 4 GiB) and the same packaging command. Deviation: the step 3 cgroup read runs in the runtime image instead of `python:3.12.13-slim` |
 | Probe, main trial, separate verifier, C1–C4 | `local_run.execute`, with only `require_local_launch` (darwin + Colima socket) replaced by a GitHub-runner gate that keeps the review, `max_steps == 1` and single-attempt checks |
-| Criteria check | `local_run.assert_probe`, `assert_complete`, `evaluate`; exits 1 unless all of C1–C4 pass and the driver raised nothing |
+| Criteria check | `local_run.assert_probe`, `assert_complete`, `evaluate`, plus the plan's own `local_run.py criteria`; also reads the driver's `output/dogfood-local-result.json` and exits 1 unless that file exists with `pass: true` and `driver_error: null` and all of C1–C4 pass. A missing file (outer SIGINT, refusal before launch) or a driver error (non-zero Harbor exit, wall or disk guard) fails the receipt even when the evidence on disk would pass |
 
 The plan hard-codes `/Users/idide/RyanLinEnv`: the model bind source in the packaged
 `docker-compose.yaml`, the fixture paths, and the driver paths. The runner therefore creates
@@ -41,12 +41,17 @@ plan bytes would have changed the plan sha and the container ownership label.
 
 ## Evidence artifact
 
-`aircraft-harbor-dogfood-evidence` (14-day retention) is an allowlist of `.json`, `.jsonl`,
-`.log` and `.txt` files from the run output, plus `ci-stage.json`, `ci-criteria.json` and
-`preparation.json`. Anything under `final_adapter/` or `checkpoint-*` (adapter and tokenizer
-copies) is skipped, as is any other suffix: safetensors, `.bin` pickles, generated `.py` and
-images. Every skipped path is listed in `evidence-manifest.json`. Applied read-only to the
-local v4 output, the collector kept 81 files (4,597,080 B) and skipped 123.
+`aircraft-harbor-dogfood-evidence` (14-day retention) is a basename allowlist
+(`EVIDENCE_NAMES` in the driver: named receipts such as `guard.json`, `loader.json`,
+`report.json`, `resources.jsonl`, plus `*.log` and `invocation-*.json`) applied to the run
+output, plus `ci-stage.json`, `ci-criteria.json` and `preparation.json`. Anything under a
+`final_adapter/`, `checkpoint-*` or `ref/` directory (adapter, reference-model and tokenizer
+copies) is skipped, as is every name not on the allowlist: safetensors, `.bin` pickles,
+generated `.py`, images, and unlisted JSON such as tokenizer configs. Files over 64 MiB, or past
+512 MiB in total, are skipped too. Every skipped path is listed in `evidence-manifest.json`.
+`collect` exits 1 if it copied nothing, so a manifest alone never reads as evidence. Applied
+read-only to the local v4 output, the collector kept 81 files (4,597,080 B) and skipped 123
+(116 under model directories, 7 not allowlisted).
 
 ## Memory sizing for a 16 GB runner, and the risk
 
@@ -58,19 +63,25 @@ minimum host available memory was 3.90 GB.
 The plan keeps every guard. The container cgroup is 13 GiB (`--override-memory-mb 13312`,
 `memswap_limit` equal, so cgroup swap is 0). The tree RSS guard is 12 GiB. Each child needs host
 MemAvailable of at least 13 GiB before it launches, and at least 1 GiB while it runs. The stage
-step refuses before any model work unless the cgroup reads exactly `13958643712 0 0` and host
-MemAvailable is at least 13 GiB.
+step refuses before any model work unless the cgroup reads exactly `13958643712 0 0`, host
+MemAvailable is at least 14 GiB (plan README step 3's pass line, stricter than the runtime's
+13 GiB per-child gate) and root has at least 4 GiB free.
 
 Risks, all unmeasured on this path:
 - **Headroom is thin.** Locally the SFT stages peaked at 12.16–12.19 GB tree RSS, about 0.7 GB
   under the 12 GiB guard. The runner adds dockerd, the Harbor host process and the runner agent
-  outside the cgroup, so the prelaunch margin is about 1.2 GiB (14.2 measured against 13 needed).
+  outside the cgroup. First-four measured 14.19–14.26 GiB available, so the 14 GiB stage gate
+  passes with about 0.2 GiB to spare and each child's 13 GiB gate with about 1.2 GiB.
   x86 RSS for the SFT arms has never been measured. A guard trip ends the run as a FAIL with
   evidence, never as a retry.
 - **C2 can fail by sampling.** The local GRPO group was mixed (`[0, 0, 1, 1]`). x86 sampling
   differs from the aarch64 VM, and a uniform-reward group gives zero task gradient. C2 then fails
   by design. That is a reported result, not a bug to retry around.
-- **Time.** The driver caps are 2300 s for the probe and 12000 s for the main trial, inside a
-  `timeout 14600`, with staging under `timeout 3000`. That fits the 360-minute job. GitHub x86
+- **Time.** The driver caps are 2300 s for the probe and 12000 s for the main trial, inside
+  `timeout -s INT -k 120 15300`, with staging under `timeout 3000`. Deviation: the plan's
+  `local.outer_timeout_seconds` is 14600 with the default TERM. CI uses SIGINT so `run_harbor`'s
+  `finally` still stops Harbor and its containers, and 15300 s adds room for the pre- and
+  post-trial work outside the two driver caps. An outer timeout leaves no
+  `dogfood-local-result.json`, so the criteria check fails. That fits the 360-minute job. GitHub x86
   measured about 525 s per GRPO update (first-four), against 530 s locally.
 - **Single attempt.** `GITHUB_RUN_ATTEMPT` must be 1, so a re-run is refused.

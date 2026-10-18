@@ -12,10 +12,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   dogfood:
-    if: github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    if: github.repository == 'RyanLin5967/RyanLinEnv'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
+      - name: Refuse unless the repository is public (free standard runner only)
+        run: test "${{ github.event.repository.private }}" = "false"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

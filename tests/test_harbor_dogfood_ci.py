@@ -2,15 +2,18 @@
 
 The passing fixture is written from the plan's documented receipt schema with literal values
 (the local PASS numbers), never by calling the checker. Each planted defect must flip exactly
-the criterion it targets and make the CLI exit non-zero.
+the criterion it targets, and only it, and make the CLI exit non-zero.
 """
 
 from __future__ import annotations
 
+import copy
 import importlib.util
+import io
 import json
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -28,6 +31,7 @@ MANIFEST = "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc"
 REVISION = "895c3a49bc3fa70a340399125c650a463535e71c"
 PROBE = "aircraft-harbor-dogfood-local-sft-probe-v4"
 MAIN = "aircraft-harbor-dogfood-local-v4"
+PLAN_SHA = "62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901"
 
 
 @pytest.fixture(scope="module")
@@ -135,6 +139,7 @@ def passing_tree(root, plan_dir):
         trial / "result.json",
         {"trial_name": "task__b", "verifier_environment_mode": "separate", "exception_info": None},
     )
+    put(root / "output/dogfood-local-result.json", {"pass": True, "driver_error": None})
     return root
 
 
@@ -184,6 +189,12 @@ PLANTS = {
             weights_sha256=INITIAL
         ),
         "C2_real_optimizer_update",
+        # The verifier grades what was submitted, so it must see the unchanged adapter too;
+        # otherwise C3 flips as well and the plant no longer isolates C2.
+        (
+            f"output/jobs/{MAIN}/task__b/verifier/report.json",
+            lambda v: v.update(adapter_sha256=INITIAL),
+        ),
     ),
     "C3_shared_verifier_environment": (
         f"output/jobs/{MAIN}/task__b/result.json",
@@ -210,12 +221,54 @@ PLANTS = {
 
 
 def test_plan_archive_matches_pins_and_refuses_tampering(plan_dir, tmp_path):
-    assert ci.sha(plan_dir / "plan.json") == ci.PLAN_SHA
+    assert ci.sha(plan_dir / "plan.json") == PLAN_SHA
     sums = tmp_path / "sums"
     lines = ci.PLAN_SUMS.read_text().splitlines()
     sums.write_text("\n".join(["0" * 64 + lines[0][64:]] + lines[1:]) + "\n")
     with pytest.raises(ValueError, match="differs from its pin"):
         ci.extract_plan(tmp_path / "bad", sums_path=sums)
+
+
+def archive(path, plan_dir, *, drop=(), extra=()):
+    """A plan archive from the verified extraction, with members dropped or added."""
+    with tarfile.open(path, "w:gz") as stream:
+        for name, data in [
+            *((f"plan/{p.name}", p.read_bytes()) for p in sorted(plan_dir.iterdir())),
+            *extra,
+        ]:
+            if name in drop:
+                continue
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            stream.addfile(info, io.BytesIO(data))
+    return path
+
+
+def test_rebuilt_archive_with_sidecars_extracts(plan_dir, tmp_path):
+    sidecars = [("plan/._plan.json", b"x" * 163), ("._plan", b"x" * 163)]
+    source = archive(tmp_path / "ok.tar.gz", plan_dir, extra=sidecars)
+    out = ci.extract_plan(tmp_path / "ok", archive=source)
+    assert sorted(p.name for p in out.iterdir()) == sorted(p.name for p in plan_dir.iterdir())
+
+
+@pytest.mark.parametrize(
+    ("drop", "extra", "message"),
+    [
+        ((), [("plan/extra.txt", b"x")], "Unexpected plan archive member: plan/extra.txt"),
+        (("plan/runtime.py",), [], "missing pinned files: \\['runtime.py'\\]"),
+        ((), [("other/plan.json", b"x")], "Unexpected plan archive member: other/plan.json"),
+        ((), [("plan/sub/plan.json", b"x")], "Unexpected plan archive member"),
+        ((), [("plan/._evil.py", b"x")], "Unexpected plan archive member: plan/._evil.py"),
+        ((), [("plan/._plan.json", b"x" * 4097)], "Unexpected plan archive member"),
+        ((), [("plan/plan.json", b"{}")], "differs from its pin|Unexpected"),
+    ],
+)
+def test_archive_refuses_extra_missing_outside_and_disguised_members(
+    plan_dir, tmp_path, drop, extra, message
+):
+    source = archive(tmp_path / "bad.tar.gz", plan_dir, drop=drop, extra=extra)
+    with pytest.raises(ValueError, match=message):
+        ci.extract_plan(tmp_path / "bad", archive=source)
 
 
 def test_passing_fixture_passes(plan_dir, tmp_path):
@@ -228,11 +281,13 @@ def test_passing_fixture_passes(plan_dir, tmp_path):
 @pytest.mark.parametrize("plant", sorted(PLANTS))
 def test_planted_failure_flips_its_criterion(plan_dir, tmp_path, plant):
     root = passing_tree(tmp_path / "run", plan_dir)
-    relative, change, criterion = PLANTS[plant]
+    relative, change, criterion, *companions = PLANTS[plant]
     edit(root / relative, change)
+    for other, companion in companions:
+        edit(root / other, companion)
     code, result = run_checker(root, plan_dir)
     assert code == 1
-    assert criterion in failed(result)
+    assert failed(result) == {criterion}
     assert result["pass"] is False and result["ci_checker"]["pass"] is False
 
 
@@ -252,6 +307,35 @@ def test_missing_probe_job_fails(plan_dir, tmp_path):
     assert code == 1
     assert "C4_resource_guards_held" in failed(result)
     assert result["driver_error"]
+
+
+@pytest.mark.parametrize(
+    ("record", "message"),
+    [
+        (
+            {"pass": False, "driver_error": "CalledProcessError: harbor run exit 1"},
+            "driver reported: CalledProcessError",
+        ),
+        (
+            {"pass": False, "driver_error": "RuntimeError: Harbor host physical wall guard"},
+            "physical wall guard",
+        ),
+        ({"pass": False, "driver_error": None}, "driver result pass is False"),
+        (None, "driver result unreadable"),
+    ],
+)
+def test_driver_failure_fails_although_evidence_passes(plan_dir, tmp_path, record, message):
+    root = passing_tree(tmp_path / "run", plan_dir)
+    path = root / "output/dogfood-local-result.json"
+    if record is None:  # SIGINT from the outer timeout: execute never wrote its result.
+        path.unlink()
+    else:
+        put(path, record)
+    code, result = run_checker(root, plan_dir)
+    assert failed(result) == set()
+    assert message in result["driver_error"]
+    assert result["pass"] is False and result["ci_checker"]["pass"] is False
+    assert code == 1
 
 
 def test_sft_time_short_of_rl_boundary_fails_although_c1_c4_pass(plan_dir, tmp_path):
@@ -324,6 +408,24 @@ def test_collect_uploads_text_receipts_only(plan_dir, tmp_path):
     assert len(manifest["skipped"]) == 7
 
 
+def test_collect_with_nothing_to_copy_exits_nonzero(tmp_path):
+    destination = tmp_path / "evidence"
+    command = ["collect", "--root", str(tmp_path / "missing"), "--dest", str(destination)]
+    assert ci.main(command) == 1
+    manifest = json.loads((destination / "evidence-manifest.json").read_text())
+    assert manifest["copied_sha256"] == {}
+
+
+def test_host_headroom_uses_readme_step_3_bounds():
+    ci.require_host_headroom(14 * GIB, 4 * GIB)
+    with pytest.raises(RuntimeError, match="14 GiB"):
+        ci.require_host_headroom(14 * GIB - 1, 4 * GIB)
+    with pytest.raises(RuntimeError, match="14 GiB"):
+        ci.require_host_headroom(13 * GIB, 100 * GIB)
+    with pytest.raises(RuntimeError, match="4 GiB"):
+        ci.require_host_headroom(15 * GIB, 4 * GIB - 1)
+
+
 def test_workflow_is_manual_free_runner_and_bounded():
     text = (REPO / ".github/workflows/aircraft-harbor-dogfood.yml").read_text()
     lines = text.splitlines()
@@ -331,7 +433,8 @@ def test_workflow_is_manual_free_runner_and_bounded():
     end = next(i for i in range(start, len(lines)) if lines[i] and not lines[i][0].isspace())
     assert [line for line in lines[start:end] if line.strip()] == ["  workflow_dispatch:"]
     assert sum(1 for line in lines if line.startswith("on")) == 1
-    assert "github.event.repository.private == false" in text
+    assert "if: github.repository == 'RyanLin5967/RyanLinEnv'\n" in text
+    assert 'test "${{ github.event.repository.private }}" = "false"' in text
     assert "runs-on: ubuntu-24.04" in text
     minutes = [int(line.split(":")[1]) for line in text.splitlines() if "timeout-minutes" in line]
     assert minutes and max(minutes) <= 360
@@ -342,5 +445,18 @@ def test_workflow_is_manual_free_runner_and_bounded():
 def test_plan_constants_match_the_driver(plan_dir):
     plan = json.loads((plan_dir / "plan.json").read_text())
     ci.require_plan_constants(plan)
-    with pytest.raises(ValueError, match="Plan pins differ"):
-        ci.require_plan_constants(dict(plan, source_commit="0" * 40))
+    assert (ci.SOURCE_COMMIT, ci.IMAGE) == (
+        "1323eb10b376674c5d670995fc61246d2445c825",
+        "vision-rl:aircraft-cpu7946-continuation",
+    )
+    mutations = [
+        lambda p: p.update(source_commit="0" * 40),
+        lambda p: p["local"].update(image="vision-rl:other"),
+        lambda p: p["resource"].update(prospective_override_memory_mib=14336),
+        lambda p: p["resource"].update(container_memory_bytes=14 * GIB),
+    ]
+    for mutate in mutations:
+        changed = copy.deepcopy(plan)
+        mutate(changed)
+        with pytest.raises(ValueError, match="Plan pins differ"):
+            ci.require_plan_constants(changed)

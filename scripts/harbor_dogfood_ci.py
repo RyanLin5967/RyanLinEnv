@@ -226,7 +226,11 @@ def require_plan_constants(plan):
 
 
 def kernel_preflight(plan):
-    """Plan README step 3 against the built image: exact cgroup bounds, then host memory/disk."""
+    """Plan README step 3 against the built image: exact cgroup bounds, then host memory/disk.
+
+    Deviation: the README runs the cgroup read in python:3.12.13-slim; this runs it in the
+    runtime image the trial uses. The bounds checked are the same.
+    """
     memory_flag = f"{plan['resource']['prospective_override_memory_mib']}m"
     output = subprocess.check_output(
         [
@@ -243,12 +247,21 @@ def kernel_preflight(plan):
     if observed != [resource["container_memory_bytes"], 0, 0]:
         raise RuntimeError(f"Kernel cgroup preflight failed: {observed}")
     memory = meminfo()
-    if memory["MemAvailable"] < resource["prelaunch_available_bytes"]:
-        raise RuntimeError("Host MemAvailable below the runtime's 13 GiB prelaunch gate")
     free = shutil.disk_usage(ROOT).free
-    if free < 4 * GIB:  # README step 3: root free >= 4 GiB.
-        raise RuntimeError("Less than 4 GiB free disk after staging")
+    require_host_headroom(memory["MemAvailable"], free)
     return {"cgroup": observed, "meminfo": memory, "disk_free_bytes": free}
+
+
+def require_host_headroom(mem_available, disk_free):
+    """Plan README step 3's own pass line: MemAvailable >= 14 GiB and root free >= 4 GiB.
+
+    Deliberately the README's 14 GiB, not the runtime's 13 GiB `prelaunch_available_bytes`
+    (which local_run still enforces per child): the stricter of the plan's two gates applies.
+    """
+    if mem_available < 14 * GIB:
+        raise RuntimeError(f"Host MemAvailable {mem_available} B below README step 3's 14 GiB")
+    if disk_free < 4 * GIB:
+        raise RuntimeError(f"Root free disk {disk_free} B below README step 3's 4 GiB")
 
 
 def stage():
@@ -345,6 +358,25 @@ def execute():
     return 0 if result["pass"] else 1
 
 
+def driver_record_error(path):
+    """None only if local_run.execute wrote its result with pass true and no driver_error.
+
+    A missing file means execute never finished (refused before launch, or interrupted by the
+    outer SIGINT timeout, which is a KeyboardInterrupt local_run does not catch).
+    """
+    try:
+        record = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as exc:
+        return f"driver result unreadable ({Path(path).name}): {type(exc).__name__}: {exc}"
+    if not isinstance(record, dict):
+        return f"driver result is not an object ({Path(path).name})"
+    if record.get("driver_error") is not None:
+        return f"driver reported: {record['driver_error']}"
+    if record.get("pass") is not True:
+        return f"driver result pass is {record.get('pass')!r}, not true"
+    return None
+
+
 def criteria(root, plan_dir, result_path):
     """Re-derive C1-C4 from evidence on disk with the plan's own checks; non-zero on any miss."""
     local_run = load_local_run(plan_dir)
@@ -361,6 +393,11 @@ def criteria(root, plan_dir, result_path):
         local_run.assert_complete(jobs / local_run.MAIN_JOB, plan["training"]["max_steps"])
     except Exception as exc:  # Same as local_run's read-only `criteria` path.
         error = error or f"{type(exc).__name__}: {exc}"
+    errors = [error] if error else []
+    driver = driver_record_error(root / "output" / local_run.RESULT_NAME)
+    if driver:  # The driver's own failures (Harbor exit, wall/disk guard, SIGINT) count too.
+        errors.append(driver)
+    error = "; ".join(errors) or None
     result = local_run.evaluate(root, plan, contract, plan_sha=PLAN_SHA, driver_error=error)
     try:  # The plan's own read-only checker must agree; a later fix to it reaches CI too.
         plan_exit = local_run.main(["criteria", "--root", str(root)])
@@ -433,6 +470,9 @@ def collect(root, destination):
         {"copied_sha256": copied, "skipped": skipped, "copied_bytes": total},
     )
     print(f"collected {len(copied)} files ({total} B), skipped {len(skipped)}")
+    if not copied:  # A manifest alone is not evidence; zero copied files is a failed collect.
+        print("FAIL: no evidence file was collected", file=sys.stderr)
+        return 1
     return 0
 
 
