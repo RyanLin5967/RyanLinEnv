@@ -410,6 +410,15 @@ def discovery_decision(plan, report):
                 reasons.append("measured profile is unaffordable at the declared ceiling")
             cap = min(rule["max_projected_active_seconds"],
                       rule["active_cap_multiplier"] * projection)
+            # Consistency with the hard ceiling in run_stage: an invocation starts only if
+            # charged + its full wall cap fits, so a run that costs exactly the projection
+            # reaches its last start with up to P charged. Proceed only if P + one full
+            # invocation wall cap fits the cap, or the run would halt short of 3,333.
+            wall = invocation_wall_seconds(full["budget"])
+            if projection <= rule["max_projected_active_seconds"] and projection + wall > cap:
+                reasons.append("projection plus one invocation wall cap exceeds the full "
+                               "active-seconds cap; the hard ceiling would halt full VAL "
+                               "before its last chunk")
         else:
             reasons.append("discovery recorded no invocation in its ledger")
     return {
@@ -432,12 +441,14 @@ def stage_budget(plan, stage, repository, output):
             raise ValueError("Full VAL refused by the discovery gate: "
                              + "; ".join(decision["reasons"]))
         budget["max_active_seconds"] = decision["full_max_active_seconds"]
-    budget["invocation_wall_seconds"] = (
-        budget["load_allowance_seconds"]
-        + budget["chunk_images"] * budget["image_seconds"]
-        + budget["long_generation_allowance_seconds"]
-    )
+    budget["invocation_wall_seconds"] = invocation_wall_seconds(budget)
     return budget
+
+
+def invocation_wall_seconds(budget):
+    return (budget["load_allowance_seconds"]
+            + budget["chunk_images"] * budget["image_seconds"]
+            + budget["long_generation_allowance_seconds"])
 
 
 def run_stage(plan_path, expected_sha256, stage, repository, output, *, backend_factory=None,

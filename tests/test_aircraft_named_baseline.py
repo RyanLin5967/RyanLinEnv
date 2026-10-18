@@ -239,22 +239,24 @@ def test_discovery_selection_matches_independent_hashing(runner, world):
                                 world["labels"])
 
 
-def test_discovery_runs_in_chunks_resumes_and_scores_with_evaluator_rules(runner, world):
+def test_discovery_runs_in_chunks_resumes_and_scores_with_evaluator_rules(runner, world, clock):
     path, digest = write_plan(world)
     discovery = world["discovery"]
     wrong = set(discovery[:13])
     answers = answers_for(world, wrong)
     answers[discovery[20]] = "Variant 020 because of the tail"  # prose: invalid, never repaired
+    # Real latencies: a zero-latency discovery projects below one full wall cap, and the
+    # hard ceiling would refuse every full invocation, so the gate must stop it.
     calls = []
     first = runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
-                             backend_factory=fake_backend(answers, calls))
+                             backend_factory=fake_backend(answers, calls, clock=clock))
     assert first["status"] == "partial" and first["completed"] == 50 and first["metric"] is None
     assert calls == discovery[:50]
     second = runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
-                              backend_factory=fake_backend(answers, calls))
+                              backend_factory=fake_backend(answers, calls, clock=clock))
     assert calls == discovery and second["status"] == "completed"
     again = runner.run_stage(path, digest, "discovery", world["repo"], world["out"],
-                             backend_factory=fake_backend(answers, calls))
+                             backend_factory=fake_backend(answers, calls, clock=clock))
     assert calls == discovery and again["metric"] == second["metric"]
     expected_correct = 100 - 13 - 1
     assert second["metric"]["correct"] == expected_correct
@@ -519,6 +521,57 @@ def test_projection_uses_measured_load_and_overhead(runner, world):
     assert decision["projected_full_active_seconds"] == 33330.0 + 27 * 150.0
     decision = runner.discovery_decision(plan, gate_report(mean_load_seconds=None))
     assert decision["decision"] == "stop" and decision["full_max_active_seconds"] is None
+
+
+FULL_WALL = 600 + 128 * 120 + 2100  # 18,060 s, written out independently of the runner
+
+
+def ceiling_halts_before_last_chunk(latency, cap):
+    # Independent replay of the hard-ceiling rule for a run costing exactly the projection
+    # (zero overhead): 26 chunks of 128, then 5 images; each start needs charged + wall <= cap.
+    charged = 0.0
+    for size in [128] * 26 + [5]:
+        if charged + FULL_WALL > cap:
+            return True
+        charged += size * latency
+    return False
+
+
+def gate_for_projection(runner, plan, projection):
+    latency = projection / 3333
+    return runner.discovery_decision(plan, gate_report(
+        mean_image_latency_seconds=latency, generation_seconds_total=100 * latency,
+        charged_active_seconds=100 * latency))
+
+
+def test_accurate_projection_under_the_old_limit_that_would_halt_is_stopped(runner, world):
+    # P = 160,000 s is within the old 172,800 s gate, and a run costing exactly P reaches its
+    # last start with 3,328 x P / 3,333 charged: + 18,060 s wall cap exceeds 172,800 s.
+    projection = 160000.0
+    assert projection <= 172800
+    assert ceiling_halts_before_last_chunk(projection / 3333, 172800)
+    decision = gate_for_projection(runner, world["plan"], projection)
+    assert decision["projected_full_active_seconds"] == pytest.approx(projection)
+    assert decision["full_max_active_seconds"] == 172800
+    assert decision["decision"] == "stop"
+    assert any("invocation wall cap" in reason for reason in decision["reasons"])
+    # A zero-latency profile: the 2x term binds far below one wall cap.
+    assert ceiling_halts_before_last_chunk(0.0, 2 * 54.0)
+
+
+@pytest.mark.parametrize("projection, cap, expect_stop", [
+    (172800 - FULL_WALL + 1, 172800, True),      # 1 s over P + wall <= cap
+    (172800 - FULL_WALL, 172800, False),         # exactly fits
+    (FULL_WALL - 1, 2 * (FULL_WALL - 1), True),  # 2x term binds and is 1 s short
+    (FULL_WALL, 2 * FULL_WALL, False),
+])
+def test_gate_boundary_is_projection_plus_one_wall_cap(runner, world, projection, cap,
+                                                       expect_stop):
+    decision = gate_for_projection(runner, world["plan"], projection)
+    assert decision["full_max_active_seconds"] == pytest.approx(cap)
+    assert (decision["decision"] == "stop") is expect_stop
+    if not expect_stop:
+        assert not ceiling_halts_before_last_chunk(projection / 3333, cap)
 
 
 def test_unaffordable_profile_stops_before_full(runner, world):

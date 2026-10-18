@@ -234,6 +234,7 @@
         "projection": "3333 x discovery mean image latency + ceil(3333 / chunk_images) x max(discovery mean load seconds, discovery charged seconds not spent generating / discovery invocations); a measured 0.0 load is used as measured; no recorded load stops the gate",
         "active_cap_multiplier": 2.0,
         "full_max_active_seconds": "min(max_projected_active_seconds, active_cap_multiplier x projection); a hard ceiling (see budget_rules.refusals)",
+        "ceiling_consistency": "proceed only if projection + one full invocation wall cap (18060 s) <= full_max_active_seconds, because an invocation starts only when charged + its wall cap fits; otherwise a run costing exactly the projection would halt before its last chunk. With the 2x multiplier binding this also needs projection >= 18060 s",
         "discovery_identity": "full VAL refuses unless every discovery ledger invocation recorded this activated plan's SHA256 and the same runner sources",
         "on_stop": "Report the named comparator as incomplete. Do not change prompt, profile, output budget or sample to rescue it; any change is a new plan version.",
         "headroom": "Not gated here. Whether the frontier comparison is still worth running is a root decision that needs the eight-endpoint results; this plan only reports the discovery interval."

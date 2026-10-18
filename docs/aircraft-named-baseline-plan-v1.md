@@ -51,6 +51,10 @@ before the first model call, and the operator must pass that copy's SHA256 on ev
      The overhead is the larger of the discovery mean load time and the discovery charged seconds
      not spent generating, per invocation (load, model and input rehash). A measured 0.0 s load
      counts as 0.0 s; a discovery with no recorded load stops the gate.
+   - the projection plus one full 18,060 s invocation wall cap stays within the full cap below.
+     An invocation starts only if charged seconds plus its wall cap fit, so a run that costs exactly
+     the projection would otherwise halt before its last chunk. With the 2× term binding, this
+     also requires a projection of at least 18,060 s.
    - every discovery invocation ran under this activated plan's SHA256 and the same runner
      sources. A discovery made under another plan copy (for example a relaxed gate) is refused.
 
