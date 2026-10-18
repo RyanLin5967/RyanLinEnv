@@ -118,6 +118,18 @@ accepted only if two checks pass:
   reproduce the report's full comparison for those arms (scores, per-class differences and bootstrap
   intervals).
 
+## Measured cost (plumbing only)
+
+Source: PR plumbing job, run 39105775526, artifact `named-baseline-plumbing/shard.json`. One free
+ubuntu-24.04 runner (4 vCPU, 16.8 GB) took 66.6 s of setup (model download, rehash and an 18.7 s load).
+It then took 115.0, 112.0 and 112.2 s per TRAIN image, with about 990 prompt tokens each, and every
+answer terminated. In the same job, `verify-endpoints` reproduced the committed RL400 and
+strongest-SFT comparisons exactly from the export.
+
+Three images are not a forecast; this projection is unverified. At ~113 s per image, full VAL is
+~105 runner-hours, which is free on a public repository. The shard rule would then give 31 shards,
+run in two waves of 20. The binding numbers come from the discovery receipt.
+
 ## Limits
 
 - This is a development comparison on VAL. VAL was also the selection set for the strongest SFT.
@@ -126,8 +138,8 @@ accepted only if two checks pass:
   merged run.
 - bfloat16 CPU numerics are not shown to equal float32 or GPU numerics. The claim label says
   "bfloat16 on CPU".
-- Latency on shared runners is not measured yet; plumbing and discovery measure it. A shard count
-  that is too small fails closed as a gap.
+- Latency on shared runners varies. Only three plumbing images have been measured; discovery sets
+  the binding numbers. A shard count that is too small fails closed as a gap.
 
 ## Activation checklist (all required, none done)
 

@@ -223,5 +223,23 @@
     "claim_limits": "A named native-VAL baseline claim requires all 3,333 predictions with zero non-completed outcomes from one merged run. VAL was the selection set for the strongest SFT, so a comparison against it is a development comparison. Nothing here touches the frozen native TEST."
   },
   "runner": "scripts/aircraft_named_baseline_ci.py (tests: tests/test_aircraft_named_baseline_ci.py, CPU only, no model)",
-  "workflow": ".github/workflows/aircraft-named-baseline-ci.yml"
+  "workflow": ".github/workflows/aircraft-named-baseline-ci.yml",
+  "measured_cost": {
+    "instrument": "PR plumbing job, GitHub Actions run 39105775526 (commit e3c1fbd), artifact named-baseline-plumbing/shard.json: three pinned TRAIN images on one free ubuntu-24.04 runner (4 vCPU, 16,765,374,464 bytes MemTotal, 90 GB free disk)",
+    "setup_seconds_including_model_download_and_load": 66.6,
+    "load_seconds": 18.7,
+    "per_image_latency_seconds": [
+      115.0,
+      112.0,
+      112.2
+    ],
+    "prompt_tokens": [
+      996,
+      983,
+      983
+    ],
+    "all_terminated": true,
+    "endpoint_export_check": "verify-endpoints in the same job: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
+    "projection_unverified": "Three images are not a forecast. If discovery measures ~113 s per image, full VAL is ~376,600 runner-seconds (~105 runner-hours, free on a public repository), and the shard rule gives N = ceil(3333 / floor((19800 - 900 - ~70) / (1.5 x ~113))) = 31 shards, i.e. two waves at max-parallel 20. The binding numbers come from the committed discovery receipt, not from this record."
+  }
 }
