@@ -1,0 +1,3 @@
+Linux iccad9 4.18.0-553.139.1.el8_10.x86_64 #1 SMP Sun Jun 28 20:54:52 EDT 2026 x86_64 x86_64 x86_64 GNU/Linux
+model name	: Intel(R) Xeon(R) Gold 6136 CPU @ 3.00GHz
+16

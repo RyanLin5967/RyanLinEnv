@@ -1,0 +1,58 @@
+== host eceubuntu2 2026-10-18T10:14:17-04:00 device cuda assets /var/tmp/r226lin-vlmassets-v1 py /var/tmp/r226lin-vlmenv-py312/bin/python VISION_RL_TORCH_THREADS=unset OMP=2
+ 10:14:17 up 12 days, 22:58,  7 users,  load average: 16.20, 17.71, 19.55
+Sun Oct 18 10:14:17 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.178.04             Driver Version: 580.178.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     Off |   00000000:65:00.0 Off |                  N/A |
+| 30%   43C    P2             68W /  250W |     225MiB /  11264MiB |      6%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A         3490046      C   python                                  222MiB |
++-----------------------------------------------------------------------------------------+
+pid, used_gpu_memory [MiB], process_name
+3490046, 222 MiB, python
+versions torch 2.14.1+cu130 cuda 13.0 5.20.0 1.16.0 0.21.2 threads 2
+manifests scan 2027 train64 64
+== RUN sft:6:1200 2026-10-18T10:14:26-04:00
+CMD /var/tmp/r226lin-vlmenv-py312/bin/python wrap.py --mode sft --train train64.jsonl --max-steps 6 --num-generations 4 --data-spec /var/tmp/r226lin-vlmassets-v1/spec/data_spec.json --model-directory /var/tmp/r226lin-vlmassets-v1/model/Qwen2-VL-2B-Instruct-895c3a49 --model Qwen/Qwen2-VL-2B-Instruct --device cuda --train-only --init-adapter /var/tmp/r226lin-vlmassets-v1/adapters/warmstart-v1/final_adapter --learning-rate 1e-5 --seed 42 --save-steps 100 --response-format answer_only --dtype float32 --min-pixels 50176 --max-pixels 200704 --max-prompt-tokens 2048 --max-completion-length 256 --lora-rank 8 --temperature 1.0 --output out/eceubuntu2-cuda-sft-s6
+== END sft:6:1200 rc=0 wall_s=74.321235952 nvsmi_peak_MiB_total_incl_other_users=10307
+PEAK_CUDA max_allocated_MiB=9689.8 max_reserved_MiB=9880.0
+TIME user_s=74.01 sys_s=15.48 wall_s=74.31 maxrss_KB=14042428
+AUDIT out/eceubuntu2-cuda-sft-s6/optimizer_audit.jsonl steps 6 per_update_active_s [4.19, 1.59, 1.56, 1.62, 1.57, 1.54] cumulative 12.07 grad_norms [1.0, 1.0, 1.0, 0.0004, 1.0, 1.0]
+RECORD out/eceubuntu2-cuda-sft-s6/local_training.json status completed optimizer_audit {"optimizer_steps_observed": 6, "active_seconds": 12.069261432159692, "active_time": {"committed_active_seconds": 12.069261432159692, "committed_global_step": 6, "completed_not_checkpointed_active_seconds": 0.0, "completed_state_active_seconds": 12.069261432159692, "hard_total_physical_compute_cap": false, "invocation_active_seconds": 12.069261432159692, "observed_discarded_or_uncheckpointed_active_seconds": 0.0, "observed_physical_active_seconds": 12.069261432159692, "observed_reward_journal_io_seconds": 0.0008826199918985367, "resumed_committed_active_seconds": 0.0, "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded", "total_budget_seconds": null, "unknown_partial_invocations": 0}}
+== RUN sgrpo:8:2100 2026-10-18T10:15:40-04:00
+CMD /var/tmp/r226lin-vlmenv-py312/bin/python wrap.py --mode grpo --beta 0 --loss-type dr_grpo --scale-rewards none --num-generations 8 --screen-threshold 0.5 --target-accepted 3 --max-steps 3 --screen-journal out/eceubuntu2-cuda-sgrpo-g8/screen.jsonl --train scan.jsonl --data-spec /var/tmp/r226lin-vlmassets-v1/spec/data_spec.json --model-directory /var/tmp/r226lin-vlmassets-v1/model/Qwen2-VL-2B-Instruct-895c3a49 --model Qwen/Qwen2-VL-2B-Instruct --device cuda --train-only --init-adapter /var/tmp/r226lin-vlmassets-v1/adapters/warmstart-v1/final_adapter --learning-rate 1e-5 --seed 42 --save-steps 100 --response-format answer_only --dtype float32 --min-pixels 50176 --max-pixels 200704 --max-prompt-tokens 2048 --max-completion-length 256 --lora-rank 8 --temperature 1.0 --output out/eceubuntu2-cuda-sgrpo-g8
+== END sgrpo:8:2100 rc=0 wall_s=210.004554254 nvsmi_peak_MiB_total_incl_other_users=10669
+PEAK_CUDA max_allocated_MiB=10035.0 max_reserved_MiB=10240.0
+TIME user_s=232.91 sys_s=17.38 wall_s=209.99 maxrss_KB=14055552
+AUDIT out/eceubuntu2-cuda-sgrpo-g8/optimizer_audit.jsonl steps 3 per_update_active_s [20.12, 18.17, 18.02] cumulative 56.31 grad_norms [0.0549, 0.0, 0.0403]
+SCREEN out/eceubuntu2-cuda-sgrpo-g8/screen.jsonl scanned 4 accepted 3 scorer_s_total 2.25 scorer_s_per_candidate 0.562
+SCREEN step 1 scanned 1 accepted 1 scorer_s 0.55 p [0.172]
+SCREEN step 2 scanned 2 accepted 1 scorer_s 1.12 p [0.0, 0.788]
+SCREEN step 3 scanned 1 accepted 1 scorer_s 0.57 p [0.793]
+RECORD out/eceubuntu2-cuda-sgrpo-g8/local_training.json status completed optimizer_audit {"optimizer_steps_observed": 3, "active_seconds": 56.30880384356715, "active_time": {"committed_active_seconds": 56.30880384356715, "committed_global_step": 3, "completed_not_checkpointed_active_seconds": 0.0, "completed_state_active_seconds": 56.30880384356715, "hard_total_physical_compute_cap": false, "invocation_active_seconds": 56.30880384356715, "invocation_scorer_seconds": 2.2474563329014927, "observed_discarded_or_uncheckpointed_active_seconds": 0.0, "observed_physical_active_seconds": 56.30880384356715, "observed_reward_journal_io_seconds": 0.07298253546468914, "observed_scorer_seconds_within_active": 2.2474563329014927, "resumed_committed_active_seconds": 0.0, "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded", "total_budget_seconds": null, "unknown_partial_invocations": 0}}
+== RUN sgrpo:16:1800 2026-10-18T10:19:11-04:00
+CMD /var/tmp/r226lin-vlmenv-py312/bin/python wrap.py --mode grpo --beta 0 --loss-type dr_grpo --scale-rewards none --num-generations 16 --screen-threshold 0.5 --target-accepted 3 --max-steps 3 --screen-journal out/eceubuntu2-cuda-sgrpo-g16/screen.jsonl --train scan.jsonl --data-spec /var/tmp/r226lin-vlmassets-v1/spec/data_spec.json --model-directory /var/tmp/r226lin-vlmassets-v1/model/Qwen2-VL-2B-Instruct-895c3a49 --model Qwen/Qwen2-VL-2B-Instruct --device cuda --train-only --init-adapter /var/tmp/r226lin-vlmassets-v1/adapters/warmstart-v1/final_adapter --learning-rate 1e-5 --seed 42 --save-steps 100 --response-format answer_only --dtype float32 --min-pixels 50176 --max-pixels 200704 --max-prompt-tokens 2048 --max-completion-length 256 --lora-rank 8 --temperature 1.0 --output out/eceubuntu2-cuda-sgrpo-g16
+== END sgrpo:16:1800 rc=1 wall_s=127.611830424 nvsmi_peak_MiB_total_incl_other_users=10509
+PEAK_CUDA max_allocated_MiB=10035.0 max_reserved_MiB=10174.0
+TIME user_s=165.17 sys_s=11.47 wall_s=127.60 maxrss_KB=14055844
+[W1018 10:21:16.426849117 CUDACachingAllocator.cpp:528] expandable_segments: memory mapping failed with OOM on device 0 while trying to map 20971520 bytes (free: 8388608, total: 11346575360).
+[W1018 10:21:16.537961631 CUDACachingAllocator.cpp:528] expandable_segments: memory mapping failed with OOM on device 0 while trying to map 20971520 bytes (free: 12582912, total: 11346575360).
+Traceback (most recent call last):
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 542.00 MiB. GPU 0 has a total capacity of 10.57 GiB of which 312.00 MiB is free. Process 3490046 has 222.00 MiB memory in use. Including non-PyTorch memory, this process has 10.04 GiB memory in use. Of the allocated memory 9.80 GiB is allocated by PyTorch, and 54.96 MiB is reserved by PyTorch but unallocated.
+SCREEN out/eceubuntu2-cuda-sgrpo-g16/screen.jsonl scanned 1 accepted 1 scorer_s_total 0.56 scorer_s_per_candidate 0.556
+SCREEN step 1 scanned 1 accepted 1 scorer_s 0.56 p [0.172]
+RECORD out/eceubuntu2-cuda-sgrpo-g16/local_training.json status failed optimizer_audit {"optimizer_steps_observed": null, "active_seconds": null, "active_time": null}
+RECORD error OutOfMemoryError CUDA out of memory. Tried to allocate 542.00 MiB. GPU 0 has a total capacity of 10.57 GiB of which 312.00 MiB is free. Process 3490046 has 222.00 MiB memory in use. Including non-PyTorch memory, this process has 10.04 GiB memory in use. Of the allocated memory 9.80 GiB is allocated by PyTorch, and 54.96 MiB is reserved by PyTorch but unallocated.
+== ALL DONE 2026-10-18T10:21:18-04:00
