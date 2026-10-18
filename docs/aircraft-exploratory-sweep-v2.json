@@ -78,9 +78,9 @@
  },
  "design_files_sha256": {
   "arms-rung1.json": "cfdbf2c872b307af8216335f2f8507829696363023e8bc33d94ef934b3e9cabc",
-  "arms-wave2-rung1.json": "570d5c8eae042d85cb1230620673d43bc4c22f8a54b66ab1063362ddb77fbb77",
+  "arms-wave2-rung1.json": "c4ae8ff08a42548829921aad9ec1a782a4a6a890050f18c2111af9ee7e443911",
   "scripts/exploratory_sweep/design.py": "adc155dd4c72ff4f4dc1fcd296099fb791dab9ad9e322d24cf179e0dc1f38a12",
-  "scripts/exploratory_sweep/wave2_arms.py": "a0a046230dbb4aa054f90c62b51d6195f179705c931aaa83ed1b6f23aecfee50",
+  "scripts/exploratory_sweep/wave2_arms.py": "5ce912bd24aa650c3d4da3cca48a10b825503c11d857280f4de8a6af7f5b965e",
   "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
  },
  "design_reproduce": "python3 -I scripts/exploratory_sweep/design.py --check",

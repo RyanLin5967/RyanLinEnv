@@ -30,7 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve()
 OUT = HERE.parents[2] / "docs" / "aircraft-exploratory-sweep-v2" / "arms-wave2-rung1.json"
-HIERARCHY = "@payload/code/src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json"
+HIERARCHY = "@payload/code/scripts/exploratory_sweep/label-hierarchy-train-v1.json"
 
 
 def _design():

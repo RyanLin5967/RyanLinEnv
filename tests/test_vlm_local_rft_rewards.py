@@ -16,7 +16,7 @@ import pytest
 from vision_rl import vlm_local_training as local
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET = ROOT / "src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json"
+ASSET = ROOT / "scripts/exploratory_sweep/label-hierarchy-train-v1.json"
 LABELS = ["737-800", "737-900", "A321", "MD-11"]
 HIERARCHY = {
     "737-800": {"family": "Boeing 737", "manufacturer": "Boeing"},

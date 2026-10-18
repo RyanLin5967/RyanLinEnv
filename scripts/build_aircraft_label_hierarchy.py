@@ -8,7 +8,7 @@ any family seen with two manufacturers. VAL and TEST annotations are never opene
 
   python scripts/build_aircraft_label_hierarchy.py \
     --train-records data/fgvc-aircraft-2013b/audit/train-images.json \
-    --output src/vision_rl/aircraft_assets/label-hierarchy-train-v1.json
+    --output scripts/exploratory_sweep/label-hierarchy-train-v1.json
 """
 
 from __future__ import annotations
