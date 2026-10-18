@@ -375,6 +375,16 @@ def cmd_report(a) -> int:
                      "accuracy", "valid_fraction", "equal_class_accuracy")},
                  "vs_I": run.paired_bootstrap(doc["predictions"], i[1]["predictions"], gold,
                                               a.resamples, seed=20261018)}
+        # matched SFT control of this RL arm (same device): E = examples-matched endpoint,
+        # T = time-matched endpoint; every RL checkpoint is compared with both.
+        if not spec["id"].endswith("~ctl"):
+            for (cid, clabel), (_, _, cdoc) in rows.items():
+                if cid == spec["id"] + "~ctl":
+                    which = "T" if clabel == "time" else "E"
+                    entry[f"vs_ctl_{which}"] = dict(
+                        label=clabel, control_accuracy=cdoc["metrics"]["accuracy"],
+                        **run.paired_bootstrap(doc["predictions"], cdoc["predictions"], gold,
+                                               a.resamples, seed=20261018))
         w = base.get((same, "W")) or base.get((spec["device_class"], "W"))
         if w is not None:
             entry["vs_W_delta"] = run.paired_bootstrap(doc["predictions"], w[1]["predictions"],
@@ -395,6 +405,11 @@ def cmd_report(a) -> int:
         print(f"{e['device_class']:>18} {e['arm']:<48} {e['label']:>8} acc {e['accuracy']:.4f} "
               f"valid {e['valid_fraction']:.3f} vsI {c['delta']:+.4f} "
               f"[{c['ci95'][0]:+.4f},{c['ci95'][1]:+.4f}] P(<=0) {c['p_le_0']:.3f}")
+        for k in ("vs_ctl_E", "vs_ctl_T"):
+            if k in e:
+                c = e[k]
+                print(f"{'':>18} {'':<48} {k:>8} ctl {c['control_accuracy']:.4f} delta "
+                      f"{c['delta']:+.4f} [{c['ci95'][0]:+.4f},{c['ci95'][1]:+.4f}]")
     print(f"wrote {path}")
     return 0
 
