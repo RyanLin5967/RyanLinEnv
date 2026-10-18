@@ -1,0 +1,188 @@
+{
+ "study_id": "aircraft-exploratory-sweep-v2",
+ "what": "CPU seconds per optimizer update (optimizer_audit active_seconds deltas), 6 updates each, median of updates 2-6",
+ "instrument": "runner.py bench -> arm_exec.py kind=bench -> vision_rl.vlm_local_training; per_update_seconds from optimizer_audit.jsonl active_seconds",
+ "config": "Qwen2-VL-2B rank-8 Q/V LoRA (legacy-qv-v1), init W, CPU fp32, 16 torch threads, answer_only, 50176-200704 px, 256 max completion tokens, LR 1e-5; GRPO beta 0.04 T 1.0 no screening; s_train_scan_seed42 manifest",
+ "caveats": [
+  "shared UW hosts: timings are host-labelled, not dedicated hardware",
+  "each bench ran alone on its host (load1 at start <1 except the SFT benches, which started at ~7.5 after the G8 benches ended)",
+  "GRPO steps 2-3 had all-same-reward groups (gradient norm 0); their time still includes generation and the backward pass",
+  "grpo4 benches ran at code 1147df9 (payload 9f2a8f79), grpo8 and sft at c44802e (payload c01c2763); the trainer source is identical between them (only runner/plan files changed)"
+ ],
+ "rows": [
+  {
+   "arm": "bench-grpo4-iccad13-t16-1792311296",
+   "kind": "grpo4",
+   "host": "iccad13",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+   "nproc": 72,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-grpo4-iccad13-t16-1792311296-311296356",
+   "receipt_payload_sha256": "9f2a8f79faa72e1a78ae3c93123fa8779c2e9fbffedd686698db4ce08594ca27",
+   "per_update_seconds": [
+    65.86,
+    72.79,
+    73.92,
+    69.5,
+    65.5,
+    65.23
+   ],
+   "median_after_first_s": 69.5,
+   "load1_start": 1.21,
+   "load1_end": 16.54,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "arm": "bench-grpo4-iccad9-t16-1792311297",
+   "kind": "grpo4",
+   "host": "iccad9",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6136 CPU @ 3.00GHz",
+   "nproc": 48,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-grpo4-iccad9-t16-1792311297-311297072",
+   "receipt_payload_sha256": "9f2a8f79faa72e1a78ae3c93123fa8779c2e9fbffedd686698db4ce08594ca27",
+   "per_update_seconds": [
+    88.81,
+    77.84,
+    73.67,
+    65.56,
+    65.63,
+    70.17
+   ],
+   "median_after_first_s": 70.17,
+   "load1_start": 0.85,
+   "load1_end": 16.46,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "arm": "bench-grpo8-iccad13-t16-1792323973",
+   "kind": "grpo8",
+   "host": "iccad13",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+   "nproc": 72,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-grpo8-iccad13-t16-1792323973-323973997",
+   "receipt_payload_sha256": "c01c2763bc465b9f9cfb9a94ce90931105a7d05b1fdf00f88451d99e8afbe626",
+   "per_update_seconds": [
+    132.95,
+    152.21,
+    140.63,
+    125.39,
+    131.06,
+    133.97
+   ],
+   "median_after_first_s": 133.97,
+   "load1_start": 0.69,
+   "load1_end": 16.36,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "arm": "bench-grpo8-iccad9-t16-1792323974",
+   "kind": "grpo8",
+   "host": "iccad9",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6136 CPU @ 3.00GHz",
+   "nproc": 48,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-grpo8-iccad9-t16-1792323974-323974748",
+   "receipt_payload_sha256": "c01c2763bc465b9f9cfb9a94ce90931105a7d05b1fdf00f88451d99e8afbe626",
+   "per_update_seconds": [
+    132.05,
+    148.02,
+    142.55,
+    127.56,
+    131.9,
+    134.35
+   ],
+   "median_after_first_s": 134.35,
+   "load1_start": 0.61,
+   "load1_end": 15.83,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "arm": "bench-sft-iccad13-t16-1792325039",
+   "kind": "sft",
+   "host": "iccad13",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+   "nproc": 72,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-sft-iccad13-t16-1792325039-325039677",
+   "receipt_payload_sha256": "c01c2763bc465b9f9cfb9a94ce90931105a7d05b1fdf00f88451d99e8afbe626",
+   "per_update_seconds": [
+    11.47,
+    11.5,
+    11.44,
+    11.27,
+    10.78,
+    10.93
+   ],
+   "median_after_first_s": 11.27,
+   "load1_start": 7.4,
+   "load1_end": 15.99,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0084,
+    0.0151,
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "arm": "bench-sft-iccad9-t16-1792325040",
+   "kind": "sft",
+   "host": "iccad9",
+   "cpu_model": "Intel(R) Xeon(R) Gold 6136 CPU @ 3.00GHz",
+   "nproc": 48,
+   "threads": 16,
+   "uwrun": "rlesweep-bench-sft-iccad9-t16-1792325040-325040409",
+   "receipt_payload_sha256": "c01c2763bc465b9f9cfb9a94ce90931105a7d05b1fdf00f88451d99e8afbe626",
+   "per_update_seconds": [
+    11.84,
+    11.73,
+    11.76,
+    11.46,
+    11.27,
+    11.04
+   ],
+   "median_after_first_s": 11.46,
+   "load1_start": 7.71,
+   "load1_end": 15.98,
+   "latest_gradient_norm_per_step": [
+    1.0,
+    0.0084,
+    0.0151,
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ]
+}

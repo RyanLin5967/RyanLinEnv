@@ -226,3 +226,18 @@ that result is reported as it stands.
   fails.
 - **Selection bias.** The h_gate_final check guards against selection on dev800, but it has
   only 200 images.
+
+## Measured CPU seconds per update (appended after measurement; not a result)
+
+Instrument: `runner.py bench` (6 updates, init W, 16 threads, CPU fp32), per-update seconds
+from the trainer's `optimizer_audit.jsonl` active seconds, median of updates 2–6. Shared UW
+hosts, so each number is labelled with its host. Raw rows: `aircraft-exploratory-sweep-v2/cpu-bench.json`.
+
+| kind | iccad13 (72 threads, Gold 6154) | iccad9 (48 threads, Gold 6136) |
+|---|---|---|
+| GRPO G4 | 69.5 s | 70.2 s |
+| GRPO G8 | 134.0 s | 134.3 s |
+| SFT | 11.3 s | 11.5 s |
+
+At 16 threads the two host types measured the same. GRPO cost scales about linearly in G
+(G8 / G4 ≈ 1.93 on both hosts).
