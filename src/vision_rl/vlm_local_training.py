@@ -32,6 +32,126 @@ from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_l
 
 DEFAULT_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
 OUTPUT_GRAMMAR = "canonical-label-v2/optional-tags"
+# Exploratory sweep options (default-off: the legacy formats keep their exact prompt,
+# grammar and identity). `closed_set_*` lists the labels grouped by manufacturer and
+# family with an explicit closed-set instruction; `*think_answer` asks for
+# <think>...</think><answer>LABEL</answer> and is scored on the answer tag only.
+LEGACY_RESPONSE_FORMATS = ("answer_only", "think_then_answer")
+TAGGED_RESPONSE_FORMATS = ("think_answer", "closed_set_think_answer")
+CLOSED_SET_RESPONSE_FORMATS = ("closed_set_answer_only", "closed_set_think_answer")
+RESPONSE_FORMATS = LEGACY_RESPONSE_FORMATS + ("closed_set_answer_only",) + TAGGED_RESPONSE_FORMATS
+TAGGED_OUTPUT_GRAMMAR = "think-answer-tags-v1/answer-only"
+# DAPO/Dr.GRPO/GSPO knobs that released TRL 1.16 GRPOConfig implements, with their
+# legacy values in `trainer_kwargs`. Only explicitly passed knobs enter settings.
+GRPO_KNOBS = {
+    "epsilon": 0.2,
+    "epsilon_high": None,
+    "delta": None,
+    "loss_type": "grpo",
+    "scale_rewards": "group",
+    "importance_sampling_level": "token",
+    "mask_truncated_completions": True,
+    "num_iterations": 1,
+    "top_entropy_quantile": 1.0,
+}
+GRPO_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
+# FGVC-Aircraft 2013b taxonomy for the closed-set prompt. Every (manufacturer, family,
+# variants) row was derived from the author release's native TRAIN annotations only
+# (images_{variant,family,manufacturer}_train.txt, SHA-256 29ac66fb..., 9bc9b649...,
+# ff5d8c11...): each of the 100 variants maps to exactly one family and manufacturer
+# there. No VAL or TEST file was read. Rows follow the data spec's label order. It lives
+# here, not in a new module, because frozen study plans pin every vision_rl module.
+AIRCRAFT_TAXONOMY_ID = "fgvc-aircraft-2013b-train-taxonomy-v1"
+AIRCRAFT_FAMILY_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ('Boeing', 'Boeing 707', ('707-320',)),
+    ('Boeing', 'Boeing 727', ('727-200',)),
+    ('Boeing', 'Boeing 737', (
+        '737-200', '737-300', '737-400', '737-500', '737-600', '737-700', '737-800', '737-900',
+    )),
+    ('Boeing', 'Boeing 747', ('747-100', '747-200', '747-300', '747-400')),
+    ('Boeing', 'Boeing 757', ('757-200', '757-300')),
+    ('Boeing', 'Boeing 767', ('767-200', '767-300', '767-400')),
+    ('Boeing', 'Boeing 777', ('777-200', '777-300')),
+    ('Airbus', 'A300', ('A300B4',)),
+    ('Airbus', 'A310', ('A310',)),
+    ('Airbus', 'A320', ('A318', 'A319', 'A320', 'A321')),
+    ('Airbus', 'A330', ('A330-200', 'A330-300')),
+    ('Airbus', 'A340', ('A340-200', 'A340-300', 'A340-500', 'A340-600')),
+    ('Airbus', 'A380', ('A380',)),
+    ('ATR', 'ATR-42', ('ATR-42',)),
+    ('ATR', 'ATR-72', ('ATR-72',)),
+    ('Antonov', 'An-12', ('An-12',)),
+    ('British Aerospace', 'BAE 146', ('BAE 146-200', 'BAE 146-300')),
+    ('British Aerospace', 'BAE-125', ('BAE-125',)),
+    ('Beechcraft', 'Beechcraft 1900', ('Beechcraft 1900',)),
+    ('Boeing', 'Boeing 717', ('Boeing 717',)),
+    ('Lockheed Corporation', 'C-130', ('C-130',)),
+    ('Douglas Aircraft Company', 'C-47', ('C-47',)),
+    ('Canadair', 'CRJ-200', ('CRJ-200',)),
+    ('Canadair', 'CRJ-700', ('CRJ-700', 'CRJ-900')),
+    ('Cessna', 'Cessna 172', ('Cessna 172',)),
+    ('Cessna', 'Cessna 208', ('Cessna 208',)),
+    ('Cessna', 'Cessna Citation', ('Cessna 525', 'Cessna 560')),
+    ('Canadair', 'Challenger 600', ('Challenger 600',)),
+    ('McDonnell Douglas', 'DC-10', ('DC-10',)),
+    ('Douglas Aircraft Company', 'DC-3', ('DC-3',)),
+    ('Douglas Aircraft Company', 'DC-6', ('DC-6',)),
+    ('Douglas Aircraft Company', 'DC-8', ('DC-8',)),
+    ('McDonnell Douglas', 'DC-9', ('DC-9-30',)),
+    ('de Havilland', 'DH-82', ('DH-82',)),
+    ('de Havilland', 'DHC-1', ('DHC-1',)),
+    ('de Havilland', 'DHC-6', ('DHC-6',)),
+    ('de Havilland', 'Dash 8', ('DHC-8-100', 'DHC-8-300')),
+    ('Robin', 'DR-400', ('DR-400',)),
+    ('Dornier', 'Dornier 328', ('Dornier 328',)),
+    ('Embraer', 'Embraer E-Jet', ('E-170', 'E-190', 'E-195')),
+    ('Embraer', 'EMB-120', ('EMB-120',)),
+    ('Embraer', 'Embraer ERJ 145', ('ERJ 135', 'ERJ 145')),
+    ('Embraer', 'Embraer Legacy 600', ('Embraer Legacy 600',)),
+    ('Eurofighter', 'Eurofighter Typhoon', ('Eurofighter Typhoon',)),
+    ('Lockheed Martin', 'F-16', ('F-16A/B',)),
+    ('McDonnell Douglas', 'F/A-18', ('F/A-18',)),
+    ('Dassault Aviation', 'Falcon 2000', ('Falcon 2000',)),
+    ('Dassault Aviation', 'Falcon 900', ('Falcon 900',)),
+    ('Fokker', 'Fokker 100', ('Fokker 100',)),
+    ('Fokker', 'Fokker 50', ('Fokker 50',)),
+    ('Fokker', 'Fokker 70', ('Fokker 70',)),
+    ('Bombardier Aerospace', 'Global Express', ('Global Express',)),
+    ('Gulfstream Aerospace', 'Gulfstream', ('Gulfstream IV', 'Gulfstream V')),
+    ('British Aerospace', 'Hawk T1', ('Hawk T1',)),
+    ('Ilyushin', 'Il-76', ('Il-76',)),
+    ('Lockheed Corporation', 'L-1011', ('L-1011',)),
+    ('McDonnell Douglas', 'MD-11', ('MD-11',)),
+    ('McDonnell Douglas', 'MD-80', ('MD-80', 'MD-87')),
+    ('McDonnell Douglas', 'MD-90', ('MD-90',)),
+    ('Fairchild', 'Metroliner', ('Metroliner',)),
+    ('Beechcraft', 'King Air', ('Model B200',)),
+    ('Piper', 'PA-28', ('PA-28',)),
+    ('Cirrus Aircraft', 'SR-20', ('SR-20',)),
+    ('Saab', 'Saab 2000', ('Saab 2000',)),
+    ('Saab', 'Saab 340', ('Saab 340',)),
+    ('Supermarine', 'Spitfire', ('Spitfire',)),
+    ('Panavia', 'Tornado', ('Tornado',)),
+    ('Tupolev', 'Tu-134', ('Tu-134',)),
+    ('Tupolev', 'Tu-154', ('Tu-154',)),
+    ('Yakovlev', 'Yak-42', ('Yak-42',)),
+)
+
+
+def aircraft_grouped_label_lines(spec_labels: list[str]) -> list[str]:
+    """One line per family, manufacturers in first-appearance order; refuses other label sets."""
+    known = [label for _, _, variants in AIRCRAFT_FAMILY_GROUPS for label in variants]
+    if len(set(spec_labels)) != len(spec_labels) or sorted(spec_labels) != sorted(known):
+        raise ValueError("closed-set grouping requires exactly the 100 FGVC-Aircraft variants")
+    order: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
+    for manufacturer, family, variants in AIRCRAFT_FAMILY_GROUPS:
+        order.setdefault(manufacturer, []).append((family, variants))
+    return [
+        f"{manufacturer} / {family}: " + " | ".join(variants)
+        for manufacturer, families in order.items()
+        for family, variants in families
+    ]
+
 # Study controllers freeze finite original budgets before execution. The TRAIN
 # diagnostic bounds RL updates, while a matched-time SFT trajectory may need
 # more updates. None means no additional step cap, not an unbounded run.
@@ -112,8 +232,8 @@ class Profile:
     temperature: float = 1.0
 
     def validate(self) -> None:
-        if self.response_format not in {"answer_only", "think_then_answer"}:
-            raise ValueError("response_format must be answer_only or think_then_answer")
+        if self.response_format not in RESPONSE_FORMATS:
+            raise ValueError("response_format must be one of " + ", ".join(RESPONSE_FORMATS))
         if self.dtype not in {"float32", "bfloat16", "float16"}:
             raise ValueError("dtype must be float32, bfloat16 or float16")
         for name, value in asdict(self).items():
@@ -327,6 +447,8 @@ def load_classification(
 
 
 def prompt_text(spec: dict[str, Any], response_format: str = "think_then_answer") -> str:
+    if response_format in CLOSED_SET_RESPONSE_FORMATS or response_format == "think_answer":
+        return _sweep_prompt_text(spec, response_format)
     if response_format == "answer_only":
         instruction = (
             "Return one label copied exactly from the allowed list on its own line. "
@@ -348,6 +470,64 @@ def prompt_text(spec: dict[str, Any], response_format: str = "think_then_answer"
         + "\n"
         + instruction
     )
+
+
+def _sweep_prompt_text(spec: dict[str, Any], response_format: str) -> str:
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        instruction = (
+            "Inspect the aircraft's visible distinguishing features. First reason briefly "
+            "inside <think> and </think>. Then give the final answer as <answer>LABEL</answer>, "
+            "where LABEL is one label copied exactly from the allowed list. Write nothing "
+            "after </answer>."
+        )
+    else:
+        instruction = (
+            "Return one label copied exactly from the allowed list on its own line. "
+            "Do not add a prefix, quotes, explanations, or any text after that label."
+        )
+    if response_format in CLOSED_SET_RESPONSE_FORMATS:
+        listing = (
+            f"This is a closed-set task: the answer must be exactly one of the "
+            f"{len(spec['labels'])} labels below, copied character for character. Labels are "
+            "grouped as 'manufacturer / family: label | label'. A manufacturer name, a family "
+            "name, or any aircraft name not in the list is never a valid answer; if the "
+            "aircraft looks like an unlisted model or version, answer with the closest listed "
+            "label.\nAllowed labels by manufacturer and family:\n"
+            + "\n".join(aircraft_grouped_label_lines(spec["labels"]))
+        )
+    else:
+        listing = "Allowed labels (the complete class list):\n" + "\n".join(spec["labels"])
+    return spec["question"] + "\n" + listing + "\n" + instruction
+
+
+def _parse_tagged_answer(text: str, labels: list[str]) -> str | None:
+    """Answer-only grammar: free text, then exactly one final <answer>LABEL</answer>."""
+    if text.count("<answer>") != 1 or text.count("</answer>") != 1:
+        return None
+    match = re.fullmatch(r"(?s)(.*)<answer>([^<>\r\n]{1,256})</answer>", text)
+    answer = match[2].strip() if match else None
+    return answer if answer in labels else None
+
+
+def output_grammar(response_format: str | None) -> str:
+    return TAGGED_OUTPUT_GRAMMAR if response_format in TAGGED_RESPONSE_FORMATS else OUTPUT_GRAMMAR
+
+
+def parse_answer(
+    completion: Any,
+    labels: list[str],
+    *,
+    allow_reasoning: bool = True,
+    response_format: str | None = None,
+) -> str | None:
+    """`response_format=None` or a non-tagged format is exactly `parse_label` (whose
+    source the named-baseline plan pins, so it stays untouched); a tagged format scores
+    only its single final answer tag."""
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        return _parse_tagged_answer(_completion_text(completion).strip(), labels)
+    if response_format is not None and response_format not in RESPONSE_FORMATS:
+        raise ValueError("unknown response_format")
+    return parse_label(completion, labels, allow_reasoning=allow_reasoning)
 
 
 def parse_label(completion: Any, labels: list[str], *, allow_reasoning: bool = True) -> str | None:
@@ -375,7 +555,12 @@ def training_records(
             "prompt": [{"role": "user", "content": prompt}],
         }
         if mode == "sft":
-            record["completion"] = [{"role": "assistant", "content": row["label"]}]
+            target = (
+                f"<answer>{row['label']}</answer>"
+                if response_format in TAGGED_RESPONSE_FORMATS
+                else row["label"]
+            )
+            record["completion"] = [{"role": "assistant", "content": target}]
         records.append(record)
     return records
 
@@ -529,6 +714,13 @@ def shaped_reward(predicted: str | None, expected: str, shaping: dict[str, Any])
     return 0.0
 
 
+def _complete_think_block(text: str, response_format: str | None) -> bool:
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        text = text.strip()
+        return text.startswith("<think>") and 0 <= text.find("</think>") < text.find("<answer>")
+    return bool(re.match(r"<think>[^<>]{0,32768}</think>", text.strip()))
+
+
 def make_reward(
     labels: list[str],
     group_size: int,
@@ -539,6 +731,7 @@ def make_reward(
     journal_io_context=None,
     observe_prompt=None,
     shaping: dict[str, Any] | None = None,
+    response_format: str | None = None,
 ):
     """Exact task reward with journaled groups; never inject synthetic variance.
 
@@ -578,7 +771,13 @@ def make_reward(
             float(
                 bool(tokens)
                 and tokens[-1] in eos_ids
-                and parse_label(text, labels, allow_reasoning=allow_reasoning) == expected
+                and parse_answer(
+                    text,
+                    labels,
+                    allow_reasoning=allow_reasoning,
+                    response_format=response_format,
+                )
+                == expected
             )
             for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
         ]
@@ -587,7 +786,12 @@ def make_reward(
         else:
             rewards = [
                 shaped_reward(
-                    parse_label(text, labels, allow_reasoning=allow_reasoning)
+                    parse_answer(
+                        text,
+                        labels,
+                        allow_reasoning=allow_reasoning,
+                        response_format=response_format,
+                    )
                     if tokens and tokens[-1] in eos_ids
                     else None,
                     expected,
@@ -609,11 +813,16 @@ def make_reward(
             terminated = [
                 bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
             ]
-            thinking = [
-                bool(re.match(r"<think>[^<>]{0,32768}</think>", text.strip())) for text in texts
-            ]
+            thinking = [_complete_think_block(text, response_format) for text in texts]
             canonical = [
-                parse_label(text, labels, allow_reasoning=allow_reasoning) if ended else None
+                parse_answer(
+                    text,
+                    labels,
+                    allow_reasoning=allow_reasoning,
+                    response_format=response_format,
+                )
+                if ended
+                else None
                 for text, ended in zip(texts, terminated, strict=True)
             ]
             recognition_mixed = any(group) and any(
@@ -676,6 +885,56 @@ def make_reward(
     return exact_label_accuracy
 
 
+def _finite(value) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def validate_grpo_overrides(overrides: dict | None) -> dict:
+    """Allowlisted TRL 1.16 GRPOConfig knobs; refuse unknown names and unsafe values.
+
+    Note: with num_iterations == 1 every update is on-policy (ratio == 1), so
+    epsilon/epsilon_high/delta clipping only binds when num_iterations > 1.
+    """
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict) or not overrides:
+        raise ValueError("grpo_overrides must be a nonempty dict or None")
+    unknown = sorted(set(overrides) - set(GRPO_KNOBS))
+    if unknown:
+        raise ValueError("unknown GRPO knob(s): " + ", ".join(unknown))
+    merged = {**GRPO_KNOBS, **overrides}
+    epsilon = merged["epsilon"]
+    if not _finite(epsilon) or not 0 < epsilon < 1:
+        raise ValueError("epsilon must be finite and in (0, 1)")
+    high = merged["epsilon_high"]
+    if high is not None and (
+        not _finite(high)
+        or not 0 < high <= 10
+        or (merged["loss_type"] != "cispo" and high < epsilon)
+    ):
+        raise ValueError("epsilon_high must be finite, in (0, 10] and >= epsilon (clip-higher)")
+    if merged["delta"] is not None and (not _finite(merged["delta"]) or merged["delta"] <= 1):
+        raise ValueError("delta must be finite and > 1")
+    if merged["loss_type"] not in GRPO_LOSS_TYPES:
+        raise ValueError("loss_type must be one of " + ", ".join(GRPO_LOSS_TYPES))
+    if merged["scale_rewards"] not in ("group", "batch", "none"):
+        raise ValueError("scale_rewards must be group, batch or none")
+    if merged["importance_sampling_level"] not in ("token", "sequence"):
+        raise ValueError("importance_sampling_level must be token or sequence")
+    if merged["loss_type"] == "luspo" and merged["importance_sampling_level"] != "sequence":
+        raise ValueError("luspo requires importance_sampling_level=sequence")
+    if merged["loss_type"] == "vespo" and merged["importance_sampling_level"] != "token":
+        raise ValueError("vespo requires importance_sampling_level=token")
+    if type(merged["mask_truncated_completions"]) is not bool:
+        raise ValueError("mask_truncated_completions must be a bool")
+    if type(merged["num_iterations"]) is not int or not 1 <= merged["num_iterations"] <= 8:
+        raise ValueError("num_iterations must be an integer in 1..8")
+    quantile = merged["top_entropy_quantile"]
+    if not _finite(quantile) or not 0 < quantile <= 1:
+        raise ValueError("top_entropy_quantile must be finite and in (0, 1]")
+    return {key: overrides[key] for key in sorted(overrides)}
+
+
 def trainer_kwargs(
     mode: str,
     output: Path,
@@ -688,10 +947,16 @@ def trainer_kwargs(
     save_steps: int,
     beta: float = 0.04,
     order: str = "random",
+    grpo_overrides: dict | None = None,
 ) -> dict:
-    """Explicit comparable defaults; one unique prompt per optimizer update."""
+    """Explicit comparable defaults; one unique prompt per optimizer update.
+
+    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS)."""
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
+    overrides = validate_grpo_overrides(grpo_overrides)
+    if overrides and mode != "grpo":
+        raise ValueError("grpo_overrides apply only to GRPO")
     common = dict(
         output_dir=str(output),
         max_steps=max_steps,
@@ -747,6 +1012,7 @@ def trainer_kwargs(
             mask_truncated_completions=True,
             disable_dropout=True,
         )
+        common.update(overrides)
     elif mode == "sft":
         common.update(
             gradient_accumulation_steps=1,
@@ -866,6 +1132,7 @@ def classification_metrics(
     *,
     allow_reasoning: bool = True,
     decoding_protocol: str = "greedy/pass@1",
+    response_format: str | None = None,
 ) -> dict:
     if not rows or len({row["id"] for row in rows}) != len(rows):
         raise ValueError("evaluation requires nonempty unique IDs")
@@ -881,12 +1148,19 @@ def classification_metrics(
         response = predictions[row["id"]]
         if isinstance(response, dict):
             predicted = (
-                parse_label(response["response"], labels, allow_reasoning=allow_reasoning)
+                parse_answer(
+                    response["response"],
+                    labels,
+                    allow_reasoning=allow_reasoning,
+                    response_format=response_format,
+                )
                 if response["terminated"]
                 else None
             )
         else:
-            predicted = parse_label(response, labels, allow_reasoning=allow_reasoning)
+            predicted = parse_answer(
+                response, labels, allow_reasoning=allow_reasoning, response_format=response_format
+            )
         counts[row["label"]] += 1
         correct[row["label"]] += int(predicted == row["label"])
         invalid += int(predicted is None)
@@ -897,8 +1171,15 @@ def classification_metrics(
         "mean_class_accuracy": sum(per_class.values()) / len(per_class),
         "invalid_answers": invalid,
         "per_class_accuracy": per_class,
-        "protocol": OUTPUT_GRAMMAR + "/" + decoding_protocol,
+        "protocol": output_grammar(response_format) + "/" + decoding_protocol,
     }
+
+
+def _format_kwargs(profile: Profile) -> dict:
+    """Legacy formats pass nothing, so their calls stay exactly as before."""
+    if profile.response_format in LEGACY_RESPONSE_FORMATS:
+        return {}
+    return {"response_format": profile.response_format}
 
 
 def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -> tuple[dict, dict]:
@@ -937,6 +1218,7 @@ def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -
         predictions,
         spec["labels"],
         allow_reasoning=True,
+        **_format_kwargs(profile),
     ), predictions
 
 
@@ -1069,7 +1351,7 @@ def predict_train_subset(
         "processor_model": model,
         "processor_revision": MODEL_REVISIONS[model],
         "profile": asdict(profile),
-        "output_grammar": OUTPUT_GRAMMAR,
+        "output_grammar": output_grammar(profile.response_format),
         "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
         "data_spec_sha256": _file_sha256(Path(data_spec)),
         "data_identity": _classification_identity(Path(manifest), rows),
@@ -1166,6 +1448,7 @@ def predict_train_subset(
                 config.eos_token_id,
                 output / "reward_groups.jsonl",
                 allow_reasoning=True,
+                **_format_kwargs(profile),
             )
             _sample_task_groups(
                 policy, processor, rows, spec, profile, device, output, reward, config
@@ -2640,6 +2923,132 @@ def _trainer_with_screening(base, screen: _ScreenedScan, records):
     return ScreenedTrainer
 
 
+class _PromptRelay:
+    """The one route from the reward's per-group observation to the exposure ledger.
+
+    Dynamic sampling defers observations until it keeps a group, then commits only the
+    kept prompt; policy reuse (num_iterations > 1) re-observes that kept prompt for the
+    updates that optimize on the same buffered generation.
+    """
+
+    def __init__(self, observe):
+        self.observe = observe
+        self.last_id = None
+        self.deferred = None
+
+    def note(self, identifier):
+        self.last_id = identifier
+        if self.deferred is None:
+            self.observe(identifier)
+        else:
+            self.deferred.append(identifier)
+
+    def defer(self):
+        if self.deferred is not None:
+            raise LocalVLMError("prompt relay is already deferring")
+        self.deferred = []
+
+    def abandon(self):
+        self.deferred = None
+
+    def commit(self):
+        identifiers, self.deferred = self.deferred, None
+        if not identifiers:
+            raise LocalVLMError("dynamic sampling scored no group")
+        self.last_id = identifiers[-1]
+        self.observe(identifiers[-1])
+        return identifiers
+
+
+def dynamic_replacement_index(seed: int, global_step: int, draw: int, size: int) -> int:
+    """Deterministic replacement prompt for draw >= 1 of an update (resume-stable, no RNG state)."""
+    import random
+
+    if draw < 1 or size < 1:
+        raise ValueError("replacement draws start at 1 over a nonempty pool")
+    return random.Random(f"dynamic-sampling:{seed}:{global_step}:{draw}").randrange(size)
+
+
+def _trainer_with_dynamic_sampling(
+    base, relay, records, *, max_draws, seed, journal, journal_io_context=None, summary=None
+):
+    """DAPO dynamic sampling, which released TRL 1.16 lacks, for one prompt per update.
+
+    A generated group whose advantages are all zero (every reward equal) is dropped and
+    replaced by a deterministic draw from the TRAIN pool, up to `max_draws` groups per
+    update. If every draw is uninformative the last one is kept (it carries only the KL
+    term) and the update is journaled as exhausted. Every draw's generation runs inside
+    the active step span, so its cost is charged to active time. Only the kept prompt
+    enters the exposure ledger; every draw is journaled.
+    """
+    torch = import_module("torch")
+    summary = summary if summary is not None else {}
+    summary.update(updates=0, draws=0, dropped_groups=0, exhausted_updates=0)
+
+    class DynamicSamplingTrainer(base):
+        def _generate_and_score_completions(self, inputs):
+            if not self.model.training:
+                return super()._generate_and_score_completions(inputs)
+            step = self.state.global_step + 1
+            entries = []
+            relay.defer()
+            try:
+                for draw in range(max_draws):
+                    if draw:
+                        index = dynamic_replacement_index(seed, step, draw, len(records))
+                        inputs = [dict(records[index]) for _ in inputs]
+                    output = super()._generate_and_score_completions(inputs)
+                    informative = bool(torch.count_nonzero(output["advantages"]).item())
+                    entries.append({"global_step": step, "draw": draw, "informative": informative})
+                    if informative:
+                        break
+            except BaseException:
+                relay.abandon()
+                raise
+            identifiers = relay.commit()
+            if len(identifiers) != len(entries):
+                raise LocalVLMError("dynamic sampling expected one reward group per draw")
+            for entry, identifier in zip(entries, identifiers, strict=True):
+                entry["id"] = identifier
+                entry["kept"] = entry is entries[-1]
+            exhausted = not entries[-1]["informative"]
+            entries[-1]["exhausted"] = exhausted
+            with journal_io_context() if journal_io_context else nullcontext():
+                with Path(journal).open("a", encoding="utf-8") as handle:
+                    handle.write("".join(json.dumps(entry) + "\n" for entry in entries))
+            summary["updates"] += 1
+            summary["draws"] += len(entries)
+            summary["dropped_groups"] += len(entries) - 1
+            summary["exhausted_updates"] += int(exhausted)
+            return output
+
+    return DynamicSamplingTrainer
+
+
+def _trainer_with_policy_reuse(base, relay):
+    """num_iterations > 1: TRL optimizes several updates on one buffered generation.
+
+    Those reuse updates generate nothing, so the reward never observes a prompt; observe
+    the buffered (kept) prompt at the first micro-step of each reuse update instead.
+    """
+
+    class PolicyReuseTrainer(base):
+        def _prepare_inputs(self, generation_batch):
+            if self.model.training:
+                every = self.args.steps_per_generation
+                regenerate = (
+                    self._step % (every * self.num_iterations) == 0
+                    or self._buffered_inputs is None
+                )
+                if not regenerate and self._step % every == 0:
+                    if relay.last_id is None:
+                        raise LocalVLMError("policy reuse has no buffered prompt to observe")
+                    relay.observe(relay.last_id)
+            return super()._prepare_inputs(generation_batch)
+
+    return PolicyReuseTrainer
+
+
 def _restore_endpoint_without_training(trainer, checkpoint, audit):
     """Restore an already-complete optimization boundary; never call train or step."""
     trainer._load_from_checkpoint(str(checkpoint))
@@ -2994,6 +3403,8 @@ def train_local(
     family_credit: float | None = None,
     manufacturer_credit: float | None = None,
     invalid_reward: float | None = None,
+    grpo_overrides: dict | None = None,
+    dynamic_sampling_max_draws: int | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -3019,12 +3430,28 @@ def train_local(
     `label_hierarchy` (GRPO only, default off) swaps the exact reward for hierarchical
     partial credit; `family_credit` and `manufacturer_credit` must then be explicit, and
     `invalid_reward` (default 0) scores a non-EOS or out-of-vocabulary answer.
+
+    Exploratory GRPO options (default-off; absent from settings unless passed):
+    `grpo_overrides` sets allowlisted TRL GRPOConfig knobs (GRPO_KNOBS: clip-higher
+    epsilon_high, loss_type, scale_rewards, mask_truncated_completions, num_iterations,
+    ...). `dynamic_sampling_max_draws` drops all-same reward groups and redraws a
+    deterministic TRAIN replacement, up to that many groups per update.
     """
     profile.validate()
     if exploratory_sweep is not None and (
         exploratory_sweep != EXPLORATORY_SWEEP_ID or train_only is not True
     ):
         raise ValueError(f"exploratory_sweep must be {EXPLORATORY_SWEEP_ID!r} with train_only")
+    overrides = validate_grpo_overrides(grpo_overrides)
+    if (overrides or dynamic_sampling_max_draws is not None) and mode != "grpo":
+        raise ValueError("grpo_overrides and dynamic sampling apply only to GRPO")
+    if dynamic_sampling_max_draws is not None and (
+        type(dynamic_sampling_max_draws) is not int or not 2 <= dynamic_sampling_max_draws <= 64
+    ):
+        raise ValueError("dynamic_sampling_max_draws must be an integer in 2..64")
+    policy_reuse = overrides.get("num_iterations", 1) > 1
+    if screen_journal is not None and (policy_reuse or dynamic_sampling_max_draws is not None):
+        raise ValueError("screening cannot combine with dynamic sampling or num_iterations > 1")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     if type(threads) is not int or threads < 1:
@@ -3181,7 +3608,7 @@ def train_local(
         "processor_model": model,
         "processor_revision": MODEL_REVISIONS[model],
         "profile": asdict(profile),
-        "output_grammar": OUTPUT_GRAMMAR,
+        "output_grammar": output_grammar(profile.response_format),
         "data_spec_sha256": _file_sha256(Path(data_spec)),
         "train": _classification_identity(Path(train), train_rows),
         "validation": _classification_identity(Path(validation), validation_rows)
@@ -3239,6 +3666,16 @@ def train_local(
             "backoff_factor": 0.5,
             "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
             "max_consecutive_skips": MAX_CONSECUTIVE_LOSS_SCALE_SKIPS,
+        }
+    if overrides:
+        settings["grpo_overrides"] = overrides
+    if dynamic_sampling_max_draws is not None:
+        settings["dynamic_sampling"] = {
+            "max_draws": dynamic_sampling_max_draws,
+            "drop": "groups whose TRL advantages are all zero (all rewards equal)",
+            "replacement": "dynamic_replacement_index(seed, global_step, draw, |TRAIN|)",
+            "exhausted": "keep the last draw (KL-only update), journaled",
+            "journal": "dynamic_sampling.jsonl",
         }
     if screened:
         screen_journal = Path(screen_journal).resolve()
@@ -3505,6 +3942,7 @@ def train_local(
             save_steps=save_steps,
             beta=beta,
             **({"order": order} if order != "random" else {}),
+            **({"grpo_overrides": overrides} if overrides else {}),
         )
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
         if args.device.type != device:
@@ -3523,6 +3961,11 @@ def train_local(
         eos = policy.generation_config.eos_token_id
         eos = [eos] if isinstance(eos, int) else list(eos or [])
         eos = sorted(set(eos + [processor.tokenizer.eos_token_id]))
+        relay = (
+            _PromptRelay(audit.observe_prompt)
+            if mode == "grpo" and (policy_reuse or dynamic_sampling_max_draws is not None)
+            else None
+        )
         reward = make_reward(
             spec["labels"],
             profile.num_generations,
@@ -3530,9 +3973,11 @@ def train_local(
             output / "reward_groups.jsonl",
             allow_reasoning=True,
             journal_io_context=audit.timer.exclude_journal_io,
-            observe_prompt=audit.observe_prompt,
+            observe_prompt=relay.note if relay is not None else audit.observe_prompt,
             **({"shaping": shaping} if shaping is not None else {}),
+            **_format_kwargs(profile),
         )
+        dynamic_summary = {} if dynamic_sampling_max_draws is not None else None
         constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
         if mode == "grpo":
             constructor = _trainer_with_grpo_resume(
@@ -3543,6 +3988,19 @@ def train_local(
             )
             if screen is not None:
                 constructor = _trainer_with_screening(constructor, screen, dataset)
+            if policy_reuse:
+                constructor = _trainer_with_policy_reuse(constructor, relay)
+            if dynamic_sampling_max_draws is not None:
+                constructor = _trainer_with_dynamic_sampling(
+                    constructor,
+                    relay,
+                    dataset,
+                    max_draws=dynamic_sampling_max_draws,
+                    seed=seed,
+                    journal=output / "dynamic_sampling.jsonl",
+                    journal_io_context=audit.timer.exclude_journal_io,
+                    summary=dynamic_summary,
+                )
         else:
             if mode == "egsft":
                 constructor = _trainer_with_egsft(
@@ -3672,6 +4130,7 @@ def train_local(
             train_metrics=train_metrics,
             optimizer_audit=audit.summary,
             reward_audit=reward.stats if mode == "grpo" else None,
+            **({"dynamic_sampling": dynamic_summary} if dynamic_summary is not None else {}),
             **(
                 {
                     "screen": {k: v for k, v in screen.state().items() if k != "entries"},
@@ -4043,6 +4502,8 @@ def rft_local(
         raise ValueError("threads must be a positive integer")
     if _expanded.is_expanded(profile):
         raise ValueError("RFT supports the legacy Q/V LoRA profile only")
+    if profile.response_format not in LEGACY_RESPONSE_FORMATS:
+        raise ValueError("RFT supports the legacy response formats only")
     if model not in MODEL_REVISIONS:
         raise ValueError("choose one of the explicitly pinned Qwen models")
     for name, value in (
@@ -4442,8 +4903,10 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             "probe",
             "finalize_only",
             "cycle",
+            "grpo_overrides",
+            "dynamic_sampling_max_draws",
         )
-        if args[key] not in (None, False)
+        if args.get(key) not in (None, False)
     ]
     if refused or (
         args["order"],
@@ -4481,6 +4944,12 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
         return 2
     print(json.dumps(result, indent=2, allow_nan=False))
     return 0
+
+
+def _cli_bool(value: str) -> bool:
+    if value not in ("true", "false"):
+        raise argparse.ArgumentTypeError("expected true or false")
+    return value == "true"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -4551,6 +5020,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--screen-threshold", type=float, default=0.5)
     parser.add_argument("--target-accepted", type=int, default=600)
     parser.add_argument("--probe", action="store_true")
+    for name, value in GRPO_KNOBS.items():
+        if type(value) is bool:
+            kind = _cli_bool
+        elif name in ("loss_type", "scale_rewards", "importance_sampling_level"):
+            kind = str
+        else:
+            kind = int if type(value) is int else float
+        parser.add_argument(
+            "--" + name.replace("_", "-"),
+            type=kind,
+            default=None,
+            help=f"exploratory GRPO knob; omitted keeps the legacy value {value!r}",
+        )
+    parser.add_argument(
+        "--dynamic-sampling-max-draws",
+        type=int,
+        help="drop all-same GRPO groups and redraw, up to this many groups per update",
+    )
     parser.add_argument(
         "--exploratory-sweep",
         choices=(EXPLORATORY_SWEEP_ID,),
@@ -4582,6 +5069,12 @@ def main(argv: list[str] | None = None) -> int:
             "rft_skip_all_correct",
         )
     }
+    knobs = {key: args.pop(key) for key in GRPO_KNOBS}
+    knobs = {key: value for key, value in knobs.items() if value is not None}
+    if knobs:
+        args["grpo_overrides"] = knobs
+    if args["dynamic_sampling_max_draws"] is None:
+        args.pop("dynamic_sampling_max_draws")
     try:
         if args.pop("preflight"):
             result = preflight(args["device"])
@@ -4627,7 +5120,10 @@ def main(argv: list[str] | None = None) -> int:
                         "family_credit",
                         "manufacturer_credit",
                         "invalid_reward",
+                        "grpo_overrides",
+                        "dynamic_sampling_max_draws",
                     )
+                    if k in args
                 ) or (
                     args["order"],
                     args["screen_threshold"],

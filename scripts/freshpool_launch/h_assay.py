@@ -62,11 +62,15 @@ def read_rows(path):
     return rows
 
 
-def answer(completion, labels):
-    """Exact-EOS canonical scoring, as the GRPO reward: a label only if terminated."""
+def answer(completion, labels, profile=PROFILE):
+    """Exact-EOS canonical scoring, as the GRPO reward: a label only if terminated.
+
+    A legacy profile scores exactly as before; an exploratory response format scores
+    with that format's grammar (vlt._format_kwargs), as its GRPO reward does."""
     if not completion.get("terminated"):
         return None, False
-    return vlt.parse_label(completion.get("response", ""), labels, allow_reasoning=True), True
+    return vlt.parse_answer(completion.get("response", ""), labels, allow_reasoning=True,
+                           **vlt._format_kwargs(profile)), True
 
 
 def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
@@ -114,7 +118,7 @@ def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device
                     raise RuntimeError(f"{row['id']}: {len(completions)} completions, "
                                        f"expected {expected}")
                 for completion in completions:
-                    value, ended = answer(completion, labels)
+                    value, ended = answer(completion, labels, profile)
                     answers[row["id"]].append(value)
                     terminated += ended
                     total += 1
