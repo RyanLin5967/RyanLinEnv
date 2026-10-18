@@ -28,6 +28,7 @@ EXEC=$R/payload/code/scripts/exploratory_sweep/arm_exec.py
 # A spec left in running/ by a dead worker goes back to the front of the queue.
 for f in "$Q"/running/*.json; do [ -e "$f" ] && mv "$f" "$Q/pending/"; done
 idle=0
+waited=0
 echo "worker start $(date -u +%FT%TZ) host=$(hostname -s) root=$R results=$RES"
 while :; do
   if [ -f "$Q/STOP" ]; then echo "STOP file present; exiting"; break; fi
@@ -37,6 +38,15 @@ while :; do
     sleep 60; idle=$((idle + 60)); continue
   fi
   idle=0
+  # Shared GPUs: another user's job can hold the card (eceubuntu2, 2026-10-18: a 7 GB
+  # Qwen3.5 eval OOMed four queued arms in six minutes). Start an arm only when the card
+  # has NEED_MIB free; otherwise wait, logging once per 10 minutes.
+  free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1)
+  if [ "${free:-0}" -lt "${NEED_MIB:-6500}" ]; then
+    [ $((waited % 600)) -eq 0 ] && echo "gpu busy: ${free} MiB free < ${NEED_MIB:-6500}; $(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader | tr '\n' ' ') $(date -u +%FT%TZ)"
+    sleep 60; waited=$((${waited:-0} + 60)); continue
+  fi
+  waited=0
   mv "$Q/pending/$next" "$Q/running/$next" || continue
   key=${next%.json}
   out=$RES/$key

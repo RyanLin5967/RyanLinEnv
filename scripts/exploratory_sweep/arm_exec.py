@@ -54,13 +54,14 @@ def save_steps_for(spec: dict, max_steps: int) -> int:
     """--save-steps for every stage of this arm's trajectory.
 
     save_steps is part of the trainer's resume identity (settings), so it must be the same in
-    every stage of one trajectory, across promotions too. A trajectory's first arm uses the
-    gcd of its declared stops (and resume_stop); a promoted arm carries the value its
-    trajectory started with in `save_steps` (runner.promoted_arms sets it), because the gcd
-    rule alone drifts across rungs (150 -> 600 -> 1500 gives 150, 150, then 300). A stage
-    boundary always saves its own checkpoint regardless. (It was `stop`, which changed between
-    stages and made every multi-stop arm refuse to resume: "resume must preserve exact
-    model/data/profile/settings"; ported from GPU lane acdab57.)
+    every stage of one trajectory, across continuations too. A trajectory's first arm uses the
+    gcd of its declared stops (and resume_stop); a continuation carries the value its
+    trajectory started with in `save_steps` (gpu_lane.continue_spec / runner.promoted_arms set
+    it), because the gcd rule alone drifts (resume 300 -> [600] gives 300; resume 600 ->
+    [1200] gives 600). A stage boundary always saves its own checkpoint regardless. (It was
+    `stop`, which changed between stages and made every multi-stop arm refuse to resume:
+    "resume must preserve exact model/data/profile/settings". Same rule as the CPU sweep's
+    exploratory-sweep-v2.noindex cb6d7ae.)
     """
     if spec.get("save_steps"):
         return int(spec["save_steps"])

@@ -1,0 +1,34 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.04,
+ "device": "cuda",
+ "device_class": "rtx3070-bfloat16",
+ "dtype": "bfloat16",
+ "family": "grpo-W",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx3070-grpo-W-lr1e-05-g8-b0.04-t1-n",
+ "init": "W",
+ "lr": 1e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 1200,
+ "min_pixels": 50176,
+ "mode": "grpo",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "resume_stop": 150,
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  300,
+  600
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "rl",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1,
+ "work_id": "gpu-rtx3070-grpo-W-lr1e-05-g8-b0.04-t1-n"
+}

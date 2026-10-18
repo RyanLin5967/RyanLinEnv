@@ -1,0 +1,25 @@
+{
+ "arm": "gpu-ecetesla2-eval-W",
+ "endpoints": [
+  {
+   "label": "init",
+   "metrics": {
+    "accuracy": 0.685,
+    "adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+    "assay_seconds": 314.6,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.685,
+    "label": "init",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.97875
+   },
+   "steps": 0
+  }
+ ],
+ "host": "ecetesla2",
+ "receipt_sha256": "5dd09341204f3c7a0ae02632a451602436f72a0bad98117dd64300767ace13ef",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}
