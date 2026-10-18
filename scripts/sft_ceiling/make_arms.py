@@ -41,10 +41,10 @@ def main():
     pool = json.loads(POOL.read_text())["ids"]
     assert len(t400) == 400 and len(pool) == 1452
     arms = []
-    for seed in (1, 2, 3, 42):
+    for seed in (1, 2, 3, 4, 5, 42):
         arms.append(dict(COMMON, id=f"sftceil-I-seed{seed}", family="I-seed", init="W", lr=1e-5,
                          seed=seed, train_ids=t400, stops=[2464], max_steps_total=6000))
-    for lr in (5e-6, 1e-5, 2e-5):
+    for lr in (3e-6, 5e-6, 1e-5, 2e-5):
         tag = f"{lr:.0e}".replace("e-0", "e-")
         arms.append(dict(COMMON, id=f"sftceil-cont-all-lr{tag}", family="cont-all", init="I",
                          lr=lr, seed=42, train_ids=pool, stops=[300, 600, 1200, 2400, 4800, 7200],

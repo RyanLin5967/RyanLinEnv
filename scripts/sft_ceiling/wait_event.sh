@@ -5,7 +5,7 @@
 POLL=${1:-600}
 STATE=/Users/idide/wt/RyanLinEnv-agent-ae7d7eaaefb389497/runs/aircraft-sft-ceiling-v1/wait_event.state
 RUNS="sftceil-cont-all-lr1e-5-2:iccad11 sftceil-cont-all-lr2e-5-3:iccad12 sftceil-cont-all-lr5e-6-1:iccad7
-sftceil-I-seed1-1:iccad8 sftceil-I-seed2-1:iccad10 sftceil-I-seed3-1:iccad13 sftceil-I-seed42-1:iccad5"
+sftceil-I-seed1-2:ecetesla0 sftceil-I-seed4-1:iccad12 sftceil-I-seed5-1:iccad6 sftceil-cont-all-lr3e-6-1:iccad11 sftceil-I-seed2-1:iccad10 sftceil-I-seed3-1:iccad13 sftceil-I-seed42-1:iccad5"
 snapshot() {
   for pair in $RUNS; do
     run=${pair%%:*}; host=${pair##*:}
