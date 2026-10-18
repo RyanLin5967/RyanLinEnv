@@ -178,6 +178,8 @@ def world(tmp_path):
         "long_generation_allowance_seconds": 10, "max_invocations": 4,
         "max_calendar_seconds": 604800, "max_output_bytes": 1 << 30}
     plan["stages"]["full"]["gate"]["max_projected_shard_active_seconds"] = 172800
+    plan["stages"]["full"]["gate"]["max_shard_active_seconds"] = 345600
+    plan["sharding"]["shards"] = 3
     plan["sources_pinned"] = {name: sha(REPOSITORY / name) for name in plan["sources_pinned"]}
     gold = {row["image_id"]: row["variant"] for row in author}
     return {"repo": repo, "plan": plan, "gold": gold, "author": author, "labels": labels,
@@ -289,7 +291,7 @@ def test_committed_plan_pins_match_this_tree_and_v1(runner):
     assert plan["stages"]["full"]["ids_sha256"] == v1["stages"]["full"]["ids_sha256"]
     assert plan["generation"]["sampling"] == local_vlm.INSTRUCT_GENERATION
     assert plan["prompt_and_parser"]["prompt_sha256"] == v1["prompt_and_parser"]["prompt_sha256"]
-    assert plan["sharding"]["shards"] == 3
+    assert plan["sharding"]["shards"] == 6
     assert plan["comparison"]["resamples"] == 20000 and plan["comparison"]["seed"] == 2718
     assert [a["name"] for a in plan["comparison"]["arms"]] == ["W", "RL400", "strongest_SFT"]
 
@@ -329,6 +331,16 @@ def test_sharded_discovery_merges_and_scores(runner, world, clock):
     assert merged["predictions"][discovery[0]] != world["gold"][discovery[0]]
     decision = runner.discovery_decision(world["plan"], merged)
     assert decision["decision"] == "proceed", decision
+    # Per shard: 100 full images (300 / 3) in 2 chunks of 50; the fixture's full wall cap is
+    # 10 + 50 x 10 + 10 = 520 s; overhead per invocation is the fake 2 s load.
+    latency = sum(latency_of(i) for i in discovery) / 100
+    projection = 100 * latency + 2 * LOAD_SECONDS
+    assert decision["projected_shard_active_seconds"] == pytest.approx(projection)
+    assert decision["shard_max_active_seconds"] == pytest.approx(2 * projection + 520)
+    tight = json.loads(json.dumps(world["plan"]))
+    tight["stages"]["full"]["gate"]["max_projected_shard_active_seconds"] = 10
+    stopped = runner.discovery_decision(tight, merged)
+    assert stopped["decision"] == "stop" and "unaffordable" in stopped["reasons"][0]
 
 
 def test_merge_refuses_missing_shard(runner, world, clock):

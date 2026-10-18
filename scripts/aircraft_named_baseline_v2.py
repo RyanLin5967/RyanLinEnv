@@ -327,9 +327,13 @@ def discovery_decision(plan, report):
                           + invocations * per_invocation)
             if projection > rule["max_projected_shard_active_seconds"]:
                 reasons.append("measured profile is unaffordable at the declared ceiling")
-            cap = min(rule["max_projected_shard_active_seconds"],
-                      rule["active_cap_multiplier"] * projection)
+            # v2 adds one invocation wall cap to the multiplied projection, so a shard that
+            # costs the projection can always start its last chunk. v1's cap (multiplier x
+            # projection) cannot hold a wall cap whose long-generation allowance is larger
+            # than the whole projection, as it is on these CPUs.
             wall = invocation_wall_seconds(full["budget"])
+            cap = min(rule["max_shard_active_seconds"],
+                      rule["active_cap_multiplier"] * projection + wall)
             if (projection <= rule["max_projected_shard_active_seconds"]
                     and projection + wall > cap):
                 reasons.append("projection plus one invocation wall cap exceeds the shard "
