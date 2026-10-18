@@ -2509,11 +2509,14 @@ def test_rft_sft_round_trains_on_given_completions_and_respects_time_budget(tmp_
     from datasets import Dataset
 
     torch.set_num_threads(2)
+    # One repeated pair: with one example per update, first and last logged losses must be
+    # measured on the SAME example for "loss fell" to mean the round learned (CI run
+    # 39109621953 compared losses on different examples and flaked).
     records = {
-        "id": ["a#0", "b#0", "c#0"],
-        "label": ["a", "b", "c"],
-        "prompt": ["a b", "b c", "c a"],
-        "completion": [" a", " b", " c"],
+        "id": ["a#0", "a#1", "a#2"],
+        "label": ["a", "a", "a"],
+        "prompt": ["a b", "a b", "a b"],
+        "completion": [" a", " a", " a"],
     }
     tokenizer, policy = _tiny_text_policy()
     before = {k: v.detach().clone() for k, v in policy.named_parameters() if v.requires_grad}
