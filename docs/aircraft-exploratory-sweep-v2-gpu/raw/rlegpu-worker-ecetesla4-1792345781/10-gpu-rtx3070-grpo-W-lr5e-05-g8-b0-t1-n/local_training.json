@@ -5,12 +5,12 @@
     "mean_class_accuracy": 0.75,
     "n": 8,
     "per_class_accuracy": {
-      "A340-300": 1.0,
+      "A340-300": 0.0,
       "DC-3": 1.0,
       "DHC-6": 1.0,
       "Dornier 328": 1.0,
       "E-190": 1.0,
-      "Fokker 70": 0.0,
+      "Fokker 70": 1.0,
       "Gulfstream IV": 0.0,
       "Tornado": 1.0
     },
@@ -64,10 +64,10 @@
     },
     "validation": null
   },
-  "created_at": "2026-10-18T19:06:32.702850+00:00",
+  "created_at": "2026-10-18T19:33:54.929930+00:00",
   "cuda_memory": {
-    "max_memory_allocated_bytes": 5326250496,
-    "max_memory_reserved_bytes": 6373244928,
+    "max_memory_allocated_bytes": 5327863808,
+    "max_memory_reserved_bytes": 6371147776,
     "scope": "torch caching allocator peaks for this process; excludes CUDA context",
     "total_memory_bytes": 8219328512
   },
@@ -104,7 +104,7 @@
     }
   },
   "final_adapter": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr5e-05-g8-b0-t1-n/train/final_adapter",
-  "final_adapter_sha256": "cb8ac389de9d5c2222940348aceb61003059c8942ccf6a34584e4560d3859ef9",
+  "final_adapter_sha256": "2a2f6240509da38ac3e1149bef89c78b99e5faa85eb764128869d368b4d13b4c",
   "finalize_only": false,
   "held_out_benchmark_improvement": "unmeasured",
   "initial_adapter_tensor_audit": {
@@ -132,35 +132,35 @@
     "total_bytes": 4429621382
   },
   "optimizer_audit": {
-    "active_seconds": 1028.3100878304103,
+    "active_seconds": 2007.4739621977787,
     "active_time": {
-      "committed_active_seconds": 2028.0669095090125,
-      "committed_global_step": 300,
+      "committed_active_seconds": 4035.540871706791,
+      "committed_global_step": 600,
       "completed_not_checkpointed_active_seconds": 0.0,
-      "completed_state_active_seconds": 2028.0669095090125,
+      "completed_state_active_seconds": 4035.540871706791,
       "hard_total_physical_compute_cap": false,
-      "invocation_active_seconds": 1028.3100878304103,
+      "invocation_active_seconds": 2007.4739621977787,
       "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
-      "observed_physical_active_seconds": 2028.0669095090125,
-      "observed_reward_journal_io_seconds": 0.20187738176900893,
-      "resumed_committed_active_seconds": 999.7568216786021,
+      "observed_physical_active_seconds": 4035.540871706791,
+      "observed_reward_journal_io_seconds": 0.31029621057678014,
+      "resumed_committed_active_seconds": 2028.0669095090125,
       "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
       "total_budget_seconds": null,
       "unknown_partial_invocations": 0
     },
     "changed_tensors": 112,
-    "completed_state_active_seconds": 2028.0669095090125,
+    "completed_state_active_seconds": 4035.540871706791,
     "first_nonzero_update": {
       "changed_tensors_since_invocation_start": 112,
-      "global_step": 153,
-      "gradient_norm": 0.9999998048901754,
-      "parameter_delta_l2_since_invocation_start": 0.03461935988391117
+      "global_step": 303,
+      "gradient_norm": 0.9999998198741034,
+      "parameter_delta_l2_since_invocation_start": 0.0240079608621986
     },
     "latest_gradient_norm": 0.0,
-    "max_gradient_norm_observed": 0.999999963781874,
-    "nonzero_gradient_steps": 43,
-    "optimizer_steps_observed": 150,
-    "parameter_delta_l2": 0.4910963211932793
+    "max_gradient_norm_observed": 0.9999999858928276,
+    "nonzero_gradient_steps": 75,
+    "optimizer_steps_observed": 300,
+    "parameter_delta_l2": 0.7438674486976926
   },
   "parameter_dtypes": {
     "frozen": {
@@ -171,13 +171,13 @@
     }
   },
   "probe": {
-    "after_train_gold_nll": 0.2197127911262214,
+    "after_train_gold_nll": 0.15302642021666873,
     "gold_nll_improved": false,
     "gradient_and_weight_change": true,
     "held_out_benchmark_gain": "not measured by this diagnostic",
-    "mixed_reward_groups": 43,
+    "mixed_reward_groups": 75,
     "reload_nll_agrees": true,
-    "reloaded_train_gold_nll": 0.2197127911262214,
+    "reloaded_train_gold_nll": 0.15302642021666873,
     "sampler_teacher_logprob_parity": {
       "initial_reference_max_abs_logprob_difference": null,
       "initial_reference_sampled_kl": null,
@@ -235,25 +235,25 @@
   "regularization_profile": "beta-zero-ablation",
   "requested_boundary": {
     "stop_after_active_seconds": null,
-    "stop_after_steps": 300
+    "stop_after_steps": 600
   },
-  "resumed_from": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr5e-05-g8-b0-t1-n/train/checkpoint-150",
+  "resumed_from": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr5e-05-g8-b0-t1-n/train/checkpoint-300",
   "reward_audit": {
-    "all_correct_groups": 79,
-    "all_zero_groups": 28,
-    "canonical_completions": 1143,
+    "all_correct_groups": 152,
+    "all_zero_groups": 73,
+    "canonical_completions": 2316,
     "complete_think_blocks": 0,
-    "generated_tokens": 8229,
-    "groups": 150,
-    "mixed_groups": 43,
+    "generated_tokens": 16120,
+    "groups": 300,
+    "mixed_groups": 75,
     "nonterminated_completions": 0,
-    "prompt_presentations": 150,
-    "recognition_mixed_groups": 34,
-    "sampled_completions": 1200,
+    "prompt_presentations": 300,
+    "recognition_mixed_groups": 66,
+    "sampled_completions": 2400,
     "task_correct_with_think": 0,
-    "task_correct_without_think": 830,
-    "terminated_completions": 1200,
-    "unique_prompt_ids": 150
+    "task_correct_without_think": 1550,
+    "terminated_completions": 2400,
+    "unique_prompt_ids": 300
   },
   "sampler_teacher_logprob_parity": {
     "initial_reference_max_abs_logprob_difference": null,
@@ -1945,11 +1945,11 @@
     "0522914"
   ],
   "train_metrics": {
-    "epoch": 0.21067415730337077,
-    "train_loss": 1.5397866566975911e-09,
-    "train_runtime": 1089.8645,
-    "train_samples_per_second": 1.101,
-    "train_steps_per_second": 0.138
+    "epoch": 0.42134831460674155,
+    "train_loss": 1.1175870895385742e-10,
+    "train_runtime": 2143.7392,
+    "train_samples_per_second": 1.12,
+    "train_steps_per_second": 0.14
   },
   "trainable_parameters": {
     "count": 1089536,

@@ -1,8 +1,8 @@
 {
   "after_train_diagnostic": {
-    "accuracy": 0.625,
-    "invalid_answers": 0,
-    "mean_class_accuracy": 0.625,
+    "accuracy": 0.75,
+    "invalid_answers": 1,
+    "mean_class_accuracy": 0.75,
     "n": 8,
     "per_class_accuracy": {
       "A340-300": 1.0,
@@ -10,7 +10,7 @@
       "DHC-6": 1.0,
       "Dornier 328": 0.0,
       "E-190": 1.0,
-      "Fokker 70": 0.0,
+      "Fokker 70": 1.0,
       "Gulfstream IV": 0.0,
       "Tornado": 1.0
     },
@@ -64,9 +64,9 @@
     },
     "validation": null
   },
-  "created_at": "2026-10-18T19:02:01.839428+00:00",
+  "created_at": "2026-10-18T19:26:15.811132+00:00",
   "cuda_memory": {
-    "max_memory_allocated_bytes": 5330609152,
+    "max_memory_allocated_bytes": 5332222464,
     "max_memory_reserved_bytes": 6381633536,
     "scope": "torch caching allocator peaks for this process; excludes CUDA context",
     "total_memory_bytes": 8220901376
@@ -104,7 +104,7 @@
     }
   },
   "final_adapter": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr2e-05-g8-b0.04-t1-n/train/final_adapter",
-  "final_adapter_sha256": "eea3c2f1dc88758b9f8e37ccbead8f26b276e779f5bd2a41e29da162693ed89f",
+  "final_adapter_sha256": "9f9d5146225113bd32734b307341100479752dc029afa3e507610338be5dded8",
   "finalize_only": false,
   "held_out_benchmark_improvement": "unmeasured",
   "initial_adapter_tensor_audit": {
@@ -132,35 +132,35 @@
     "total_bytes": 4429621382
   },
   "optimizer_audit": {
-    "active_seconds": 1068.726522570243,
+    "active_seconds": 2144.65388375381,
     "active_time": {
-      "committed_active_seconds": 2159.2242840684485,
-      "committed_global_step": 300,
+      "committed_active_seconds": 4303.878167822259,
+      "committed_global_step": 600,
       "completed_not_checkpointed_active_seconds": 0.0,
-      "completed_state_active_seconds": 2159.2242840684485,
+      "completed_state_active_seconds": 4303.878167822259,
       "hard_total_physical_compute_cap": false,
-      "invocation_active_seconds": 1068.726522570243,
+      "invocation_active_seconds": 2144.65388375381,
       "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
-      "observed_physical_active_seconds": 2159.2242840684485,
-      "observed_reward_journal_io_seconds": 0.12628614087589085,
-      "resumed_committed_active_seconds": 1090.4977614982054,
+      "observed_physical_active_seconds": 4303.878167822259,
+      "observed_reward_journal_io_seconds": 0.3344223164021969,
+      "resumed_committed_active_seconds": 2159.2242840684485,
       "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
       "total_budget_seconds": null,
       "unknown_partial_invocations": 0
     },
     "changed_tensors": 112,
-    "completed_state_active_seconds": 2159.2242840684485,
+    "completed_state_active_seconds": 4303.878167822259,
     "first_nonzero_update": {
       "changed_tensors_since_invocation_start": 112,
-      "global_step": 151,
-      "gradient_norm": 0.0010026932497031983,
-      "parameter_delta_l2_since_invocation_start": 0.005066970673959444
+      "global_step": 301,
+      "gradient_norm": 0.013749102123447444,
+      "parameter_delta_l2_since_invocation_start": 0.004250724157385433
     },
-    "latest_gradient_norm": 0.26260674965582886,
-    "max_gradient_norm_observed": 0.9999999512355077,
-    "nonzero_gradient_steps": 150,
-    "optimizer_steps_observed": 150,
-    "parameter_delta_l2": 0.21349646965915361,
+    "latest_gradient_norm": 1.05657697847442e-06,
+    "max_gradient_norm_observed": 0.9999999660427642,
+    "nonzero_gradient_steps": 300,
+    "optimizer_steps_observed": 300,
+    "parameter_delta_l2": 0.3471126696785273,
     "reference_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
     "reference_unchanged": true
   },
@@ -173,13 +173,13 @@
     }
   },
   "probe": {
-    "after_train_gold_nll": 0.20124704458285123,
+    "after_train_gold_nll": 0.1648430559138598,
     "gold_nll_improved": false,
     "gradient_and_weight_change": true,
     "held_out_benchmark_gain": "not measured by this diagnostic",
-    "mixed_reward_groups": 47,
+    "mixed_reward_groups": 99,
     "reload_nll_agrees": true,
-    "reloaded_train_gold_nll": 0.20124704458285123,
+    "reloaded_train_gold_nll": 0.1648430559138598,
     "sampler_teacher_logprob_parity": {
       "initial_reference_max_abs_logprob_difference": 0.0,
       "initial_reference_sampled_kl": 0.0,
@@ -251,25 +251,25 @@
   "regularization_profile": "initial-policy-KL",
   "requested_boundary": {
     "stop_after_active_seconds": null,
-    "stop_after_steps": 300
+    "stop_after_steps": 600
   },
-  "resumed_from": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr2e-05-g8-b0.04-t1-n/train/checkpoint-150",
+  "resumed_from": "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-grpo-W-lr2e-05-g8-b0.04-t1-n/train/checkpoint-300",
   "reward_audit": {
-    "all_correct_groups": 76,
-    "all_zero_groups": 27,
-    "canonical_completions": 1134,
+    "all_correct_groups": 141,
+    "all_zero_groups": 60,
+    "canonical_completions": 2295,
     "complete_think_blocks": 0,
-    "generated_tokens": 8204,
-    "groups": 150,
-    "mixed_groups": 47,
+    "generated_tokens": 16186,
+    "groups": 300,
+    "mixed_groups": 99,
     "nonterminated_completions": 0,
-    "prompt_presentations": 150,
-    "recognition_mixed_groups": 40,
-    "sampled_completions": 1200,
+    "prompt_presentations": 300,
+    "recognition_mixed_groups": 86,
+    "sampled_completions": 2400,
     "task_correct_with_think": 0,
-    "task_correct_without_think": 821,
-    "terminated_completions": 1200,
-    "unique_prompt_ids": 150
+    "task_correct_without_think": 1566,
+    "terminated_completions": 2400,
+    "unique_prompt_ids": 300
   },
   "sampler_teacher_logprob_parity": {
     "initial_reference_max_abs_logprob_difference": 0.0,
@@ -1961,10 +1961,10 @@
     "0522914"
   ],
   "train_metrics": {
-    "epoch": 0.21067415730337077,
-    "train_loss": 0.0007660461953183174,
-    "train_runtime": 1107.6284,
-    "train_samples_per_second": 1.083,
+    "epoch": 0.42134831460674155,
+    "train_loss": 0.0009888822634131207,
+    "train_runtime": 2226.0844,
+    "train_samples_per_second": 1.078,
     "train_steps_per_second": 0.135
   },
   "trainable_parameters": {

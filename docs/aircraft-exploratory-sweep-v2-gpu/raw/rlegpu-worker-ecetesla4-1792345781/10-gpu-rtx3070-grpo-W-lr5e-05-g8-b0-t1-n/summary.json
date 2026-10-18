@@ -38,6 +38,25 @@
    },
    "receipt_status": "boundary_reached",
    "steps": 300
+  },
+  {
+   "active_seconds": 4035.540871706791,
+   "label": "step600",
+   "metrics": {
+    "accuracy": 0.71625,
+    "adapter_sha256": "2a2f6240509da38ac3e1149bef89c78b99e5faa85eb764128869d368b4d13b4c",
+    "assay_seconds": 468.3,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.71625,
+    "label": "step600",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.9925
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 600
   }
  ],
  "host": "ecetesla4",
