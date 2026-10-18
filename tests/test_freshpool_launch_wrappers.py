@@ -522,3 +522,21 @@ def test_p0_writes_a_g1_document_the_evaluator_scores(tmp_path, monkeypatch):
     assert values["scorer_seconds_per_candidate"] == pytest.approx(0.25)
     # Designed to miss calibration: observed 1.0 vs predicted 0.875 is a 0.125 gap.
     assert result["checks"]["useful_mixed_calibrated"] is False
+
+
+
+@pytest.mark.parametrize("extra, expected", [([], (None, "mps")),
+                                             (["--device", "cuda", "--threads", "12"],
+                                              (12, "cuda"))])
+def test_h_assay_passes_cuda_and_threads_only_when_asked(tmp_path, monkeypatch, extra, expected):
+    fake, argv, _ = assay_setup(tmp_path, monkeypatch)
+    seen = []
+    predict, sample = fake.predict, fake.sample
+    monkeypatch.setattr(vlt, "predict_train_subset",
+                        lambda m, **k: seen.append(k) or predict(m, **k))
+    monkeypatch.setattr(vlt, "sample_train_groups",
+                        lambda m, **k: seen.append(k) or sample(m, **k))
+    assert h_assay.main(argv + extra) == 0
+    assert len(seen) == 9  # three chunks x (greedy + two seeds)
+    assert all((k.get("threads"), k["device"]) == expected for k in seen)
+    assert all(("threads" in k) == bool(extra) for k in seen)

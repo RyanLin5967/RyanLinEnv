@@ -4,7 +4,8 @@ Launcher entry ``h_assay:main`` (scripts/freshpool_launch/launch.py, template ``
 Usage, after the phase worker's ``--``:
 
   --run-id ID --split {h_select,h_gate} --manifest H.jsonl --adapter ADAPTER_DIR
-  --fragment F --stage-dir DIR --data-spec SPEC --model-directory MODEL [--device mps]
+  --fragment F --stage-dir DIR --data-spec SPEC --model-directory MODEL
+  [--device mps|cpu|cuda] [--threads N]
   [profile options, default answer-only as study.json fixed_profile]
 
 Completions per image (study.json; scripts/evaluate_freshpool_gates.py COMPLETIONS):
@@ -68,13 +69,16 @@ def answer(completion, labels):
     return vlt.parse_label(completion.get("response", ""), labels, allow_reasoning=True), True
 
 
-def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile):
+def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
+          threads=None):
     labels = vlt.load_spec(Path(data_spec))["labels"]
     adapter_sha = file_sha256(Path(adapter) / "adapter_model.safetensors")
     answers = {row["id"]: [] for row in rows}
     terminated = total = 0
     common = {"data_spec": Path(data_spec), "model_directory": Path(model_directory),
               "device": device, "profile": profile, "init_adapter": Path(adapter)}
+    if threads is not None:
+        common["threads"] = threads
     chunks = [rows[i:i + CHUNK] for i in range(0, len(rows), CHUNK)]
     for number, chunk in enumerate(chunks):
         manifest = stage_dir / "chunks" / f"chunk-{number:02d}.jsonl"
@@ -124,7 +128,8 @@ def main(argv=None):
     parser.add_argument("--stage-dir", type=Path, required=True)
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=vlt.DEVICES, default="mps")
+    parser.add_argument("--threads", type=int, help="torch intra-op CPU threads (default 2)")
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
@@ -134,7 +139,7 @@ def main(argv=None):
     rows = read_rows(args["manifest"])
     result = assay(rows, args["split"], args["adapter"], args["stage_dir"],
                    data_spec=args["data_spec"], model_directory=args["model_directory"],
-                   device=args["device"], profile=profile)
+                   device=args["device"], profile=profile, threads=args["threads"])
     fragment = {"run_id": args["run_id"], "split": args["split"],
                 "manifest_sha256": file_sha256(args["manifest"]),
                 "seeds": list(SEEDS[args["split"]]), "completion_order":

@@ -593,6 +593,21 @@ def test_warm_start_can_pin_common_format_data_without_demanding_same_task(tmp_p
     )
     assert transferred["weights_sha256"] == info["weights_sha256"]
     assert transferred["precision_transfer"]["initial_policy_numerics_changed"] is True
+    assert transferred["precision_transfer"]["target_base_dtype"] == "bfloat16"
+    fp16 = replace(local.Profile(), dtype="float16")
+    fp16_identity = dict(identity, profile=asdict(fp16))
+    with pytest.raises(ValueError, match="identical model/processor/profile"):
+        local._adapter_identity(adapter, fp16_identity, fp16)
+    half = local._adapter_identity(
+        adapter, fp16_identity, fp16, precision_transfer="float32-to-float16"
+    )
+    assert half["weights_sha256"] == info["weights_sha256"]
+    assert half["precision_transfer"]["target_base_dtype"] == "float16"
+    for target, wrong in ((fp16, "float32-to-bfloat16"), (bf16, "float32-to-float16")):
+        with pytest.raises(ValueError, match="only explicit"):
+            local._adapter_identity(
+                adapter, dict(identity, profile=asdict(target)), target, precision_transfer=wrong
+            )
     with pytest.raises(ValueError, match="only explicit"):
         local._adapter_identity(
             adapter, identity, local.Profile(), precision_transfer="float32-to-bfloat16"
@@ -2498,3 +2513,184 @@ def test_gold_nll_improved_is_none_without_a_pre_score():
     assert local.gold_nll_improved({"before_note": "continuation"}, 1.25) is None
     assert local.gold_nll_improved({"before_train_gold_nll": 2.0}, 1.25) is True
     assert local.gold_nll_improved({"before_train_gold_nll": 1.25}, 1.25) is False
+
+
+# ---------------------------------------------------------------- CUDA / float16 / threads
+
+
+def test_float16_profile_is_cuda_only_and_bf16_training_needs_sm80():
+    local.Profile(dtype="float16").validate()
+    with pytest.raises(ValueError, match="float32, bfloat16 or float16"):
+        local.Profile(dtype="float64").validate()
+    ampere = {"cuda": {"bf16_native": True}}
+    turing = {"cuda": {"bf16_native": False}}
+    for device in ("cpu", "mps"):
+        with pytest.raises(ValueError, match="only on --device cuda"):
+            local.check_device_dtype(device, "float16", {}, training=False)
+    local.check_device_dtype("cuda", "float16", turing, training=True)
+    local.check_device_dtype("cuda", "bfloat16", ampere, training=True)
+    with pytest.raises(ValueError, match="capability >= 8.0"):
+        local.check_device_dtype("cuda", "bfloat16", turing, training=True)
+    local.check_device_dtype("cuda", "bfloat16", turing, training=False)
+    for device in ("cpu", "mps"):
+        for dtype in ("float32", "bfloat16"):
+            local.check_device_dtype(device, dtype, {}, training=True)
+
+
+def test_only_float16_turns_on_trainer_loss_scaling(tmp_path):
+    kwargs = dict(device="cuda", max_steps=4, learning_rate=1e-5, seed=42, save_steps=1)
+    for mode in ("grpo", "sft"):
+        fp32 = local.trainer_kwargs(mode, tmp_path, local.Profile(), **kwargs)
+        bf16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="bfloat16"), **kwargs)
+        fp16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="float16"), **kwargs)
+        assert fp32["fp16"] is False and fp32["bf16"] is False and bf16 == fp32
+        assert fp16["fp16"] is True and fp16["bf16"] is False
+        assert {k: v for k, v in fp16.items() if k != "fp16"} == {
+            k: v for k, v in fp32.items() if k != "fp16"
+        }
+        assert fp32["use_cpu"] is False
+    cpu = local.trainer_kwargs("grpo", tmp_path, local.Profile(), **{**kwargs, "device": "cpu"})
+    assert cpu["use_cpu"] is True and cpu["fp16"] is False
+
+
+@pytest.mark.parametrize(
+    "dtype, extra, match",
+    [
+        ("float32", {"loss_scale_init": 1024.0}, "only to float16"),
+        ("bfloat16", {"loss_scale_init": 1024.0}, "only to float16"),
+        ("float16", {"loss_scale_init": 0.5}, ">= 1"),
+        ("float16", {"loss_scale_init": float("inf")}, ">= 1"),
+        ("float32", {"threads": 0}, "threads"),
+        ("float32", {"threads": 2.0}, "threads"),
+    ],
+)
+def test_precision_and_thread_options_fail_before_io(tmp_path, monkeypatch, dtype, extra, match):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must fail before preflight"))
+    with pytest.raises(ValueError, match=match):
+        local.train_local(
+            tmp_path / "missing-train.jsonl",
+            None,
+            tmp_path / "missing-spec.json",
+            tmp_path / "out",
+            device="cuda",
+            profile=local.Profile(dtype=dtype),
+            train_only=True,
+            **extra,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_cli_passes_device_threads_and_loss_scale(monkeypatch, capsys):
+    seen = []
+
+    def train(**kwargs):
+        seen.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(local, "train_local", train)
+    base = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
+    assert local.main(base) == 0
+    assert seen[-1]["threads"] == 2 and seen[-1]["loss_scale_init"] is None
+    assert seen[-1]["device"] == "mps"
+    argv = base + ["--device", "cuda", "--dtype", "float16", "--threads", "16"]
+    assert local.main(argv + ["--loss-scale-init", "1024"]) == 0
+    assert seen[-1]["device"] == "cuda" and seen[-1]["threads"] == 16
+    assert seen[-1]["profile"].dtype == "float16" and seen[-1]["loss_scale_init"] == 1024.0
+    capsys.readouterr()
+
+
+def test_cli_inference_takes_threads_but_refuses_loss_scale(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(local, "predict_train_subset", lambda *a, **k: seen.append(k) or {})
+    argv = ["--predict-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
+    argv += ["--model-directory", "m", "--device", "cuda", "--threads", "8"]
+    assert local.main(argv) == 0
+    assert seen[-1]["threads"] == 8 and seen[-1]["device"] == "cuda"
+    with pytest.raises(SystemExit):
+        local.main(argv + ["--dtype", "float16", "--loss-scale-init", "64"])
+    capsys.readouterr()
+
+
+def test_loss_scaling_wrapper_sets_scaler_and_requires_fp16_accelerator():
+    utils = pytest.importorskip("accelerate.utils")
+
+    class Base:
+        precision = "fp16"
+
+        def _build_accelerator_args(self, **kwargs):
+            return {"mixed_precision": self.precision, "kwargs_handlers": ["ddp"], **kwargs}
+
+    trainer = local._trainer_with_loss_scaling(Base, 1024.0)()
+    args = trainer._build_accelerator_args()
+    assert args["kwargs_handlers"][0] == "ddp"
+    scaler = args["kwargs_handlers"][-1]
+    assert isinstance(scaler, utils.GradScalerKwargs)
+    assert scaler.to_kwargs() == {"init_scale": 1024.0}  # growth interval = torch default
+    trainer.precision = "no"
+    with pytest.raises(local.LocalVLMError, match="fp16 mixed precision"):
+        trainer._build_accelerator_args()
+
+
+def test_loss_scaled_audit_counts_skips_and_refuses_inconsistent_or_endless_overflow(tmp_path):
+    pytest.importorskip("transformers")
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(2)
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lora_B = torch.nn.Parameter(torch.tensor([1.0]))
+
+    def step(audit, model, grad, skipped, scaler=True):
+        model.lora_B.grad = torch.tensor([grad])
+        state, control = SimpleNamespace(global_step=1), SimpleNamespace()
+        optimizer = SimpleNamespace(step_was_skipped=skipped)
+        if scaler:
+            optimizer.scaler = SimpleNamespace(get_scale=lambda: 512.0)
+        audit.on_step_begin(None, state, control)
+        audit.on_pre_optimizer_step(None, state, control, model=model)
+        audit.on_step_end(None, state, control, optimizer=optimizer)
+
+    model = Model()
+    audit = local._audit_callback(tmp_path / "a", None, loss_scaled=True)
+    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    step(audit, model, float("inf"), skipped=True)
+    assert audit.summary["loss_scale_skipped_steps"] == 1
+    assert audit.summary["nonzero_gradient_steps"] == 0
+    assert audit.summary["max_gradient_norm_observed"] == 0.0 and audit.summary["loss_scale"] == 512
+    step(audit, model, 0.5, skipped=False)
+    assert audit.summary["loss_scale_skipped_steps"] == 1
+    assert audit.summary["nonzero_gradient_steps"] == 1
+    assert audit.summary["optimizer_steps_observed"] == 2
+    for grad, skipped, match in ((0.5, True, "disagrees"), (float("nan"), False, "disagrees")):
+        with pytest.raises(local.LocalVLMError, match=match):
+            step(audit, model, grad, skipped=skipped)
+    with pytest.raises(local.LocalVLMError, match="lacks an active GradScaler"):
+        step(audit, model, 0.5, skipped=False, scaler=False)
+
+    audit = local._audit_callback(tmp_path / "b", None, loss_scaled=True)
+    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    for _ in range(local.MAX_CONSECUTIVE_LOSS_SCALE_SKIPS):
+        step(audit, model, float("inf"), skipped=True)
+    with pytest.raises(local.LocalVLMError, match="overflowed on every recent step"):
+        step(audit, model, float("inf"), skipped=True)
+
+    plain = local._audit_callback(tmp_path / "c", None)
+    plain.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    assert "loss_scale_skipped_steps" not in plain.summary
+    with pytest.raises(local.LocalVLMError, match="nonfinite gradient"):
+        step(plain, model, float("inf"), skipped=True)
+
+
+def test_active_timer_synchronizes_cuda(tmp_path, monkeypatch):
+    syncs = []
+    monkeypatch.setattr(
+        local,
+        "import_module",
+        lambda _: SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: syncs.append(1))),
+    )
+    timer = local._ActiveStepTimer(tmp_path, None, "cuda")
+    timer.begin()
+    timer.end()
+    assert syncs == [1, 1]
+

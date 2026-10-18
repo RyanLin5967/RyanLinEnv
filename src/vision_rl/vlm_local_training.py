@@ -61,6 +61,16 @@ TRL_SOURCES = {
 }
 
 
+DEVICES = ("mps", "cpu", "cuda")
+DEFAULT_THREADS = 2
+PRECISION_TRANSFERS = ("float32-to-bfloat16", "float32-to-float16")
+DEFAULT_LOSS_SCALE_INIT = 65536.0  # torch.amp.GradScaler's own default
+LOSS_SCALE_GROWTH_INTERVAL = 2000  # torch.amp.GradScaler's own default
+# 2**16 / 2**16 = 1: past this many back-to-back overflows the scale has fallen below 1,
+# so the overflow is not scaling but a nonfinite forward/backward.
+MAX_CONSECUTIVE_LOSS_SCALE_SKIPS = 16
+
+
 class LocalVLMError(RuntimeError):
     """An offline dependency, data, or device contract failed."""
 
@@ -80,8 +90,8 @@ class Profile:
     def validate(self) -> None:
         if self.response_format not in {"answer_only", "think_then_answer"}:
             raise ValueError("response_format must be answer_only or think_then_answer")
-        if self.dtype not in {"float32", "bfloat16"}:
-            raise ValueError("dtype must be float32 or bfloat16")
+        if self.dtype not in {"float32", "bfloat16", "float16"}:
+            raise ValueError("dtype must be float32, bfloat16 or float16")
         for name, value in asdict(self).items():
             if name not in {"dtype", "temperature", "response_format", "adapter_profile"}:
                 if type(value) is not int or value < 1:
@@ -127,8 +137,8 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
 
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
-    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
-        raise LocalVLMError("Use one local process with --device mps or cpu")
+    if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps, cpu or cuda")
     if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
     try:
@@ -155,7 +165,9 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
     if device == "mps" and not torch.backends.mps.is_available():
         raise LocalVLMError("MPS is unavailable; no model files have been opened")
-    return {
+    if device == "cuda" and not torch.cuda.is_available():
+        raise LocalVLMError("CUDA is unavailable; no model files have been opened")
+    environment = {
         "device": device,
         "python": sys.version.split()[0],
         "package_versions": versions,
@@ -163,6 +175,56 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         "adapter_source_sha256": _file_sha256(Path(__file__)),
         "model_execution": "not tested by preflight",
         "model_downloads": False,
+    }
+    if device == "cuda":
+        # CUDA-only key, so mps/cpu environments (and their resume equality) are unchanged.
+        if torch.cuda.device_count() != 1 and os.environ.get("CUDA_VISIBLE_DEVICES") is None:
+            raise LocalVLMError(
+                "several CUDA devices are visible; pin one with CUDA_VISIBLE_DEVICES"
+            )
+        environment["cuda"] = {
+            "device_name": torch.cuda.get_device_name(0),
+            "capability": list(torch.cuda.get_device_capability(0)),
+            "torch_cuda": torch.version.cuda,
+            "bf16_native": torch.cuda.get_device_capability(0) >= (8, 0),
+        }
+    return environment
+
+
+def check_device_dtype(device: str, dtype: str, environment: dict, *, training: bool) -> None:
+    """Refuse device/precision pairs that cannot run here, before any output is written.
+
+    float16 is CUDA-only: its training path depends on CUDA autocast and GradScaler loss
+    scaling. bfloat16 training needs compute capability >= 8.0, because TRL 1.16's
+    chunked log-prob kernel (`torch.addmm(..., out_dtype=float32)` on bf16 inputs) refuses
+    older GPUs (measured on an RTX 2080 Ti, sm_75, 2026-10-18).
+    """
+    if device not in DEVICES or dtype not in {"float32", "bfloat16", "float16"}:
+        raise ValueError("unknown device or dtype")
+    if dtype == "float16" and device != "cuda":
+        raise ValueError("float16 runs only on --device cuda (CUDA loss scaling)")
+    if device == "cuda" and dtype == "bfloat16" and training:
+        if not environment.get("cuda", {}).get("bf16_native"):
+            raise ValueError(
+                "bfloat16 training needs CUDA compute capability >= 8.0; use float16 here"
+            )
+
+
+def _set_threads(torch, threads: int) -> None:
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    torch.set_num_threads(threads)
+
+
+def _cuda_memory(device: str) -> dict | None:
+    if device != "cuda":
+        return None
+    torch = import_module("torch")
+    return {
+        "max_memory_allocated_bytes": torch.cuda.max_memory_allocated(),
+        "max_memory_reserved_bytes": torch.cuda.max_memory_reserved(),
+        "total_memory_bytes": torch.cuda.get_device_properties(0).total_memory,
+        "scope": "torch caching allocator peaks for this process; excludes CUDA context",
     }
 
 
@@ -471,7 +533,8 @@ def trainer_kwargs(
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         bf16=False,
-        fp16=False,
+        # float16 (CUDA only) turns on accelerate's fp16 autocast + GradScaler loss scaling.
+        fp16=profile.dtype == "float16",
         use_cpu=device == "cpu",
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -780,6 +843,7 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
+    threads: int = DEFAULT_THREADS,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
@@ -807,10 +871,13 @@ def predict_train_subset(
     )
     if len(rows) > 32:
         raise ValueError("TRAIN feasibility inference is limited to 32 images")
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
     output = Path(output).resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory")
     environment = preflight(device)
+    check_device_dtype(device, profile.dtype, environment, training=False)
     model_directory = Path(model_directory).resolve()
     output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -847,6 +914,8 @@ def predict_train_subset(
         "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
         "optimizer_steps": 0,
     }
+    if threads != DEFAULT_THREADS:
+        record["torch_threads"] = threads
     if _expanded.is_expanded(profile) and not init_adapter:
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
@@ -867,7 +936,7 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        _set_threads(torch, threads)
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -1753,6 +1822,8 @@ class _ActiveStepTimer:
     def _sync(self):
         if self.device == "mps":
             import_module("torch").mps.synchronize()
+        elif self.device == "cuda":
+            import_module("torch").cuda.synchronize()
 
     def _persist(self):
         value = {
@@ -1907,6 +1978,7 @@ def _audit_callback(
     stop_after_steps: int | None = None,
     stop_after_active_seconds: float | None = None,
     screen: _ScreenedScan | None = None,
+    loss_scaled: bool = False,
 ):
     torch = import_module("torch")
     base = import_module("transformers").TrainerCallback
@@ -1927,6 +1999,12 @@ def _audit_callback(
                 "active_seconds": 0.0,
                 "max_gradient_norm_observed": 0.0,
             }
+            if loss_scaled:
+                # float16 only: a GradScaler overflow skips the optimizer step, so the
+                # prompt is consumed without an update. Counted, never silent.
+                self.summary.update(loss_scale_skipped_steps=0, loss_scale=None)
+                self.overflow = False
+                self.consecutive_skips = 0
 
         def on_train_begin(self, args, state, control, model=None, **kwargs):
             self.timer.check_remaining()
@@ -1963,7 +2041,13 @@ def _audit_callback(
                 if parameter.requires_grad and parameter.grad is not None:
                     norm_sq += float(parameter.grad.detach().float().square().sum().item())
             if not math.isfinite(norm_sq):
-                raise LocalVLMError("nonfinite gradient; optimizer step rejected")
+                if not loss_scaled:
+                    raise LocalVLMError("nonfinite gradient; optimizer step rejected")
+                self.overflow = True
+                self.summary["latest_gradient_norm"] = 0.0
+                return
+            if loss_scaled:
+                self.overflow = False
             norm = math.sqrt(norm_sq)
             self.summary["latest_gradient_norm"] = norm
             self.summary["nonzero_gradient_steps"] += int(norm > 0)
@@ -1975,6 +2059,22 @@ def _audit_callback(
             self.timer.end()
             if exposure is not None:
                 exposure.end(state.global_step)
+            if loss_scaled:
+                optimizer = kwargs.get("optimizer")
+                scaler = getattr(optimizer, "scaler", None)
+                if scaler is None:
+                    raise LocalVLMError("float16 training lacks an active GradScaler")
+                skipped = bool(getattr(optimizer, "step_was_skipped", False))
+                if self.overflow != skipped:
+                    raise LocalVLMError("loss-scaler skip disagrees with the observed gradients")
+                self.consecutive_skips = self.consecutive_skips + 1 if skipped else 0
+                self.summary["loss_scale_skipped_steps"] += int(skipped)
+                self.summary["loss_scale"] = float(scaler.get_scale())
+                if self.consecutive_skips > MAX_CONSECUTIVE_LOSS_SCALE_SKIPS:
+                    raise LocalVLMError(
+                        "float16 gradients overflowed on every recent step; not loss-scale "
+                        "underflow but a nonfinite forward/backward"
+                    )
             self.summary["optimizer_steps_observed"] += 1
             self.summary["active_seconds"] = self.timer.completed
             self.summary["completed_state_active_seconds"] = self.timer.committed
@@ -2057,18 +2157,18 @@ def _adapter_identity(
     transfer = None
     if precision_transfer is not None:
         if (
-            precision_transfer != "float32-to-bfloat16"
+            precision_transfer not in PRECISION_TRANSFERS
             or source["profile"]["dtype"] != "float32"
-            or profile.dtype != "bfloat16"
+            or profile.dtype != precision_transfer.removeprefix("float32-to-")
         ):
             raise ValueError(
-                "only explicit float32-to-bfloat16 base precision transfer is supported"
+                "only explicit float32-to-bfloat16/float16 base precision transfer is supported"
             )
         profile_keys = tuple(key for key in profile_keys if key != "dtype")
         transfer = {
             "profile": precision_transfer,
             "parent_base_dtype": "float32",
-            "target_base_dtype": "bfloat16",
+            "target_base_dtype": profile.dtype,
             "adapter_dtype": "float32",
             "adapter_weights_changed": False,
             "initial_policy_numerics_changed": True,
@@ -2138,6 +2238,28 @@ def _inference_adapter_identity(
     ):
         raise ValueError("saved adapter differs from the completed endpoint identity")
     return initial
+
+
+def _trainer_with_loss_scaling(base, init_scale: float):
+    """Start accelerate's fp16 GradScaler at `init_scale` instead of torch's 2**16."""
+    grad_scaler_kwargs = import_module("accelerate.utils").GradScalerKwargs
+
+    class LossScaledTrainer(base):
+        def _build_accelerator_args(self, **kwargs):
+            args = super()._build_accelerator_args(**kwargs)
+            if args.get("mixed_precision") != "fp16":
+                raise LocalVLMError("float16 training must use accelerate fp16 mixed precision")
+            handlers = [
+                h for h in args.get("kwargs_handlers", []) if not isinstance(h, grad_scaler_kwargs)
+            ]
+            args["kwargs_handlers"] = handlers + [
+                grad_scaler_kwargs(
+                    init_scale=init_scale, growth_interval=LOSS_SCALE_GROWTH_INTERVAL
+                )
+            ]
+            return args
+
+    return LossScaledTrainer
 
 
 def _trainer_with_mps_rng(base, device: str):
@@ -2343,6 +2465,7 @@ def _checkpoint_receipt_files(checkpoint):
         "screen.json",
         "egsft.json",
         "mps_rng_state.pth",
+        "scaler.pt",
         "ref/adapter_model.safetensors",
         "ref/adapter_config.json",
     ):
@@ -2654,8 +2777,15 @@ def train_local(
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
+    threads: int = DEFAULT_THREADS,
+    loss_scale_init: float | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
+
+    `device="cuda"` runs on one CUDA GPU. `profile.dtype="float16"` (CUDA only) trains with
+    fp16 autocast and a dynamic GradScaler starting at `loss_scale_init` (default 2**16);
+    an overflowed step is skipped by the scaler and counted in the optimizer audit.
+    `threads` sets torch's intra-op CPU threads (default 2).
 
     `mode="egsft"` is SFT weighted by stopgrad[w_G(p) / w_G(0.5)]. `order="sequential"`
     replays the TRAIN manifest order for SFT/EG-SFT, and `cycle` lets further epochs
@@ -2674,6 +2804,19 @@ def train_local(
     profile.validate()
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    if profile.dtype == "float16":
+        loss_scale_init = DEFAULT_LOSS_SCALE_INIT if loss_scale_init is None else loss_scale_init
+        if (
+            type(loss_scale_init) not in (int, float)
+            or not math.isfinite(loss_scale_init)
+            or loss_scale_init < 1
+        ):
+            raise ValueError("loss_scale_init must be a finite number >= 1")
+        loss_scale_init = float(loss_scale_init)
+    elif loss_scale_init is not None:
+        raise ValueError("loss_scale_init applies only to float16 training")
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
         if type(value) is not int or value <= 0:
             raise ValueError(f"{name} must be a valid nonnegative/positive integer")
@@ -2844,6 +2987,18 @@ def train_local(
     # New options enter settings only when used, so existing runs keep their identity.
     if order != "random":
         settings.update(order=order, cycle=cycle)
+    if threads != DEFAULT_THREADS:
+        settings["torch_threads"] = threads
+    if profile.dtype == "float16":
+        settings["loss_scaling"] = {
+            "scaler": "torch.amp.GradScaler via accelerate mixed_precision=fp16",
+            "autocast": "float16",
+            "init_scale": loss_scale_init,
+            "growth_factor": 2.0,
+            "backoff_factor": 0.5,
+            "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
+            "max_consecutive_skips": MAX_CONSECUTIVE_LOSS_SCALE_SKIPS,
+        }
     if screened:
         screen_journal = Path(screen_journal).resolve()
         if not screen_journal.is_relative_to(output) or screen_journal == output:
@@ -2914,6 +3069,8 @@ def train_local(
             )
         if device == "mps" and not (checkpoint / "mps_rng_state.pth").is_file():
             raise ValueError("MPS resume requires the saved mps_rng_state.pth")
+        if profile.dtype == "float16" and not (checkpoint / "scaler.pt").is_file():
+            raise ValueError("float16 resume requires the saved loss-scaler scaler.pt")
         if (
             mode == "grpo"
             and beta > 0
@@ -2984,6 +3141,7 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
+    check_device_dtype(device, profile.dtype, environment, training=True)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
         environment["expanded_source_closure"] = _expanded.source_closure()
@@ -3026,7 +3184,7 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        _set_threads(torch, threads)
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
@@ -3114,6 +3272,7 @@ def train_local(
             stop_after_steps=stop_after_steps,
             stop_after_active_seconds=stop_after_active_seconds,
             **({"screen": screen} if screen is not None else {}),
+            **({"loss_scaled": True} if profile.dtype == "float16" else {}),
         )
         eos = policy.generation_config.eos_token_id
         eos = [eos] if isinstance(eos, int) else list(eos or [])
@@ -3157,6 +3316,8 @@ def train_local(
                     constructor, continuation["parent_global_step"]
                 )
         constructor = _trainer_with_mps_rng(constructor, device)
+        if profile.dtype == "float16":
+            constructor = _trainer_with_loss_scaling(constructor, loss_scale_init)
         constructor = _trainer_with_active_time(constructor)
         trainer = constructor(
             model=policy,
@@ -3257,6 +3418,8 @@ def train_local(
         trainer.save_model(str(adapter))
         processor.save_pretrained(str(adapter))
         trainer.save_state()
+        if device == "cuda":
+            record["cuda_memory"] = _cuda_memory(device)
         record.update(
             status="completed",
             train_metrics=train_metrics,
@@ -3313,6 +3476,11 @@ def train_local(
                 record["active_time_audit"] = audit.timer.summary()
             except Exception as timing_exc:
                 record["active_time_error"] = str(timing_exc)
+        if device == "cuda":
+            try:
+                record["cuda_memory"] = _cuda_memory(device)
+            except Exception as memory_exc:
+                record["cuda_memory_error"] = str(memory_exc)
         record.update(
             status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
             error_type=type(exc).__name__,
@@ -3404,7 +3572,18 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.add_argument(f"--{name}", type=Path)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=DEVICES, default="mps")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=DEFAULT_THREADS,
+        help="torch intra-op CPU threads (default 2)",
+    )
+    parser.add_argument(
+        "--loss-scale-init",
+        type=float,
+        help="float16 only: initial GradScaler loss scale (default 65536)",
+    )
     parser.add_argument("--max-steps", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument(
@@ -3420,7 +3599,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop-after-active-seconds", type=float)
     parser.add_argument("--stage-id")
     parser.add_argument("--finalize-only", action="store_true")
-    parser.add_argument("--initial-adapter-precision-transfer", choices=("float32-to-bfloat16",))
+    parser.add_argument("--initial-adapter-precision-transfer", choices=PRECISION_TRANSFERS)
     parser.add_argument("--order", choices=("random", "sequential"), default="random")
     parser.add_argument("--cycle", action="store_true")
     parser.add_argument("--screen-threshold", type=float, default=0.5)
@@ -3468,10 +3647,16 @@ def main(argv: list[str] | None = None) -> int:
                         "screen_tokenizations",
                         "continue_from_checkpoint",
                     )
-                ) or (args["order"], args["screen_threshold"], args["target_accepted"]) != (
+                ) or (
+                    args["order"],
+                    args["screen_threshold"],
+                    args["target_accepted"],
+                    args["loss_scale_init"],
+                ) != (
                     "random",
                     0.5,
                     600,
+                    None,
                 ):
                     parser.error("TRAIN inference cannot be combined with training inputs")
                 function = sample_train_groups if sample_train is not None else predict_train_subset
@@ -3488,6 +3673,7 @@ def main(argv: list[str] | None = None) -> int:
                             "device",
                             "profile",
                             "init_adapter",
+                            "threads",
                         )
                     },
                 )
