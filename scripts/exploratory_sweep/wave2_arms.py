@@ -42,8 +42,10 @@ def _design():
 
 D = _design()
 
-# Device classes. A comparison stays inside one class; the device controls tie each class
-# back to CPU fp32 (wave 1). bf16 training needs compute capability >= 8.0 (RTX 3070, sm_86);
+# Device classes. A paired comparison (an arm vs its matched control, vs W/I) stays inside
+# one class. Promotion ranks every rl unit together, as the plan's rule says; the device
+# controls measure each class's offset from CPU fp32 (wave 1), so a cross-class ranking can be
+# read against it. bf16 training needs compute capability >= 8.0 (RTX 3070, sm_86);
 # the RTX 2080 Ti (sm_75) trains in float16 with GradScaler loss scaling.
 DEVICES = {
     "cpu-float32": {"device": "cpu", "dtype": "float32", "gpu": None, "threads": 16,

@@ -4408,8 +4408,22 @@ def _rft_sft_round(
 
     class Budget(transformers.TrainerCallback):
         stopped_by_budget = False
+        skipped = consecutive = 0
 
-        def on_step_end(self, args, state, control, **_):
+        def on_step_end(self, args, state, control, optimizer=None, **_):
+            if profile.dtype == "float16":
+                # A GradScaler overflow skips the optimizer step but still advances
+                # global_step: count it, and refuse a nonfinite run as train_local does.
+                if getattr(optimizer, "step_was_skipped", False):
+                    Budget.skipped += 1
+                    Budget.consecutive += 1
+                    if Budget.consecutive > MAX_CONSECUTIVE_LOSS_SCALE_SKIPS:
+                        raise LocalVLMError(
+                            "float16 gradients overflowed on every recent step; not loss-scale "
+                            "warm-up but a nonfinite forward/backward"
+                        )
+                else:
+                    Budget.consecutive = 0
             if clock is not None and clock.exhausted():
                 Budget.stopped_by_budget = True
                 control.should_training_stop = True
@@ -4427,7 +4441,7 @@ def _rft_sft_round(
     )
     result = trainer.train()
     losses = [entry["loss"] for entry in trainer.state.log_history if "loss" in entry]
-    return {
+    out = {
         "optimizer_steps": trainer.state.global_step,
         "planned_steps": steps,
         "stopped_by_time_budget": Budget.stopped_by_budget,
@@ -4435,6 +4449,9 @@ def _rft_sft_round(
         "first_loss": losses[0] if losses else None,
         "last_loss": losses[-1] if losses else None,
     }
+    if profile.dtype == "float16":  # presentations stay optimizer_steps; skips are explicit
+        out["loss_scale_skipped_steps"] = Budget.skipped
+    return out
 
 
 def _peft_weights_sha256(adapter: Path) -> str:
@@ -4936,6 +4953,7 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             "cycle",
             "grpo_overrides",
             "dynamic_sampling_max_draws",
+            "loss_scale_init",
         )
         if args.get(key) not in (None, False)
     ]

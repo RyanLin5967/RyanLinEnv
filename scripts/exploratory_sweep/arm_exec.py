@@ -208,7 +208,30 @@ class Arm:
         args += [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
         return args
 
-    def run_stage(self, label: str, args: list[str]) -> dict:
+    def rft_endpoint_done(self, stop: int | None) -> bool:
+        """An RFT run whose bound endpoint already covers this stage (e.g. the arm died in
+        the assay after training): the trainer refuses to re-enter a completed run, so the
+        stage reuses that endpoint instead of training again. A boundary endpoint counts
+        only for its own stop; any other completed stop reason ends the run."""
+        path = self.out / "local_training.json"
+        if self.spec["mode"] != "rft" or not path.is_file():
+            return False
+        rec = json.loads(path.read_text())
+        if rec.get("status") != "completed":
+            return False
+        if rec.get("stop_reason") == "stop_after_steps":
+            return (rec.get("boundary") or {}).get("stop_after_steps") == stop
+        return True
+
+    def run_stage(self, label: str, args: list[str], stop: int | None = None) -> dict:
+        if self.rft_endpoint_done(stop):
+            self.log.append({"stage": label, "rc": 0, "reused_completed_endpoint": True,
+                             "argv": args})
+            receipt = self.rft_receipt()
+            self.log[-1].update(receipt_status=receipt["status"],
+                                global_step=receipt["global_step"],
+                                adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+            return receipt
         started = time.time()
         log = self.work / f"{label}.log"
         with log.open("w") as handle:
@@ -240,7 +263,9 @@ class Arm:
         every SFT example in round order, one per optimizer update: what an
         examples-matched SFT control replays. Within a round the trainer shuffles its
         examples, so the order is canonical, not the trainer's; the per-round multiset is
-        exact unless the total cap cut the last round."""
+        exact unless the update cap or the active-seconds budget cut the last round, where
+        the first k entries of kept.json (sorted by prompt id) stand in for the trained k.
+        A rung boundary never cuts a round."""
         rec = json.loads((self.out / "local_training.json").read_text())
         reasons = ("stop_after_steps", "max_steps", "max_active_seconds", "rounds")
         if rec.get("status") != "completed" or rec.get("stop_reason") not in reasons:
@@ -337,13 +362,21 @@ class Arm:
             raise SystemExit(f"REFUSE: assay {label} scored a different adapter")
         return doc["metrics"]
 
+    def assay_profile(self, vlt):
+        """A key the spec lacks takes the Profile default (a matched control has no
+        `temperature`: design.controls_for drops it, and s[k] raised KeyError at the
+        control's first assay). A key the spec has is passed exactly as before."""
+        s = self.spec
+        return vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if k in s},
+                           dtype=s.get("dtype", "float32"))
+
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:
         sys.path.insert(0, str(self.payload / "code" / "src"))
         os.environ.update({k: v for k, v in self.env.items() if k.isupper()})
         from vision_rl import vlm_local_training as vlt
 
         s = self.spec
-        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS}, dtype=s.get("dtype", "float32"))
+        profile = self.assay_profile(vlt)
         labels = vlt.load_spec(self.spec_path)["labels"]
         manifest = self.payload / "data" / "manifests" / manifest_name
         rows = [json.loads(ln) for ln in manifest.read_text().splitlines() if ln.strip()]
@@ -452,7 +485,8 @@ def run(arm: Arm, final_check: bool) -> dict:
                   else None)
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
-        receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume))
+        receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume),
+                                stop)
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),

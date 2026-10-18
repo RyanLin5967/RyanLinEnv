@@ -246,8 +246,9 @@ def receipt_gpu(device: dict) -> str | None:
     if device.get("kind") != "cuda":
         return None
     name = str(device.get("gpu", "")).replace(" ", "").lower()
-    for model in ("3070", "2080ti", "a100", "a40", "a6000", "l40", "3090", "4090"):
-        if model in name:
+    for model in ("3070", "2080ti", "3090", "4090", "a100", "a6000", "a4000", "a40", "l40"):
+        # whole model number only: "a40" must not match an RTX A4000, nor "3070" a 3070ti
+        if re.search(re.escape(model) + r"(?![0-9a-z])", name):
             return "rtx" + model if model[0].isdigit() else model
     return name or "unknown"
 

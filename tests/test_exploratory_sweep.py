@@ -628,6 +628,43 @@ def test_rft_continuation_accepts_a_round_boundary_past_its_stop_never_short():
         runner.continuation_spec(sft, {"endpoints": [past]})
 
 
+def test_every_table_arm_builds_its_assay_profile_and_present_keys_pass_unchanged(tmp_path):
+    from vision_rl import vlm_local_training as local
+
+    tables = [ROOT / "docs/aircraft-exploratory-sweep-v2/arms-rung1.json", wave2.OUT]
+    controls = 0
+    for path in tables:
+        for a in json.loads(path.read_text())["arms"]:
+            profile = arm_exec.Arm(tmp_path, a, tmp_path / "r").assay_profile(local)
+            for k in arm_exec.PROFILE_KEYS:  # the spec's own value, or the default if absent
+                assert getattr(profile, k) == a.get(k, getattr(local.Profile(), k))
+            controls += a["track"] == "control"
+    assert controls == 40 + 29 + 18  # wave-1 and pre-registered wave-2 controls, and ours
+
+
+def test_receipt_gpu_matches_whole_model_numbers():
+    names = {"NVIDIA GeForce RTX 3070": "rtx3070", "NVIDIA GeForce RTX 2080 Ti": "rtx2080ti",
+             "NVIDIA A40": "a40", "NVIDIA RTX A4000": "a4000", "NVIDIA A100-SXM4-40GB": "a100"}
+    for name, want in names.items():
+        assert runner.receipt_gpu({"kind": "cuda", "gpu": name}) == want
+    assert runner.receipt_gpu({"kind": "cuda", "gpu": "RTX 3070 Ti"}) != "rtx3070"
+    assert runner.receipt_gpu({"kind": "cpu"}) is None
+
+
+def test_rft_stage_reuses_a_completed_endpoint_only_for_its_own_stop(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1)])  # boundary endpoint, boundary unset
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    (arm.out / "local_training.json").write_text(json.dumps(
+        dict(rec, boundary={"stop_after_steps": 150})))
+    assert arm.rft_endpoint_done(150) and not arm.rft_endpoint_done(600)
+    got = arm.run_stage("train-150", ["-m", "x"], 150)  # no trainer subprocess is started
+    assert got["global_step"] == 1 and arm.log[-1]["reused_completed_endpoint"] is True
+    done = _rft_out(tmp_path / "t", [({"p1": ["x"]}, 1)], stop_reason="max_steps")
+    assert done.rft_endpoint_done(600)  # a terminal endpoint ends the run at any stop
+    (done.out / "local_training.json").write_text(json.dumps(dict(rec, status="failed")))
+    assert not done.rft_endpoint_done(600)
+
+
 def test_one_gpu_arm_per_host():
     hosts = {"h": {"load1": 0.0, "nproc": 72, "cores": 36, "avail_gb": 200.0}}
     busy = {"arms": {"g": {"host": "h", "status": "RUNNING", "device": "cuda", "threads": 4,

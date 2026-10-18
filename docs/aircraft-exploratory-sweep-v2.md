@@ -328,7 +328,9 @@ LR {5e-6, 1e-5} per family, and RFT at LR {1e-5, 3e-5}. Each arm declares its de
   `host_verify.FEATURE_FLAGS` now uses the built features' real flags. Response formats are
   detected from the trainer's `RESPONSE_FORMATS`.
 - **Promotion.** The wave-2 arms rank at rung 1 in the `rl` track together with wave 1,
-  under the plan's late-entrant rule.
+  under the plan's late-entrant rule. That ranking mixes device classes. It is read
+  against the device-control offsets (each class's W/I versus CPU fp32). A paired comparison
+  (arm against its matched control, or against W/I) never crosses classes.
 - **Known limit.** With `--num-iterations 1`, DAPO's clip-higher term never binds, because
   every update is on-policy. The dapo family is therefore effectively token-level loss plus
   dynamic sampling. wave2-mu2 is the arm where clipping is active.

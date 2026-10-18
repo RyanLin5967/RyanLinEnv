@@ -594,6 +594,55 @@ def test_rft_refuses_tagged_response_formats_before_any_output(diagnostic, tmp_p
     assert not (tmp_path / "out").exists()
 
 
+def _fake_round_stack(monkeypatch, skips):
+    """trl/transformers/accelerate fakes: the trainer reports `skips` (one bool per step)
+    through the callbacks exactly as HF Trainer passes the optimizer to on_step_end."""
+
+    class FakeTrainer:
+        def __init__(self, model, args, processing_class, train_dataset, callbacks):
+            self.callbacks, self.args = callbacks, args
+            self.state = SimpleNamespace(global_step=0, log_history=[])
+
+        def train(self):
+            for skipped in skips:
+                self.state.global_step += 1
+                self.state.log_history.append({"loss": 1.0})
+                for cb in self.callbacks:
+                    cb.on_step_end(self.args, self.state, SimpleNamespace(),
+                                   optimizer=SimpleNamespace(step_was_skipped=skipped))
+            return SimpleNamespace(training_loss=1.0)
+
+    modules = {
+        "trl": SimpleNamespace(
+            SFTConfig=lambda **k: SimpleNamespace(device=SimpleNamespace(type="cuda")),
+            SFTTrainer=FakeTrainer),
+        "transformers": SimpleNamespace(TrainerCallback=object),
+        "accelerate.utils": SimpleNamespace(GradScalerKwargs=object),
+    }
+    monkeypatch.setattr(local, "import_module", lambda name: modules[name])
+
+
+def _round(tmp_path, dtype, steps):
+    return local._rft_sft_round(None, None, [], replace(local.Profile(), dtype=dtype),
+                                tmp_path, device="cuda", steps=steps, learning_rate=1e-5,
+                                seed=1)
+
+
+def test_rft_float16_round_counts_scaler_skips_and_refuses_endless_overflow(tmp_path,
+                                                                           monkeypatch):
+    _fake_round_stack(monkeypatch, [True, False, True])
+    out = _round(tmp_path, "float16", 3)
+    assert out["optimizer_steps"] == 3 and out["loss_scale_skipped_steps"] == 2
+    _fake_round_stack(monkeypatch, [True, False])
+    assert "loss_scale_skipped_steps" not in _round(tmp_path, "bfloat16", 2)  # fp16 only
+    limit = local.MAX_CONSECUTIVE_LOSS_SCALE_SKIPS
+    _fake_round_stack(monkeypatch, [True] * limit)
+    assert _round(tmp_path, "float16", limit)["loss_scale_skipped_steps"] == limit
+    _fake_round_stack(monkeypatch, [True] * (limit + 1))
+    with pytest.raises(local.LocalVLMError, match="overflowed on every recent step"):
+        _round(tmp_path, "float16", limit + 1)
+
+
 def test_cli_forwards_the_rft_step_boundary_only_when_given(monkeypatch, capsys):
     captured = []
     monkeypatch.setattr(local, "rft_local", lambda *a, **k: captured.append(k) or {"ok": 1})
@@ -607,7 +656,8 @@ def test_cli_forwards_the_rft_step_boundary_only_when_given(monkeypatch, capsys)
     legacy = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
     for bad in (legacy + ["--rft-stop-after-steps", "150"],
                 argv + ["--epsilon-high", "0.28"],
-                argv + ["--dynamic-sampling-max-draws", "4"]):
+                argv + ["--dynamic-sampling-max-draws", "4"],
+                argv + ["--dtype", "float16", "--loss-scale-init", "1024"]):
         with pytest.raises(SystemExit):
             local.main(bad)
     capsys.readouterr()
