@@ -61,6 +61,16 @@ TRL_SOURCES = {
 }
 
 
+# Historical CPU intra-op thread count; a sweep arm on a many-core host raises it.
+DEFAULT_TORCH_THREADS = 2
+DEVICES = ("mps", "cpu", "cuda")
+
+
+def _validate_threads(value: int) -> None:
+    if type(value) is not int or not 1 <= value <= 256:
+        raise ValueError("torch_threads must be an integer in 1..256")
+
+
 class LocalVLMError(RuntimeError):
     """An offline dependency, data, or device contract failed."""
 
@@ -127,8 +137,8 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
 
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
-    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
-        raise LocalVLMError("Use one local process with --device mps or cpu")
+    if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps, cpu or cuda")
     if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
     try:
@@ -155,6 +165,8 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
     if device == "mps" and not torch.backends.mps.is_available():
         raise LocalVLMError("MPS is unavailable; no model files have been opened")
+    if device == "cuda" and not torch.cuda.is_available():
+        raise LocalVLMError("CUDA is unavailable; no model files have been opened")
     return {
         "device": device,
         "python": sys.version.split()[0],
@@ -327,6 +339,122 @@ def _classification_identity(path: Path, rows: list[dict]) -> dict:
     return identity
 
 
+LABEL_HIERARCHY_SCHEMA = "vision-rl-label-hierarchy-v1"
+
+
+def load_label_hierarchy(path: Path, labels: list[str]) -> dict[str, Any]:
+    """TRAIN-derived variant -> family -> manufacturer map for partial-credit rewards.
+
+    Refuses anything not built from the TRAIN split alone, any label set that differs
+    from the task vocabulary, and any family claimed by two manufacturers.
+    """
+    path = Path(path)
+    value = json.loads(path.read_text())
+    if value.get("schema") != LABEL_HIERARCHY_SCHEMA:
+        raise ValueError(f"label hierarchy requires schema {LABEL_HIERARCHY_SCHEMA}")
+    source = value.get("source")
+    if not isinstance(source, dict) or source.get("split") != "train":
+        raise ValueError("label hierarchy must be derived from TRAIN annotations only")
+    if value.get("levels") != ["variant", "family", "manufacturer"]:
+        raise ValueError("label hierarchy levels must be variant, family, manufacturer")
+    mapping = value.get("labels")
+    if not isinstance(mapping, dict) or set(mapping) != set(labels):
+        raise ValueError("label hierarchy must cover exactly the task's label vocabulary")
+    family_owner: dict[str, str] = {}
+    for label in labels:
+        entry = mapping[label]
+        if not isinstance(entry, dict) or set(entry) != {"family", "manufacturer"}:
+            raise ValueError("each hierarchy entry requires exactly family and manufacturer")
+        family, manufacturer = entry["family"], entry["manufacturer"]
+        if not all(isinstance(x, str) and x.strip() == x and x for x in (family, manufacturer)):
+            raise ValueError("hierarchy family/manufacturer must be trimmed nonempty strings")
+        if family_owner.setdefault(family, manufacturer) != manufacturer:
+            raise ValueError(f"family {family!r} belongs to more than one manufacturer")
+    return {
+        "family": {label: mapping[label]["family"] for label in labels},
+        "manufacturer": {label: mapping[label]["manufacturer"] for label in labels},
+        "sha256": _file_sha256(path),
+    }
+
+
+def reward_shaping(
+    hierarchy: dict[str, Any],
+    *,
+    family_credit: float,
+    manufacturer_credit: float,
+    invalid_reward: float = 0.0,
+) -> dict[str, Any]:
+    """Hierarchical partial credit: exact 1, same family, same manufacturer, wrong 0, invalid."""
+    for name, value in (
+        ("family_credit", family_credit),
+        ("manufacturer_credit", manufacturer_credit),
+        ("invalid_reward", invalid_reward),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite number")
+    if not 0 <= manufacturer_credit <= family_credit < 1:
+        raise ValueError("require 0 <= manufacturer_credit <= family_credit < 1")
+    if not -1 <= invalid_reward <= 0:
+        raise ValueError("invalid_reward must be in [-1, 0]")
+    return {
+        "kind": "hierarchical-partial-credit-v1",
+        "family": hierarchy["family"],
+        "manufacturer": hierarchy["manufacturer"],
+        "hierarchy_sha256": hierarchy["sha256"],
+        "family_credit": float(family_credit),
+        "manufacturer_credit": float(manufacturer_credit),
+        "invalid_reward": float(invalid_reward),
+    }
+
+
+def shaping_identity(shaping: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The settings-identity view of a shaping (no per-label maps; the file hash binds them)."""
+    if shaping is None:
+        return None
+    return {
+        key: shaping[key]
+        for key in (
+            "kind",
+            "hierarchy_sha256",
+            "family_credit",
+            "manufacturer_credit",
+            "invalid_reward",
+        )
+    }
+
+
+def _shaping_from_options(
+    spec, label_hierarchy, family_credit, manufacturer_credit, invalid_reward, *, mode
+) -> dict[str, Any] | None:
+    if label_hierarchy is None:
+        if (family_credit, manufacturer_credit, invalid_reward) != (None, None, None):
+            raise ValueError("reward credits require label_hierarchy")
+        return None
+    if mode != "grpo":
+        raise ValueError("hierarchical reward shaping applies only to GRPO")
+    if family_credit is None or manufacturer_credit is None:
+        raise ValueError("label_hierarchy requires explicit family_credit and manufacturer_credit")
+    return reward_shaping(
+        load_label_hierarchy(Path(label_hierarchy), spec["labels"]),
+        family_credit=family_credit,
+        manufacturer_credit=manufacturer_credit,
+        invalid_reward=0.0 if invalid_reward is None else invalid_reward,
+    )
+
+
+def shaped_reward(predicted: str | None, expected: str, shaping: dict[str, Any]) -> float:
+    """Partial credit for one completion; ``predicted`` is the exact-EOS canonical answer."""
+    if predicted is None:
+        return shaping["invalid_reward"]
+    if predicted == expected:
+        return 1.0
+    if shaping["family"][predicted] == shaping["family"][expected]:
+        return shaping["family_credit"]
+    if shaping["manufacturer"][predicted] == shaping["manufacturer"][expected]:
+        return shaping["manufacturer_credit"]
+    return 0.0
+
+
 def make_reward(
     labels: list[str],
     group_size: int,
@@ -336,8 +464,20 @@ def make_reward(
     allow_reasoning: bool = True,
     journal_io_context=None,
     observe_prompt=None,
+    shaping: dict[str, Any] | None = None,
 ):
-    """Exact task reward with journaled groups; never inject synthetic variance."""
+    """Exact task reward with journaled groups; never inject synthetic variance.
+
+    ``shaping`` (default off) replaces the returned reward with hierarchical partial
+    credit (see ``shaped_reward``). Exact-match statistics stay exact; ``mixed_groups``
+    counts groups whose returned rewards differ, i.e. that carry a GRPO advantage.
+    """
+    if shaping is not None:
+        if set(shaping["family"]) != set(labels):
+            raise ValueError("reward shaping hierarchy must cover exactly the labels")
+        stats_extra = {"exact_mixed_groups": 0, "shaped_reward_sum": 0.0}
+    else:
+        stats_extra = {}
     stats = {"groups": 0, "mixed_groups": 0, "all_correct_groups": 0, "all_zero_groups": 0}
     stats.update(
         unique_prompt_ids=0,
@@ -352,6 +492,7 @@ def make_reward(
         canonical_completions=0,
         recognition_mixed_groups=0,
     )
+    stats.update(stats_extra)
     seen_ids = set()
 
     def exact_label_accuracy(completions, label, id, completion_ids, **_):
@@ -359,7 +500,7 @@ def make_reward(
             raise ValueError("reward batch lengths differ")
         if len(completions) % group_size:
             raise ValueError("reward batch does not contain complete groups")
-        rewards = [
+        exact = [
             float(
                 bool(tokens)
                 and tokens[-1] in eos_ids
@@ -367,6 +508,19 @@ def make_reward(
             )
             for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
         ]
+        if shaping is None:
+            rewards = exact
+        else:
+            rewards = [
+                shaped_reward(
+                    parse_label(text, labels, allow_reasoning=allow_reasoning)
+                    if tokens and tokens[-1] in eos_ids
+                    else None,
+                    expected,
+                    shaping,
+                )
+                for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
+            ]
         serialized = []
         for start in range(0, len(rewards), group_size):
             stop = start + group_size
@@ -374,8 +528,9 @@ def make_reward(
                 raise ValueError("TRL reward group mixes different examples")
             if observe_prompt is not None:
                 observe_prompt(id[start])
-            group = rewards[start:stop]
-            mixed = min(group) != max(group)
+            group = exact[start:stop]
+            returned = rewards[start:stop]
+            mixed = min(returned) != max(returned)
             texts = [_completion_text(x) for x in completions[start:stop]]
             terminated = [
                 bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
@@ -411,12 +566,18 @@ def make_reward(
             stats["task_correct_without_think"] += sum(
                 int(value) for value, thought in zip(group, thinking, strict=True) if not thought
             )
+            extra = {}
+            if shaping is not None:
+                stats["exact_mixed_groups"] += int(min(group) != max(group))
+                stats["shaped_reward_sum"] += sum(returned)
+                extra = {"exact_rewards": group}
             serialized.append(
                 json.dumps(
                     {
                         "id": id[start],
                         "label": label[start],
-                        "rewards": group,
+                        "rewards": returned,
+                        **extra,
                         "mixed": mixed,
                         "recognition_mixed": recognition_mixed,
                         "canonical_predictions": canonical,
@@ -780,6 +941,7 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
+    torch_threads: int = DEFAULT_TORCH_THREADS,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
@@ -791,6 +953,7 @@ def predict_train_subset(
     used to re-verify a registered expanded endpoint (default: the trainer's path).
     """
     profile.validate()
+    _validate_threads(torch_threads)
     if expanded_initial_path is not None and not _expanded.is_expanded(profile):
         raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
@@ -867,7 +1030,9 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(torch_threads)
+        if torch_threads != DEFAULT_TORCH_THREADS:
+            record["torch_threads"] = torch_threads
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -1753,6 +1918,8 @@ class _ActiveStepTimer:
     def _sync(self):
         if self.device == "mps":
             import_module("torch").mps.synchronize()
+        elif self.device == "cuda":
+            import_module("torch").cuda.synchronize()
 
     def _persist(self):
         value = {
@@ -2654,6 +2821,11 @@ def train_local(
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
+    label_hierarchy: Path | None = None,
+    family_credit: float | None = None,
+    manufacturer_credit: float | None = None,
+    invalid_reward: float | None = None,
+    torch_threads: int = DEFAULT_TORCH_THREADS,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -2670,8 +2842,14 @@ def train_local(
     `max_steps` and `max_active_seconds` stay cumulative over the parent's lineage. The
     old and new identities and the restored file hashes enter settings["continuation"];
     resuming the continuation itself passes the same continue_from_checkpoint.
+
+    `label_hierarchy` (GRPO only, default off) swaps the exact reward for hierarchical
+    partial credit; `family_credit` and `manufacturer_credit` must then be explicit, and
+    `invalid_reward` (default 0) scores a non-EOS or out-of-vocabulary answer.
+    `torch_threads` sets CPU intra-op threads (default 2, the historical value).
     """
     profile.validate()
+    _validate_threads(torch_threads)
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
@@ -2732,6 +2910,14 @@ def train_local(
     if initial_adapter_precision_transfer is not None and not init_adapter:
         raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
     spec = load_spec(data_spec)
+    shaping = _shaping_from_options(
+        spec,
+        label_hierarchy,
+        family_credit,
+        manufacturer_credit,
+        invalid_reward,
+        mode=mode,
+    )
     if type(train_only) is not bool:
         raise ValueError("train_only must be boolean")
     if train_only and (validation is not None or probe):
@@ -2865,6 +3051,8 @@ def train_local(
         }
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
+    if shaping is not None:
+        settings["reward_shaping"] = shaping_identity(shaping)
     continuation = None
     if continue_from_checkpoint is not None:
         continuation = _continuation_identity(Path(continue_from_checkpoint), identity, settings)
@@ -3026,7 +3214,9 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(torch_threads)
+        if torch_threads != DEFAULT_TORCH_THREADS:
+            record["torch_threads"] = torch_threads
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
@@ -3126,6 +3316,7 @@ def train_local(
             allow_reasoning=True,
             journal_io_context=audit.timer.exclude_journal_io,
             observe_prompt=audit.observe_prompt,
+            **({"shaping": shaping} if shaping is not None else {}),
         )
         constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
         if mode == "grpo":
@@ -3328,6 +3519,633 @@ def train_local(
     return record
 
 
+RFT_SCOPE = "TRAIN-only rejection-sampling fine-tuning (expert iteration); no held-out claim"
+
+
+def rft_round_prompt_ids(
+    ids: list[str], *, seed: int, round_index: int, per_round: int
+) -> list[str]:
+    """Deterministic prompt slice for one on-policy round.
+
+    Positions ``round_index * per_round ...`` walk a seeded permutation of the pool, one
+    fresh permutation per pass, so rounds see new prompts until the pool is exhausted.
+    """
+    if not ids or len(set(ids)) != len(ids):
+        raise ValueError("RFT pool requires unique nonempty IDs")
+    if type(per_round) is not int or not 1 <= per_round <= len(ids):
+        raise ValueError("prompts_per_round must be in 1..pool size")
+    permutations: dict[int, list[str]] = {}
+    chosen = []
+    for position in range(round_index * per_round, (round_index + 1) * per_round):
+        epoch, offset = divmod(position, len(ids))
+        if epoch not in permutations:
+            permutations[epoch] = sorted(
+                ids,
+                key=lambda identifier: hashlib.sha256(
+                    f"rft-order-v1:{seed}:{epoch}:{identifier}".encode()
+                ).hexdigest(),
+            )
+        chosen.append(permutations[epoch][offset])
+    return chosen
+
+
+def rft_select(
+    samples: list[dict],
+    label: str,
+    labels: list[str],
+    *,
+    max_keep: int,
+    skip_all_correct: bool = False,
+) -> tuple[list[str], dict]:
+    """Keep exact-EOS correct completions (distinct texts, sample order), at most max_keep."""
+    if not samples:
+        raise ValueError("RFT selection requires sampled completions")
+    correct = [
+        sample["response"]
+        for sample in samples
+        if sample["terminated"]
+        and parse_label(sample["response"], labels, allow_reasoning=True) == label
+    ]
+    stats = {
+        "samples": len(samples),
+        "correct": len(correct),
+        "pass_rate": len(correct) / len(samples),
+        "skipped_all_correct": False,
+    }
+    if skip_all_correct and len(correct) == len(samples):
+        stats["skipped_all_correct"] = True
+        return [], stats
+    kept = list(dict.fromkeys(correct))[:max_keep]
+    stats["kept"] = len(kept)
+    return kept, stats
+
+
+def rft_records(
+    kept: dict[str, list[str]], rows_by_id: dict[str, dict], spec: dict, response_format: str
+) -> list[dict]:
+    """SFT records whose completion is the policy's own correct sample, not the gold label."""
+    prompt = prompt_text(spec, response_format)
+    records = []
+    for identifier, completions in kept.items():
+        row = rows_by_id[identifier]
+        for index, text in enumerate(completions):
+            records.append(
+                {
+                    "id": f"{identifier}#{index}",
+                    "image": row["image"],
+                    "label": row["label"],
+                    "prompt": [{"role": "user", "content": prompt}],
+                    "completion": [{"role": "assistant", "content": text}],
+                }
+            )
+    return records
+
+
+def _sample_groups_batched(policy, processor, rows, spec, profile, device, output, reward, config):
+    """K draws per prompt in ONE generate call (num_return_sequences=K); no update.
+
+    Same released-TRL sampler settings as `_sample_task_groups`, batched over the group,
+    so RFT rounds sample K-fold faster. Each completion is cut after its first EOS, as
+    TRL's completion mask does. Journals one JSON line per prompt.
+    """
+    torch = import_module("torch")
+    groups = {}
+    policy.eval()
+    journal = Path(output) / "sampled_completions.jsonl"
+    with torch.inference_mode():
+        for row in rows:
+            started = time.monotonic()
+            inputs = _inputs(processor, row, spec, profile).to(device)
+            prompt_length = int(inputs["input_ids"].shape[-1])
+            tokens = policy.generate(
+                **inputs,
+                generation_config=config,
+                num_return_sequences=profile.num_generations,
+            )
+            latency = time.monotonic() - started
+            sequences = tokens[:, prompt_length:].tolist()
+            if len(sequences) != profile.num_generations:
+                raise LocalVLMError("batched sampler returned the wrong number of completions")
+            samples = []
+            for tail in sequences:
+                for index, token in enumerate(tail):
+                    if token in config.eos_token_id:
+                        tail = tail[: index + 1]
+                        break
+                samples.append(
+                    {
+                        "response": processor.tokenizer.decode(tail, skip_special_tokens=True),
+                        "raw_response": processor.tokenizer.decode(tail, skip_special_tokens=False),
+                        "completion_ids": tail,
+                        "terminated": bool(tail and tail[-1] in config.eos_token_id),
+                        "prompt_tokens": prompt_length,
+                        "completion_tokens": len(tail),
+                        "group_latency_seconds": latency,
+                    }
+                )
+            groups[row["id"]] = samples
+            with journal.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"id": row["id"], "samples": samples}) + "\n")
+            reward(
+                completions=[sample["response"] for sample in samples],
+                completion_ids=[sample["completion_ids"] for sample in samples],
+                label=[row["label"]] * profile.num_generations,
+                id=[row["id"]] * profile.num_generations,
+            )
+    return groups
+
+
+def _rft_dataset(records: list[dict], spec: dict) -> Any:
+    datasets = import_module("datasets")
+    dataset = datasets.Dataset.from_list(records).cast_column(
+        "image", datasets.Image(mode="RGB", decode=False)
+    )
+
+    def decode(batch):
+        batch["image"] = [_load_rgb(entry["path"], spec) for entry in batch["image"]]
+        return batch
+
+    return dataset.with_transform(decode, columns=["image"], output_all_columns=True)
+
+
+class _RFTClock:
+    """Cumulative sampling + optimizer wall seconds across rounds and invocations."""
+
+    def __init__(self, committed: float, budget: float | None):
+        self.committed, self.budget, self._started = committed, budget, None
+
+    def begin(self):
+        self._started = time.monotonic()
+
+    def elapsed(self) -> float:
+        running = time.monotonic() - self._started if self._started is not None else 0.0
+        return self.committed + running
+
+    def end(self) -> float:
+        seconds = time.monotonic() - self._started
+        self.committed += seconds
+        self._started = None
+        return seconds
+
+    def exhausted(self) -> bool:
+        return self.budget is not None and self.elapsed() >= self.budget
+
+
+def _rft_sft_round(
+    policy,
+    processing_class,
+    dataset,
+    profile: Profile,
+    output: Path,
+    *,
+    device: str,
+    steps: int,
+    learning_rate: float,
+    seed: int,
+    clock: _RFTClock | None = None,
+) -> dict:
+    """One completion-only SFT pass over this round's kept samples (fresh AdamW)."""
+    trl = import_module("trl")
+    transformers = import_module("transformers")
+    kwargs = trainer_kwargs(
+        "sft",
+        output,
+        profile,
+        device=device,
+        max_steps=steps,
+        learning_rate=learning_rate,
+        seed=seed,
+        save_steps=steps,
+    )
+    # Rounds commit their own adapters; trainer checkpoints would only duplicate them.
+    kwargs.update(save_strategy="no")
+    args = trl.SFTConfig(**kwargs)
+    if args.device.type != device:
+        raise LocalVLMError(f"Accelerate selected {args.device}, expected {device}")
+
+    class Budget(transformers.TrainerCallback):
+        stopped_by_budget = False
+
+        def on_step_end(self, args, state, control, **_):
+            if clock is not None and clock.exhausted():
+                Budget.stopped_by_budget = True
+                control.should_training_stop = True
+
+    trainer = trl.SFTTrainer(
+        model=policy,
+        args=args,
+        processing_class=processing_class,
+        train_dataset=dataset,
+        callbacks=[Budget()],
+    )
+    result = trainer.train()
+    losses = [entry["loss"] for entry in trainer.state.log_history if "loss" in entry]
+    return {
+        "optimizer_steps": trainer.state.global_step,
+        "planned_steps": steps,
+        "stopped_by_time_budget": Budget.stopped_by_budget,
+        "train_loss": result.training_loss,
+        "first_loss": losses[0] if losses else None,
+        "last_loss": losses[-1] if losses else None,
+    }
+
+
+def _peft_weights_sha256(adapter: Path) -> str:
+    return _file_sha256(adapter / "adapter_model.safetensors")
+
+
+def _load_round_adapter(policy, adapter: Path) -> None:
+    """Overwrite the live trainable LoRA with a committed round adapter, exactly."""
+    torch = import_module("torch")
+    peft = import_module("peft")
+    saved = import_module("safetensors.torch").load_file(
+        str(adapter / "adapter_model.safetensors"), device="cpu"
+    )
+    peft.set_peft_model_state_dict(policy, saved, adapter_name="default")
+    actual = peft.get_peft_model_state_dict(policy, adapter_name="default")
+    if set(saved) != set(actual) or any(
+        not torch.equal(saved[name], actual[name].detach().cpu().to(saved[name].dtype))
+        for name in saved
+    ):
+        raise LocalVLMError("restored round adapter differs from its committed tensors")
+
+
+def rft_local(
+    train: Path,
+    data_spec: Path,
+    output: Path,
+    *,
+    model_directory: Path,
+    rounds: int,
+    prompts_per_round: int,
+    model: str = DEFAULT_MODEL,
+    device: str = "cpu",
+    profile: Profile = Profile(),
+    init_adapter: Path | None = None,
+    initial_adapter_precision_transfer: str | None = None,
+    learning_rate: float = 1e-5,
+    seed: int = 42,
+    epochs_per_round: int = 1,
+    max_keep_per_prompt: int = 1,
+    skip_all_correct: bool = False,
+    max_steps: int | None = None,
+    max_active_seconds: float | None = None,
+    stop_after_rounds: int | None = None,
+    torch_threads: int = DEFAULT_TORCH_THREADS,
+    _sample=None,
+    _train_round=None,
+) -> dict:
+    """Rejection-sampling fine-tuning / expert iteration on TRAIN only.
+
+    Each round r (on-policy: the CURRENT adapter samples):
+      1. take `prompts_per_round` TRAIN prompts (`rft_round_prompt_ids`),
+      2. draw K = profile.num_generations completions each with released-TRL sampler
+         settings (`_task_group_generation_config`, temperature from the profile),
+      3. keep exact-EOS correct completions (distinct, <= `max_keep_per_prompt`; with
+         `skip_all_correct`, drop prompts the policy already solves K/K),
+      4. run completion-only SFT on the kept (prompt, own completion) pairs for
+         `epochs_per_round` passes, one example per update, fresh AdamW, constant LR,
+      5. commit round-NN/adapter and round-NN/round.json.
+    Stops after `rounds`, or when the cumulative optimizer-update cap `max_steps` or the
+    cumulative sampling+training wall budget `max_active_seconds` is reached; both are
+    for fairness against step- or time-matched SFT. Restarting with identical arguments
+    resumes after the last committed round; an uncommitted round is moved aside and
+    redone from its seeded start. The endpoint is output/final_adapter, bound by
+    output/local_training.json like a train_local endpoint, so the TRAIN assay and a
+    later GRPO warm start accept it.
+    """
+    profile.validate()
+    _validate_threads(torch_threads)
+    if _expanded.is_expanded(profile):
+        raise ValueError("RFT supports the legacy Q/V LoRA profile only")
+    if model not in MODEL_REVISIONS:
+        raise ValueError("choose one of the explicitly pinned Qwen models")
+    for name, value in (
+        ("rounds", rounds),
+        ("prompts_per_round", prompts_per_round),
+        ("epochs_per_round", epochs_per_round),
+        ("max_keep_per_prompt", max_keep_per_prompt),
+    ):
+        if type(value) is not int or value < 1:
+            raise ValueError(f"{name} must be a positive integer")
+    if type(seed) is not int or seed < 0:
+        raise ValueError("seed must be a nonnegative integer")
+    if type(skip_all_correct) is not bool:
+        raise ValueError("skip_all_correct must be boolean")
+    if max_steps is not None and (type(max_steps) is not int or max_steps < 1):
+        raise ValueError("max_steps must be a positive integer when given")
+    if max_active_seconds is not None and (
+        not math.isfinite(max_active_seconds) or max_active_seconds <= 0
+    ):
+        raise ValueError("max_active_seconds must be finite and positive")
+    if stop_after_rounds is not None and (
+        type(stop_after_rounds) is not int or not 1 <= stop_after_rounds <= rounds
+    ):
+        raise ValueError("stop_after_rounds must be within rounds")
+    if not math.isfinite(learning_rate) or not 0 < learning_rate <= 1e-2:
+        raise ValueError("learning_rate must be finite and in (0, 0.01]")
+    if initial_adapter_precision_transfer is not None and not init_adapter:
+        raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
+    if device not in DEVICES:
+        raise ValueError("device must be mps, cpu or cuda")
+    spec = load_spec(data_spec)
+    rows = load_classification(
+        train,
+        "train",
+        spec["labels"],
+        preprocessing_id=spec.get("preprocessing_id"),
+        require_all_classes=False,
+    )
+    if len(rows) > SCAN_ROW_CAP:
+        raise ValueError(f"RFT pool is limited to {SCAN_ROW_CAP} TRAIN images")
+    if prompts_per_round > len(rows):
+        raise ValueError("prompts_per_round exceeds the TRAIN pool")
+    if model_directory is None:
+        raise ValueError("model_directory must point to a verified local snapshot")
+    model_directory = Path(model_directory).resolve()
+    output = Path(output).resolve()
+    identity = {
+        "model": model,
+        "model_revision": MODEL_REVISIONS[model],
+        "processor_model": model,
+        "processor_revision": MODEL_REVISIONS[model],
+        "profile": asdict(profile),
+        "output_grammar": OUTPUT_GRAMMAR,
+        "data_spec_sha256": _file_sha256(Path(data_spec)),
+        "train": _classification_identity(Path(train), rows),
+        "validation": None,
+        "image_transform_source_sha256": _file_sha256(Path(inspect.getfile(load_aircraft_rgb)))
+        if spec.get("preprocessing_id") == PREPROCESSING_ID
+        else None,
+    }
+    initial = (
+        _adapter_identity(
+            Path(init_adapter).resolve(),
+            identity,
+            profile,
+            precision_transfer=initial_adapter_precision_transfer,
+        )
+        if init_adapter
+        else None
+    )
+    settings = {
+        "mode": "rft",
+        "rounds": rounds,
+        "prompts_per_round": prompts_per_round,
+        "samples_per_prompt": profile.num_generations,
+        "epochs_per_round": epochs_per_round,
+        "max_keep_per_prompt": max_keep_per_prompt,
+        "skip_all_correct": skip_all_correct,
+        "keep_rule": "exact-EOS canonical label == gold (the GRPO exact reward)",
+        "max_steps": max_steps,
+        "max_active_seconds": max_active_seconds,
+        "learning_rate": learning_rate,
+        "seed": seed,
+        "init_adapter": initial,
+        "initial_adapter_precision_transfer": initial_adapter_precision_transfer,
+        "device": device,
+        "optimizer": "fresh AdamW per round, constant LR, one example per update",
+        "prompt_order": "rft-order-v1 seeded permutation per pass over the TRAIN pool",
+        "sampler": "released-TRL settings, num_return_sequences=K per prompt",
+    }
+    previous = None
+    if (output / "local_training.json").is_file():
+        previous = json.loads((output / "local_training.json").read_text())
+        if previous.get("settings") != settings or previous.get("control_identity") != identity:
+            raise ValueError("RFT resume must preserve exact model/data/profile/settings")
+        if previous.get("status") == "completed":
+            raise LocalVLMError("RFT run already completed")
+    elif output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("output is not empty; use a new directory or resume the same RFT run")
+    environment = preflight(device)
+    if previous and previous["environment"] != environment:
+        raise ValueError("RFT resume requires the original environment and adapter source")
+    output.mkdir(parents=True, exist_ok=True)
+    committed = []
+    for index in range(rounds):
+        round_dir = output / f"round-{index:02d}"
+        receipt = round_dir / "round.json"
+        if receipt.is_file() and json.loads(receipt.read_text()).get("status") == "completed":
+            committed.append(json.loads(receipt.read_text()))
+            continue
+        if round_dir.exists():
+            discarded = 0
+            while (output / f"round-{index:02d}.discarded-{discarded}").exists():
+                discarded += 1
+            round_dir.rename(output / f"round-{index:02d}.discarded-{discarded}")
+        break
+    for later in range(len(committed) + 1, rounds):
+        if (output / f"round-{later:02d}" / "round.json").is_file():
+            raise LocalVLMError("committed rounds are not a contiguous prefix")
+    record = {
+        "schema_version": 1,
+        "status": "running",
+        "algorithm": "RFT-expert-iteration",
+        "regularization_profile": "rejection-sampled-self-completion-SFT",
+        "created_at": previous["created_at"]
+        if previous
+        else datetime.now(timezone.utc).isoformat(),
+        "control_identity": identity,
+        "settings": settings,
+        "environment": environment,
+        "sources": spec["sources"],
+        "claim_scope": RFT_SCOPE,
+        "held_out_benchmark_improvement": "unmeasured",
+        "rounds": committed,
+        "resumed_after_round": len(committed) - 1 if committed else None,
+    }
+    if torch_threads != DEFAULT_TORCH_THREADS:
+        record["torch_threads"] = torch_threads
+    _write(output / "local_training.json", record)
+    _archive_source(output, environment["adapter_source_sha256"])
+    rows_by_id = {row["id"]: row for row in rows}
+    ids = [row["id"] for row in rows]
+    clock = _RFTClock(
+        sum(entry["sampling_seconds"] + entry["training_seconds"] for entry in committed),
+        max_active_seconds,
+    )
+    total_steps = sum(entry["optimizer_steps"] for entry in committed)
+    try:
+        torch = import_module("torch")
+        torch.set_num_threads(torch_threads)
+        transformers, peft = (import_module(x) for x in ("transformers", "peft"))
+        record["model_source"] = _verified_model_directory(model_directory, model)
+        processor = _processor(model_directory, profile)
+        record["processor_audit"] = _audit_processor(processor, rows, spec, profile)
+        policy = transformers.AutoModelForImageTextToText.from_pretrained(
+            str(model_directory),
+            trust_remote_code=False,
+            local_files_only=True,
+            use_safetensors=True,
+            dtype=getattr(torch, profile.dtype),
+            attn_implementation="sdpa",
+        )
+        if policy.config.model_type not in {"qwen2_vl", "qwen2_5_vl"}:
+            raise LocalVLMError("unexpected cached model architecture")
+        policy = (
+            peft.PeftModel.from_pretrained(policy, str(init_adapter), is_trainable=True)
+            if init_adapter
+            else peft.get_peft_model(
+                policy,
+                peft.LoraConfig(
+                    r=profile.lora_rank,
+                    lora_alpha=2 * profile.lora_rank,
+                    lora_dropout=0.0,
+                    target_modules=["q_proj", "v_proj"],
+                    task_type="CAUSAL_LM",
+                    bias="none",
+                ),
+            )
+        )
+        policy.to(device)
+        if initial and not committed:
+            record["initial_adapter_tensor_audit"] = _verify_initial_adapter_tensors(
+                policy, Path(init_adapter)
+            )
+        for layer in policy.modules():
+            if isinstance(layer, torch.nn.Dropout):
+                layer.p = 0.0
+        if committed:
+            _load_round_adapter(policy, output / f"round-{len(committed) - 1:02d}" / "adapter")
+        config = _task_group_generation_config(policy, processor, profile)
+        record["generation_config"] = config.to_dict()
+        _write(output / "local_training.json", record)
+        sample = _sample or (
+            lambda chosen, round_dir, reward: _sample_groups_batched(
+                policy, processor, chosen, spec, profile, device, round_dir, reward, config
+            )
+        )
+        train_round = _train_round or (
+            lambda records, round_dir, steps, round_seed: _rft_sft_round(
+                policy,
+                processor,
+                _rft_dataset(records, spec),
+                profile,
+                round_dir / "trainer",
+                device=device,
+                steps=steps,
+                learning_rate=learning_rate,
+                seed=round_seed,
+                clock=clock,
+            )
+        )
+        stop_reason = None
+        for index in range(len(committed), rounds):
+            if stop_after_rounds is not None and index >= stop_after_rounds:
+                stop_reason = "stop_after_rounds"
+                break
+            if max_steps is not None and total_steps >= max_steps:
+                stop_reason = "max_steps"
+                break
+            if clock.exhausted():
+                stop_reason = "max_active_seconds"
+                break
+            round_dir = output / f"round-{index:02d}"
+            round_dir.mkdir()
+            round_seed = int(
+                hashlib.sha256(f"rft-round-v1:{seed}:{index}".encode()).hexdigest()[:8], 16
+            )
+            transformers.set_seed(round_seed)
+            chosen = [
+                rows_by_id[identifier]
+                for identifier in rft_round_prompt_ids(
+                    ids, seed=seed, round_index=index, per_round=prompts_per_round
+                )
+            ]
+            reward = make_reward(
+                spec["labels"],
+                profile.num_generations,
+                config.eos_token_id,
+                round_dir / "reward_groups.jsonl",
+                allow_reasoning=True,
+            )
+            clock.begin()
+            groups = sample(chosen, round_dir, reward)
+            sampling_seconds = clock.end()
+            kept, per_prompt = {}, {}
+            for row in chosen:
+                texts, stats = rft_select(
+                    groups[row["id"]],
+                    row["label"],
+                    spec["labels"],
+                    max_keep=max_keep_per_prompt,
+                    skip_all_correct=skip_all_correct,
+                )
+                per_prompt[row["id"]] = stats
+                if texts:
+                    kept[row["id"]] = texts
+            records = rft_records(kept, rows_by_id, spec, profile.response_format)
+            _write(
+                round_dir / "kept.json",
+                {"kept": kept, "per_prompt": per_prompt},
+            )
+            steps = epochs_per_round * len(records)
+            if max_steps is not None:
+                steps = min(steps, max_steps - total_steps)
+            training = {"optimizer_steps": 0, "planned_steps": steps}
+            training_seconds = 0.0
+            if steps > 0 and not clock.exhausted():
+                clock.begin()
+                training = train_round(records, round_dir, steps, round_seed)
+                training_seconds = clock.end()
+            total_steps += training["optimizer_steps"]
+            adapter = round_dir / "adapter"
+            policy.save_pretrained(str(adapter))
+            entry = {
+                "status": "completed",
+                "round": index,
+                "round_seed": round_seed,
+                "prompt_ids": [row["id"] for row in chosen],
+                "sampled_completions": sum(s["samples"] for s in per_prompt.values()),
+                "correct_completions": sum(s["correct"] for s in per_prompt.values()),
+                "mean_pass_rate": sum(s["pass_rate"] for s in per_prompt.values())
+                / len(per_prompt),
+                "prompts_all_correct": sum(
+                    s["correct"] == s["samples"] for s in per_prompt.values()
+                ),
+                "prompts_none_correct": sum(s["correct"] == 0 for s in per_prompt.values()),
+                "prompts_kept": len(kept),
+                "kept_completions": len(records),
+                "reward_audit": reward.stats,
+                **training,
+                "cumulative_optimizer_steps": total_steps,
+                "sampling_seconds": sampling_seconds,
+                "training_seconds": training_seconds,
+                "adapter_sha256": _peft_weights_sha256(adapter),
+            }
+            _write(round_dir / "round.json", entry)
+            committed.append(entry)
+            record["rounds"] = committed
+            _write(output / "local_training.json", record)
+        else:
+            stop_reason = "rounds"
+        if stop_reason == "stop_after_rounds":
+            record.update(status="stopped", stop_reason=stop_reason)
+            _write(output / "local_training.json", record)
+            return record
+        adapter = output / "final_adapter"
+        policy.save_pretrained(str(adapter))
+        processor.save_pretrained(str(adapter))
+        record.update(
+            status="completed",
+            stop_reason=stop_reason,
+            optimizer_steps=total_steps,
+            active_seconds=clock.committed,
+            final_adapter=str(adapter),
+            final_adapter_sha256=_peft_weights_sha256(adapter),
+        )
+        _write(output / "local_training.json", record)
+    except BaseException as exc:
+        record.update(
+            status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        _write(output / "local_training.json", record)
+        raise
+    return record
+
+
 def make_probe_data(output: Path) -> dict:
     """Deterministic synthetic diagnostic, explicitly excluded from benchmark claims."""
     import random
@@ -3375,6 +4193,71 @@ def make_probe_data(output: Path) -> dict:
     return {"path": str(output.resolve()), "diagnostic_only": True}
 
 
+def _rft_main(parser, args: dict, rft_args: dict) -> int:
+    """CLI for --mode rft: TRAIN pool only; GRPO/SFT-only options are refused."""
+    if not all(args[k] for k in ("train", "data_spec", "output", "model_directory")):
+        parser.error("RFT requires --train, --data-spec, --output and --model-directory")
+    if rft_args["rft_rounds"] is None or rft_args["rft_prompts_per_round"] is None:
+        parser.error("RFT requires --rft-rounds and --rft-prompts-per-round")
+    refused = [
+        key
+        for key in (
+            "validation",
+            "resume_from_checkpoint",
+            "screen_journal",
+            "screen_tokenizations",
+            "continue_from_checkpoint",
+            "label_hierarchy",
+            "family_credit",
+            "manufacturer_credit",
+            "invalid_reward",
+            "stop_after_steps",
+            "stop_after_active_seconds",
+            "stage_id",
+            "probe",
+            "finalize_only",
+            "cycle",
+        )
+        if args[key] not in (None, False)
+    ]
+    if refused or (
+        args["order"],
+        args["screen_threshold"],
+        args["target_accepted"],
+        args["beta"],
+        args["save_steps"],
+    ) != ("random", 0.5, 600, 0.04, 8):
+        parser.error(f"RFT refuses GRPO/SFT-only options: {refused or 'order/screen/beta/save'}")
+    try:
+        result = rft_local(
+            args["train"],
+            args["data_spec"],
+            args["output"],
+            model_directory=args["model_directory"],
+            rounds=rft_args["rft_rounds"],
+            prompts_per_round=rft_args["rft_prompts_per_round"],
+            model=args["model"],
+            device=args["device"],
+            profile=args["profile"],
+            init_adapter=args["init_adapter"],
+            initial_adapter_precision_transfer=args["initial_adapter_precision_transfer"],
+            learning_rate=args["learning_rate"],
+            seed=args["seed"],
+            epochs_per_round=rft_args["rft_epochs_per_round"] or 1,
+            max_keep_per_prompt=rft_args["rft_max_keep_per_prompt"] or 1,
+            skip_all_correct=rft_args["rft_skip_all_correct"],
+            max_steps=args["max_steps"],
+            max_active_seconds=args["max_active_seconds"],
+            stop_after_rounds=rft_args["rft_stop_after_rounds"],
+            torch_threads=args["torch_threads"],
+        )
+    except (LocalVLMError, ValueError, OSError) as exc:
+        print(f"local VLM: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2, allow_nan=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
@@ -3389,7 +4272,7 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Frozen-base sampled reward groups on at most 32 TRAIN images; never fits",
     )
-    parser.add_argument("--mode", choices=("grpo", "sft", "egsft"), default="grpo")
+    parser.add_argument("--mode", choices=("grpo", "sft", "egsft", "rft"), default="grpo")
     for name in (
         "train",
         "validation",
@@ -3401,11 +4284,13 @@ def main(argv: list[str] | None = None) -> int:
         "screen-journal",
         "screen-tokenizations",
         "continue-from-checkpoint",
+        "label-hierarchy",
     ):
         parser.add_argument(f"--{name}", type=Path)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
-    parser.add_argument("--max-steps", type=int, default=64)
+    parser.add_argument("--device", choices=DEVICES, default="mps")
+    # None means "not given": legacy modes then use 64; RFT treats it as an optional cap.
+    parser.add_argument("--max-steps", type=int)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument(
         "--beta",
@@ -3431,9 +4316,28 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Bounded TRAIN learning diagnostic; no held-out data",
     )
+    parser.add_argument("--family-credit", type=float, help="GRPO hierarchical reward")
+    parser.add_argument("--manufacturer-credit", type=float, help="GRPO hierarchical reward")
+    parser.add_argument("--invalid-reward", type=float, help="GRPO hierarchical reward")
+    parser.add_argument("--torch-threads", type=int, default=DEFAULT_TORCH_THREADS)
+    for name in ("rounds", "prompts-per-round", "epochs-per-round", "max-keep-per-prompt"):
+        parser.add_argument(f"--rft-{name}", type=int)
+    parser.add_argument("--rft-stop-after-rounds", type=int)
+    parser.add_argument("--rft-skip-all-correct", action="store_true")
     for name, value in asdict(Profile()).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
+    rft_args = {
+        key: args.pop(key)
+        for key in (
+            "rft_rounds",
+            "rft_prompts_per_round",
+            "rft_epochs_per_round",
+            "rft_max_keep_per_prompt",
+            "rft_stop_after_rounds",
+            "rft_skip_all_correct",
+        )
+    }
     try:
         if args.pop("preflight"):
             result = preflight(args["device"])
@@ -3445,6 +4349,14 @@ def main(argv: list[str] | None = None) -> int:
             if predict_train is not None and sample_train is not None:
                 parser.error("choose --predict-train or --sample-train")
             args["profile"] = Profile(**{key: args.pop(key) for key in asdict(Profile())})
+            if args["mode"] == "rft":
+                if predict_train is not None or sample_train is not None:
+                    parser.error("RFT cannot be combined with TRAIN inference")
+                return _rft_main(parser, args, rft_args)
+            if any(value not in (None, False) for value in rft_args.values()):
+                parser.error("--rft-* options require --mode rft")
+            if args["max_steps"] is None:
+                args["max_steps"] = 64
             if predict_train is not None or sample_train is not None:
                 if not all(args[k] for k in ("data_spec", "output", "model_directory")):
                     parser.error(
@@ -3467,6 +4379,10 @@ def main(argv: list[str] | None = None) -> int:
                         "screen_journal",
                         "screen_tokenizations",
                         "continue_from_checkpoint",
+                        "label_hierarchy",
+                        "family_credit",
+                        "manufacturer_credit",
+                        "invalid_reward",
                     )
                 ) or (args["order"], args["screen_threshold"], args["target_accepted"]) != (
                     "random",
@@ -3488,6 +4404,7 @@ def main(argv: list[str] | None = None) -> int:
                             "device",
                             "profile",
                             "init_adapter",
+                            "torch_threads",
                         )
                     },
                 )
