@@ -3,6 +3,9 @@
  "study": "docs/aircraft-freshpool-study-v1.json",
  "protocol": "docs/aircraft-rl-protocol-freshpool-v1-activated.json",
  "python": "/Users/idide/RyanLinEnv/.venv-detection/bin/python",
+ "python_resolved": "/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12/bin/python3.12",
+ "import_root": "src",
+ "quiet_file": "/Users/idide/.claude/QUIET",
  "state_directory": "/Users/idide/RyanLinEnv/runs/aircraft-freshpool-v1",
  "evaluator": "scripts/evaluate_freshpool_gates.py",
  "environment": {
@@ -18,13 +21,13 @@
   "TOKENIZERS_PARALLELISM": "false"
  },
  "file_sha256": {
-  "scripts/freshpool_launch/launch.py": "6d1edfb69817fc75e4ddc0e1c1695aa90fa4150c6e52852095abff5ccba17313",
+  "scripts/freshpool_launch/launch.py": "5220bb91a7095a355e1829243734d24d3bde1785379bb186f6ac811be3f9788f",
   "scripts/freshpool_launch/phase_worker.py": "d9fa40f189be3578c416714a27bc8213e79daad73c87d732b7c1a2b94c5acf05",
-  "scripts/freshpool_launch/e0_gate.py": "b4789bb8038fe272939eb9b680465fe2e8970155487b54031ea2d3ceabb5c517",
-  "scripts/freshpool_launch/trainer_fragment.py": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+  "scripts/freshpool_launch/e0_gate.py": "d91d95fbff12a247f47ca6f319fae2ea8bec771c52de94018dba3d34987f6c7f",
+  "scripts/freshpool_launch/trainer_fragment.py": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
   "scripts/freshpool_launch/h_assay.py": "2cd176e7dae039b9e9a77618139e6fed5392374d4a6fb10d2b4185fba10a091a",
   "scripts/freshpool_launch/p0_screen.py": "cf2388a3ec75d8a7536cab2b6b2f42625b549dabc33b9283567e502494004e74",
-  "scripts/evaluate_freshpool_gates.py": "5aec7fce12512aca66ba3d81999fb0ebe0cb9aeb07b284d684c5691a070e01f0",
+  "scripts/evaluate_freshpool_gates.py": "9a575a94f4961d9cad386776507e6929c22df341265d115ce42fab036a43354d",
   "src/vision_rl/__init__.py": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
   "src/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
   "src/vision_rl/aircraft_recipe.py": "c49b8f3e0101f7e323800f2de1e619c068c9b0c39cc96d7e20614af2271b2788",
@@ -117,7 +120,8 @@
   "minimum_free_bytes": 5368709120,
   "rss_limit_bytes": 25769803776,
   "survivor_grace_seconds": 30,
-  "poll_seconds": 5
+  "poll_seconds": 5,
+  "stage_headroom_bytes": 438616064
  },
  "forecast_seconds": {
   "e0": 7200.0,
@@ -137,13 +141,13 @@
    "greedy": 59.6,
    "g4_seed": 299.4
   },
-  "rule": "cap = 1.25 x forecast per arm (launch.py CAP_FACTOR); see prepare.py"
+  "rule": "cap = 1.25 x forecast per arm (launch.py CAP_FACTOR); the RL and EG-SFT caps use the forecasts launch.py freezes after G1 from P0's measured acceptance and scorer seconds (freeze_measured_forecasts), not the assumed values here; see prepare.py"
  },
  "templates": {
   "e0": {
    "kind": "train",
    "entry": "e0_gate:main",
-   "entry_sha256": "b4789bb8038fe272939eb9b680465fe2e8970155487b54031ea2d3ceabb5c517",
+   "entry_sha256": "d91d95fbff12a247f47ca6f319fae2ea8bec771c52de94018dba3d34987f6c7f",
    "argv": [
     "--fragment",
     "{fragment}",
@@ -278,7 +282,7 @@
   "rl150": {
    "kind": "train",
    "entry": "trainer_fragment:main",
-   "entry_sha256": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+   "entry_sha256": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
    "argv": [
     "--run-id",
     "{run_id}",
@@ -357,7 +361,7 @@
   "rl600": {
    "kind": "train",
    "entry": "trainer_fragment:main",
-   "entry_sha256": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+   "entry_sha256": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
    "argv": [
     "--run-id",
     "{run_id}",
@@ -436,7 +440,7 @@
   "sft_e": {
    "kind": "train",
    "entry": "trainer_fragment:main",
-   "entry_sha256": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+   "entry_sha256": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
    "argv": [
     "--run-id",
     "{run_id}",
@@ -506,7 +510,7 @@
   "sft_t": {
    "kind": "train",
    "entry": "trainer_fragment:main",
-   "entry_sha256": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+   "entry_sha256": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
    "argv": [
     "--run-id",
     "{run_id}",
@@ -578,7 +582,7 @@
   "egsft": {
    "kind": "train",
    "entry": "trainer_fragment:main",
-   "entry_sha256": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
+   "entry_sha256": "b193cebf51bc50b6cefdd1ab9e196355ea43a1fec099effc4f4c9b71aae17715",
    "argv": [
     "--run-id",
     "{run_id}",
@@ -654,7 +658,6 @@
   "vision_rl.vlm_local_training",
   "vision_rl.aircraft_recipe",
   "phase_worker.py",
-  "freshpool_launch/launch.py",
   "supervise_chunks.py",
   "mlx_vlm",
   "mlx_lm",
@@ -671,11 +674,11 @@
   "receipts": {
    "protocol_revision": {
     "path": "docs/aircraft-rl-protocol-freshpool-v1-activated.json",
-    "sha256": "b0e3fe3b36477d78a3d30cc893b3bc19e26a3a64a6767caa3fa5cc7883789a51"
+    "sha256": "df8e0867d6aa2d073904109d4ff2b19717a03d7a5c0245cbbcc8411de0cddf14"
    },
    "decision_record": {
     "path": "docs/decision-log-2026-10-16-claude.md",
-    "sha256": "46fecb768fdfa4ca1490fe421597f8fb19178abf032a83b5778e7be661d018fc"
+    "sha256": "981b84617512f4a08da3f8b729b7875fdd50f6d4a65976ee108d52750eb172b1"
    },
    "branch": {
     "path": "docs/aircraft-freshpool-branch-receipt-v1.json",

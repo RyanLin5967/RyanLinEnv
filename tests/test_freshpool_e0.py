@@ -166,7 +166,7 @@ def main(argv):
         last = scan.index(accepted[step - 1])
         screen = [{"scan_position": n, "id": scan[n], "p": 0.5 if n % 3 != 2 else 0.99,
                    "u": 0.875 if n % 3 != 2 else 0.0394, "accepted": n % 3 != 2,
-                   "adapter_sha256": "a", "global_step": 1 + len([
+                   "adapter_sha256": "a", "scorer_seconds": 0.25, "global_step": 1 + len([
                        i for i in scan[:n] if i in accepted])} for n in range(last + 1)]
         (checkpoint / "screen.json").write_text(json.dumps({"entries": screen}))
         (checkpoint / "active_time.json").write_text(json.dumps({
@@ -184,7 +184,10 @@ def main(argv):
     (output / "adapter-source.py").write_text("# fixture\n")
     record.update(status="completed", final_adapter_sha256=sha(
         adapter / "adapter_model.safetensors"),
-        optimizer_audit={"active_time": {"fixture": True}, "reference_unchanged": True,
+        optimizer_audit={"active_time": {
+            "fixture": True, "observed_scorer_seconds_within_active":
+                0.25 * len(screen) + SCENARIO.get("scorer_drift", 0.0)},
+                         "reference_unchanged": True,
                          "changed_tensors": 0 if SCENARIO.get("frozen") else 2})
     record["environment"]["adapter_source_sha256"] = sha(output / "adapter-source.py")
     (output / "local_training.json").write_text(json.dumps(record))
@@ -278,6 +281,9 @@ def test_identical_trajectories_pass_every_check(tmp_path, monkeypatch):
     ({"frozen": True}, {"lora_parameter_changed"}),
     # A resume that restarts the active-time clock is not cumulative.
     ({"reset_clock": True}, {"active_time_ledger_cumulative"}),
+    # Scorer seconds the trainer counted inside active time that the committed screen
+    # journal does not hold (unledgered or discarded scorer work) fail the scorer check.
+    ({"scorer_drift": 0.5}, {"scorer_seconds_within_active_time"}),
 ])
 def test_each_failure_is_written_false_not_raised(tmp_path, monkeypatch, scenario, failed):
     fixture = E0Fixture(tmp_path, monkeypatch, scenario)

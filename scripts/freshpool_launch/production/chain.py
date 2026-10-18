@@ -10,8 +10,13 @@ every stage and gate. This file only:
   * forwards SIGTERM/SIGINT/SIGHUP to the launcher, which journals ``launch_interrupted``
     and exits 3 (resumable: the interrupted stage re-runs from scratch on --resume);
   * bounds the whole run at MAX_SECONDS, then sends the launcher SIGTERM (the same
-    resumable interrupt) and, if it is still alive KILL_AFTER_SECONDS later, SIGKILL (the
-    state stays running with a stale lock: also resumable);
+    resumable interrupt) and, if it is still alive KILL_AFTER_SECONDS later, SIGKILL to the
+    launcher's own process group (it runs in its own session, so this also takes the gate
+    evaluator it may be running). Every stage runs in ITS own session, so after the launcher
+    is gone by any route (that SIGKILL, a crash) the stage group the state's
+    ``running_stage`` names is stopped too, with launch.py's own reap_orphan_stage (identity
+    checked: the recorded leader start time). The state stays running with a stale lock and
+    no stage left behind: resumable, and the next owner scan does not see an orphan;
   * writes ``chain.json`` (running, then finished with the launcher's exit code and final
     state) next to its log.
 It never restarts the launcher by itself: an interrupted or stopped study waits for a person
@@ -19,6 +24,7 @@ It never restarts the launcher by itself: an interrupted or stopped study waits 
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -38,6 +44,23 @@ def write(path, value):
     temporary.replace(path)
 
 
+def load_launch(path):
+    """This checkout's launch.py as a module (stdlib only at import; the same file start.py
+    passes as --launcher): its reap_orphan_stage is the one implementation of 'stop the
+    stage group a dead launcher left'."""
+    spec = importlib.util.spec_from_file_location("freshpool_launch_for_chain", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def kill_launcher_group(launcher):
+    try:
+        os.killpg(launcher.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        launcher.kill()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--launcher", type=Path, required=True)
@@ -53,7 +76,9 @@ def main(argv=None):
                "--expected-plan-sha256", args.expected_plan_sha256,
                *(["--resume"] if args.resume else [])]
     started = time.time()
-    launcher = subprocess.Popen(command, cwd=args.launcher.parents[2], stdin=subprocess.DEVNULL)
+    launch = load_launch(Path(__file__).resolve().parents[1] / "launch.py")
+    launcher = subprocess.Popen(command, cwd=args.launcher.parents[2], stdin=subprocess.DEVNULL,
+                                start_new_session=True)
     awake = shutil.which("caffeinate")
     keeper = (subprocess.Popen([awake, "-i", "-m", "-s", "-w", str(launcher.pid)],
                                stdin=subprocess.DEVNULL) if awake else None)
@@ -77,15 +102,27 @@ def main(argv=None):
             launcher.send_signal(signal.SIGTERM)
         elif bounded is not None and time.time() - bounded > args.kill_after_seconds:
             record["killed_after_bound"] = True
-            launcher.kill()
+            kill_launcher_group(launcher)
         time.sleep(1)
     code = launcher.wait()
+    state_path = args.state_directory / "state.json"
+    try:
+        left = json.loads(state_path.read_text())
+    except (OSError, ValueError):
+        left = {}
+    if isinstance(left, dict) and left.get("running_stage"):
+        # The launcher is gone but its stage may not be: stop it now rather than leave it
+        # holding the accelerator with no cap, RSS or owner guard until someone resumes.
+        try:
+            record["orphan_stage"] = launch.reap_orphan_stage(left, args.state_directory)
+        except Exception as exc:  # recorded, never silent
+            record["orphan_stage"] = {"outcome": "reap_failed",
+                                      "error": f"{type(exc).__name__}: {exc}"}
     if keeper is not None:
         try:
             keeper.wait(timeout=30)
         except subprocess.TimeoutExpired:
             keeper.kill()
-    state_path = args.state_directory / "state.json"
     try:
         state = json.loads(state_path.read_text())
     except (OSError, ValueError):

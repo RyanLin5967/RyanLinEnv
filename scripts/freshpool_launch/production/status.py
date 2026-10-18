@@ -47,7 +47,8 @@ def summary(state_directory, events=15, log_lines=20):
     lines = journal_path.read_text().splitlines() if journal_path.is_file() else []
     journal = [json.loads(line) for line in lines if line.strip()]
     lock = state_directory / "lock"
-    pid = lock.read_text().strip() if lock.is_file() else None
+    words = lock.read_text().split() if lock.is_file() else []
+    pid = words[0] if words else None  # line one: pid; line two: its start time
     chain = read_json(Path(str(state_directory) + "-chain") / "chain.json") or {}
     running = None
     starts = [e for e in journal if e["event"] == "stage_started"]
@@ -84,6 +85,8 @@ def summary(state_directory, events=15, log_lines=20):
                   state.get("gates", {}).items()},
         "selections": state.get("selections"),
         "screen_tokenizations": state.get("screen_tokenizations"),
+        "measured_forecasts": state.get("measured_forecasts"),
+        "stage_group_recorded": state.get("running_stage"),
         "void_instances": state.get("void_instances"),
         "free_disk_bytes": shutil.disk_usage(state_directory).free,
         "last_events": [{k: e.get(k) for k in ("event", "stage", "gate", "verdict", "reason",

@@ -82,18 +82,30 @@ def repo_pins():
 TRAINER = "src/vision_rl/vlm_local_training.py"
 
 # Owner patterns: Python programs that would take the accelerator (launch.py reads only
-# processes whose argv[0] is a Python interpreter).
+# processes whose argv[0] is a Python interpreter, and matches a pattern only as a whole word
+# of the command line, so `pytest tests/test_local_vision.py` is not `local_vision.py`).
+# launch.py itself is not listed: it never touches the accelerator, its stages do, and those
+# run as phase_worker.py (a CPU --dry-run phase worker is exempt by construction).
 OWNER_PATTERNS = [
     "vision_rl.vlm_local_training", "vision_rl.aircraft_recipe", "phase_worker.py",
-    "freshpool_launch/launch.py", "supervise_chunks.py", "mlx_vlm", "mlx_lm",
+    "supervise_chunks.py", "mlx_vlm", "mlx_lm",
     "local_vision.py", "pills_local.py", "aircraft_local_probe.py", "supervise_local_vlm.py",
     "check_mlx_stream_parity.py", "aircraft_named_baseline.py",
 ]
+QUIET_FILE = "/Users/idide/.claude/QUIET"
+# Before each stage the launcher pauses (resumable, nothing voided) unless free disk is at
+# least the reserve plus this: the most one stage writes. Measured (du -sk, 2026-10-17): the
+# largest controlled400 trainer output (work/rl, 3 checkpoints) is 107,084 KiB; E0 writes
+# four such outputs (3 runs + the altered-reference copy), every other stage at most one.
+STAGE_HEADROOM_BYTES = 4 * 107084 * 1024
 
 # --- forecasts (seconds). Every number is a measurement named here, or the study's own
 # extrapolation (docs/aircraft-freshpool-study-v1.json compute_plan_mps_hours, unverified).
 GRPO_S = 20.29  # controlled400 RL: 8115.88 active s / 400 updates (optimizer_audit step 400)
 SFT_S = 5.64  # controlled400 SFT: 1128.79 s / 200 durable updates
+# The study's assumptions. They give the plan's RL and EG-SFT forecasts for the record only:
+# launch.py freezes the RL and EG-SFT caps after G1 from P0's MEASURED acceptance and scorer
+# seconds (protocol activation_prerequisites: forecasts "from measured pilot timing").
 SCORER_S = 0.97  # study assumption for one teacher-forced forward (P0 measures it; G1 <= 2.0)
 ACCEPTANCE = 0.5  # study assumption (G1 requires >= 0.30)
 # controlled400 TRAIN32 assays (runs/aircraft-controlled400-v1/setup/*-assay receipts),
@@ -166,8 +178,35 @@ def activated_protocol():
         "date": "2026-10-17",
         "authority": "Root's freshpool production workflow (task: activate under a separately "
                      "identified activated copy whose hash_protocol_id salt is unchanged). "
-                     "Recorded in docs/decision-log-2026-10-16-claude.md D22.",
-        "changed_vs_revision": ["protocol_id", "status", "activated", "activation"],
+                     "Recorded in docs/decision-log-2026-10-16-claude.md D24.",
+        "changed_vs_revision": ["protocol_id", "status", "activated", "activation",
+                                "root_review_status"],
+        "prerequisites": [
+            {"item": 0, "status": "met by this copy",
+             "how": "root's freshpool production workflow froze this separately identified "
+                    "activated copy (D24); the revision stays historical candidate evidence"},
+            {"item": 1, "status": "met before launch, re-checked by launch.py at every start",
+             "how": "G0: manifests hashed, pHash forced fire passed, revision committed, D11 "
+                    "retirement, branch receipt and D_req (launch.py verify_g0)"},
+            {"item": 2, "status": "met by this copy", "how": "frozen_identities below"},
+            {"item": 3, "status": "enforced, not yet met",
+             "how": "E0 is the launcher's first stage; every one of e0_gate.py's checks must "
+                    "be true or the study stops before any fit"},
+            {"item": 4, "status": "enforced, not yet met",
+             "how": "E0 checks active_time_ledger_cumulative and "
+                    "scorer_seconds_within_active_time (the trainer's scorer seconds inside "
+                    "committed active time equal the committed screen journal's) on the "
+                    "uninterrupted, 2+2 and 1+3 runs, plus the altered-reference refusal"},
+            {"item": 5, "status": "enforced, not yet met",
+             "how": "launch.py freeze_measured_forecasts: after G1 and before any RL stage, "
+                    "RL = N(grpo s/update + s k / a) and EG-SFT = N(sft s/update + s k) from "
+                    "P0's measured acceptance a and scorer seconds s and the frozen "
+                    "tokenization count k; per-update seconds are controlled400's measured "
+                    "values. E0, P0, SFT-E and assay forecasts are measured pilot values or "
+                    "the study's own E0/P0 budgets (forecast_sources in plan.json)"},
+        ],
+        "interpretations_ratified": "scripts/evaluate_freshpool_gates.py docstring "
+                                    "'Interpretations, ratified at activation' (D24)",
         "unchanged_vs_revision": "Every other top-level field, byte for byte after JSON "
                                  "parsing; scripts/freshpool_launch/launch.py refuses any "
                                  "difference (g0_activated_copy_differs_from_revision).",
@@ -213,8 +252,12 @@ def activated_protocol():
     }
     status = ("ACTIVATED 2026-10-17 (separately identified copy of the unactivated revision "
               f"{REVISION}); seed-42 development launch authorized through G3b and EG-SFT")
+    review = ("Activated 2026-10-17 by root's freshpool production workflow (D24); this "
+              "activated copy authorizes the seed-42 development stages through G3b and "
+              "EG-SFT. The revision's own review status ('" + revision["root_review_status"]
+              + "') describes the unactivated candidate and is kept there.")
     return {**revision, "protocol_id": ACTIVATED_ID, "status": status, "activated": True,
-            "activation": activation}
+            "root_review_status": review, "activation": activation}
 
 
 def branch_receipt():
@@ -408,19 +451,30 @@ def launch_plan(receipt_paths, evidence_path, b4):
         "study": "docs/aircraft-freshpool-study-v1.json",
         "protocol": ACTIVATED,
         "python": str(PYTHON),
+        # The venv link resolves to this binary (pinned below); launch.py re-resolves it
+        # before every stage, so a Homebrew upgrade cannot swap or remove it unseen.
+        "python_resolved": str(PYTHON.resolve()),
+        # The stages import vision_rl from FROZEN/src (first on PYTHONPATH); launch.py
+        # requires that to be its own checkout's src, with every importable file pinned.
+        "import_root": "src",
+        "quiet_file": QUIET_FILE,
         "state_directory": str(STATE),
         "evaluator": "scripts/evaluate_freshpool_gates.py",
         "environment": environment,
         "file_sha256": {**{p: sha(REPO / p) for p in repo_pins()}, **data_pins, **pins},
         "limits": {"minimum_free_bytes": 5 * 1024**3, "rss_limit_bytes": 24 * 1024**3,
-                   "survivor_grace_seconds": 30, "poll_seconds": 5},
+                   "survivor_grace_seconds": 30, "poll_seconds": 5,
+                   "stage_headroom_bytes": STAGE_HEADROOM_BYTES},
         "forecast_seconds": FORECAST,
         "forecast_sources": {
             "grpo_seconds_per_update": GRPO_S, "sft_seconds_per_update": SFT_S,
             "scorer_seconds_per_candidate_assumed": SCORER_S,
             "acceptance_assumed": ACCEPTANCE,
             "assay_slowest_chunk_seconds": {"greedy": GREEDY_CHUNK_MAX, "g4_seed": G4_CHUNK_MAX},
-            "rule": "cap = 1.25 x forecast per arm (launch.py CAP_FACTOR); see prepare.py"},
+            "rule": "cap = 1.25 x forecast per arm (launch.py CAP_FACTOR); the RL and EG-SFT "
+                    "caps use the forecasts launch.py freezes after G1 from P0's measured "
+                    "acceptance and scorer seconds (freeze_measured_forecasts), not the "
+                    "assumed values here; see prepare.py"},
         "templates": templates(),
         "b4_edge_extension": b4,
         "w_endpoint": {"adapter_sha256": W_SHA, "adapter_path": str(W_ADAPTER)},

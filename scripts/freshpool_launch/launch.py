@@ -21,8 +21,11 @@ study; there is no path from a missing result to a pass.
 Guards (all refuse, none warn): plan identity and every pinned file hash before every stage;
 frozen environment, with ACCELERATE_TORCH_DEVICE mps (cpu only under the plan's explicit
 ``"dry_run": true`` marker); a fixed 5 GiB disk reserve the plan may raise but not lower;
-process-group RSS; a second owner of the accelerator, checked before every stage and every
-OWNER_POLL_SECONDS while one runs; per-arm 1.25x forecast caps, counted from the validated
+process-group RSS; a second owner of the accelerator, a refusal before a launch or resume and a
+stop before every stage and every OWNER_POLL_SECONDS while one runs; the interpreter link and
+the import tree re-checked with the pins; quiet mode waited out and too little disk headroom a
+resumable pause, both before a stage starts; per-arm 1.25x forecast caps (RL and EG-SFT from
+P0's measured timing, frozen after G1), counted from the validated
 parent's committed seconds for a continuation plus the wall seconds of every voided instance of
 the arm, cumulatively, so neither a continuation nor an interrupt resets them; the rolling
 useful-mixed standing stop (< 40 of any 100 accepted updates), enforced live on RL stages by
@@ -40,9 +43,10 @@ Blind spots, stated: process-group membership is the ownership boundary, so a de
 calls setsid() escapes the RSS sum and the survivor check; RSS, disk and the owner scan are
 sampled; the live useful-mixed tail reads only a reward_groups.jsonl under the arm
 directory (a stage writing it elsewhere stops as unmonitored) and sees rows at the poll
-interval; the owner scan matches command-line substrings, so an owner whose command line names
-none of the plan's patterns is invisible; the lock trusts that a dead lock pid was not
-reused; the per-arm cap is measured on launcher wall time (an upper bound on active time) and
+interval; the owner scan matches whole command-line words, so an owner whose command line
+names none of the plan's patterns as a word is invisible; the lock and the orphan reap identify
+a process by pid plus ps start time; the per-arm cap is measured on launcher wall time (an
+upper bound on active time) and
 the trainer receives the same cap as its cumulative active-seconds limit; the owner scan reads
 only processes whose program is a Python interpreter, so a non-Python accelerator owner is not
 seen (a grep or editor whose command line names a pattern is not an owner); the fragment
@@ -72,6 +76,7 @@ GiB = 1024**3
 DISK_RESERVE_BYTES = 5 * GiB  # study.json standing_stops: addendum-5 5 GiB reserve
 CAP_FACTOR = 1.25  # study.json budget_matching.caps
 OWNER_POLL_SECONDS = 2.0  # second-owner re-check interval while a stage runs (standing stop)
+QUIET_POLL_SECONDS = 30.0  # re-check interval while waiting out quiet mode between stages
 SEED = 42
 GRID = (1e-5, 5e-5, 1e-4)
 B4_LR = 2e-4
@@ -85,7 +90,9 @@ PROTOCOL_ID = "fgvc-aircraft-freshpool-screened-grpo-v1"
 FROZEN_PROTOCOL_KEYS = ("substantial_gain_gates", "strong_baseline")
 # The only top-level keys an activated copy may change relative to the revision it activates
 # (protocol activation_prerequisites: "freezes a separately identified activated protocol").
-ACTIVATION_KEYS = ("protocol_id", "status", "activated", "activation")
+# root_review_status: the revision's says "no study activation ... authorized by this
+# document", which is true of the revision and false of the activated copy.
+ACTIVATION_KEYS = ("protocol_id", "status", "activated", "activation", "root_review_status")
 # study.json fixed_profile.screening.alt_tokenization_switch: "if >2% of correct P0 samples
 # are non-canonical tokenizations, sum p over P0-observed tokenizations; frozen before G2".
 ALT_TOKENIZATION_SHARE = 0.02
@@ -116,11 +123,22 @@ E0_CHECKS = (
     "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
     "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
     "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+    "scorer_seconds_within_active_time",
 )
 
 
 class Stop(Exception):
     """A study stop: recorded, terminal, never retried."""
+
+    def __init__(self, reason, **detail):
+        super().__init__(reason)
+        self.reason, self.detail = reason, detail
+
+
+class Pause(Exception):
+    """A resumable halt BEFORE a stage starts (nothing of the stage ran, nothing is voided):
+    the state stays ``running`` and ``start.py --resume`` continues once a person fixed the
+    cause. Only conditions that are not a protocol standing stop may pause."""
 
     def __init__(self, reason, **detail):
         super().__init__(reason)
@@ -180,26 +198,96 @@ def is_number(value):
 
 
 def processes():
-    """Rows of (pid, ppid, pgid, stat, rss_bytes, command) from ps; no psutil needed.
+    """Rows of (pid, ppid, pgid, stat, rss_bytes, command, nice) from ps; no psutil needed.
 
     -ww: piped procps output is otherwise cut at 80 columns, which hid an owner pattern
-    past that width (measured in CI on test_second_owner_refuses).
+    past that width (measured in CI on test_second_owner_refuses). ``nice`` is None when ps
+    prints something other than an integer.
     """
     result = subprocess.run(
-        ["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,stat=,rss=,command="],
+        ["ps", "-A", "-ww", "-o", "pid=,ppid=,pgid=,stat=,rss=,nice=,command="],
         capture_output=True, text=True, timeout=30, check=True,
     )
     rows = []
     for line in result.stdout.splitlines():
-        parts = line.split(None, 5)
-        if len(parts) < 5:
+        parts = line.split(None, 6)
+        if len(parts) < 6:
             continue
         try:
             pid, ppid, pgid, rss = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[4])
         except ValueError:
             continue
-        rows.append((pid, ppid, pgid, parts[3], rss * 1024, parts[5] if len(parts) > 5 else ""))
+        try:
+            nice = int(parts[5])
+        except ValueError:
+            nice = None
+        rows.append((pid, ppid, pgid, parts[3], rss * 1024,
+                     parts[6] if len(parts) > 6 else "", nice))
     return rows
+
+
+def process_started(pid):
+    """The process's start time as ps prints it (``lstart``), or None if it is gone. A pid
+    plus its start time names one process; a pid alone can be reused (after a reboot, say)."""
+    try:
+        result = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))],
+                                capture_output=True, text=True, timeout=30)
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+    started = result.stdout.strip()
+    return started or None
+
+
+def kill_group(pgid, grace=15):
+    """SIGTERM a process group, then SIGKILL whatever is left; True if it is gone."""
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            if not group_members(pgid):
+                return True
+            return False
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            if not group_alive(pgid):
+                return True
+            time.sleep(0.1)
+    return not group_alive(pgid)
+
+
+def reap_orphan_stage(state, directory):
+    """Stop the stage process group a dead launcher left running, if it is still ours.
+
+    The launcher records ``running_stage`` (pgid, its leader's start time) while a stage
+    runs, and every stage runs in its own session, so killing the launcher alone (chain.py's
+    SIGKILL after its bound, a crash, kill -9) leaves the stage running unsupervised: no
+    cap, RSS or owner check, still holding the accelerator, and seen by the next launch's
+    owner scan as a second owner. Identity: the group's leader is alive with the recorded
+    start time, or the leader is gone and every live member's command names this state
+    directory (phase_worker.py's --guard-dir). A reused pgid matches neither and is left
+    alone. Returns a journal record (None when no stage was recorded)."""
+    running = state.get("running_stage")
+    if not isinstance(running, dict):
+        return None
+    pgid = running.get("pgid")
+    record = {"stage": running.get("stage"), "instance": running.get("instance"),
+              "pgid": pgid}
+    if type(pgid) is not int or pgid <= 1:
+        return {**record, "outcome": "invalid_record"}
+    members = group_members(pgid)
+    if not members:
+        return {**record, "outcome": "already_gone"}
+    leader = process_started(pgid) if any(row[0] == pgid for row in members) else None
+    ours = (leader is not None and leader == running.get("leader_started")) or (
+        leader is None and all(str(directory) in row[5] for row in members))
+    if not ours:
+        return {**record, "outcome": "group_not_ours_left_alone",
+                "processes": [{"pid": r[0], "command": r[5][:200]} for r in members]}
+    stopped = kill_group(pgid)
+    return {**record, "outcome": "stopped" if stopped else "still_alive",
+            "processes": [{"pid": r[0], "command": r[5][:200]} for r in members]}
 
 
 def group_members(pgid):
@@ -208,12 +296,14 @@ def group_members(pgid):
 
 
 def group_alive(pgid):
+    """macOS answers killpg with EPERM (not ESRCH) for a group whose only members are
+    zombies, so EPERM is settled by the member list, never assumed alive or dead."""
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass
     return bool(group_members(pgid))
 
 
@@ -224,6 +314,12 @@ def stop_group(child, pgid, grace=15):
             os.killpg(pgid, sig)
         except ProcessLookupError:
             break
+        except PermissionError:
+            # EPERM for an all-zombie group (macOS): nothing is left to signal. A live
+            # member that refuses the signal is not ours to ignore: re-raise.
+            if not group_members(pgid):
+                break
+            raise
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             if child.poll() is not None and not group_alive(pgid):
@@ -232,31 +328,72 @@ def stop_group(child, pgid, grace=15):
     child.wait()
 
 
+TOKEN_SPLIT = re.compile(r"[\s;,()'\"=]+")
+
+
+def names_pattern(command, pattern):
+    """True when one word of the command line IS the pattern, not merely contains it:
+    a ``.py`` pattern matches a word equal to it or ending in ``/<pattern>``; a module
+    pattern (``vision_rl.vlm_local_training``, ``mlx_vlm``) matches a word equal to it,
+    a submodule of it (``mlx_vlm.generate``) or a path through it (``.../mlx_vlm/x.py``).
+    So ``pytest tests/test_local_vision.py`` does not name ``local_vision.py``, and
+    ``tests/test_vlm_local_training.py`` does not name ``vision_rl.vlm_local_training``."""
+    for word in TOKEN_SPLIT.split(command):
+        if not word:
+            continue
+        if pattern.endswith(".py"):
+            if word == pattern or word.endswith("/" + pattern):
+                return True
+        elif (word == pattern or word.startswith(pattern + ".")
+              or f"/{pattern}/" in word or word.startswith(pattern + "/")):
+            return True
+    return False
+
+
+def dry_run_worker(command):
+    """A phase_worker.py started with --dry-run (before its literal ``--``). phase_worker.py
+    then refuses to start unless ACCELERATE_TORCH_DEVICE is cpu and every forwarded --device
+    is cpu, before any import, so it and its descendants cannot own the accelerator."""
+    words = command.split()
+    for n, word in enumerate(words):
+        if word == "phase_worker.py" or word.endswith("/phase_worker.py"):
+            rest = words[n + 1:]
+            head = rest[: rest.index("--")] if "--" in rest else rest
+            return "--dry-run" in head
+    return False
+
+
+def descendants(rows, roots):
+    children = {}
+    for pid, ppid, *_ in rows:
+        children.setdefault(ppid, []).append(pid)
+    found, stack = set(roots), list(roots)
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in found:
+                found.add(child)
+                stack.append(child)
+    return found
+
+
 def second_owners(patterns, own_groups=()):
-    """Processes matching an owner pattern other than this launcher, its ancestors, and its
-    running stage: the members of ``own_groups`` and their descendants. Any other child of
-    the launcher's own process is NOT exempt (a real launcher has none while a stage runs)."""
+    """Python processes naming an owner pattern (as a whole word, names_pattern) other than
+    this launcher, its ancestors, and its running stage: the members of ``own_groups`` and
+    their descendants. Any other child of the launcher's own process is NOT exempt (a real
+    launcher has none while a stage runs). A CPU dry-run phase worker (dry_run_worker) and
+    its descendants are not owners: the freshpool dry run and its tests stay runnable."""
     rows = processes()
     parents = {pid: ppid for pid, ppid, *_ in rows}
     mine, pid = set(), os.getpid()
     while pid and pid not in mine:
         mine.add(pid)
         pid = parents.get(pid)
-    children = {}
-    for pid, ppid, *_ in rows:
-        children.setdefault(ppid, []).append(pid)
-    stack = [pid for pid, _, pgid, *_ in rows if pgid in own_groups]
-    stage = set(stack)
-    while stack:
-        for child in children.get(stack.pop(), []):
-            if child not in stage:
-                stage.add(child)
-                stack.append(child)
-    mine |= stage
+    mine |= descendants(rows, [pid for pid, _, pgid, *_ in rows if pgid in own_groups])
+    mine |= descendants(rows, [row[0] for row in rows if dry_run_worker(row[5])])
     return [{"pid": pid, "command": command[:200]}
-            for pid, _, _, stat, _, command in rows
+            for pid, _, _, stat, _, command, *_ in rows
             if pid not in mine and not stat.startswith("Z") and python_program(command)
-            and any(p in command for p in patterns)]
+            and any(names_pattern(command, p) for p in patterns)]
 
 
 def python_program(command):
@@ -377,6 +514,15 @@ def verify_plan(plan_path, expected):
         raise Stop("w_endpoint_identity_missing")
     if not isinstance(plan.get("owner_patterns"), list) or not plan["owner_patterns"]:
         raise Stop("owner_patterns_missing")
+    sources = plan.get("forecast_sources") or {}
+    for name in ("grpo_seconds_per_update", "sft_seconds_per_update"):
+        if not is_number(sources.get(name)) or sources[name] <= 0:
+            raise Stop("forecast_source_missing_or_invalid", source=name)
+    if not isinstance(plan.get("quiet_file"), str) or not plan["quiet_file"]:
+        raise Stop("quiet_file_not_stated")
+    headroom = limits.get("stage_headroom_bytes")
+    if type(headroom) is not int or headroom < 0:
+        raise Stop("limit_missing_or_invalid", limit="stage_headroom_bytes")
     return plan, grid, evaluator
 
 
@@ -476,11 +622,56 @@ def verify_rl_continuation_templates(templates):
         raise Stop("rl_template_uses_active_cap_not_arm_cap")
 
 
+IMPORTABLE = {".py", ".pyc", ".pyo", ".pth", ".so", ".pyd"}
+
+
+def pythonpath(plan):
+    value = (plan.get("environment") or {}).get("PYTHONPATH") or ""
+    return [entry for entry in value.split(os.pathsep) if entry]
+
+
 def verify_pins(plan):
+    """Before every stage and gate: every pinned file's bytes; the interpreter link still
+    resolving to the pinned binary; and the import tree being this checkout's, with nothing
+    importable in it that is not pinned."""
     for name, expected in plan["file_sha256"].items():
         path = resolve(name)
         if not path.is_file() or sha(path) != expected:
             raise Stop("pinned_file_changed", file=name)
+    # plan["python"] is a venv link (the venv's site-packages need it): a Homebrew upgrade
+    # moves what it resolves to, so the resolved binary is pinned and re-resolved here.
+    resolved = plan.get("python_resolved")
+    if (not isinstance(resolved, str) or resolved not in plan["file_sha256"]
+            or os.path.realpath(plan["python"]) != resolved):
+        raise Stop("interpreter_link_changed", python=plan.get("python"),
+                   resolves_to=os.path.realpath(plan["python"]), pinned=resolved)
+    entries = [os.path.realpath(entry) for entry in pythonpath(plan)]
+    if "import_root" not in plan:
+        raise Stop("import_root_not_stated")
+    root = plan["import_root"]
+    if root is None:
+        # No repository import tree: nothing on PYTHONPATH may carry vision_rl, or the
+        # stages would import code no pin covers.
+        carrying = [e for e in entries if Path(e, "vision_rl").exists()]
+        if carrying:
+            raise Stop("unpinned_import_tree_on_pythonpath", entries=carrying)
+        return
+    tree = os.path.realpath(resolve(root))
+    if not entries or entries[0] != tree or not Path(tree).is_dir():
+        # The stages import vision_rl from PYTHONPATH, the pins are checked against this
+        # checkout: they must be the same tree, and it must come first.
+        raise Stop("import_root_not_first_on_pythonpath", import_root=tree,
+                   pythonpath=pythonpath(plan))
+    pinned = {os.path.realpath(resolve(name)) for name in plan["file_sha256"]}
+    unpinned = []
+    for directory, folders, files in os.walk(tree):
+        folders[:] = [f for f in folders if f != "__pycache__"]
+        for name in files:
+            path = os.path.join(directory, name)
+            if Path(name).suffix in IMPORTABLE and os.path.realpath(path) not in pinned:
+                unpinned.append(os.path.relpath(path, tree))
+    if unpinned:
+        raise Stop("unpinned_importable_file", files=sorted(unpinned)[:10])
 
 
 def verify_manifest_content(directory, manifest, base, evaluator):
@@ -804,25 +995,47 @@ class Ledger:
             raise Stop("journal_not_append_only")
 
 
+def read_lock(lock):
+    """(pid, start time) from a lock file: the pid on line one, the holder's ps ``lstart``
+    on line two. Raises ValueError when it is not that (empty while being written, corrupt)."""
+    lines = Path(lock).read_text().splitlines()
+    if len(lines) != 2 or not lines[1].strip():
+        raise ValueError("lock is not 'pid' + 'start time'")
+    return int(lines[0].strip()), lines[1].strip()
+
+
+def lock_holder_alive(pid, started):
+    """True only if the process that wrote the lock is still running: same pid AND same
+    start time, so a pid reused after a reboot is not mistaken for the launcher."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # another user's process holds the pid: cannot be ours, but ask
+    return process_started(pid) == started
+
+
 def acquire_lock(ledger):
     lock = ledger.directory / "lock"
     try:
         descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
         try:
-            holder = int(lock.read_text().strip())
-        except ValueError:
+            holder, started = read_lock(lock)
+        except (OSError, ValueError):
             raise Stop("lock_unreadable") from None
-        try:
-            os.kill(holder, 0)
+        if lock_holder_alive(holder, started):
             raise Stop("another_launcher_holds_the_lock", pid=holder)
-        except ProcessLookupError:
-            ledger.append("stale_lock_removed", pid=holder)
-            lock.unlink()
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except PermissionError:
-            raise Stop("another_launcher_holds_the_lock", pid=holder) from None
-    os.write(descriptor, str(os.getpid()).encode())
+        ledger.append("stale_lock_removed", pid=holder, started=started)
+        lock.unlink()
+        descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    started = process_started(os.getpid())
+    if not started:
+        os.close(descriptor)
+        lock.unlink()
+        raise Stop("own_start_time_unreadable")
+    os.write(descriptor, f"{os.getpid()}\n{started}\n".encode())
     os.close(descriptor)
     return lock
 
@@ -839,6 +1052,21 @@ class Launcher:
         self.state.setdefault("void_instances", [])
         self.state.setdefault("void_seconds_by_arm", {})
         self.state.setdefault("instance_start_seconds", {})
+        self.quiet = Path(plan["quiet_file"])
+
+    def wait_while_quiet(self, stage_id):
+        """Quiet mode (the fan guard demotes busy Python to efficiency cores at nice 19 while
+        the file exists, and cannot undo the nice) is waited out BEFORE a stage starts, so
+        no stage starts demoted against its fixed wall-time cap. Mid-stage demotion is seen
+        by supervise() and journalled; it cannot be undone without root."""
+        if not self.quiet.exists():
+            return
+        self.ledger.append("quiet_mode_wait", stage=stage_id, file=str(self.quiet))
+        waited = time.monotonic()
+        while self.quiet.exists():
+            time.sleep(QUIET_POLL_SECONDS)
+        self.ledger.append("quiet_mode_cleared", stage=stage_id,
+                           waited_seconds=time.monotonic() - waited)
 
     # -- guards
     def check_disk(self):
@@ -855,18 +1083,29 @@ class Launcher:
 
     # -- running one stage
     def run(self, stage_id, template_name, arm, forecast, values, validate, *,
-            inherited_seconds=0.0, watch_mixed=False):
+            inherited_seconds=0.0, watch_mixed=False, lineage=()):
         """Run one stage in a fresh instance. ``inherited_seconds`` is the validated parent
         endpoint's committed active seconds for a continuation, so the arm cap counts the
         whole arm and is never reset. Wall seconds spent in this arm's voided (interrupted)
         instances are charged on top, cumulatively: the arm's cap is never refilled by an
-        interrupt. ``watch_mixed`` enforces the rolling useful-mixed standing stop live."""
+        interrupt. ``lineage`` names the parent arms whose voided seconds are charged too
+        (SFT-T continues SFT-E under its own label, as RL 600 continues RL 150 under one
+        label), so an interrupt is charged the same way in every lineage. ``watch_mixed``
+        enforces the rolling useful-mixed standing stop live."""
         if stage_id in self.state["completed"]:
             return self.state["completed"][stage_id]["fragment"]
         template = self.plan["templates"][template_name]
+        self.wait_while_quiet(stage_id)
         verify_pins(self.plan)
         self.verify_screen_tokenizations()
         free = self.check_disk()
+        headroom = self.limits["minimum_free_bytes"] + self.limits["stage_headroom_bytes"]
+        if free < headroom:
+            # Not the standing stop (free is still above the reserve), and nothing of this
+            # stage has run: pause so a person can free disk, instead of starting a stage
+            # that would breach the reserve mid-run and end the study.
+            raise Pause("disk_headroom_before_stage", stage=stage_id, free_bytes=free,
+                        required_bytes=headroom)
         self.check_owners()
         cap = CAP_FACTOR * forecast
         previous = self.state["attempts"].get(stage_id, 0)
@@ -887,7 +1126,7 @@ class Launcher:
             self.ledger.save()
             self.ledger.append("arm_instance_void", reason="interrupted; never resumed or quoted",
                                **void)
-        voided = voids.get(arm, 0.0)
+        voided = sum(voids.get(name, 0.0) for name in (arm, *lineage))
         used = inherited_seconds + voided
         if used >= cap:
             raise Stop("arm_cap", arm=arm, used_seconds=used, inherited_seconds=inherited_seconds,
@@ -925,10 +1164,11 @@ class Launcher:
         self.ledger.save()
         self.ledger.append("stage_started", stage=stage_id, arm=arm, instance=instance,
                            command=command, cap_seconds=cap, inherited_seconds=inherited_seconds,
-                           void_seconds=voided, free_disk_bytes=free,
+                           void_seconds=voided, lineage=list(lineage), free_disk_bytes=free,
                            owner_poll_seconds=OWNER_POLL_SECONDS, live_useful_mixed=watch_mixed)
         monitor = MixedMonitor(arm_dir) if watch_mixed else None
-        outcome = self.supervise(stage_id, command, stage_dir, used, cap, monitor)
+        outcome = self.supervise(stage_id, command, stage_dir, used, cap, monitor,
+                                 instance=instance)
         self.ledger.append("stage_finished", stage=stage_id, **outcome)
         if outcome["reason"]:
             raise Stop(outcome["reason"], stage=stage_id)
@@ -961,18 +1201,32 @@ class Launcher:
                            fragment_sha256=sha(fragment))
         return payload
 
-    def supervise(self, stage_id, command, stage_dir, used, cap, monitor=None):
-        started, peak, reason = time.monotonic(), 0, None
+    def supervise(self, stage_id, command, stage_dir, used, cap, monitor=None, instance=None):
+        started, peak, reason, demoted = time.monotonic(), 0, None, None
         last_save = last_owner = started
         with (stage_dir / "stage.log").open("x") as log:
             child = subprocess.Popen(command, cwd=ROOT, env=dict(os.environ),
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                      start_new_session=True)
             pgid = child.pid
+            # Recorded before anything else can fail, so a launcher killed from outside
+            # (chain.py's bound, kill -9) leaves a record reap_orphan_stage() can act on.
+            self.state["running_stage"] = {"stage": stage_id, "instance": instance,
+                                           "pgid": pgid,
+                                           "leader_started": process_started(pgid)}
+            self.ledger.save()
             try:
                 while child.poll() is None:
-                    rss = sum(row[4] for row in group_members(pgid))
+                    members = group_members(pgid)
+                    rss = sum(row[4] for row in members)
                     peak = max(peak, rss)
+                    lowered = [{"pid": row[0], "nice": row[6]} for row in members
+                               if row[6] is not None and row[6] > 0]
+                    if lowered and demoted is None:
+                        # Quiet mode's fan guard (or anything else) lowered the stage's
+                        # priority mid-run. Not a stop; journalled so a cap hit is explained.
+                        demoted = lowered
+                        self.ledger.append("stage_demoted", stage=stage_id, processes=lowered)
                     elapsed = time.monotonic() - started
                     self.state["arm_wall_seconds"][stage_id] = used + elapsed
                     if time.monotonic() - last_save >= 5:
@@ -1015,13 +1269,17 @@ class Launcher:
             except BaseException:
                 stop_group(child, pgid, grace=5)
                 self.state["arm_wall_seconds"][stage_id] = used + time.monotonic() - started
+                if not group_alive(pgid):
+                    self.state.pop("running_stage", None)
                 self.ledger.save()
                 raise
         elapsed = time.monotonic() - started
         self.state["arm_wall_seconds"][stage_id] = used + elapsed
+        self.state.pop("running_stage", None)
         self.ledger.save()
         return {"exit_code": code, "reason": reason, "elapsed_seconds": elapsed,
-                "arm_wall_seconds": used + elapsed, "peak_group_rss_bytes": peak}
+                "arm_wall_seconds": used + elapsed, "peak_group_rss_bytes": peak,
+                "demoted": demoted}
 
     # -- fragment validation
     def train_validator(self, run_id, arm_name, lr, updates=None, rl=False, check=None):
@@ -1150,6 +1408,21 @@ class Launcher:
         return check
 
     @staticmethod
+    def exposure_check(manifest, then=None):
+        """SFT-E and EG-SFT: exactly RL*'s accepted presentations in order (study.json arms
+        SFT-E / EG-SFT), read from the trainer receipt's committed prompt IDs, not from the
+        manifest the template handed it."""
+        expected = jsonl_ids(manifest)
+
+        def check(f):
+            if expected is None or len(expected) != FINAL_UPDATES:
+                return "rl_star_accepted_manifest_unreadable"
+            if f.get("committed_prompt_ids") != expected:
+                return "exposure_differs_from_rl_star_accepted_sequence"
+            return then(f) if then else None
+        return check
+
+    @staticmethod
     def sft_e_boundary_check(steps):
         """SFT-E must end as a continuable endpoint: the trainer's SFT-T continuation accepts
         only a parent whose receipt is boundary_reached at its declared stop_after_steps
@@ -1164,10 +1437,20 @@ class Launcher:
         return check
 
     @staticmethod
-    def sft_t_check(parent, t_rl):
+    def sft_t_check(parent, t_rl, scanned_manifest):
         """SFT-T continues SFT-E without reset and stops at the first step at or above
-        T_RL: the step before it is still below T_RL."""
+        T_RL: the step before it is still below T_RL. Its exposure is SFT-E's, then RL*'s
+        scanned sequence from row 0, cycling (vlm_local_training: "TRAIN row 0 at global
+        step parent_global_step + 1, sequential, cycling")."""
+        scanned = jsonl_ids(scanned_manifest)
+
         def check(f):
+            ids = f.get("committed_prompt_ids")
+            p = parent["updates"]
+            if (not scanned or not isinstance(ids, list) or len(ids) != f["updates"]
+                    or ids[:p] != parent.get("committed_prompt_ids")
+                    or ids[p:] != [scanned[n % len(scanned)] for n in range(len(ids) - p)]):
+                return "sft_t_exposure_not_sft_e_then_scanned_from_row_0"
             steps = f["step_committed_active_seconds"]
             first = min(map(int, steps))
             if (first != parent["updates"] + 1
@@ -1282,13 +1565,15 @@ class Launcher:
         for split in SPLITS:
             self.assay("W", split, w["adapter_path"], w["adapter_sha256"])
         self.run("p0", "p0", "p0", forecast["p0"], {}, self.p0_validator)
-        self.freeze_screen_tokenizations(self.gate("G1"))
+        g1 = self.gate("G1")
+        self.freeze_screen_tokenizations(g1)
+        measured = self.freeze_measured_forecasts(g1)
 
         rl = {}
         for lr in self.grid:
             arm = f"rl-{lr_tag(lr)}-s{SEED}"
             run_id = f"{arm}-u{RL_SCREEN_UPDATES}"
-            rl[run_id] = self.run(run_id, "rl150", arm, forecast["rl"],
+            rl[run_id] = self.run(run_id, "rl150", arm, measured["rl"],
                                   {"run_id": run_id, "lr": repr(lr)},
                                   self.train_validator(run_id, "RL", lr, RL_SCREEN_UPDATES,
                                                        rl=True),
@@ -1306,7 +1591,7 @@ class Launcher:
             lr = parent["lr"]
             arm = f"rl-{lr_tag(lr)}-s{SEED}"
             run_id = f"{arm}-u{FINAL_UPDATES}"
-            final = self.run(run_id, "rl600", arm, forecast["rl"],
+            final = self.run(run_id, "rl600", arm, measured["rl"],
                              {"run_id": run_id, "lr": repr(lr),
                               "resume_checkpoint": parent["checkpoint"]},
                              self.train_validator(run_id, "RL", lr, FINAL_UPDATES, rl=True,
@@ -1326,7 +1611,9 @@ class Launcher:
                                   "accepted_manifest": rl_star["accepted_manifest"]},
                                  self.train_validator(
                                      run_id, "SFT-E", lr, FINAL_UPDATES,
-                                     check=self.sft_e_boundary_check(FINAL_UPDATES)))
+                                     check=self.exposure_check(
+                                         rl_star["accepted_manifest"],
+                                         self.sft_e_boundary_check(FINAL_UPDATES))))
             self.assay_fragment(sft_e[lr], "h_select")
         _, sft_e_star, _ = self.study().select_sft_e()
         self.record_selection("sft_e_star", sft_e_star["run_id"])
@@ -1351,9 +1638,12 @@ class Launcher:
                                 {"run_id": run_id, "lr": repr(lr), "t_rl": repr(t_rl),
                                  "scanned_manifest": rl_star["scanned_manifest"],
                                  "parent_checkpoint": parent["checkpoint"]},
-                                self.train_validator(run_id, "SFT-T", lr,
-                                                     check=self.sft_t_check(parent, t_rl)),
-                                inherited_seconds=parent["committed_active_seconds"])
+                                self.train_validator(
+                                    run_id, "SFT-T", lr,
+                                    check=self.sft_t_check(parent, t_rl,
+                                                           rl_star["scanned_manifest"])),
+                                inherited_seconds=parent["committed_active_seconds"],
+                                lineage=(f"sft-e-{lr_tag(lr)}-s{SEED}",))
             self.assay_fragment(fragment, "h_select")
         _, sft_t_star = self.study().select_sft_t()
         self.record_selection("sft_t_star", sft_t_star["run_id"])
@@ -1362,10 +1652,12 @@ class Launcher:
 
         lr = sft_e_star["lr"]
         run_id = f"egsft-{lr_tag(lr)}-s{SEED}"
-        eg = self.run(run_id, "egsft", run_id, forecast["egsft"],
+        eg = self.run(run_id, "egsft", run_id, measured["egsft"],
                       {"run_id": run_id, "lr": repr(lr),
                        "accepted_manifest": rl_star["accepted_manifest"]},
-                      self.train_validator(run_id, "EG-SFT", lr, FINAL_UPDATES))
+                      self.train_validator(run_id, "EG-SFT", lr, FINAL_UPDATES,
+                                           check=self.exposure_check(
+                                               rl_star["accepted_manifest"])))
         self.assay_fragment(eg, "h_gate")
         self.final_check()
 
@@ -1416,6 +1708,54 @@ class Launcher:
         self.ledger.append("screen_tokenizations_frozen", **entry)
         return entry
 
+    def freeze_measured_forecasts(self, g1):
+        """Protocol activation_prerequisites: "Freeze per-arm forecast active seconds (for
+        the 1.25x caps) from measured pilot timing before the arm starts". Frozen once,
+        after G1 and before any RL stage, from P0's measured acceptance a and scorer seconds
+        per candidate s (G1's own values), and the frozen tokenization file's mean number
+        of scored sequences per S_scan_seed42 row k (1 unless the alt-tokenization switch
+        fired: the trainer runs one teacher-forced forward per sequence):
+            RL     = N x (grpo_seconds_per_update + s k / a)
+            EG-SFT = N x (sft_seconds_per_update + s k)
+        with N the final update count and the per-update seconds the plan's measured
+        controlled400 values (forecast_sources). The plan's RL and EG-SFT forecasts are the
+        study's assumptions and are NOT used for a cap."""
+        if "measured_forecasts" in self.state:
+            return self.state["measured_forecasts"]
+        values = g1.get("values") or {}
+        a, s = values.get("acceptance"), values.get("scorer_seconds_per_candidate")
+        if not is_number(a) or not 0 < a <= 1 or not is_number(s) or s <= 0:
+            raise Stop("g1_timing_inputs_invalid", acceptance=a, scorer_seconds=s)
+        tokenizations = json.loads(Path(self.state["screen_tokenizations"]["path"]).read_text())
+        canonical = {}
+        for group in self.state["completed"]["p0"]["fragment"]["rollouts"]:
+            for completion in group["completions"]:
+                if (completion.get("correct") is True
+                        and completion.get("canonical_tokenization") is True):
+                    canonical.setdefault(group["id"], tuple(completion["completion_ids"]))
+        labels = {row["id"]: row["label"]
+                  for row in read_jsonl(self.g0["manifests"]["manifest_s_scan_seed42"])}
+        canonical_by_label = {labels[i]: ids for i, ids in canonical.items() if i in labels}
+        extra = {label: sum(tuple(seq) != canonical_by_label.get(label) for seq in seqs)
+                 for label, seqs in tokenizations["sequences"].items()}
+        k = sum(1 + extra.get(label, 0) for label in labels.values()) / len(labels)
+        sources = self.plan["forecast_sources"]
+        frozen = {
+            "rl": FINAL_UPDATES * (sources["grpo_seconds_per_update"] + s * k / a),
+            "egsft": FINAL_UPDATES * (sources["sft_seconds_per_update"] + s * k),
+            "inputs": {"acceptance": a, "scorer_seconds_per_candidate": s,
+                       "mean_scored_sequences_per_row": k, "updates": FINAL_UPDATES,
+                       "grpo_seconds_per_update": sources["grpo_seconds_per_update"],
+                       "sft_seconds_per_update": sources["sft_seconds_per_update"]},
+            "plan_assumed": {"rl": self.plan["forecast_seconds"]["rl"],
+                             "egsft": self.plan["forecast_seconds"]["egsft"]},
+            "cap_factor": CAP_FACTOR,
+        }
+        self.state["measured_forecasts"] = frozen
+        self.ledger.save()
+        self.ledger.append("forecasts_frozen_from_measured_pilot", **frozen)
+        return frozen
+
     def verify_screen_tokenizations(self):
         entry = self.state.get("screen_tokenizations")
         if entry is not None and (not Path(entry["path"]).is_file()
@@ -1456,6 +1796,18 @@ def refused(reason, **detail):
     return 2
 
 
+INTERRUPTS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+
+
+def interrupt_once(_signum, _frame):
+    """The first SIGTERM/SIGINT/SIGHUP becomes one KeyboardInterrupt; later ones are ignored
+    so a second signal cannot abort the stage group's own cleanup (stop_group) half way and
+    leave the stage running unsupervised."""
+    for signum in INTERRUPTS:
+        signal.signal(signum, signal.SIG_IGN)
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--plan", type=Path, required=True)
@@ -1477,6 +1829,14 @@ def main(argv=None):
         return 0
     directory = resolve(plan["state_directory"])
     ledger = Ledger(directory)
+    if not args.resume:
+        # A second owner already present is a refusal, not a stop: nothing has started.
+        try:
+            owners = second_owners(plan["owner_patterns"])
+        except (subprocess.SubprocessError, OSError) as exc:
+            return refused("owner_scan_failed", error=f"{type(exc).__name__}: {exc}")
+        if owners:
+            return refused("second_accelerator_owner_present", processes=owners)
     if args.resume:
         ledger.state = read_json(ledger.state_path)
         if not isinstance(ledger.state, dict):
@@ -1502,8 +1862,29 @@ def main(argv=None):
         lock = acquire_lock(ledger)
     except Stop as stop:
         return refused(stop.reason, **stop.detail)
-    previous = signal.signal(signal.SIGTERM,
-                             lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    if args.resume:
+        # A stage group a dead launcher left behind is ours: stop it before the owner scan
+        # would count it as a second owner. Anything else present refuses the resume
+        # (state untouched, still running) rather than stopping the study.
+        reaped = reap_orphan_stage(ledger.state, directory)
+        if reaped is not None:
+            ledger.append("orphan_stage_reaped", **reaped)
+            if reaped["outcome"] == "still_alive":
+                lock.unlink(missing_ok=True)
+                return refused("orphan_stage_still_alive", **reaped)
+            ledger.state.pop("running_stage", None)
+            ledger.save()
+        try:
+            owners = second_owners(plan["owner_patterns"])
+        except (subprocess.SubprocessError, OSError) as exc:
+            lock.unlink(missing_ok=True)
+            return refused("owner_scan_failed", error=f"{type(exc).__name__}: {exc}")
+        if owners:
+            ledger.append("resume_refused_second_owner", processes=owners)
+            ledger.save()
+            lock.unlink(missing_ok=True)
+            return refused("second_accelerator_owner_present", processes=owners)
+    previous = {signum: signal.signal(signum, interrupt_once) for signum in INTERRUPTS}
     try:
         ledger.append("launch_resumed" if args.resume else "launch_started", pid=os.getpid(),
                       plan_sha256=args.expected_plan_sha256, g0=g0["checks"],
@@ -1518,6 +1899,12 @@ def main(argv=None):
                       note="the interrupted stage re-runs from scratch; never resumed")
         ledger.save()
         code = 3
+    except Pause as pause:
+        ledger.append("launch_paused", resumable=True, reason=pause.reason, **pause.detail)
+        ledger.state["next_action"] = (f"paused before {pause.detail.get('stage')}: "
+                                       f"{pause.reason}; fix it, then start.py --resume")
+        ledger.save()
+        code = 3
     except Exception as exc:
         stop = exc if isinstance(exc, Stop) else Stop(
             "unexpected_exception", error=f"{type(exc).__name__}: {exc}",
@@ -1528,7 +1915,8 @@ def main(argv=None):
         ledger.save()
         code = 2
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
         lock.unlink(missing_ok=True)
     print(json.dumps({"status": ledger.state["status"],
                       "stop_reason": ledger.state.get("stop_reason"),

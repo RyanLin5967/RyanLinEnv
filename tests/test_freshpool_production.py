@@ -61,8 +61,17 @@ def test_committed_activated_protocol_passes_launch_g0():
     assert ACTIVATED["revises"]["baseline_discovery_salt"]["literal"] == PROTOCOL_ID
     differing = sorted(k for k in set(ACTIVATED) | set(REVISION)
                        if ACTIVATED.get(k) != REVISION.get(k))
-    assert differing == ["activated", "activation", "protocol_id", "status"]
+    assert differing == ["activated", "activation", "protocol_id", "root_review_status",
+                         "status"]
     assert REVISION["activated"] is False  # the revision itself stays unactivated
+    # The copy no longer says "no study activation ... authorized by this document".
+    assert "no study activation" not in ACTIVATED["root_review_status"].split("('")[0]
+    assert "D24" in ACTIVATED["root_review_status"]
+    # Each of the protocol's activation prerequisites is accounted for, by index.
+    prerequisites = ACTIVATED["activation"]["prerequisites"]
+    assert [p["item"] for p in prerequisites] == list(
+        range(len(REVISION["activation_prerequisites"]))) == list(range(6))
+    assert "freeze_measured_forecasts" in prerequisites[5]["how"]
 
 
 def test_committed_decision_record_retires_the_16_shot_plan():
@@ -127,6 +136,20 @@ def test_plan_is_mps_production_not_dry_run():
     assert PLAN["limits"]["minimum_free_bytes"] == 5 * 1024**3
     for template in PLAN["templates"].values():
         assert set(flag(template["argv"], "--device")) <= {"mps"}
+    # The interpreter is pinned as what the venv link resolves to, and re-resolved per stage.
+    assert PLAN["python"] == "/Users/idide/RyanLinEnv/.venv-detection/bin/python"
+    assert PLAN["python_resolved"].startswith("/opt/homebrew/Cellar/python@3.12/")
+    assert PLAN["python_resolved"] in PLAN["file_sha256"]
+    assert PLAN["import_root"] == "src" and PLAN["quiet_file"] == "/Users/idide/.claude/QUIET"
+
+
+def test_owner_patterns_do_not_name_the_launcher_or_match_test_files():
+    launch = load_launch()
+    assert "freshpool_launch/launch.py" not in PLAN["owner_patterns"]
+    assert "phase_worker.py" in PLAN["owner_patterns"]
+    for test in sorted((ROOT / "tests").glob("test_*.py")):
+        command = f"/v/bin/python -m pytest -q tests/{test.name}"
+        assert not any(launch.names_pattern(command, p) for p in PLAN["owner_patterns"]), test
 
 
 STUDY_PROFILE = {"--response-format": "answer_only", "--dtype": "float32",
@@ -213,6 +236,16 @@ def test_disk_requirement_refuses(tmp_path):
     assert caught.value.reason == "disk_below_reserve_plus_study_output"
 
 
+def test_disk_requirements_are_measured_and_match_the_launcher():
+    # 18 trainer outputs at the largest controlled400 one (107,084 KiB by du -sk) + 128 MiB.
+    assert start.STUDY_OUTPUT_BYTES == 18 * 107084 * 1024 + 128 * 1024**2
+    plan = PRODUCTION / "plan.json"
+    assert start.required_disk(plan, resume=False) == 5 * 1024**3 + start.STUDY_OUTPUT_BYTES
+    # A resume needs exactly what launch.py needs before every stage, no more.
+    assert start.required_disk(plan, resume=True) == 5 * 1024**3 + 4 * 107084 * 1024
+    assert PLAN["limits"]["stage_headroom_bytes"] == 4 * 107084 * 1024
+
+
 def test_state_rules(tmp_path):
     state = tmp_path / "state"
     assert start.check_state(state, resume=False) is None
@@ -228,12 +261,16 @@ def test_state_rules(tmp_path):
     (state / "lock").write_text("")  # created, pid not yet written: ask, never allow
     with pytest.raises(start.Refused, match="lock_unreadable"):
         start.check_state(state, resume=True)
-    (state / "lock").write_text(str(os.getpid()))
+    launch = load_launch()
+    (state / "lock").write_text(f"{os.getpid()}\n{launch.process_started(os.getpid())}\n")
     with pytest.raises(start.Refused, match="launcher_still_running"):
         start.check_state(state, resume=True)
+    # The same pid with another start time is a pid reused after a reboot: not running.
+    (state / "lock").write_text(f"{os.getpid()}\nThu Jan  1 00:00:00 1970\n")
+    assert start.check_state(state, resume=True)["status"] == "running"
     dead = subprocess.Popen([sys.executable, "-c", "pass"])
     dead.wait()
-    (state / "lock").write_text(str(dead.pid))
+    (state / "lock").write_text(f"{dead.pid}\nThu Jan  1 00:00:00 1970\n")
     assert start.check_state(state, resume=True)["status"] == "running"
 
 
@@ -262,26 +299,67 @@ def git(directory, *args):
 
 
 def test_frozen_worktree_rules(tmp_path):
-    repo, frozen = tmp_path / "repo", tmp_path / "frozen.noindex"
-    repo.mkdir()
-    git(repo, "init", "-q")
-    (repo / "a.txt").write_text("one")
-    git(repo, "add", "a.txt")
-    git(repo, "commit", "-q", "-m", "one")
-    with pytest.raises(start.Refused, match="frozen_worktree_missing"):
-        start.frozen_worktree(repo, frozen, resume=True)
-    first = start.frozen_worktree(repo, frozen, resume=False)
-    assert (frozen / "a.txt").read_text() == "one"
-    assert start.frozen_worktree(repo, frozen, resume=False) == first  # reused, same commit
-    (repo / "a.txt").write_text("two")
-    git(repo, "commit", "-q", "-am", "two")
-    with pytest.raises(start.Refused, match="frozen_worktree_at_another_commit"):
-        start.frozen_worktree(repo, frozen, resume=False)
-    # A resume keeps the frozen commit even though the checkout moved on.
-    assert start.frozen_worktree(repo, frozen, resume=True) == first
-    (frozen / "a.txt").write_text("edited in place")
+    origin, frozen = tmp_path / "origin", tmp_path / "frozen.noindex"
+    origin.mkdir()
+    git(origin, "init", "-q", "-b", "main")
+    (origin / "a.txt").write_text("one")
+    git(origin, "add", "a.txt")
+    git(origin, "commit", "-q", "-m", "one")
+    git(tmp_path, "clone", "-q", str(origin), str(frozen))
+    here = frozen / "scripts" / "freshpool_launch" / "production"  # start.py's directory
+    # Run from anywhere else: refused, with the command that makes the frozen worktree.
+    with pytest.raises(start.Refused, match="start_not_run_from_frozen_worktree"):
+        start.frozen_worktree(PRODUCTION, frozen)
+    commit = start.frozen_worktree(here, frozen)
+    assert len(commit) == 40
+    # An untracked file (an unpinned src/sitecustomize.py, say) is a modification too.
+    (frozen / "sitecustomize.py").write_text("")
     with pytest.raises(start.Refused, match="frozen_worktree_modified"):
-        start.frozen_worktree(repo, frozen, resume=True)
+        start.frozen_worktree(here, frozen)
+    (frozen / "sitecustomize.py").unlink()
+    # A commit that is not on origin/main (an unmerged branch head) is refused.
+    (frozen / "a.txt").write_text("two")
+    git(frozen, "commit", "-q", "-am", "unmerged")
+    with pytest.raises(start.Refused, match="frozen_commit_not_on_origin_main"):
+        start.frozen_worktree(here, frozen)
+
+
+def test_verify_only_timeout_is_a_refusal(tmp_path):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"python": sys.executable}))
+    launcher = tmp_path / "scripts" / "freshpool_launch" / "launch.py"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("import time\ntime.sleep(30)\n")
+    with pytest.raises(start.Refused, match="verify_only_timed_out"):
+        start.verify(tmp_path, plan, "0" * 64, dict(os.environ), timeout=1)
+
+
+def test_launched_only_after_the_launcher_journals_its_start(tmp_path):
+    state, log = tmp_path / "state", tmp_path / "chain.log"
+    refusal = {"status": "refused", "reason": "second_accelerator_owner_present"}
+    log.write_text("x\n" + json.dumps(refusal) + "\n")
+    exited = subprocess.Popen([sys.executable, "-c", "pass"])
+    exited.wait()
+    with pytest.raises(start.Refused) as caught:
+        start.confirm_started(exited, state, log, since=0.0, resume=False, seconds=10)
+    assert caught.value.reason == "launcher_exited_before_starting"
+    assert "second_accelerator_owner_present" in caught.value.detail["log_tail"][-1]
+    running = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        with pytest.raises(start.Refused, match="launcher_start_not_confirmed"):
+            start.confirm_started(running, state, log, since=0.0, resume=False, seconds=1)
+        state.mkdir()
+        (state / "journal.jsonl").write_text(json.dumps(
+            {"event": "launch_started", "time": time.time()}) + "\n")
+        assert start.confirm_started(running, state, log, since=0.0, resume=False,
+                                     seconds=10) == "launch_started"
+        # A resume needs a launch_resumed newer than its own start.
+        with pytest.raises(start.Refused, match="launcher_start_not_confirmed"):
+            start.confirm_started(running, state, log, since=time.time() + 60, resume=True,
+                                  seconds=1)
+    finally:
+        running.kill()
+        running.wait()
 
 
 def test_plan_identity_refuses_a_changed_plan(tmp_path):
@@ -387,6 +465,73 @@ def test_chain_kills_a_launcher_that_ignores_the_bound(tmp_path):
     assert finished["max_seconds_reached"] is True and finished["killed_after_bound"] is True
 
 
+STAGE_LEFT_RUNNING = """
+import json, signal, subprocess, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+state = Path(sys.argv[sys.argv.index("--plan") + 1]).parent / "state"
+state.mkdir(exist_ok=True)
+stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+                         start_new_session=True)
+started = subprocess.run(["ps", "-o", "lstart=", "-p", str(stage.pid)], capture_output=True,
+                         text=True).stdout.strip()
+(state / "stage.pid").write_text(str(stage.pid))
+(state / "state.json").write_text(json.dumps({"status": "running", "running_stage": {
+    "stage": "e0", "instance": 1, "pgid": stage.pid, "leader_started": started}}))
+time.sleep(120)
+"""
+
+
+def test_chain_kill_after_bound_also_stops_the_stage_group(tmp_path):
+    """A launcher that ignores the bound's SIGTERM is SIGKILLed; its stage, in its own
+    session, must not survive it (reviewer: it was left holding the GPU unguarded)."""
+    command, record = run_chain(tmp_path, "hang", "--max-seconds", "2",
+                                "--kill-after-seconds", "2")
+    (tmp_path / "scripts" / "freshpool_launch" / "launch.py").write_text(STAGE_LEFT_RUNNING)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+    assert result.returncode != 0, result.stderr
+    finished = json.loads(record.read_text())
+    assert finished["launcher_exit_code"] == -signal.SIGKILL
+    assert finished["killed_after_bound"] is True
+    assert finished["orphan_stage"]["outcome"] == "stopped"
+    pid = int((tmp_path / "state" / "stage.pid").read_text())
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        ps = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True,
+                            text=True).stdout.strip()
+        if not ps or ps.startswith("Z"):
+            break
+        time.sleep(0.1)
+    assert not ps or ps.startswith("Z")
+
+
+def test_live_study_guard_refuses_owner_naming_test_modules(tmp_path):
+    import live
+
+    plan = tmp_path / "plan.json"
+    state = tmp_path / "state"
+    plan.write_text(json.dumps({"state_directory": str(state),
+                                "owner_patterns": ["local_vision.py"]}))
+    assert live.study_running(plan) is None  # no state directory
+    state.mkdir()
+    (state / "state.json").write_text("{")  # unreadable: ask, never allow
+    assert live.study_running(plan) == str(state / "state.json")
+    (state / "state.json").write_text(json.dumps({"status": "stopped"}))
+    assert live.study_running(plan) is None
+    (state / "state.json").write_text(json.dumps({"status": "running"}))
+    assert live.study_running(plan) == str(state / "state.json")
+    quiet = tmp_path / "test_plain.py"
+    quiet.write_text("def test_x():\n    pass\n")
+    spawner = tmp_path / "test_spawner.py"
+    spawner.write_text("CMD = ['python', 'scripts/freshpool_launch/phase_worker.py']\n")
+    assert live.owner_naming_modules([quiet, spawner], live.patterns(plan)) == [str(spawner)]
+    # The real repository's launcher tests are among the refused ones.
+    names = live.patterns(PRODUCTION / "plan.json")
+    refused = live.owner_naming_modules(sorted((ROOT / "tests").glob("test_*.py")), names)
+    assert str(ROOT / "tests" / "test_freshpool_launch.py") in refused
+    assert str(ROOT / "tests" / "test_core.py") not in refused
+
+
 def test_status_reads_a_running_stage(tmp_path):
     state = tmp_path / "state"
     stage_log = state / "stages" / "p0" / "instance-1" / "stage.log"
@@ -404,7 +549,7 @@ def test_status_reads_a_running_stage(tmp_path):
     (state / "journal.jsonl").write_text("".join(json.dumps(e) + "\n" for e in journal))
     (state / "state.json").write_text(json.dumps({"status": "running", "next_action": "p0",
                                                   "completed": {"e0": {}}, "gates": {}}))
-    (state / "lock").write_text(str(os.getpid()))
+    (state / "lock").write_text(f"{os.getpid()}\nsome start time\n")
     report = status.summary(state, events=3, log_lines=1)
     assert report["status"] == "running" and report["launcher_alive"] is True
     running = report["running_stage"]

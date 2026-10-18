@@ -47,6 +47,11 @@ Checks (every one must be true; the launcher's E0 validator requires exactly thi
   active_time_ledger_cumulative   in every run the committed active seconds per step are
                                   1..4, nondecreasing across the resume boundary, and end at
                                   the receipt's committed seconds
+  scorer_seconds_within_active_time
+                                  in every run the trainer's scorer seconds inside committed
+                                  active time equal the committed screen journal's scorer
+                                  seconds (no discarded or unledgered scorer work), positive
+                                  and at most the committed active seconds
 plus ``sampler_teacher_max_abs_logprob_difference``: the largest of the three runs' trainer
 parity (sampled vs teacher-forced token log-probabilities after the same suppression,
 float32), which the launcher bounds by 0.001.
@@ -94,7 +99,9 @@ CHECKS = (
     "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
     "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
     "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+    "scorer_seconds_within_active_time",
 )
+SCORER_TOLERANCE_SECONDS = 1e-6  # float summation order only; every span is one monotonic read
 
 
 class E0Error(RuntimeError):
@@ -199,15 +206,16 @@ def read_run(directory, name):
     for entry in read_jsonl(directory / "optimizer_audit.jsonl"):
         seconds[entry["step"]] = entry  # last row per step: the committed one
     parts = sorted(directory.parent.glob(f"{name}-part*-record.json"))
+    entries = vlt.committed_screen_entries(checkpoint)
     return {
         "directory": str(directory),
         "receipt": receipt,
+        "committed_scorer_seconds": sum(e["scorer_seconds"] for e in entries),
         "record": record,
         "part_records": [json.loads(p.read_text()) for p in parts],
         "global_step": receipt["global_step"],
         "adapter_sha256": receipt["final_adapter"]["weights_sha256"],
-        "screen": [{k: e[k] for k in SCREEN_KEYS}
-                   for e in vlt.committed_screen_entries(checkpoint)],
+        "screen": [{k: e[k] for k in SCREEN_KEYS} for e in entries],
         "reward_groups": [{k: g[k] for k in GROUP_KEYS} for g in groups],
         "groups": groups,
         "exposure": receipt["committed_prompt_ids"],
@@ -252,6 +260,24 @@ def ledger_cumulative(run):
             and all(type(v) in (int, float) and math.isfinite(v) and v > 0 for v in values)
             and all(b >= a for a, b in zip(values, values[1:]))
             and values[-1] == run["receipt"]["committed_active_seconds"])
+
+
+def scorer_within_active(run):
+    """Protocol activation_prerequisites: committed active time "including scorer seconds
+    and discarded-work accounting". The trainer's own sub-account of scorer seconds spent
+    inside committed step spans (physical_work observed_scorer_seconds_within_active, summed
+    over every invocation of the run) must equal the committed screen journal's scorer
+    seconds: an uninterrupted run and a resume from a complete boundary discard nothing, so
+    any difference is scorer work outside the ledger or a discarded span counted. Both must
+    be positive and within the committed active seconds that T_RL is read from."""
+    observed = (run["receipt"].get("physical_work") or {}).get(
+        "observed_scorer_seconds_within_active")
+    committed = run["committed_scorer_seconds"]
+    active = run["receipt"].get("committed_active_seconds")
+    numbers = [observed, committed, active]
+    return (all(type(v) in (int, float) and math.isfinite(v) for v in numbers)
+            and committed > 0 and committed <= active
+            and abs(observed - committed) <= SCORER_TOLERANCE_SECONDS + 1e-9 * committed)
 
 
 def evaluate(runs, tamper, w_sha, scan_ids):
@@ -310,6 +336,7 @@ def _evaluate(runs, tamper, w_sha, scan_ids):
                 for p in (r["record"].get("sampler_teacher_logprob_parity") or {}
                           for r in every)),
         "active_time_ledger_cumulative": all(ledger_cumulative(r) for r in every),
+        "scorer_seconds_within_active_time": all(scorer_within_active(r) for r in every),
     }
     parities = [r["record"].get("sampler_teacher_logprob_parity") or {} for r in every]
     errors = [p.get("max_abs_logprob_error_after_same_suppression") for p in parities]

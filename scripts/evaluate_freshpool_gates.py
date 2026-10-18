@@ -26,8 +26,8 @@ the committed active seconds of the same seed's RL endpoint at RL*'s LR and 600 
 Every non-W endpoint must have an adapter different from W's, and every RL endpoint must
 keep W's adapter as its KL reference; each gate checks the endpoints it first uses.
 
-Interpretations to ratify before activation (the study text admits more than one reading;
-each is a choice made here, not a quotation):
+Interpretations, ratified at activation (docs/decision-log-2026-10-16-claude.md D24; the
+study text admits more than one reading; each is a choice made here, not a quotation):
   * "Sampled macro" on H-select / H-gate is the mean-class accuracy over EVERY completion
     per image, greedy included (5 on H-select: greedy + one G4 seed; 9 on H-gate: greedy +
     two G4 seeds), each image's completions resampled together. The other reading, only the
@@ -36,6 +36,9 @@ each is a choice made here, not a quotation):
   * G3a "validity and EOS held" reuses G1's 0.90 and 0.95.
   * G1's 64 rollout images are any 64 of the first 400 scanned candidates, as the study
     says ("64 of them"); they are not required to be accepted ones.
+  * The alt-tokenization share counts, among correct G1 completions, only bare-label
+    completions whose token IDs differ from gold+EOS; a correct completion with a think
+    block or tags is in the denominator only.
 
 Blind spots, stated: this cannot see whether a VAL/TEST look was the first one (the
 look ledger is the phase worker's), whether predictions came from the stated adapter,
@@ -166,6 +169,8 @@ def gate_g1(g1, w_adapter):
     accepted = [entry for entry in journal if entry["accepted"]]
     completions = [c for g in rollouts for c in g["completions"]]
     correct = [c for c in completions if c["correct"]]
+    if any(type(c.get("label_only")) is not bool for c in correct):
+        raise ValueError("G1 correct completions must state label_only (bare label or not)")
     mixed = sum(len({c["correct"] for c in g["completions"]}) == 2 for g in rollouts)
     values = {
         "acceptance": len(accepted) / len(journal),
@@ -175,9 +180,13 @@ def gate_g1(g1, w_adapter):
         "valid": sum(c["valid"] for c in completions) / len(completions),
         "eos": sum(c["eos"] for c in completions) / len(completions),
         "scorer_seconds_per_candidate": sum(e["scorer_seconds"] for e in journal) / len(journal),
+        # study.json alt_tokenization_switch: ">2% of correct P0 samples are non-canonical
+        # tokenizations". Only a bare label is a tokenization of gold+EOS at all; a correct
+        # completion that carried a think block or tags is not one, so it counts in the
+        # denominator (correct samples) and never in the numerator.
         "non_canonical_share_of_correct": (
-            sum(not c["canonical_tokenization"] for c in correct) / len(correct)
-            if correct else None
+            sum(c["label_only"] and not c["canonical_tokenization"] for c in correct)
+            / len(correct) if correct else None
         ),
     }
     gap = abs(values["observed_useful_mixed"] - values["predicted_useful_mixed"])

@@ -476,16 +476,27 @@ def write_plan(fixture, directory, sentinel):
     plan = {
         "schema": "freshpool-launch-plan-v1",
         "python": sys.executable,
+        "python_resolved": os.path.realpath(sys.executable),
+        # No repository import tree on PYTHONPATH (vision_rl comes from the installed
+        # package); launch.py refuses one that carries vision_rl unpinned.
+        "import_root": None,
+        # Never the machine's quiet-mode file: a dry run must not wait on it.
+        "quiet_file": str(directory / "QUIET-not-used"),
         "state_directory": str(directory / "state"),
         "evaluator": str(EVALUATOR),
         "environment": ENVIRONMENT,
         "dry_run": True,
-        "file_sha256": {str(path): sha(path) for path in pinned},
+        "file_sha256": {**{str(path): sha(path) for path in pinned},
+                        os.path.realpath(sys.executable): sha(os.path.realpath(sys.executable))},
         "limits": {"minimum_free_bytes": 5 * GiB, "rss_limit_bytes": 12 * GiB,
-                   "survivor_grace_seconds": 10, "poll_seconds": 0.25},
+                   "survivor_grace_seconds": 10, "poll_seconds": 0.25,
+                   "stage_headroom_bytes": 256 * 1024**2},
         # Caps are scale.CAP_FACTOR x these wall seconds.
         "forecast_seconds": {"e0": 60, "p0": 30, "assay_h_select": 20, "assay_h_gate": 20,
                              "rl": 30, "sft_e": 20, "egsft": 20},
+        # The RL and EG-SFT caps are frozen after G1 from P0's measured timing and these
+        # per-update seconds (scaled: 30 s / 6 updates; 20 s / 6 updates).
+        "forecast_sources": {"grpo_seconds_per_update": 5.0, "sft_seconds_per_update": 3.3},
         "templates": templates(fixture),
         "b4_edge_extension": False,
         "w_endpoint": {"adapter_sha256": fixture["w_sha"],
@@ -750,6 +761,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--work", type=Path, required=True, help="new directory for everything")
     args = parser.parse_args(argv)
+    sys.path.insert(0, str(LAUNCH_DIR / "production"))
+    import live  # noqa: E402
+
+    running = live.study_running()
+    if running is not None:
+        raise SystemExit(f"refused: the production freshpool study is running ({running}); "
+                         "the dry run's processes would load the machine it is timed on")
     work = args.work.resolve()
     if work.exists():
         raise SystemExit(f"{work} exists; the dry run needs a new directory")

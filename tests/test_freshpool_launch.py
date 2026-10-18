@@ -57,6 +57,7 @@ SPLIT_ROWS = {"h_select": H_SELECT, "h_gate": H_GATE}
 # The S_scan_seed42 manifest: random.Random(42).shuffle(sorted(ids)), written out here.
 SCAN = sorted(f"x{i:04d}" for i in range(1300))
 random.Random(42).shuffle(SCAN)
+PYTHON_SHA = hashlib.sha256(Path(os.path.realpath(sys.executable)).read_bytes()).hexdigest()
 
 FAKE_TRAINER = '''
 import argparse, json, os, signal, subprocess, sys, time
@@ -221,12 +222,25 @@ def series(*pieces):
     return steps
 
 
-def train(run_id, arm, lr, updates, seconds, steps, manifests=None):
+# RL* (rl-1e-04-s42-u600) accepted SCAN[:600] and scanned SCAN[:1200]: SFT-E and EG-SFT
+# present exactly the accepted sequence; SFT-T presents SFT-E's, then the scanned sequence
+# from row 0, cycling (the trainer's continuation rule).
+RL_STAR_ACCEPTED, RL_STAR_SCANNED = SCAN[:600], SCAN[:1200]
+
+
+def sft_t_exposure(updates):
+    return RL_STAR_ACCEPTED + [RL_STAR_SCANNED[n % len(RL_STAR_SCANNED)]
+                               for n in range(updates - 600)]
+
+
+def train(run_id, arm, lr, updates, seconds, steps, manifests=None, exposure=None):
     payload = {"status": "completed", "run_id": run_id, "arm": arm, "lr": lr, "seed": 42,
                "updates": updates, "committed_active_seconds": seconds,
                "step_committed_active_seconds": steps,
                "adapter_sha256": sha_text(run_id), "reference_sha256": W_SHA,
-               "useful_mixed": [True] * updates if manifests else [], "make_checkpoint": True}
+               "useful_mixed": [True] * updates if manifests else [], "make_checkpoint": True,
+               "committed_prompt_ids": exposure if exposure is not None else (
+                   manifests["accepted"] if manifests else RL_STAR_ACCEPTED)}
     if manifests:
         payload["make_manifests"] = manifests
     return {"payload": payload}
@@ -264,6 +278,7 @@ E0_CHECKS = (
     "initial_adapter_is_w", "reference_unchanged", "altered_reference_checkpoint_refused",
     "useful_mixed_group", "finite_nonzero_task_gradient", "lora_parameter_changed",
     "scorer_uses_sampler_transform", "active_time_ledger_cumulative",
+    "scorer_seconds_within_active_time",
 )
 
 
@@ -307,7 +322,8 @@ def scenario(p0_pass=True):
         # Continues SFT-E's clock at step 601 and stops at the first step >= T_RL.
         s[run_id] = train(run_id, "SFT-T", lr, SFT_T_UPDATES, T_RL,
                           series((601, SFT_T_UPDATES - 1, parent + 0.5, T_RL - 0.3),
-                                 (SFT_T_UPDATES, SFT_T_UPDATES, T_RL, T_RL)))
+                                 (SFT_T_UPDATES, SFT_T_UPDATES, T_RL, T_RL)),
+                          exposure=sft_t_exposure(SFT_T_UPDATES))
         s[f"{run_id}-h_select"] = assay(run_id, "h_select", sha_text(run_id), correct)
     s["sft-t-5e-05-s42-h_gate"] = assay("sft-t-5e-05-s42", "h_gate",
                                         sha_text("sft-t-5e-05-s42"), 6)
@@ -497,15 +513,24 @@ class Fixture:
             "file_sha256": {str(self.evaluator): sha_file(self.evaluator),
                             str(PACKAGE / "phase_worker.py"): sha_file(
                                 PACKAGE / "phase_worker.py"),
-                            str(self.entry): entry_sha},
+                            str(self.entry): entry_sha,
+                            os.path.realpath(sys.executable): PYTHON_SHA},
             "environment": self.environment,
+            "python_resolved": os.path.realpath(sys.executable),
+            "import_root": None,
+            "quiet_file": str(self.overrides.get("quiet_file", self.tmp / "QUIET")),
             "limits": {"minimum_free_bytes": self.overrides.get("reserve", 5 * GiB),
                        "rss_limit_bytes": self.overrides.get("rss", 64 * GiB),
                        "survivor_grace_seconds": self.overrides.get("grace", 3),
-                       "poll_seconds": 0.05},
+                       "poll_seconds": 0.05,
+                       "stage_headroom_bytes": self.overrides.get("headroom", 0)},
             "forecast_seconds": {"e0": self.overrides.get("e0_forecast", 600), "p0": 600,
                                  "assay_h_select": 600, "assay_h_gate": 600, "rl": 2000,
                                  "sft_e": 600, "egsft": 600},
+            # Measured RL / EG-SFT forecasts are frozen after G1 from these and P0's own
+            # timing: G1 here has acceptance 1.0 and scorer 1.0 s, so RL = 600 x 2 s.
+            "forecast_sources": {"grpo_seconds_per_update": self.overrides.get("grpo_s", 1.0),
+                                 "sft_seconds_per_update": 1.0},
             "templates": templates,
             "b4_edge_extension": False,
             "w_endpoint": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "w")},
@@ -604,9 +629,15 @@ def test_interrupted_arm_is_rerun_from_scratch_never_resumed(tmp_path, monkeypat
     # The assays read the endpoint's final adapter, not its optimizer checkpoint.
     assert argv_value(by_stage["sft-t-5e-05-s42-h_gate"], "--adapter").endswith(
         "arms/sft-t-5e-05-s42/instance-1/final_adapter")
-    # 1.25x caps: RL 1.25 * 2000, SFT-T 1.25 * T_RL.
-    assert argv_value(by_stage["rl-5e-05-s42-u150"], "--cap") == "2500.0"
+    # 1.25x caps. RL's forecast is frozen after G1 from P0's measured timing, not the
+    # plan's assumed 2000 s: 600 x (grpo 1.0 s + scorer 1.0 s x 1 sequence / acceptance
+    # 1.0) = 1200 s, cap 1500 s. SFT-T 1.25 * T_RL.
+    assert state["measured_forecasts"]["rl"] == 1200.0
+    assert state["measured_forecasts"]["egsft"] == 1200.0  # 600 x (1.0 + 1.0 x 1)
+    assert argv_value(by_stage["rl-5e-05-s42-u150"], "--cap") == "1500.0"
     assert argv_value(sft_t, "--cap") == "1250.0"
+    frozen = [e for e in fixture.journal() if e["event"] == "forecasts_frozen_from_measured_pilot"]
+    assert len(frozen) == 1 and frozen[0]["plan_assumed"]["rl"] == 2000
     # Continuations count the parent's committed seconds against the arm cap: no reset.
     started = {e["stage"]: e for e in fixture.journal() if e["event"] == "stage_started"}
     assert started["rl-1e-04-s42-u600"]["inherited_seconds"] == 250.0
@@ -907,7 +938,8 @@ def test_rss_guard_fires(tmp_path, monkeypatch):
     assert fixture.state()["stop_reason"] == "process_group_rss_limit"
 
 
-def test_second_owner_refuses(tmp_path, monkeypatch):
+def test_second_owner_present_before_launch_refuses_without_state(tmp_path, monkeypatch,
+                                                                  capsys):
     launch = load_launch()
     fixture = Fixture(tmp_path, monkeypatch)
     owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
@@ -918,8 +950,32 @@ def test_second_owner_refuses(tmp_path, monkeypatch):
     finally:
         owner.kill()
         owner.wait()
-    assert fixture.state()["stop_reason"] == "second_accelerator_owner"
+    # Nothing started, so nothing is consumed: a refusal, not a single-use stop.
+    assert "second_accelerator_owner_present" in capsys.readouterr().out
+    assert not (tmp_path / "state").exists()
     assert fixture.stages_called() == []
+
+
+def test_second_owner_at_resume_refuses_and_keeps_the_study_running(tmp_path, monkeypatch,
+                                                                    capsys):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["e0"]["behaviour"] = {"interrupt_once": str(tmp_path / "once")}
+    fixture.write()
+    assert launch.main(fixture.argv) == 3
+    owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                              fixture.sentinel])
+    try:
+        time.sleep(0.3)
+        assert launch.main([*fixture.argv, "--resume"]) == 2
+    finally:
+        owner.kill()
+        owner.wait()
+    assert "second_accelerator_owner_present" in capsys.readouterr().out
+    state = fixture.state()
+    assert state["status"] == "running"
+    assert [e["event"] for e in fixture.journal()][-1] == "resume_refused_second_owner"
+    assert not (tmp_path / "state" / "lock").exists()
 
 
 def test_second_owner_appearing_mid_stage_stops_it(tmp_path, monkeypatch):
@@ -1283,8 +1339,30 @@ def test_switch_ignores_correct_completions_that_are_not_the_bare_label(tmp_path
     fixture.scenario["p0"]["payload"] = document
     state = run_to_g2_stop(launch, fixture)
     document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
-    assert document["switch"] is True
-    assert document["sequences"] == {label: [[5, 2]] for label in LABELS}
+    # 5 of 224 correct completions carry other token IDs, but none is a bare label, so none
+    # is a tokenization of gold+EOS: the share is 0 and the switch stays off (study: ">2%
+    # of correct P0 samples are non-canonical tokenizations").
+    assert document["non_canonical_share_of_correct"] == 0.0
+    assert (document["switch"], document["sequences"]) == (False, {})
+    assert state["measured_forecasts"]["inputs"]["mean_scored_sequences_per_row"] == 1.0
+
+
+def test_bare_label_alternates_below_2_percent_with_tagged_answers_stay_off(tmp_path,
+                                                                           monkeypatch):
+    # Reviewer's case: 4 bare-label alternates (4 / 224 = 1.79%) plus 3 tagged answers with
+    # other token IDs. Counting the tagged ones would make 7 / 224 = 3.1% and fire.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    document = g1_document(0.5, 112, non_canonical=7)
+    odd = [c for g in document["rollouts"] for c in g["completions"]
+           if c["completion_ids"] == [7, 7, 2]]
+    for completion in odd[4:]:
+        completion["label_only"] = False
+    fixture.scenario["p0"]["payload"] = document
+    state = run_to_g2_stop(launch, fixture)
+    frozen = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert frozen["non_canonical_share_of_correct"] == 4 / 224
+    assert (frozen["switch"], frozen["sequences"]) == (False, {})
 
 
 def test_undefined_non_canonical_share_stops(tmp_path, monkeypatch):
@@ -1336,6 +1414,13 @@ def test_alt_tokenization_switch_fires_above_2_percent(tmp_path, monkeypatch):
     expected = {label: ([[5, 2], [7, 7, 2]] if label in odd_labels else [[5, 2]])
                 for label in LABELS}
     assert document["sequences"] == expected
+    # Both labels carry one alternate besides the canonical sequence, and the trainer runs
+    # one forward per sequence: k = 2 for every S_scan row. Acceptance 1.0, scorer 1.0 s:
+    # RL = 600 x (1.0 + 1.0 x 2 / 1.0) = 1800 s, EG-SFT = 600 x (1.0 + 1.0 x 2) = 1800 s.
+    assert odd_labels >= set(LABELS)
+    measured = state["measured_forecasts"]
+    assert measured["inputs"]["mean_scored_sequences_per_row"] == 2.0
+    assert (measured["rl"], measured["egsft"]) == (1800.0, 1800.0)
 
 
 def test_alt_tokenization_at_exactly_2_percent_stays_off(tmp_path, monkeypatch):
@@ -1540,3 +1625,227 @@ def test_voided_instance_time_is_charged_to_the_arm_cap(tmp_path, monkeypatch):
     # The re-run was stopped well before its own 3 s: only the remainder was available.
     assert finished[-1]["elapsed_seconds"] < 2.5
     assert finished[-1]["arm_wall_seconds"] >= 5.0
+
+
+# ---------------------------------------------------------------- PR #17 review fixes
+
+
+@pytest.mark.parametrize("command, owner", [
+    # Ordinary test runs name owner scripts only inside a test file's name: not owners.
+    ("/v/bin/python -m pytest tests/test_local_vision.py", False),
+    ("/v/bin/python -m pytest -q tests/test_aircraft_named_baseline.py", False),
+    ("/v/bin/python -m pytest tests/test_vlm_local_training.py", False),
+    # The programs themselves are.
+    ("/v/bin/python scripts/local_vision.py --x", True),
+    ("/v/bin/python /r/scripts/aircraft_named_baseline.py run", True),
+    ("/v/bin/python -m vision_rl.vlm_local_training --mode grpo", True),
+    ("/v/bin/python -m mlx_vlm.generate --model m", True),
+    ("/v/bin/python /s/site-packages/mlx_vlm/server.py", True),
+    ("/v/bin/python -c import mlx_vlm; mlx_vlm.load()", True),
+    ("/v/bin/python -B /r/scripts/freshpool_launch/phase_worker.py --stage e0 -- x", True),
+])
+def test_owner_patterns_match_whole_words_not_substrings(command, owner):
+    launch = load_launch()
+    patterns = json.loads((PACKAGE / "production" / "plan.json").read_text())["owner_patterns"]
+    assert any(launch.names_pattern(command, p) for p in patterns) is owner
+
+
+def test_dry_run_phase_worker_and_its_descendants_are_not_owners(monkeypatch):
+    launch = load_launch()
+    me = os.getpid()
+    rows = [
+        # pid, ppid, pgid, stat, rss, command, nice
+        (101, 1, 101, "S", 0, "/v/python -B /r/phase_worker.py --stage s --dry-run -- x", 0),
+        (102, 101, 101, "S", 0, "/v/python -m vision_rl.vlm_local_training --device cpu", 0),
+        (201, 1, 201, "S", 0, "/v/python -B /r/phase_worker.py --stage s -- --dry-run", 0),
+        (301, 1, 301, "S", 0, "/v/python -m vision_rl.vlm_local_training --device mps", 0),
+        (me, 1, me, "S", 0, "/v/python launch.py", 0),
+    ]
+    monkeypatch.setattr(launch, "processes", lambda: rows)
+    found = launch.second_owners(["phase_worker.py", "vision_rl.vlm_local_training"])
+    # 201's --dry-run is forwarded to the entry (after --), so it is a real-device worker.
+    assert [p["pid"] for p in found] == [201, 301]
+
+
+def wait_for(condition, seconds=20):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_orphan_stage_group_is_reaped_only_when_it_is_ours(tmp_path):
+    launch = load_launch()
+    stage = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+                             start_new_session=True)
+    try:
+        assert wait_for(lambda: launch.process_started(stage.pid))
+        state = {"running_stage": {"stage": "e0", "instance": 1, "pgid": stage.pid,
+                                   "leader_started": "Thu Jan  1 00:00:00 1970"}}
+        # A reused pgid (other start time) is left alone.
+        record = launch.reap_orphan_stage(state, tmp_path)
+        assert record["outcome"] == "group_not_ours_left_alone" and stage.poll() is None
+        state["running_stage"]["leader_started"] = launch.process_started(stage.pid)
+        assert launch.reap_orphan_stage(state, tmp_path)["outcome"] == "stopped"
+        assert stage.wait(timeout=30) is not None
+    finally:
+        if stage.poll() is None:
+            stage.kill()
+            stage.wait()
+    assert launch.reap_orphan_stage(state, tmp_path)["outcome"] == "already_gone"
+    assert launch.reap_orphan_stage({}, tmp_path) is None
+
+
+def test_lock_with_a_reused_pid_is_stale(tmp_path):
+    launch = load_launch()
+    ledger = launch.Ledger(tmp_path)
+    ledger.state = {"journal_bytes": 0}
+    # This test's own pid is alive, but with another start time: a pid reused after a reboot.
+    (tmp_path / "lock").write_text(f"{os.getpid()}\nThu Jan  1 00:00:00 1970\n")
+    lock = launch.acquire_lock(ledger)
+    pid, started = launch.read_lock(lock)
+    assert pid == os.getpid() and started == launch.process_started(os.getpid())
+    assert [e["event"] for e in map(json.loads, (tmp_path / "journal.jsonl").read_text()
+                                    .splitlines())] == ["stale_lock_removed"]
+    with pytest.raises(launch.Stop, match="another_launcher_holds_the_lock"):
+        launch.acquire_lock(ledger)  # the real holder: refused
+    (tmp_path / "lock").write_text(str(os.getpid()))  # old one-line format: ask
+    with pytest.raises(launch.Stop, match="lock_unreadable"):
+        launch.acquire_lock(ledger)
+
+
+def test_a_second_signal_cannot_interrupt_the_cleanup():
+    launch = load_launch()
+    previous = {s: signal.getsignal(s) for s in launch.INTERRUPTS}
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            launch.interrupt_once(signal.SIGTERM, None)
+        assert all(signal.getsignal(s) is signal.SIG_IGN for s in launch.INTERRUPTS)
+    finally:
+        for s, handler in previous.items():
+            signal.signal(s, handler)
+
+
+def test_all_zombie_group_is_stopped_not_crashed():
+    """macOS answers killpg with EPERM for a group whose members are all zombies; that
+    used to escape stop_group as an unexpected_exception study stop."""
+    launch = load_launch()
+    child = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    assert wait_for(lambda: all(r[3].startswith("Z") for r in launch.processes()
+                                if r[0] == child.pid))
+    assert launch.group_alive(child.pid) is False
+    launch.stop_group(child, child.pid, grace=1)
+    assert child.returncode == 0
+
+
+def pins_plan(tmp_path, **patch):
+    tree = tmp_path / "src"
+    (tree / "vision_rl").mkdir(parents=True)
+    module = tree / "vision_rl" / "x.py"
+    module.write_text("X = 1\n")
+    python = tmp_path / "python"
+    python.symlink_to(os.path.realpath(sys.executable))
+    real = os.path.realpath(sys.executable)
+    plan = {"python": str(python), "python_resolved": real, "import_root": str(tree),
+            "environment": {"PYTHONPATH": f"{tree}{os.pathsep}{tmp_path / 'other'}"},
+            "file_sha256": {str(module): sha_file(module), real: PYTHON_SHA}}
+    plan.update(patch)
+    return plan, tree, python
+
+
+def test_pins_follow_the_interpreter_link_and_the_import_tree(tmp_path):
+    launch = load_launch()
+    plan, tree, python = pins_plan(tmp_path)
+    launch.verify_pins(plan)
+    # A brew upgrade moves the venv's link: refused before the next stage.
+    python.unlink()
+    python.symlink_to("/bin/sh")
+    with pytest.raises(launch.Stop, match="interpreter_link_changed"):
+        launch.verify_pins(plan)
+    python.unlink()
+    python.symlink_to(os.path.realpath(sys.executable))
+    # An untracked sitecustomize.py would run unpinned in every stage.
+    (tree / "sitecustomize.py").write_text("")
+    with pytest.raises(launch.Stop, match="unpinned_importable_file"):
+        launch.verify_pins(plan)
+    (tree / "sitecustomize.py").unlink()
+    (tree / "vision_rl" / "__pycache__").mkdir()
+    (tree / "vision_rl" / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"")
+    launch.verify_pins(plan)  # cached bytecode is only used next to its pinned source
+    # The stages must import the tree the pins were checked against, first on the path.
+    plan["environment"]["PYTHONPATH"] = f"{tmp_path / 'other'}{os.pathsep}{tree}"
+    with pytest.raises(launch.Stop, match="import_root_not_first_on_pythonpath"):
+        launch.verify_pins(plan)
+    plan["import_root"] = None
+    with pytest.raises(launch.Stop, match="unpinned_import_tree_on_pythonpath"):
+        launch.verify_pins(plan)
+    del plan["import_root"]
+    with pytest.raises(launch.Stop, match="import_root_not_stated"):
+        launch.verify_pins(plan)
+
+
+def test_quiet_mode_is_waited_out_before_a_stage(tmp_path, monkeypatch):
+    launch = load_launch()
+    monkeypatch.setattr(launch, "QUIET_POLL_SECONDS", 0.05)
+    quiet = tmp_path / "QUIET"
+    quiet.write_text("")
+    fixture = Fixture(tmp_path, monkeypatch, quiet_file=quiet)
+    fixture.scenario["e0"]["behaviour"] = {"exit": 9}  # stop right after e0 starts
+    fixture.write()
+
+    def lift():
+        wait_for(lambda: (tmp_path / "state" / "journal.jsonl").exists() and any(
+            e["event"] == "quiet_mode_wait" for e in fixture.journal()))
+        assert fixture.stages_called() == []  # nothing ran while quiet
+        quiet.unlink()
+
+    thread = threading.Thread(target=lift)
+    thread.start()
+    try:
+        assert launch.main(fixture.argv) == 2
+    finally:
+        thread.join()
+    events = [e["event"] for e in fixture.journal()]
+    assert events.index("quiet_mode_cleared") < events.index("stage_started")
+
+
+def test_thin_disk_before_a_stage_pauses_resumably(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch, reserve=5 * GiB, headroom=2**62)
+    assert launch.main(fixture.argv) == 3
+    state = fixture.state()
+    assert state["status"] == "running" and "disk_headroom_before_stage" in state[
+        "next_action"]
+    assert fixture.journal()[-1]["event"] == "launch_paused"
+    assert fixture.stages_called() == []
+
+
+def test_sft_t_is_charged_the_voided_seconds_of_its_sft_e_parent(tmp_path, monkeypatch):
+    # SFT-E 5e-5 (the SFT-T parent at G3a's first qualifying LR) is interrupted once after
+    # >= 1 s; its void stays charged to the SFT-T lineage, as RL 150's is to RL 600.
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["sft-e-5e-05-s42"]["behaviour"] = {
+        "interrupt_once": str(tmp_path / "once"), "sleep_before_interrupt": 1.0}
+    fixture.write()
+    assert launch.main(fixture.argv) == 3
+    assert launch.main([*fixture.argv, "--resume"]) == 0
+    state = fixture.state()
+    void = state["void_seconds_by_arm"]["sft-e-5e-05-s42"]
+    assert void >= 1.0
+    started = {e["stage"]: e for e in fixture.journal() if e["event"] == "stage_started"}
+    assert started["sft-t-5e-05-s42"]["lineage"] == ["sft-e-5e-05-s42"]
+    assert started["sft-t-5e-05-s42"]["void_seconds"] == void
+    assert started["sft-t-1e-04-s42"]["void_seconds"] == 0.0
+
+
+def test_sft_exposure_must_be_rl_star_accepted_sequence(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.scenario["sft-e-1e-05-s42"]["payload"]["committed_prompt_ids"] = (
+        RL_STAR_ACCEPTED[1:] + RL_STAR_ACCEPTED[:1])
+    fixture.write()
+    state = run_until_stop(launch, fixture)
+    assert state["stop_reason"] == "exposure_differs_from_rl_star_accepted_sequence"
