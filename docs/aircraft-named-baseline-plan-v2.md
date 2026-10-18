@@ -1,7 +1,7 @@
 # Named baseline v2: author Qwen3.8-27B on CPU, sharded (PRE-REGISTERED, UNACTIVATED)
 
 Machine-readable plan: `docs/aircraft-named-baseline-plan-v2.json`. Runner:
-`scripts/aircraft_named_baseline_v2.py`. Engine: `src/vision_rl/local_hf.py`. The committed plan
+`scripts/aircraft_named_baseline_v2.py`. Engine: `scripts/aircraft_named_baseline_hf.py` (kept out of `src/vision_rl`, whose modules other pre-registered plans hash). The committed plan
 is unactivated and the runner refuses it. A run needs an activated copy whose SHA256 is passed on
 every invocation, and whose `sources_pinned` has no null entry.
 

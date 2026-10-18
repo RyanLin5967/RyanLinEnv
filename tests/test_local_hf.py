@@ -4,14 +4,19 @@ The reference below is written from mlx_vlm.sample_utils' definitions with plain
 loops, independently of local_hf's tensor code.
 """
 
+import importlib.util
 import math
 import random
+from pathlib import Path
 
 import pytest
 
 torch = pytest.importorskip("torch")
 
-from vision_rl import local_hf  # noqa: E402
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts/aircraft_named_baseline_hf.py"
+_spec = importlib.util.spec_from_file_location("aircraft_named_baseline_hf", _SCRIPT)
+local_hf = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(local_hf)
 
 SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
             "presence_penalty": 1.5, "max_tokens": 16384}

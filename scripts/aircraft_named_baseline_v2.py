@@ -9,8 +9,9 @@ reimplementation. v1 is imported and its stage inputs (pinned-input rehash, disc
 selection, prompt/vocabulary/parser identity), journal and ledger replay, canonical answer
 rule and Hoeffding interval are called as they are. What v2 adds:
 
-  engine   vision_rl.local_hf: transformers on CPU over the author weights, the same
-           journal loop as v1 (local_vlm._run_locked) and the mlx-vlm sampler chain
+  engine   scripts/aircraft_named_baseline_hf.py: transformers on CPU over the author
+           weights, the same journal loop as v1 (local_vlm._run_locked) and the mlx-vlm
+           sampler chain
   shards   author-order position i of a stage manifest belongs to shard i mod N; each
            shard has its own journal and budget ledger and runs on its own host
   merge    the union of shard journals; refuses a duplicate image, an image outside its
@@ -43,7 +44,7 @@ from pathlib import Path
 
 import numpy as np
 
-from vision_rl import local_hf, local_vlm
+from vision_rl import local_vlm
 from vision_rl.aircraft_data import PREPROCESSING_ID
 from vision_rl.classification_comparison import _inputs, _score, compare_classification
 from vision_rl.vlm_local_training import load_spec, parse_label, prompt_text
@@ -53,10 +54,14 @@ _spec = importlib.util.spec_from_file_location("aircraft_named_baseline",
                                                HERE / "aircraft_named_baseline.py")
 v1 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(v1)
+_spec = importlib.util.spec_from_file_location("aircraft_named_baseline_hf",
+                                               HERE / "aircraft_named_baseline_hf.py")
+local_hf = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(local_hf)
 
 PLAN_ID = "aircraft-named-baseline-qwen3.8-27b-hf-cpu-v2"
 STAGES = v1.STAGES
-SOURCE_MODULES = {**v1.SOURCE_MODULES, "src/vision_rl/local_hf.py": "vision_rl.local_hf"}
+SOURCE_MODULES = v1.SOURCE_MODULES
 SHARD_NAME = re.compile(r"shard-(\d+)-of-(\d+)")
 
 
@@ -87,6 +92,7 @@ def source_hashes():
         for name, module in SOURCE_MODULES.items()
     }
     hashes["scripts/aircraft_named_baseline.py"] = local_vlm.sha_file(v1.__file__)
+    hashes["scripts/aircraft_named_baseline_hf.py"] = local_vlm.sha_file(local_hf.__file__)
     hashes["scripts/aircraft_named_baseline_v2.py"] = local_vlm.sha_file(__file__)
     return hashes
 
@@ -480,7 +486,7 @@ def export_arm(bundle, arm):
 
 
 def smoke(repository, weights, integrity, ids, data_spec, threads, dtype, runtime_pins,
-          formatted_prompt_sha256, *, backend_factory=None):
+          formatted_prompt_sha256, *, backend_factory=None, progress_path=None):
     """Latency smoke on TRAIN images only; no journal, never a score."""
     repository = Path(repository).resolve()
     train_root = (repository / "data/fgvc-aircraft-2013b/development/images/train").resolve()
@@ -492,7 +498,8 @@ def smoke(repository, weights, integrity, ids, data_spec, threads, dtype, runtim
         **local_vlm.native_profile("instruct"), "seed": 1729,
         "engine": {"name": "transformers-cpu", "dtype": dtype, "threads": threads,
                    "formatted_prompt_sha256": formatted_prompt_sha256},
-        "preprocessing_id": PREPROCESSING_ID, "stream_progress": False,
+        "preprocessing_id": PREPROCESSING_ID, "stream_progress": progress_path is not None,
+        "generation_progress_path": str(progress_path), "identity_sha256": None,
     }
     started = time.monotonic()
     backend = (backend_factory or local_hf.TransformersBackend)(weights, config)
@@ -517,6 +524,7 @@ def smoke(repository, weights, integrity, ids, data_spec, threads, dtype, runtim
             "final_answer_error": answer.get("error"),
             "prompt_tokens": response["prompt_tokens"],
             "generation_tokens": response["generation_tokens"],
+            "prefill_seconds": response.get("prefill_seconds"),
             "max_rss_gb": response["peak_memory"],
             **{key: native["preprocessing"][key] for key in (
                 "formatted_prompt_sha256", "input_ids_shape", "pixel_values_shape",
@@ -580,7 +588,8 @@ def main(argv=None):
                 args.ids,
                 args.repository / inputs["dataset_root"] / inputs["data_spec"]["path"],
                 args.threads, args.dtype, plan["model"]["runtime_pins"],
-                plan["prompt_and_parser"]["formatted_prompt_sha256"])
+                plan["prompt_and_parser"]["formatted_prompt_sha256"],
+                progress_path=args.out.with_suffix(".progress.jsonl"))
             args.out.write_text(json.dumps(result, indent=2) + "\n")
         else:
             plan = load_plan(args.plan, require_activated=False)

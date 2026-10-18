@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from vision_rl import local_hf, local_vlm
+from vision_rl import local_vlm
 from vision_rl.aircraft_data import aircraft_pixel_sha256
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -27,6 +27,16 @@ INSTRUCTION = (
 )
 PER_CLASS = 3
 LOAD_SECONDS = 2.0
+
+
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, REPOSITORY / f"scripts/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+local_hf = load_script("aircraft_named_baseline_hf")
 
 
 def sha(path):
@@ -68,15 +78,12 @@ def clock():
 
 @pytest.fixture
 def runner(monkeypatch, clock):
-    spec = importlib.util.spec_from_file_location(
-        "aircraft_named_baseline_v2", REPOSITORY / "scripts/aircraft_named_baseline_v2.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_script("aircraft_named_baseline_v2")
     fake_time = types.SimpleNamespace(monotonic=clock.monotonic, time=time.time)
     monkeypatch.setattr(module, "time", fake_time)
     monkeypatch.setattr(local_vlm, "time", fake_time)
     monkeypatch.setattr(module.v1, "NATIVE_IMAGES", 100 * PER_CLASS)
-    monkeypatch.setattr(local_hf, "runtime_versions", lambda pins: dict(pins))
+    monkeypatch.setattr(module.local_hf, "runtime_versions", lambda pins: dict(pins))
     return module
 
 
@@ -245,10 +252,20 @@ def test_committed_plan_is_unactivated_and_refused(runner, tmp_path):
 
 def test_activated_plan_with_unfilled_source_pin_is_refused(runner, world):
     plan = json.loads(json.dumps(world["plan"]))
-    plan["sources_pinned"]["src/vision_rl/local_hf.py"] = None
+    plan["sources_pinned"]["scripts/aircraft_named_baseline_hf.py"] = None
     path, digest = write_plan(world, plan)
     with pytest.raises(ValueError, match="pin every runner source"):
         runner.load_plan(path, digest)
+
+
+def test_changed_pinned_source_is_refused_before_any_output(runner, world):
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["sources_pinned"]["scripts/aircraft_named_baseline_hf.py"] = "0" * 64
+    path, digest = write_plan(world, plan)
+    with pytest.raises(ValueError, match="pinned runner source changed"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], 1, backend_factory=fake_backend({}, []))
+    assert not world["out"].exists()
 
 
 def test_committed_plan_pins_match_this_tree_and_v1(runner):
@@ -399,7 +416,7 @@ def test_source_change_after_first_invocation_is_refused(runner, world, clock):
                      backend_factory=fake_backend(answers, calls, clock=clock))
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     events = [json.loads(line) for line in ledger.read_text().splitlines()]
-    events[0]["sources"]["src/vision_rl/local_hf.py"] = "0" * 64
+    events[0]["sources"]["scripts/aircraft_named_baseline_hf.py"] = "0" * 64
     ledger.write_text("".join(json.dumps(e) + "\n" for e in events))
     with pytest.raises(ValueError, match="changed since this shard's first invocation"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
@@ -434,6 +451,23 @@ def test_engine_journal_refuses_non_validation_phase(world, tmp_path):
                               integrity=world["integrity"], engine={}, runtime_pins={},
                               phase="train_probe", image_root=tmp_path, task_contract={},
                               preprocessing_id=None)
+    assert not (tmp_path / "x").exists()
+
+
+def test_engine_identity_needs_dtype_and_excludes_threads(world, tmp_path):
+    identifier = world["author"][0]["image_id"]
+    root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
+    rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
+             "prompt": "x"}]
+    for engine in ({"name": "transformers-cpu", "dtype": "bfloat16", "threads": 4},
+                   {"name": "transformers-cpu", "dtype": "float16"},
+                   {"name": "transformers-cpu"}):
+        with pytest.raises(ValueError, match="explicit dtype and no thread count"):
+            local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
+                                  integrity=world["integrity"], engine=engine, runtime_pins={},
+                                  phase="validation", image_root=root,
+                                  task_contract={"task": "classification"},
+                                  preprocessing_id=None)
     assert not (tmp_path / "x").exists()
 
 

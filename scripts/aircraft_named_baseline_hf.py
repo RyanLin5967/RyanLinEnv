@@ -1,5 +1,9 @@
 """CPU Hugging Face transformers engine for the journaled local Qwen vision runner.
 
+Lives in scripts/, not in the vision_rl package, on purpose: several pre-registered plans
+and closures hash every module of src/vision_rl, so a new module there would change their
+pinned source sets.
+
 ``vision_rl.local_vlm`` is the validated journaled runner, but its preamble is tied to the
 8-bit MLX snapshot (``verify_snapshot`` pins that repository, ``runtime_versions`` requires
 mlx-vlm 0.6.8) and its source hash is pinned by the paused v1 named-baseline run. So this
@@ -35,9 +39,9 @@ import resource
 import time
 from pathlib import Path
 
-from . import local_vlm
-from .frontier import _digest, _now, _public
-from .local_vlm_execution import plan_chunk
+from vision_rl import aircraft_data, local_vlm, local_vlm_execution
+from vision_rl.frontier import _digest, _now, _public
+from vision_rl.local_vlm_execution import plan_chunk
 
 REPOSITORY = "Qwen/Qwen3.8-27B"
 REVISION = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
@@ -127,7 +131,7 @@ class MLXEquivalentSampler:
 
         self.torch, self.generation, self.prompt_length = torch, generation, prompt_length
         self.generator = torch.Generator().manual_seed(seed)
-        self.drawn, self.progress = [], progress
+        self.drawn, self.progress, self.step_times = [], progress, []
 
     def __call__(self, input_ids, scores):
         torch = self.torch
@@ -143,7 +147,8 @@ class MLXEquivalentSampler:
         token = int(torch.multinomial(torch.softmax(logits, dim=-1)[0], 1,
                                       generator=self.generator))
         self.drawn.append(token)
-        if self.progress is not None and len(self.drawn) % 32 == 0:
+        self.step_times.append(time.monotonic())
+        if self.progress is not None and (len(self.drawn) == 1 or len(self.drawn) % 32 == 0):
             self.progress({"generated_tokens": len(self.drawn)})
         forced = torch.full_like(scores, float("-inf"))
         forced[0, token] = 0.0
@@ -257,6 +262,8 @@ class TransformersBackend:
             "total_tokens": prompt_length + len(tokens),
             "prompt_tps": None, "generation_tps": len(tokens) / elapsed if elapsed else None,
             "peak_memory": _max_rss() / 1e9, "generate_seconds": elapsed,
+            # Prefill (vision + prompt) ends when the first token's scores arrive.
+            "prefill_seconds": sampler.step_times[0] - start if sampler.step_times else None,
             "peak_memory_unit": "decimal GB, process max RSS (getrusage)",
             "logprobs_retained": False,
         }
@@ -303,8 +310,6 @@ def run_local_hf(
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
     model = verify_snapshot(model_directory, integrity)
-    from . import aircraft_data, local_vlm_execution
-
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,
         "runtime_versions": runtime_versions(runtime_pins),
