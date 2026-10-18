@@ -106,6 +106,13 @@ class Arm:
                 "--num-generations", str(s["num_generations"]),
                 "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
                 "--max-completion-length", str(s["max_completion_length"])]
+        if s.get("device", "cpu") == "cuda":
+            # CUDA lane: explicit torch CPU threads (the GPU does the math), and a W/I init
+            # trained in float32 needs its declared base-precision transfer.
+            args += ["--threads", str(s.get("threads", 4))]
+            transfer = self.precision_transfer(self.init_adapter())
+            if transfer:  # repeated on resume so the run's settings identity is unchanged
+                args += ["--initial-adapter-precision-transfer", transfer]
         save = stop if stop else max_steps
         args += ["--save-steps", str(save)]
         if stop and stop < max_steps:
@@ -170,6 +177,13 @@ class Arm:
             raise SystemExit(f"REFUSE: kept init {path} differs from its endpoint receipt")
         return path
 
+    def precision_transfer(self, adapter: Path) -> str | None:
+        """'<parent base dtype>-to-<this arm's dtype>' when they differ, else None."""
+        parent = json.loads((adapter.parent / "local_training.json").read_text())
+        source = parent["control_identity"]["profile"]["dtype"]
+        dtype = self.spec.get("dtype", "float32")
+        return None if source == dtype else f"{source}-to-{dtype}"
+
     def keep_adapter(self, label: str) -> Path:
         # kept/<label>/{final_adapter, local_training.json, endpoint_receipt.json}: the
         # trainer binds an init adapter to the run record beside it, so a kept endpoint can
@@ -191,6 +205,28 @@ class Arm:
                 shutil.copy2(src, self.results / name)
 
     # ---- assay -----------------------------------------------------------------------
+    def assay_isolated(self, adapter: Path, label: str, manifest_name: str) -> dict:
+        """CUDA: assay in a child process, so this process never holds GPU memory (the
+        caching allocator and CUDA context) while the next training stage runs. CPU: in-process."""
+        if self.spec.get("device", "cpu") != "cuda":
+            return self.assay(adapter, label, manifest_name)
+        spec_file = self.results / "arm.json"
+        log = self.work / f"assay-{label}.log"
+        with log.open("w") as handle:
+            rc = subprocess.run(
+                [str(self.python), "-I", str(Path(__file__).resolve()), "--root", str(self.root),
+                 "--arm-json", str(spec_file), "--results", str(self.results),
+                 "--assay-adapter", str(adapter), "--assay-label", label,
+                 "--assay-manifest", manifest_name],
+                stdout=handle, stderr=subprocess.STDOUT).returncode
+        shutil.copy2(log, self.results / f"assay-{label}.log.txt")
+        if rc != 0:
+            raise SystemExit(f"REFUSE: assay {label} rc={rc}")
+        doc = json.loads((self.results / "assays" / f"{label}.json").read_text())
+        if doc["metrics"]["adapter_sha256"] != sha_file(adapter / "adapter_model.safetensors"):
+            raise SystemExit(f"REFUSE: assay {label} scored a different adapter")
+        return doc["metrics"]
+
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:
         sys.path.insert(0, str(self.payload / "code" / "src"))
         os.environ.update({k: v for k, v in self.env.items() if k.isupper()})
@@ -214,10 +250,16 @@ class Arm:
             cm.parent.mkdir(parents=True, exist_ok=True)
             cm.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in chunk))
             out = stage / f"greedy-{n // CHUNK:02d}"
+            extra = {}
+            if s.get("device", "cpu") == "cuda":
+                extra["threads"] = int(s.get("threads", 4))
+                transfer = self.precision_transfer(adapter)
+                if transfer:
+                    extra["precision_transfer"] = transfer
             record = vlt.predict_train_subset(cm, data_spec=self.spec_path, output=out,
                                               model_directory=self.model,
                                               device=s.get("device", "cpu"), profile=profile,
-                                              init_adapter=adapter)
+                                              init_adapter=adapter, **extra)
             if record.get("status") != "completed":
                 raise SystemExit(f"REFUSE: assay chunk {n // CHUNK} did not complete")
             if (record.get("initial_adapter") or {}).get("weights_sha256") != adapter_sha:
@@ -299,7 +341,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay(arm.out / "final_adapter", f"step{stop}", holdout)})
+            "metrics": arm.assay_isolated(arm.out / "final_adapter", f"step{stop}", holdout)})
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
         previous = stop
@@ -315,7 +357,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": "time", "steps": receipt.get("global_step"),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay(arm.out / "final_adapter", "time", holdout)})
+            "metrics": arm.assay_isolated(arm.out / "final_adapter", "time", holdout)})
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_json(arm.results / "summary.json", summary)
@@ -330,10 +372,22 @@ def main(argv=None) -> int:
     src.add_argument("--arm-json", type=Path, help="arm spec file (runner.py syncs it)")
     p.add_argument("--results", type=Path, required=True)
     p.add_argument("--final-check", action="store_true")
+    # Internal (assay_isolated): assay one saved adapter in this process and exit.
+    p.add_argument("--assay-adapter", type=Path)
+    p.add_argument("--assay-label")
+    p.add_argument("--assay-manifest", choices=("dev800.jsonl", "h_gate_final.jsonl"))
     a = p.parse_args(argv)
     if not (a.root / "RECEIPT.json").is_file():
         raise SystemExit(f"REFUSE: {a.root} has no bootstrap RECEIPT.json")
     spec = json.loads(a.arm_json.read_text() if a.arm_json else base64.b64decode(a.arm_b64))
+    if a.assay_adapter is not None:
+        if not (a.assay_label and a.assay_manifest):
+            raise SystemExit("REFUSE: --assay-adapter needs --assay-label and --assay-manifest")
+        arm = Arm(a.root, spec, a.results)
+        metrics = arm.assay(a.assay_adapter, a.assay_label, a.assay_manifest)
+        print(json.dumps({"arm": spec["id"], "label": a.assay_label,
+                          "accuracy": metrics["accuracy"]}))
+        return 0
     summary = run(Arm(a.root, spec, a.results), a.final_check)
     print(json.dumps({"arm": spec["id"], "endpoints": [
         {k: e[k] for k in ("label", "steps")} | {"accuracy": e["metrics"]["accuracy"]}
