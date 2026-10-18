@@ -83,6 +83,8 @@ def load_plan(path, expected_sha256=None, *, require_activated=True):
             raise ValueError("Pass the activated plan's exact SHA256 to run it")
         if any(digest is None for digest in plan["sources_pinned"].values()):
             raise ValueError("An activated plan must pin every runner source")
+        if set(plan["sources_pinned"]) != set(source_hashes()):
+            raise ValueError("sources_pinned must name exactly the runner's hashed sources")
     return plan
 
 
@@ -95,6 +97,39 @@ def source_hashes():
     hashes["scripts/aircraft_named_baseline_hf.py"] = local_vlm.sha_file(local_hf.__file__)
     hashes["scripts/aircraft_named_baseline_v2.py"] = local_vlm.sha_file(__file__)
     return hashes
+
+
+def integrity_path(plan, repository):
+    """The committed snapshot record, refused unless it is the one the plan pins."""
+    path = Path(repository) / plan["model"]["integrity"]
+    if local_vlm.sha_file(path) != plan["model"]["integrity_sha256"]:
+        raise ValueError("Snapshot integrity record differs from the plan's pinned SHA256")
+    return path
+
+
+def engine_identity(plan):
+    engine = plan["engine"]
+    return {"name": engine["name"], "dtype": engine["dtype"],
+            "cpu_numerics": engine["cpu_numerics"],
+            "formatted_prompt_sha256": plan["prompt_and_parser"]["formatted_prompt_sha256"]}
+
+
+def strict_journal(run_directory, assigned):
+    """v1's journal replay plus refusals it does not make: a repeated reservation or
+    completion of one image (two runs of a shard concatenated) or a foreign image."""
+    path = Path(run_directory) / "attempts.jsonl"
+    seen = {"reserved": set(), "completed": set()}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            event = json.loads(line)
+            kind, identifier = event["event"], event["id"]
+            if identifier not in assigned:
+                raise ValueError(f"Image {identifier} journaled outside its shard")
+            if kind in seen:
+                if identifier in seen[kind]:
+                    raise ValueError(f"Duplicate {kind} event for image {identifier}")
+                seen[kind].add(identifier)
+    return v1.journal_state(run_directory, list(assigned))
 
 
 def shard_count(plan):
@@ -155,7 +190,7 @@ def merged_report(plan, stage, repository, output):
                 raise ValueError(f"Unexpected shard directory {child.name}; plan declares "
                                  f"{shards} shards")
     owner, completed, reserved, unknown, hard_stop = {}, {}, {}, [], []
-    loads, latencies, shared, per_shard = [], [], None, []
+    loads, latencies, shared, per_shard, governing = [], [], None, [], None
     charged = generation = 0.0
     invocations = 0
     for shard in range(shards):
@@ -163,13 +198,9 @@ def merged_report(plan, stage, repository, output):
         for identifier in assigned:
             owner[identifier] = shard
         directory = shard_directory(output, stage, shard, shards)
-        journal = v1.journal_state(directory / "run", assigned)
-        for identifier in set(journal["reserved"]) | set(journal["completed"]):
-            if owner.get(identifier) != shard:
-                raise ValueError(f"Image {identifier} journaled outside its shard {shard}")
-            if identifier in reserved:
-                raise ValueError(f"Duplicate image across shards: {identifier}")
-            reserved[identifier] = shard
+        journal = strict_journal(directory / "run", set(assigned))
+        # strict_journal refuses foreign and repeated images, so shards cannot overlap.
+        reserved.update(dict.fromkeys(journal["reserved"], shard))
         completed.update(journal["completed"])
         unknown += journal["unknown"]
         hard_stop += journal["hard_stop"]
@@ -181,6 +212,13 @@ def merged_report(plan, stage, repository, output):
             elif identity != shared:
                 raise ValueError(f"Shard {shard} ran under a different run identity")
         ledger = v1.ledger_state(directory / "ledger.jsonl")
+        for event in ledger["started"]:
+            governed = (event["plan_sha256"], json.dumps(event["sources"], sort_keys=True))
+            if governing is None:
+                governing = governed
+            elif governed != governing:
+                raise ValueError(f"Shard {shard} ran under a different plan or runner source "
+                                 "than another invocation of this stage")
         invocations += ledger["invocations"]
         charged += ledger["charged_active_seconds"]
         shard_generation = sum(e["prediction"]["latency_seconds"]
@@ -381,16 +419,13 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
         "wall_cap_seconds": budget["invocation_wall_seconds"],
         "completed_before": len(journal["completed"]), "threads": threads,
     })
-    model, engine = plan["model"], plan["engine"]
+    model = plan["model"]
     factory = backend_factory or local_hf.TransformersBackend
     started = time.monotonic()
     try:
         local_hf.run_local_hf(
             inputs["rows"], run_directory, model_directory=Path(weights),
-            integrity=repository / model["integrity"],
-            engine={"name": engine["name"], "dtype": engine["dtype"],
-                    "formatted_prompt_sha256": plan["prompt_and_parser"][
-                        "formatted_prompt_sha256"]},
+            integrity=integrity_path(plan, repository), engine=engine_identity(plan),
             runtime_pins=model["runtime_pins"], phase="validation",
             seed=plan["generation"]["seed"], resume=run_directory.exists(),
             backend_factory=functools.partial(_with_threads, factory, threads),
@@ -485,19 +520,19 @@ def export_arm(bundle, arm):
     return out
 
 
-def smoke(repository, weights, integrity, ids, data_spec, threads, dtype, runtime_pins,
-          formatted_prompt_sha256, *, backend_factory=None, progress_path=None):
+def smoke(plan, repository, weights, ids, threads, dtype, *, backend_factory=None,
+          progress_path=None):
     """Latency smoke on TRAIN images only; no journal, never a score."""
     repository = Path(repository).resolve()
     train_root = (repository / "data/fgvc-aircraft-2013b/development/images/train").resolve()
-    spec = load_spec(data_spec)
+    inputs = plan["inputs"]
+    spec = load_spec(repository / inputs["dataset_root"] / inputs["data_spec"]["path"])
     prompt = prompt_text(spec, "answer_only")
-    model = local_hf.verify_snapshot(weights, integrity)
-    versions = local_hf.runtime_versions(runtime_pins)
+    model = local_hf.verify_snapshot(weights, integrity_path(plan, repository))
+    versions = local_hf.runtime_versions(plan["model"]["runtime_pins"])
     config = {
         **local_vlm.native_profile("instruct"), "seed": 1729,
-        "engine": {"name": "transformers-cpu", "dtype": dtype, "threads": threads,
-                   "formatted_prompt_sha256": formatted_prompt_sha256},
+        "engine": {**engine_identity(plan), "dtype": dtype, "threads": threads},
         "preprocessing_id": PREPROCESSING_ID, "stream_progress": progress_path is not None,
         "generation_progress_path": str(progress_path), "identity_sha256": None,
     }
@@ -582,14 +617,8 @@ def main(argv=None):
             return 0
         elif args.command == "smoke":
             plan = load_plan(args.plan, require_activated=False)
-            inputs = plan["inputs"]
-            result = smoke(
-                args.repository, args.weights, args.repository / plan["model"]["integrity"],
-                args.ids,
-                args.repository / inputs["dataset_root"] / inputs["data_spec"]["path"],
-                args.threads, args.dtype, plan["model"]["runtime_pins"],
-                plan["prompt_and_parser"]["formatted_prompt_sha256"],
-                progress_path=args.out.with_suffix(".progress.jsonl"))
+            result = smoke(plan, args.repository, args.weights, args.ids, args.threads,
+                           args.dtype, progress_path=args.out.with_suffix(".progress.jsonl"))
             args.out.write_text(json.dumps(result, indent=2) + "\n")
         else:
             plan = load_plan(args.plan, require_activated=False)
@@ -598,7 +627,8 @@ def main(argv=None):
                 result = compare(plan, args.repository, args.output, against)
             elif args.command == "merge":
                 result = merge(plan, args.stage, args.repository, args.output)
-                (args.output / f"stage-{args.stage}" / "merged-predictions.json").write_text(
+                # Outside stage-<stage>/, whose children must all be shard directories.
+                (args.output / f"merged-{args.stage}-predictions.json").write_text(
                     json.dumps(result["predictions"], indent=1) + "\n")
             else:
                 result = merged_report(plan, args.stage, args.repository, args.output)

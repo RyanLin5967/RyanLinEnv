@@ -26,7 +26,7 @@
     "directory": "host-local, passed as --weights; the snapshot lives in /dev/shm/r226lin-qwen38-27b-1d4bf0f2 on each shard host because /var/tmp on iccad1/3/5 has 11-54 GB free and the snapshot is 55.6 GB (uwrun hosts ram, 2026-10-18)",
     "integrity": "docs/qwen3.8-27b-hf-integrity-1d4bf0f2.json",
     "integrity_sha256": "c5450e81de7ca7969a5db9c28210cf2d9749682ff4a0b26b9680c706e390697f",
-    "verification": "local_hf.verify_snapshot rehashes all 32 files before each load: sha256 of each LFS file (18 safetensors + tokenizer.json) and the git blob SHA-1 of every other file, as published by the Hub API; strict loader, trust_remote_code false, offline",
+    "verification": "run and smoke refuse an integrity record whose SHA256 differs from integrity_sha256; verify_snapshot then rehashes all 32 files before each load: sha256 of each LFS file (18 safetensors + tokenizer.json) and the git blob SHA-1 of every other file, as published by the Hub API; strict loader, trust_remote_code false, offline",
     "python": "uv venv -p 3.12 on each host, then <venv>/bin/python -I",
     "runtime_pins": {
       "torch": "2.14.1+cpu",
@@ -45,6 +45,14 @@
     "dtype": "float32",
     "dtype_rule": "Compute in float32: the author bf16 weights are loaded with dtype=float32, an exact upcast (every bf16 value is representable in float32), so the weights are the author's values and only activations are computed at higher precision. bf16 compute is not supported natively by the ram-pool CPUs (Xeon E5-2667 v2 / Ivy Bridge: AVX without AVX2, FMA or AVX512-BF16; torch cpu_capability DEFAULT), so torch emulates it, and it was measured impractical (dtype_evidence). The dtype is part of the run identity, so shards cannot silently differ; changing it needs a new plan version.",
     "dtype_evidence": "reports/2026-10-18-named-baseline-v2-smoke: bf16 on iccad3 had not finished TRAIN image 0447760 after about 3,120 s of generation and was stopped; float32 finished the same image in 504.6 s (iccad3) and 859.7 s (iccad1).",
+    "cpu_numerics": {
+      "aten_cpu_capability_env": "default",
+      "aten_cpu_capability": "DEFAULT",
+      "mkldnn_enabled": false,
+      "mkl_cbwr": "AVX",
+      "mkl_available": true,
+      "reason": "The ram pool mixes Ivy Bridge (iccad1/3: AVX, no AVX2/FMA; torch picks DEFAULT kernels) and Broadwell (iccad5: AVX2+FMA). Default kernels would differ per host, and the repo's CI named baseline measured host-dependent answers under default kernels. The engine sets ATEN_CPU_CAPABILITY=default and MKL_CBWR=AVX before torch is imported, disables oneDNN, refuses unless torch reports exactly this path, and records the observed path in every shard's run identity, so the merge refuses a mix. Whether the pin makes iccad5 reproduce iccad1/3 is checked by the TRAIN canary (smoke_canary), not assumed."
+    },
     "threads": "operational, not identity: --threads per shard, recorded in each ledger start and in load_info",
     "implementation": "scripts/aircraft_named_baseline_hf.py (TransformersBackend, run_local_hf; kept out of src/vision_rl because pre-registered plans hash every module there); journal loop is local_vlm._run_locked unchanged",
     "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on unique tokens among the last 20 generated tokens, log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
@@ -105,16 +113,20 @@
   "sources_pinned": {
     "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
     "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
+    "src/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+    "src/vision_rl/frontier.py": "95c75d8a7f131aa179307ecd03eb3ff903a53c64fad978f0899d83e080ac9ecf",
+    "src/vision_rl/vlm_local_training.py": "c6d8419a41fd2328b0d518215a618fbc94d92a15c5d53d9258f28a5507e42f7e",
+    "src/vision_rl/classification_comparison.py": "269b2d789f4197b215e5bc6b29e226e688ce4bf9e3df93cb7bbf1222c7d46861",
     "scripts/aircraft_named_baseline_hf.py": null,
     "scripts/aircraft_named_baseline.py": "26b8f4dbe5a20e180c1b611f1f5819929f8c47ec65e2cb6608b1e184d85c64a6",
     "scripts/aircraft_named_baseline_v2.py": null
   },
-  "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). The two null pins are filled at activation with the merged commit's file hashes; an activated plan with any null pin is refused. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
+  "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). Every source the runner hashes is listed (the runner refuses an activated plan whose keys differ from its hashed set). The two null pins are filled at activation with the merged commit's file hashes; an activated plan with any null pin is refused. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
   "sharding": {
     "shards": 3,
     "assignment": "author-order position i of the stage manifest belongs to shard i mod 3 (metadata only)",
     "hosts": "one shard per ram-pool host (iccad1, iccad3, iccad5), each with its own copy of the snapshot in /dev/shm and its own run directory; which shard runs on which host is operational and recorded by uwrun",
-    "merge": "scripts/aircraft_named_baseline_v2.py merge: union of the shard journals; refuses an image journaled in two shards or outside its shard, a shard directory outside shard-k-of-3, shards whose run identities differ in anything but their rows/shard index, and any missing or unknown image",
+    "merge": "scripts/aircraft_named_baseline_v2.py merge (writes <output>/merged-<stage>-predictions.json): union of the shard journals; refuses an image journaled outside its shard or reserved/completed twice within one, a shard directory outside shard-k-of-3, shards whose run identities differ in anything but their rows/shard index (the identity includes dtype, the observed CPU kernel path, runtime versions and the formatted-prompt hash), shard ledgers that started under different plan SHA256s or runner sources, and any missing or unknown image",
     "shared_state": "Shards share no lock. Shard results are fetched to one output directory before merge; the merge refuses duplicates, so running one shard twice cannot be double-counted."
   },
   "stages": {
@@ -277,12 +289,12 @@
     }
   },
   "budget_semantics": {
-    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 8700 s, full 18060 s); passed to the external supervisor as --wall-limit-seconds",
-    "long_generation_allowance": "2100 s covers one 16,384-token generation at the slowest measured 8.2 tokens/s, so a long native answer is not truncated by the wall cap",
+    "scope": "Every budget is per shard: each shard has its own ledger.jsonl under stage-<stage>/shard-<k>-of-3/ and its own invocation count, active seconds and calendar clock.",
+    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 162400 s, full 216400 s); the uwrun --timeout of an invocation is this value + 900 s",
+    "long_generation_allowance": "100000 s covers one native 16,384-token answer at the slowest measured float32 decode rate (6.1 s/token, iccad3 smoke), so a long native answer is not truncated by the wall cap",
     "charging": "A finished invocation is charged its measured elapsed seconds; a started invocation with no finish record is charged its full wall cap.",
     "survives_resume": "The ledger's first start time and invocation count are never reset.",
-    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation).",
-    "scope": "Every budget is per shard: each shard has its own ledger.jsonl under stage-<stage>/shard-<k>-of-3/ and its own invocation count, active seconds and calendar clock."
+    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation)."
   },
   "supervision": {
     "command": "uwrun run --host <iccad1|iccad3|iccad5> --sync <staged tree> --threads <T> --timeout <invocation_wall_seconds + 900> --name <name> -- <venv>/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --threads <T> --output <shared output>",

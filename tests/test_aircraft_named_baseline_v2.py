@@ -84,6 +84,9 @@ def runner(monkeypatch, clock):
     monkeypatch.setattr(local_vlm, "time", fake_time)
     monkeypatch.setattr(module.v1, "NATIVE_IMAGES", 100 * PER_CLASS)
     monkeypatch.setattr(module.local_hf, "runtime_versions", lambda pins: dict(pins))
+    # The kernel pin imports torch; the fake backend never computes, so record a fixed path.
+    monkeypatch.setattr(module.local_hf, "pin_cpu_numerics",
+                        lambda numerics: {"aten_cpu_capability": "FIXTURE"})
     return module
 
 
@@ -152,6 +155,7 @@ def world(tmp_path):
     integrity = repo / plan["model"]["integrity"]
     integrity.parent.mkdir(parents=True)
     integrity.write_text(json.dumps(record))
+    plan["model"]["integrity_sha256"] = sha(integrity)
     plan["activated"] = True
     plan["activation"] = {"activated_at": "2026-10-18T00:00:00Z", "approved_by": "test"}
     for name, path in (("val_images", dataset / "audit/val-images.json"),
@@ -474,7 +478,87 @@ def test_engine_identity_needs_dtype_and_excludes_threads(world, tmp_path):
 def test_smoke_reads_train_images_only(runner, world):
     val_id = world["author"][0]["image_id"]
     with pytest.raises(OSError):
-        runner.smoke(world["repo"], world["weights"], world["integrity"], [val_id],
-                     world["repo"] / "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/"
-                     "data_spec.json", 1, "float32", {}, None,
+        runner.smoke(world["plan"], world["repo"], world["weights"], [val_id], 1, "float32",
                      backend_factory=fake_backend({}, []))
+
+
+def test_unpinned_integrity_record_is_refused(runner, world):
+    record = json.loads(world["integrity"].read_text())
+    record["files"][0]["bytes"] += 0  # same content, different serialization
+    world["integrity"].write_text(json.dumps(record, indent=1))
+    path, digest = write_plan(world)
+    with pytest.raises(ValueError, match="integrity record differs"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], 1, backend_factory=fake_backend({}, []))
+    with pytest.raises(ValueError, match="integrity record differs"):
+        runner.smoke(world["plan"], world["repo"], world["weights"], ["x"], 1, "float32",
+                     backend_factory=fake_backend({}, []))
+
+
+def test_repeated_image_within_a_shard_journal_is_refused(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    journal = world["out"] / "stage-discovery/shard-1-of-3/run/attempts.jsonl"
+    lines = journal.read_text().splitlines()
+    journal.write_text("\n".join(lines + lines[:2]) + "\n")
+    with pytest.raises(ValueError, match="Duplicate reserved event"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+
+
+def test_shards_under_different_plans_are_refused(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    ledger = world["out"] / "stage-discovery/shard-2-of-3/ledger.jsonl"
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    events[0]["plan_sha256"] = "f" * 64
+    ledger.write_text("".join(json.dumps(e) + "\n" for e in events))
+    with pytest.raises(ValueError, match="different plan or runner source"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"])
+
+
+def test_merge_command_output_does_not_block_the_full_stage(runner, world, clock, capsys):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    assert runner.main(["merge", "--plan", str(path), "--stage", "discovery",
+                        "--output", str(world["out"]),
+                        "--repository", str(world["repo"])]) == 0
+    merged = json.loads((world["out"] / "merged-discovery-predictions.json").read_text())
+    assert len(merged) == 100
+    assert runner.main(["report", "--plan", str(path), "--stage", "discovery",
+                        "--output", str(world["out"]),
+                        "--repository", str(world["repo"])]) == 0
+    report = runner.run_shard(path, digest, "full", 0, world["repo"], world["out"],
+                              world["weights"], 1,
+                              backend_factory=fake_backend(answers, calls, clock=clock))
+    assert report["per_shard"][0]["completed"] == 50
+
+
+def test_committed_plan_pins_every_hashed_source(runner, world):
+    plan = json.loads(PLAN.read_text())
+    assert set(plan["sources_pinned"]) == set(runner.source_hashes())
+    partial = json.loads(json.dumps(world["plan"]))
+    partial["sources_pinned"].pop("src/vision_rl/frontier.py")
+    path, digest = write_plan(world, partial)
+    with pytest.raises(ValueError, match="name exactly the runner's hashed sources"):
+        runner.load_plan(path, digest)
+
+
+def test_engine_requires_prompt_pin_and_numerics(world, tmp_path):
+    identifier = world["author"][0]["image_id"]
+    root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
+    rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
+             "prompt": "x"}]
+    numerics = {"aten_cpu_capability_env": "default"}
+    for engine in ({"name": "transformers-cpu", "dtype": "float32", "cpu_numerics": numerics},
+                   {"name": "transformers-cpu", "dtype": "float32",
+                    "formatted_prompt_sha256": "a" * 64}):
+        with pytest.raises(ValueError, match="formatted-prompt SHA256 and CPU numerics"):
+            local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
+                                  integrity=world["integrity"], engine=engine, runtime_pins={},
+                                  phase="validation", image_root=root,
+                                  task_contract={"task": "classification"},
+                                  preprocessing_id=None)
+    assert not (tmp_path / "x").exists()

@@ -48,10 +48,57 @@ REVISION = "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
 PACKAGES = ("torch", "torchvision", "transformers", "tokenizers", "pillow", "numpy", "safetensors")
 DTYPES = ("bfloat16", "float32")
 PRESENCE_CONTEXT = 20
+# mlx_vlm.generate.ar.DEFAULT_PREFILL_STEP_SIZE; qwen3_5's chunked_prefill_policy enables it.
+PREFILL_STEP_SIZE = 2048
 REQUIRED_FILES = {
     "config.json", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja",
     "preprocessor_config.json", "generation_config.json", "model.safetensors.index.json",
 }
+
+
+def pin_cpu_numerics(numerics):
+    """Hold every shard host to one CPU kernel path; returns the observed path.
+
+    ATen's capability is read from ATEN_CPU_CAPABILITY when torch is imported and MKL's
+    code path from MKL_CBWR when MKL initialises, so both are set before the first torch
+    import; oneDNN is switched off after it. The ram pool mixes Ivy Bridge (AVX only,
+    iccad1/3) and Broadwell (AVX2 + FMA, iccad5); without a pin their default kernels
+    differ, and so may their outputs (the CI named baseline measured that on bf16).
+    """
+    import sys
+
+    wanted = {"ATEN_CPU_CAPABILITY": numerics["aten_cpu_capability_env"],
+              "MKL_CBWR": numerics["mkl_cbwr"]}
+    if "torch" in sys.modules:
+        if any(os.environ.get(k) != v for k, v in wanted.items()):
+            raise ValueError("torch was imported before the CPU kernel path was pinned")
+    else:
+        os.environ.update(wanted)
+    import torch
+
+    torch.backends.mkldnn.enabled = numerics["mkldnn_enabled"]
+    observed = {
+        "aten_cpu_capability": torch.backends.cpu.get_cpu_capability(),
+        "mkldnn_enabled": torch.backends.mkldnn.enabled,
+        "mkl_cbwr": os.environ.get("MKL_CBWR"),
+        "mkl_available": torch.backends.mkl.is_available(),
+    }
+    expected = {"aten_cpu_capability": numerics["aten_cpu_capability"],
+                "mkldnn_enabled": numerics["mkldnn_enabled"], "mkl_cbwr": numerics["mkl_cbwr"],
+                "mkl_available": numerics["mkl_available"]}
+    if observed != expected:
+        raise ValueError(f"CPU kernel path is not the pre-registered one: {observed}")
+    return observed
+
+
+def cpu_model():
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return os.uname().machine
 
 
 def git_blob_sha1(path):
@@ -95,9 +142,25 @@ def runtime_versions(expected):
     return versions
 
 
-def mlx_filter(scores, generated, *, temperature, top_p, top_k, min_p, presence_penalty,
+def presence_history(prompt_ids, generated, prefill_step_size=PREFILL_STEP_SIZE):
+    """The token history mlx-vlm 0.6.8 hands its logits processors.
+
+    generate_step starts ``tokens`` empty and appends the ids its first _step receives:
+    the whole prompt, or, when the prompt is longer than the prefill step and is
+    prefilled in chunks, only the last prompt token. Generated tokens follow.
+    """
+    prompt_ids = list(prompt_ids)
+    prefix = prompt_ids[-1:] if len(prompt_ids) > prefill_step_size else prompt_ids
+    return prefix + list(generated)
+
+
+def mlx_filter(scores, history, *, temperature, top_p, top_k, min_p, presence_penalty,
                presence_context=PRESENCE_CONTEXT):
-    """mlx-vlm 0.6.8's processor and sampler chain on one row; returns tempered logits."""
+    """mlx-vlm 0.6.8's processor and sampler chain on one row; returns tempered logits.
+
+    ``history`` is presence_history(...): the penalty applies to the unique tokens among
+    its last ``presence_context`` entries, prompt tokens included, exactly as mlx-lm.
+    """
     import torch
 
     if min_p != 0.0:
@@ -105,8 +168,8 @@ def mlx_filter(scores, generated, *, temperature, top_p, top_k, min_p, presence_
     if not (temperature > 0 and 0 < top_p <= 1 and top_k > 0):
         raise ValueError("Sampling needs temperature > 0, 0 < top_p <= 1 and top_k > 0")
     scores = scores.float().clone()
-    if presence_penalty and len(generated):
-        recent = torch.as_tensor(list(generated[-presence_context:]), dtype=torch.long)
+    if presence_penalty and len(history):
+        recent = torch.as_tensor(list(history[-presence_context:]), dtype=torch.long)
         scores[..., recent.unique()] -= presence_penalty
     logprobs = scores - torch.logsumexp(scores, dim=-1, keepdim=True)
     if top_p < 1.0:
@@ -132,6 +195,7 @@ class MLXEquivalentSampler:
         self.torch, self.generation, self.prompt_length = torch, generation, prompt_length
         self.generator = torch.Generator().manual_seed(seed)
         self.drawn, self.progress, self.step_times = [], progress, []
+        self.prompt_ids = None
 
     def __call__(self, input_ids, scores):
         torch = self.torch
@@ -140,8 +204,11 @@ class MLXEquivalentSampler:
         generated = input_ids[0, self.prompt_length:].tolist()
         if generated != self.drawn:
             raise ValueError("generate() emitted a token this sampler did not draw")
+        if self.prompt_ids is None:
+            self.prompt_ids = input_ids[0, :self.prompt_length].tolist()
+        history = presence_history(self.prompt_ids, generated)
         g = self.generation
-        logits = mlx_filter(scores, generated, temperature=g["temperature"], top_p=g["top_p"],
+        logits = mlx_filter(scores, history, temperature=g["temperature"], top_p=g["top_p"],
                             top_k=g["top_k"], min_p=g["min_p"],
                             presence_penalty=g["presence_penalty"])
         token = int(torch.multinomial(torch.softmax(logits, dim=-1)[0], 1,
@@ -161,12 +228,15 @@ class TransformersBackend:
     def __init__(self, directory, config):
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
-        import torch
-        from transformers import AutoModelForImageTextToText, AutoProcessor
-
         engine = config["engine"]
         if engine["dtype"] not in DTYPES:
             raise ValueError("Engine dtype must be bfloat16 or float32")
+        if not engine.get("formatted_prompt_sha256"):
+            raise ValueError("Engine needs the pinned formatted-prompt SHA256")
+        numerics = pin_cpu_numerics(engine["cpu_numerics"])
+        import torch
+        from transformers import AutoModelForImageTextToText, AutoProcessor
+
         self.torch, self.config = torch, config
         torch.set_num_threads(engine["threads"])
         start = time.monotonic()
@@ -189,7 +259,7 @@ class TransformersBackend:
         self.load_info = {
             "load_seconds": time.monotonic() - start,
             "device": {"type": "cpu", "torch_threads": torch.get_num_threads(),
-                       "cpu_capability": torch.backends.cpu.get_cpu_capability(),
+                       "cpu_numerics": numerics, "cpu_model": cpu_model(),
                        "host": os.uname().nodename},
             "dtype": engine["dtype"], "eos_token_ids": sorted(self.eos),
             "max_rss_bytes_after_load": _max_rss(),
@@ -201,7 +271,7 @@ class TransformersBackend:
 
     def infer(self, row, seed):
         torch = self.torch
-        mode = local_vlm.native_profile(self.config.get("profile", "xhigh"))
+        mode = local_vlm.native_profile(self.config["profile"])
         template_kwargs = {"enable_thinking": mode["enable_thinking"], "preserve_thinking": True}
         if mode["reasoning_effort"] is not None:
             template_kwargs["reasoning_effort"] = mode["reasoning_effort"]
@@ -211,8 +281,7 @@ class TransformersBackend:
             messages, tokenize=False, add_generation_prompt=True, **template_kwargs)
         if not prompt.endswith("<|im_start|>assistant\n" + mode["assistant_prefill"]):
             raise ValueError("Pinned template does not match the native profile prefill")
-        expected = self.config["engine"].get("formatted_prompt_sha256")
-        if expected is not None and _digest(prompt) != expected:
+        if _digest(prompt) != self.config["engine"]["formatted_prompt_sha256"]:
             raise ValueError("Formatted prompt differs from the pinned MLX formatted prompt")
         with local_vlm.model_image(row["image_path"], self.config.get("preprocessing_id")) as rgb:
             inputs = self.processor(text=[prompt], images=[rgb], return_tensors="pt")
@@ -249,6 +318,8 @@ class TransformersBackend:
             output = self.model.generate(**inputs, generation_config=neutral,
                                          logits_processor=LogitsProcessorList([sampler]))
         elapsed = time.monotonic() - start
+        # Prefill (vision + prompt) ends when the first token's scores arrive.
+        prefill = sampler.step_times[0] - start if sampler.step_times else None
         tokens = output[0, prompt_length:].tolist()
         if tokens != sampler.drawn:
             raise ValueError("generate() output differs from the tokens the sampler drew")
@@ -260,10 +331,13 @@ class TransformersBackend:
             "finish_reason": "stop" if stopped else "length",
             "prompt_tokens": prompt_length, "generation_tokens": len(tokens),
             "total_tokens": prompt_length + len(tokens),
-            "prompt_tps": None, "generation_tps": len(tokens) / elapsed if elapsed else None,
+            # mlx-vlm's meanings: prompt tokens per prefill second, and generated tokens
+            # per decode second (after the first token).
+            "prompt_tps": prompt_length / prefill if prefill else None,
+            "generation_tps": (len(tokens) - 1) / (elapsed - prefill)
+            if prefill is not None and len(tokens) > 1 and elapsed > prefill else None,
             "peak_memory": _max_rss() / 1e9, "generate_seconds": elapsed,
-            # Prefill (vision + prompt) ends when the first token's scores arrive.
-            "prefill_seconds": sampler.step_times[0] - start if sampler.step_times else None,
+            "prefill_seconds": prefill,
             "peak_memory_unit": "decimal GB, process max RSS (getrusage)",
             "logprobs_retained": False,
         }
@@ -306,12 +380,16 @@ def run_local_hf(
         # Threads change latency, not outputs: they are passed to the backend factory
         # and recorded by the caller, never part of the run identity.
         raise ValueError("Engine identity needs an explicit dtype and no thread count")
+    if not engine.get("formatted_prompt_sha256") or "cpu_numerics" not in engine:
+        raise ValueError("Engine identity needs the formatted-prompt SHA256 and CPU numerics")
     prepared = [local_vlm.prepare_local(row, preprocessing_id) for row in rows]
     if len({row["id"] for row in prepared}) != len(prepared):
         raise ValueError("Duplicate local request IDs")
     model = verify_snapshot(model_directory, integrity)
+    observed_numerics = pin_cpu_numerics(engine["cpu_numerics"])
     config = {
         "phase": phase, "seed": seed, **mode, "engine": engine,
+        "observed_cpu_numerics": observed_numerics,
         "runtime_versions": runtime_versions(runtime_pins),
         "coordinate_format": task_contract.get("coordinate_format"),
         "concurrency": 1, "fewshot_training_images": 0, "resize_shape": None,

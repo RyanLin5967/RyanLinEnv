@@ -22,9 +22,9 @@ SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0,
             "presence_penalty": 1.5, "max_tokens": 16384}
 
 
-def reference(logits, generated, *, temperature, top_p, top_k, presence_penalty, context=20):
+def reference(logits, history, *, temperature, top_p, top_k, presence_penalty, context=20):
     values = list(logits)
-    for token in set(generated[-context:]):
+    for token in set(history[-context:]):
         values[token] -= presence_penalty
     norm = math.log(sum(math.exp(v) for v in values))
     logprobs = [v - norm for v in values]
@@ -56,7 +56,35 @@ def test_filter_matches_mlx_definition(seed):
             assert g == pytest.approx(w, abs=1e-4)
 
 
-def test_presence_penalty_only_counts_last_twenty_generated_tokens():
+def test_presence_history_follows_mlx_prefill_rule():
+    # mlx-vlm 0.6.8 generate_step: the whole prompt when it is prefilled in one step,
+    # only its last token when a prompt longer than 2048 tokens is prefilled in chunks.
+    short, long = list(range(100, 2148)), list(range(100, 2149))
+    assert len(short) == 2048 and len(long) == 2049
+    assert local_hf.presence_history(short, [5, 6]) == short + [5, 6]
+    assert local_hf.presence_history(long, [5, 6]) == [2148, 5, 6]
+    assert local_hf.presence_history([1, 2, 3], []) == [1, 2, 3]
+
+
+def test_sampler_penalises_prompt_tail_at_the_first_step():
+    scores = torch.zeros(1, 40)
+    sampler = local_hf.MLXEquivalentSampler(dict(SAMPLING, top_p=1.0, top_k=40), 0, 3)
+    filtered = []
+    original = local_hf.mlx_filter
+
+    def spy(scores, history, **kwargs):
+        filtered.append(list(history))
+        return original(scores, history, **kwargs)
+
+    local_hf.mlx_filter = spy
+    try:
+        sampler(torch.tensor([[7, 8, 9]]), scores.clone())
+    finally:
+        local_hf.mlx_filter = original
+    assert filtered == [[7, 8, 9]]
+
+
+def test_presence_penalty_only_counts_last_twenty_history_tokens():
     logits = torch.zeros(1, 30)
     out = local_hf.mlx_filter(logits, [5] + list(range(10, 30)), temperature=1.0, top_p=1.0,
                               top_k=30, min_p=0.0, presence_penalty=1.5)[0]
