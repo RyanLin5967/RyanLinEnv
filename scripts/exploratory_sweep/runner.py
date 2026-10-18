@@ -238,19 +238,37 @@ def drained_stale_hosts(state: dict) -> list:
                   and host not in live and h.get("boot_payload_sha256") != pinned)
 
 
+def first_stage_ran(spec: dict, x: dict) -> bool:
+    """The arm's first training stage ran (its log was fetched), or the arm was itself a
+    reuse_kept continuation, whose kept stop trained in an earlier run (its re-assay writes
+    no training log, so a second death there must stay continuable)."""
+    if spec.get("reuse_kept"):
+        return True
+    stops = spec.get("stops") or []
+    return bool(stops) and (Path(x["results_dir"]) / f"train-{stops[0]}.log.txt").is_file()
+
+
+def read_summary(x: dict) -> dict:
+    """A FAILED arm's summary; an arm that died before its first endpoint wrote none."""
+    path = Path(x["results_dir"]) / "summary.json"
+    return json.loads(path.read_text()) if path.is_file() else {"endpoints": []}
+
+
 def continuable_hosts(state: dict) -> set:
-    """Hosts of FAILED arms in CONTINUE_FAMILIES whose summary has a completed step stop."""
+    """Hosts of FAILED arms in CONTINUE_FAMILIES that completed a step stop or at least ran
+    their first training stage (died in its assay: `continue` re-assays the kept adapter)."""
     out = set()
     for x in state["arms"].values():
         if x.get("status") != "FAILED" or not x.get("results_dir"):
             continue
         try:
             spec = json.loads(Path(x["spec_path"]).read_text())
-            summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+            summary = read_summary(x)
         except (OSError, ValueError, KeyError):
             continue
-        if spec.get("family") in CONTINUE_FAMILIES and any(
-                str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+        ran = first_stage_ran(spec, x)
+        if spec.get("family") in CONTINUE_FAMILIES and (ran or any(
+                str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", []))):
             out.add(x["host"])
     return out
 
@@ -282,7 +300,9 @@ def valid_receipt(state: dict, host: str, features) -> dict:
         raise SystemExit(f"REFUSE: {host} has no valid bootstrap receipt (run `receipts`)")
     if r["payload_sha256"] != state.get("payload", {}).get("sha256"):
         raise SystemExit(f"REFUSE: {host} receipt is for another payload")
-    missing = sorted(set(features) | {"exploratory_sweep"} - set(r["features"]))
+    # parenthesised (port of wave-2 06264b4): `a | b - c` is `a | (b - c)`, which listed
+    # every declared feature as missing, so no feature-gated arm could ever launch
+    missing = sorted((set(features) | {"exploratory_sweep"}) - set(r["features"]))
     if missing:
         raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
     return r
@@ -418,7 +438,7 @@ def is_w_init(arm: dict) -> bool:
     return init == "W" or (isinstance(init, dict) and str(init.get("arm", "")).find("-W") >= 0)
 
 
-def continuation_spec(spec: dict, summary: dict) -> dict:
+def continuation_spec(spec: dict, summary: dict, first_stage_ran: bool = False) -> dict:
     """The rest of a FAILED multi-stop arm, resumed in place from its last completed stop.
 
     Same id, work dir and host; the completed endpoints are carried into the new summary.
@@ -427,10 +447,14 @@ def continuation_spec(spec: dict, summary: dict) -> dict:
     stops = [int(x) for x in spec.get("stops_all") or spec.get("stops") or []]
     done = [int(e["steps"]) for e in summary.get("endpoints", [])
             if str(e.get("label", "")).startswith("step")]
-    if not done or done != stops[:len(done)] or len(done) >= len(stops):
+    # an arm whose first stage ran but recorded no endpoint (it died in that stop's assay)
+    # continues too: arm_exec re-assays a kept adapter that is exactly that stop, verified on
+    # the host (reuse_kept), and otherwise refuses to retrain into the non-empty work dir
+    if (not done and not first_stage_ran) or done != stops[:len(done)] or len(done) >= len(stops):
         raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
     cont = dict(spec)
-    cont.update(stops=stops[len(done):], stops_all=stops, resume_stop=done[-1],
+    cont.update(stops=stops[len(done):], stops_all=stops, reuse_kept=True,
+                resume_stop=done[-1] if done else None,
                 save_steps=arm_exec_module().save_steps_for(spec, int(spec["max_steps_total"])),
                 work_id=spec.get("work_id", spec["id"]),
                 prior_endpoints=summary["endpoints"])
@@ -447,8 +471,8 @@ def cmd_continue(a, state_path: Path) -> int:
     if spec.get("family") not in CONTINUE_FAMILIES:
         raise SystemExit(f"REFUSE (amendment 3): only {sorted(CONTINUE_FAMILIES)} continue; "
                          f"{a.arm} is {spec.get('family')}")
-    summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
-    cont = continuation_spec(spec, summary)
+    summary = read_summary(x)
+    cont = continuation_spec(spec, summary, first_stage_ran=first_stage_ran(spec, x))
     cont["continued_from_run"] = x["run"]
     host = x["host"]
     r = valid_receipt(state, host, cont.get("features", []))
@@ -642,8 +666,12 @@ def retire_if_host_oom(st: dict, arm_id: str):
            and str(y.get("failure_reason", "")).startswith("oom-guard")) >= OOM_RETRIES:
         return None
     try:
-        summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+        summary = read_summary(x)
         if any(str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+            return None
+        # a stage that trained (or a reuse_kept continuation) keeps its adapter on this host:
+        # leave it FAILED for `continue`, never restart it from scratch elsewhere
+        if first_stage_ran(json.loads(Path(x["spec_path"]).read_text()), x):
             return None
     except (OSError, ValueError, KeyError):
         pass

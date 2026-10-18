@@ -210,13 +210,45 @@ class Arm:
                 shutil.copy2(src, self.results / name)
 
     # ---- assay -----------------------------------------------------------------------
+    def kept_endpoint(self, stop: int):
+        """(receipt, adapter) of kept/step<stop> when its endpoint receipt is exactly this stop
+        and no endpoint for it was recorded in this run, else None (then the stop trains)."""
+        if any(e.get("label") == f"step{stop}" for e in self.spec.get("prior_endpoints") or []):
+            return None
+        kept = self.work / "kept" / f"step{int(stop)}"
+        path = kept / "endpoint_receipt.json"
+        if not path.is_file() or not (kept / "final_adapter").is_dir():
+            return None
+        receipt = json.loads(path.read_text())
+        if int(receipt.get("global_step", -1)) != int(stop):
+            return None
+        want = (receipt.get("final_adapter") or {}).get("weights_sha256")
+        got = sha_file(kept / "final_adapter" / "adapter_model.safetensors")
+        if want != got:  # a partial copy must never be scored as this stop
+            raise SystemExit(f"REFUSE: kept step{stop} adapter sha {got[:12]} != receipt "
+                             f"{str(want)[:12]}")
+        return receipt, kept / "final_adapter"
+
+    def assay_profile(self, vlt):
+        """The greedy assay's Profile. A key the spec lacks OR sets to None takes the Profile
+        default: matched controls have no `temperature` (KeyError at their first assay, found
+        by the wave-2 integration, ce099a3) and every SFT-family arm sets temperature None,
+        which Profile.validate() rejects (math.isfinite(None): TypeError) inside
+        predict_train_subset. Greedy decoding does not sample, so temperature cannot change
+        an assay. Any other present value passes exactly as before."""
+        s = self.spec
+        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
+                              dtype=s.get("dtype", "float32"))
+        profile.validate()
+        return profile
+
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:
         sys.path.insert(0, str(self.payload / "code" / "src"))
         os.environ.update({k: v for k, v in self.env.items() if k.isupper()})
         from vision_rl import vlm_local_training as vlt
 
         s = self.spec
-        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS}, dtype=s.get("dtype", "float32"))
+        profile = self.assay_profile(vlt)
         labels = vlt.load_spec(self.spec_path)["labels"]
         manifest = self.payload / "data" / "manifests" / manifest_name
         rows = [json.loads(ln) for ln in manifest.read_text().splitlines() if ln.strip()]
@@ -323,6 +355,21 @@ def run(arm: Arm, final_check: bool) -> dict:
     total = int(s["max_steps_total"])
     previous = s.get("resume_stop")  # promotion: continue this host's own boundary
     for stop in s["stops"]:
+        kept = arm.kept_endpoint(stop) if s.get("reuse_kept") else None
+        if kept is not None:
+            # runner.py continue: this stop trained and its adapter was kept, but the run
+            # died before its endpoint was recorded (e.g. in the assay): re-assay the kept
+            # adapter instead of training again (the trainer refuses a non-empty output)
+            receipt, adapter = kept
+            summary["endpoints"].append({
+                "label": f"step{stop}", "steps": int(stop),
+                "receipt_status": receipt["status"], "reassayed_kept": True,
+                "active_seconds": receipt["committed_active_seconds"],
+                "metrics": arm.assay(adapter, f"step{stop}", holdout)})
+            arm.copy_small()
+            write_summary(arm, summary)
+            previous = stop
+            continue
         resume = arm.out / f"checkpoint-{previous}" if previous else None
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")

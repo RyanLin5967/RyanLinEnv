@@ -314,3 +314,20 @@ oversubscribed hosts (21–54 s per SFT update against the benched 11.3).
   them in `held_w_init`.
 - Freed cores stay idle for the GATE 0 SFT lane (iccad5/6/7/8/10/13, ecetesla0/1). While
   GATE 0 is open, `refresh` bootstraps only hosts that hold a continuable sftall arm.
+
+## Engineering fix 3 (2026-10-18, plan-neutral): assay profile, feature gate, kept-stop continuation
+
+- **Assay profile.** Every matched control would have died at its first assay with KeyError
+  `temperature`: design.py's controls have no temperature key (found by the wave-2
+  integration, ce099a3). Every SFT-family arm sets temperature `None`, which
+  `Profile.validate()` rejects inside `predict_train_subset` (`math.isfinite(None)`), so
+  those arms would die at their first assay too. That includes the three sftall arms
+  running on the old payload. An absent or `None` key now takes the Profile default (1.0).
+  Greedy decoding does not sample, so an assay cannot change.
+- **Feature gate.** `valid_receipt` read `a | b - c` as `a | (b - c)`, so it reported every
+  declared feature as missing. Fixed by porting wave-2 06264b4.
+- **Continuation after a failed assay.** `runner.py continue` also accepts an arm whose first
+  stage ran but which recorded no endpoint. In a continuation, arm_exec re-assays a kept
+  adapter whose endpoint receipt is exactly that stop (checked on the host) instead of
+  training it again, then resumes the next stop from that checkpoint. The sftall arms will
+  take this path after their step-2329 assay fails.

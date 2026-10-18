@@ -625,3 +625,156 @@ def test_amendment3_refresh_targets_only_continuable_hosts_while_gate0_open(tmp_
         "g": {"status": "FAILED", "host": "iccad8", "spec_path": str(tmp_path / "b.json"),
               "results_dir": str(res)}}}
     assert runner.continuable_hosts(state) == {"iccad13"}
+
+
+def _vlt():
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "src"))
+    from vision_rl import vlm_local_training as vlt
+    return vlt
+
+
+PROFILE_BASE = {"response_format": "answer_only", "min_pixels": 50176, "max_pixels": 200704,
+                "max_completion_length": 256, "num_generations": 4}
+
+
+def test_assay_profile_accepts_controls_without_temperature_and_sft_with_none(tmp_path):
+    vlt = _vlt()
+    control = dict(PROFILE_BASE, id="c")                     # design.py controls: no key
+    sft = dict(PROFILE_BASE, id="s", temperature=None)        # every SFT-family arm
+    grpo = dict(PROFILE_BASE, id="g", temperature=0.7)
+    # forced fire: the old construction fails exactly as reported, for both shapes
+    with pytest.raises(KeyError, match="temperature"):
+        vlt.Profile(**{k: control[k] for k in arm_exec.PROFILE_KEYS})
+    with pytest.raises(TypeError):
+        vlt.Profile(**{k: sft[k] for k in arm_exec.PROFILE_KEYS}).validate()
+    for spec, temp in ((control, 1.0), (sft, 1.0), (grpo, 0.7)):
+        p = arm_exec.Arm(tmp_path, spec, tmp_path / "r").assay_profile(vlt)
+        assert p.temperature == temp and p.max_pixels == 200704  # 1.0 = Profile default
+
+
+def test_valid_receipt_feature_gate_admits_a_present_feature():
+    state = {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": {
+        "valid": True, "payload_sha256": "P", "root": "/r",
+        "features": ["exploratory_sweep", "cuda"]}}}}
+    assert runner.valid_receipt(state, "h", ["cuda"])["root"] == "/r"  # old code refused
+    with pytest.raises(SystemExit, match=r"lacks features \['expanded_lora'\]"):
+        runner.valid_receipt(state, "h", ["cuda", "expanded_lora"])
+
+
+def test_continuation_of_an_arm_that_died_in_its_first_assay():
+    spec = {"id": "sftall-W-1e-5", "stops": [2329, 4658], "max_steps_total": 4658,
+            "mode": "sft", "family": "sftall-W"}
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(spec, {"endpoints": []})
+    cont = runner.continuation_spec(spec, {"endpoints": []}, first_stage_ran=True)
+    assert (cont["stops"], cont["resume_stop"], cont["reuse_kept"], cont["save_steps"]) == (
+        [2329, 4658], None, True, 2329)
+
+
+def _kept(work, stop, step, sha=None):
+    import hashlib
+    k = work / "kept" / f"step{stop}"
+    (k / "final_adapter").mkdir(parents=True)
+    (k / "final_adapter" / "adapter_model.safetensors").write_bytes(b"w%d" % stop)
+    real = hashlib.sha256(b"w%d" % stop).hexdigest()
+    (k / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": step, "status": "stop_after_steps", "committed_active_seconds": 9.0,
+         "final_adapter": {"weights_sha256": sha or real}}))
+
+
+def test_run_reassays_a_kept_stop_then_trains_the_next_from_its_checkpoint(tmp_path, monkeypatch):
+    (tmp_path / "RECEIPT.json").write_text("{}")
+    spec = {"id": "a", "mode": "sft", "stops": [2329, 4658], "max_steps_total": 4658,
+            "reuse_kept": True, "resume_stop": None, "prior_endpoints": []}
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "res")
+    _kept(arm.work, 2329, 2329)
+    (arm.out / "checkpoint-2329").mkdir(parents=True)
+    stages, assays = [], []
+    monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
+    monkeypatch.setattr(arm, "trainer_args", lambda m, total, stop, resume, **k: [stop, resume])
+    monkeypatch.setattr(arm, "run_stage", lambda label, args: stages.append((label, args)) or {
+        "status": "max_steps", "global_step": 4658, "committed_active_seconds": 20.0})
+    monkeypatch.setattr(arm, "keep_adapter", lambda label: tmp_path / "fa")
+    monkeypatch.setattr(arm, "copy_small", lambda: None)
+    monkeypatch.setattr(arm, "assay", lambda adapter, label, m: assays.append((adapter, label))
+                        or {"accuracy": 0.5})
+    summary = arm_exec.run(arm, False)
+    assert stages == [("train-4658", [4658, arm.out / "checkpoint-2329"])]
+    assert assays[0] == (arm.work / "kept" / "step2329" / "final_adapter", "step2329")
+    assert [e["label"] for e in summary["endpoints"]] == ["step2329", "step4658"]
+    assert summary["endpoints"][0]["reassayed_kept"] is True
+
+
+def test_kept_endpoint_is_used_only_when_it_is_exactly_that_stop(tmp_path):
+    arm = arm_exec.Arm(tmp_path, {"id": "a"}, tmp_path / "r")
+    assert arm.kept_endpoint(4658) is None                 # nothing kept: it trains
+    _kept(arm.work, 4658, 4000)
+    assert arm.kept_endpoint(4658) is None                 # wrong step: it trains
+    _kept(arm.work, 2329, 2329)
+    assert arm.kept_endpoint(2329)[0]["global_step"] == 2329
+    done = arm_exec.Arm(tmp_path, {"id": "a", "prior_endpoints": [{"label": "step2329"}]},
+                        tmp_path / "r")
+    assert done.kept_endpoint(2329) is None                # already scored: not re-assayed
+
+
+def test_sftall_that_died_in_its_first_assay_is_continuable_and_its_host_refreshable(
+        tmp_path, monkeypatch):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "train-2329.log.txt").write_text("trained\n")  # no summary.json: died in assay
+    spec = {"id": "sftall-W-1e-5", "family": "sftall-W", "stops": [2329, 4658],
+            "max_steps_total": 4658, "mode": "sft", "features": []}
+    (tmp_path / "arm.json").write_text(json.dumps(spec))
+    x = {"status": "FAILED", "host": "iccad13", "run": "r", "kind": "train",
+         "spec_path": str(tmp_path / "arm.json"), "results_dir": str(res)}
+    state = {"payload": {"sha256": "P"}, "uwrun_runs": [], "arms": {"sftall-W-1e-5": x},
+             "hosts": {"iccad13": {"receipt": {"valid": True, "payload_sha256": "P",
+                                               "root": "/r", "features": ["exploratory_sweep"]}}}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
+    path = setup(tmp_path, monkeypatch, state)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    sent = []
+    monkeypatch.setattr(runner, "launch_one", lambda sp, spec, host, root, t, dry:
+                        sent.append((spec, host, dry)))
+
+    class A:
+        arm, reason, timeout, dry_run = "sftall-W-1e-5", "assay TypeError", 60, True
+
+    assert runner.cmd_continue(A, path) == 0
+    cont, host, _ = sent[0]
+    assert (host, cont["stops"], cont["reuse_kept"], cont["resume_stop"]) == (
+        "iccad13", [2329, 4658], True, None)
+
+
+def test_kept_adapter_whose_bytes_differ_from_its_receipt_refuses(tmp_path):
+    arm = arm_exec.Arm(tmp_path, {"id": "a"}, tmp_path / "r")
+    _kept(arm.work, 2329, 2329, sha="0" * 64)
+    with pytest.raises(SystemExit, match="kept step2329 adapter sha"):
+        arm.kept_endpoint(2329)
+
+
+def test_a_reuse_kept_continuation_that_dies_again_stays_continuable(tmp_path):
+    res = tmp_path / "res2"
+    res.mkdir()  # the re-assay run: no training log, no summary
+    spec = {"id": "s", "family": "sftall-W", "stops": [2329, 4658], "stops_all": [2329, 4658],
+            "reuse_kept": True, "max_steps_total": 4658, "mode": "sft"}
+    (tmp_path / "arm.json").write_text(json.dumps(spec))
+    x = {"status": "FAILED", "host": "iccad13", "spec_path": str(tmp_path / "arm.json"),
+         "results_dir": str(res), "failure_reason": "oom-guard:host-ram"}
+    state = {"arms": {"s": x}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
+    assert runner.retire_if_host_oom(state, "s") is None and state["arms"]["s"] is x
+    cont = runner.continuation_spec(spec, runner.read_summary(x),
+                                    first_stage_ran=runner.first_stage_ran(spec, x))
+    assert cont["stops"] == [2329, 4658] and cont["reuse_kept"] is True
+
+
+def test_host_oom_in_a_first_assay_is_not_retired(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "train-2329.log.txt").write_text("x")
+    (tmp_path / "arm.json").write_text(json.dumps({"id": "s", "stops": [2329, 4658]}))
+    state = {"arms": {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
+                            "results_dir": str(res), "spec_path": str(tmp_path / "arm.json")}}}
+    assert runner.retire_if_host_oom(state, "s") is None
