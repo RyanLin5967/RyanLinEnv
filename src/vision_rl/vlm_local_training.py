@@ -23,6 +23,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from importlib import import_module, metadata
 from pathlib import Path
+from types import MethodType
 from typing import Any
 
 from . import expanded_contract as _expanded
@@ -43,6 +44,10 @@ RESPONSE_FORMATS = LEGACY_RESPONSE_FORMATS + ("closed_set_answer_only",) + TAGGE
 TAGGED_OUTPUT_GRAMMAR = "think-answer-tags-v1/answer-only"
 # DAPO/Dr.GRPO/GSPO knobs that released TRL 1.16 GRPOConfig implements, with their
 # legacy values in `trainer_kwargs`. Only explicitly passed knobs enter settings.
+# The last two are this module's own (correction M3), not GRPOConfig fields:
+# `prompts_per_update` P sets generation_batch_size = gradient_accumulation_steps = P*G,
+# and `skip_zero_advantage_steps` leaves the optimizer untouched on an update whose whole
+# batch has zero advantage (see _ZeroAdvantageGate).
 GRPO_KNOBS = {
     "epsilon": 0.2,
     "epsilon_high": None,
@@ -53,7 +58,12 @@ GRPO_KNOBS = {
     "mask_truncated_completions": True,
     "num_iterations": 1,
     "top_entropy_quantile": 1.0,
+    "prompts_per_update": 1,
+    "skip_zero_advantage_steps": False,
 }
+# GRPO_KNOBS that `trainer_kwargs` translates instead of passing to GRPOConfig.
+MODULE_GRPO_KNOBS = ("prompts_per_update", "skip_zero_advantage_steps")
+MAX_PROMPTS_PER_UPDATE = 32
 GRPO_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
 # FGVC-Aircraft 2013b taxonomy for the closed-set prompt. Every (manufacturer, family,
 # variants) row was derived from the author release's native TRAIN annotations only
@@ -932,6 +942,16 @@ def validate_grpo_overrides(overrides: dict | None) -> dict:
     quantile = merged["top_entropy_quantile"]
     if not _finite(quantile) or not 0 < quantile <= 1:
         raise ValueError("top_entropy_quantile must be finite and in (0, 1]")
+    prompts = merged["prompts_per_update"]
+    if type(prompts) is not int or not 1 <= prompts <= MAX_PROMPTS_PER_UPDATE:
+        raise ValueError(
+            f"prompts_per_update must be an integer in 1..{MAX_PROMPTS_PER_UPDATE}"
+        )
+    if prompts > 1 and merged["num_iterations"] != 1:
+        # Policy reuse re-observes one buffered prompt per reused update, not P.
+        raise ValueError("prompts_per_update > 1 cannot combine with num_iterations > 1")
+    if type(merged["skip_zero_advantage_steps"]) is not bool:
+        raise ValueError("skip_zero_advantage_steps must be a bool")
     return {key: overrides[key] for key in sorted(overrides)}
 
 
@@ -949,14 +969,25 @@ def trainer_kwargs(
     order: str = "random",
     grpo_overrides: dict | None = None,
 ) -> dict:
-    """Explicit comparable defaults; one unique prompt per optimizer update.
+    """Explicit comparable defaults; one unique prompt per optimizer update by default.
 
-    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS)."""
+    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS).
+    `prompts_per_update` P (default 1 = legacy) makes one optimizer update consume P
+    distinct prompts x G generations: TRL generates the P*G batch once
+    (generation_batch_size = P*G) and accumulates it one completion per micro-step
+    (gradient_accumulation_steps = P*G), so generation stays aligned with the update and
+    the loss is TRL's normalisation over all P*G sequences. `skip_zero_advantage_steps`
+    requires beta == 0: with a KL term a zero-advantage update still has a gradient, so
+    skipping it would silently change the objective rather than drop a phantom step."""
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
     overrides = validate_grpo_overrides(grpo_overrides)
     if overrides and mode != "grpo":
         raise ValueError("grpo_overrides apply only to GRPO")
+    prompts = overrides.get("prompts_per_update", 1)
+    if overrides.get("skip_zero_advantage_steps") and beta != 0:
+        raise ValueError("skip_zero_advantage_steps requires beta 0 (a KL term has a gradient)")
+    trl_overrides = {k: v for k, v in overrides.items() if k not in MODULE_GRPO_KNOBS}
     common = dict(
         output_dir=str(output),
         max_steps=max_steps,
@@ -992,8 +1023,8 @@ def trainer_kwargs(
     )
     if mode == "grpo":
         common.update(
-            gradient_accumulation_steps=profile.num_generations,
-            generation_batch_size=profile.num_generations,
+            gradient_accumulation_steps=prompts * profile.num_generations,
+            generation_batch_size=prompts * profile.num_generations,
             num_generations=profile.num_generations,
             num_generations_eval=1,
             num_iterations=1,
@@ -1012,7 +1043,7 @@ def trainer_kwargs(
             mask_truncated_completions=True,
             disable_dropout=True,
         )
-        common.update(overrides)
+        common.update(trl_overrides)
     elif mode == "sft":
         common.update(
             gradient_accumulation_steps=1,
@@ -1579,6 +1610,79 @@ def egsft_weight(p: float, group_size: int = 4) -> float:
     return expected_gradient_weight(p, group_size) / expected_gradient_weight(0.5, group_size)
 
 
+def _skip_flagged_optimizer_steps(trainer, optimizer) -> None:
+    """Make `optimizer.step` a no-op while `trainer._vision_rl_skip_step` is true.
+
+    Ported verbatim from main's EG-SFT band guard (signal-limit B4): a zero loss alone is
+    not enough, because constant AdamW still steps on its momentum. Skipping `step` leaves
+    parameters and AdamW state (moments and step count) untouched; the presentation still
+    counts toward `max_steps`. The wrapper is a bound method so torch's LR-scheduler step
+    tracking (which rebinds `step.__func__`) still works.
+    """
+    if getattr(optimizer.step, "_vision_rl_band_guard", False):
+        return
+    original = optimizer.step
+
+    def step(_optimizer, *args, **kwargs):
+        if getattr(trainer, "_vision_rl_skip_step", False):
+            return None
+        return original(*args, **kwargs)
+
+    step._vision_rl_band_guard = True
+    optimizer.step = MethodType(step, optimizer)
+
+
+class _ZeroAdvantageGate:
+    """Opt-in GRPO skip of an optimizer update whose whole batch has zero advantage (M3).
+
+    Released TRL 1.16 does not skip such an update: transformers' Trainer calls
+    optimizer.step whatever the advantages are, and constant AdamW then moves the weights
+    on its first moment although the gradient is zero (the B4 phantom step). `observe`
+    reads the advantages TRL computed for the generation batch the coming update optimizes
+    (P prompts x G completions with prompts_per_update; reused unchanged by num_iterations
+    > 1 updates). The update is skipped when every advantage is exactly zero
+    (count_nonzero == 0); near-zero float advantages are not skipped.
+
+    Budget accounting (chosen and documented): a skipped update still advances
+    global_step, so it counts toward max_steps and every stop as P CONSUMED IMAGES, and its
+    prompts enter the exposure ledger; it is not an applied optimizer update. The audit
+    reports `zero_advantage_skipped_steps` separately, so applied updates =
+    optimizer_steps_observed - zero_advantage_skipped_steps.
+    """
+
+    def __init__(self):
+        self._vision_rl_skip_step = False
+        self.scored_batches = 0
+        self.zero_batches = 0
+
+    def observe(self, advantages):
+        zero = not bool(import_module("torch").count_nonzero(advantages).item())
+        self._vision_rl_skip_step = zero
+        self.scored_batches += 1
+        self.zero_batches += int(zero)
+
+    def skipped_this_step(self) -> bool:
+        return self._vision_rl_skip_step
+
+
+def _trainer_with_zero_advantage_skip(base, gate: _ZeroAdvantageGate):
+    """Wire `gate` to the released GRPO generation and to the optimizer step."""
+
+    class ZeroAdvantageSkipTrainer(base):
+        def create_optimizer(self, *args, **kwargs):
+            optimizer = super().create_optimizer(*args, **kwargs)
+            _skip_flagged_optimizer_steps(gate, self.optimizer)
+            return optimizer
+
+        def _generate_and_score_completions(self, inputs):
+            output = super()._generate_and_score_completions(inputs)
+            if self.model.training:
+                gate.observe(output["advantages"])
+            return output
+
+    return ZeroAdvantageSkipTrainer
+
+
 def _completion_logprob(policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens):
     """Sum log-probability of one completion under the sampler's logit transforms.
 
@@ -2104,11 +2208,27 @@ def _load_active_time(
 class _ExposureLedger:
     """Actual execution events; checkpoint ancestry selects committed presentations."""
 
-    def __init__(self, output, allowed_ids, resume_state=None, *, inherited=None):
+    def __init__(
+        self, output, allowed_ids, resume_state=None, *, inherited=None, prompts_per_update=1
+    ):
         """`inherited`: a continuation parent's committed entries, which must prefix the
-        lineage verbatim; they were checked against the parent's TRAIN, not this one."""
+        lineage verbatim; they were checked against the parent's TRAIN, not this one.
+
+        `prompts_per_update` P: each optimizer update commits exactly P entries, one per
+        distinct prompt, in observation order, all carrying that update's global_step
+        (entry k belongs to global step k // P + 1). P = 1 is the legacy one-entry lineage.
+        """
+        if type(prompts_per_update) is not int or not (
+            1 <= prompts_per_update <= MAX_PROMPTS_PER_UPDATE
+        ):
+            raise ValueError(
+                f"prompts_per_update must be an integer in 1..{MAX_PROMPTS_PER_UPDATE}"
+            )
+        if inherited and prompts_per_update != 1:
+            raise LocalVLMError("continuation lineage is one prompt per update")
         self.output = Path(output)
         self.allowed = set(allowed_ids)
+        self.per_update = prompts_per_update
         self.invocation_id = str(time.time_ns())
         self.entries = list((resume_state or {}).get("entries", []))
         self.pending = None
@@ -2116,36 +2236,57 @@ class _ExposureLedger:
         inherited = list(inherited or [])
         if self.entries[: len(inherited)] != inherited:
             raise LocalVLMError("exposure lineage does not start with the continuation parent's")
-        for step, entry in enumerate(self.entries, 1):
-            if entry["global_step"] != step or (
-                step > len(inherited) and entry["id"] not in self.allowed
+        if len(self.entries) % self.per_update:
+            raise LocalVLMError("checkpoint exposure holds a partial multi-prompt update")
+        for index, entry in enumerate(self.entries):
+            if entry["global_step"] != index // self.per_update + 1 or (
+                index >= len(inherited) and entry["id"] not in self.allowed
             ):
                 raise LocalVLMError("checkpoint exposure sequence differs from TRAIN identity")
+        for start in range(0, len(self.entries), self.per_update):
+            update = [entry["id"] for entry in self.entries[start : start + self.per_update]]
+            if len(set(update)) != len(update):
+                raise LocalVLMError("checkpoint exposure repeats a prompt inside one update")
 
     def begin(self, step):
-        if step != len(self.entries) + 1:
+        if step * self.per_update != len(self.entries) + self.per_update:
             raise LocalVLMError("exposure step does not continue committed checkpoint ancestry")
-        self.target_step, self.pending = step, None
+        self.target_step, self.pending = step, []
 
     def observe(self, identifier):
-        if self.target_step is None or identifier not in self.allowed or self.pending is not None:
-            raise LocalVLMError("expected exactly one actual TRAIN prompt per optimizer update")
-        self.pending = {
+        if (
+            self.target_step is None
+            or identifier not in self.allowed
+            or len(self.pending) >= self.per_update
+        ):
+            raise LocalVLMError(
+                "expected exactly one actual TRAIN prompt per optimizer update"
+                if self.per_update == 1
+                else f"expected exactly {self.per_update} actual TRAIN prompts per optimizer update"
+            )
+        if any(event["id"] == identifier for event in self.pending):
+            raise LocalVLMError("one optimizer update observed the same prompt twice")
+        event = {
             "invocation_id": self.invocation_id,
             "global_step": self.target_step,
             "id": identifier,
         }
+        self.pending.append(event)
         with (self.output / "physical_prompt_events.jsonl").open("a") as handle:
-            handle.write(json.dumps(self.pending) + "\n")
+            handle.write(json.dumps(event) + "\n")
 
     def end(self, step):
-        if self.pending is None or self.pending["global_step"] != step:
+        if (
+            not self.pending
+            or len(self.pending) != self.per_update
+            or any(event["global_step"] != step for event in self.pending)
+        ):
             raise LocalVLMError("optimizer update lacks an actual prompt exposure event")
-        self.entries.append(self.pending)
+        self.entries.extend(self.pending)
         self.target_step, self.pending = None, None
 
     def save(self, checkpoint, step):
-        if len(self.entries) != step or self.pending is not None:
+        if len(self.entries) != step * self.per_update or self.pending is not None:
             raise LocalVLMError("cannot save an incomplete prompt exposure lineage")
         _write(checkpoint / "exposure.json", {"schema_version": 1, "entries": self.entries})
 
@@ -2445,13 +2586,25 @@ def _audit_callback(
     stop_after_active_seconds: float | None = None,
     screen: _ScreenedScan | None = None,
     loss_scaled: bool = False,
+    param_delta: bool = False,
+    zero_advantage_gate: _ZeroAdvantageGate | None = None,
 ):
+    """Per-update optimizer audit; one optimizer_audit.jsonl row per global step.
+
+    `param_delta` (GRPO) adds `param_delta_l2` to every row: the L2 norm of this update's
+    change of the trainable (LoRA) weights, from a float32 snapshot taken at on_step_begin
+    (before the active-time span opens, so the copy is not charged as training) to the
+    weights at on_step_end. `zero_advantage_gate` adds `zero_advantage_skipped` to every
+    row and `zero_advantage_skipped_steps` to the summary, and refuses a skipped update
+    whose gradient was not exactly zero or whose weights moved.
+    """
     torch = import_module("torch")
     base = import_module("transformers").TrainerCallback
 
     class Audit(base):
         def __init__(self):
             self.initial = {}
+            self.before_step = None
             self.expected_reference = None
             self.timer = _ActiveStepTimer(output, max_active_seconds, device, resume_state)
             if screen is not None:
@@ -2471,6 +2624,8 @@ def _audit_callback(
                 self.summary.update(loss_scale_skipped_steps=0, loss_scale=None)
                 self.overflow = False
                 self.consecutive_skips = 0
+            if zero_advantage_gate is not None:
+                self.summary["zero_advantage_skipped_steps"] = 0
 
         def on_train_begin(self, args, state, control, model=None, **kwargs):
             self.timer.check_remaining()
@@ -2491,9 +2646,15 @@ def _audit_callback(
             if self.expected_reference is not None:
                 self.reference = _assert_reference_anchor(model, self.expected_reference)
 
-        def on_step_begin(self, args, state, control, **kwargs):
+        def on_step_begin(self, args, state, control, model=None, **kwargs):
             if exposure is not None:
                 exposure.begin(state.global_step + 1)
+            if param_delta and model is not None:
+                self.before_step = {
+                    n: p.detach().to(dtype=torch.float32, copy=True)
+                    for n, p in model.named_parameters()
+                    if p.requires_grad
+                }
             self.timer.begin()
 
         def observe_prompt(self, identifier):
@@ -2515,6 +2676,14 @@ def _audit_callback(
             if loss_scaled:
                 self.overflow = False
             norm = math.sqrt(norm_sq)
+            if (
+                zero_advantage_gate is not None
+                and zero_advantage_gate.skipped_this_step()
+                and norm != 0
+            ):
+                # Outcome guard: the skip is only a phantom-step removal when the
+                # gradient it discards is exactly zero.
+                raise LocalVLMError("a zero-advantage update to skip has a nonzero gradient")
             self.summary["latest_gradient_norm"] = norm
             self.summary["nonzero_gradient_steps"] += int(norm > 0)
             self.summary["max_gradient_norm_observed"] = max(
@@ -2544,8 +2713,13 @@ def _audit_callback(
             self.summary["optimizer_steps_observed"] += 1
             self.summary["active_seconds"] = self.timer.completed
             self.summary["completed_state_active_seconds"] = self.timer.committed
+            zero_skipped = False
+            if zero_advantage_gate is not None:
+                zero_skipped = zero_advantage_gate.skipped_this_step()
+                self.summary["zero_advantage_skipped_steps"] += int(zero_skipped)
             if (
                 model is not None
+                and not zero_skipped
                 and self.summary.get("latest_gradient_norm", 0) > 0
                 and "first_nonzero_update" not in self.summary
             ):
@@ -2561,8 +2735,25 @@ def _audit_callback(
                     "changed_tensors_since_invocation_start": changed,
                     "parameter_delta_l2_since_invocation_start": math.sqrt(delta_sq),
                 }
+            row = {"step": state.global_step, **self.summary}
+            if zero_advantage_gate is not None:
+                row["zero_advantage_skipped"] = zero_skipped
+            if param_delta:
+                row["param_delta_l2"] = None
+                if model is not None and self.before_step is not None:
+                    delta_sq = 0.0
+                    for name, parameter in model.named_parameters():
+                        if name in self.before_step:
+                            delta = parameter.detach().float() - self.before_step[name]
+                            delta_sq += float(delta.square().sum().item())
+                    if not math.isfinite(delta_sq):
+                        raise LocalVLMError("nonfinite adapter update")
+                    if zero_skipped and delta_sq != 0:
+                        raise LocalVLMError("a skipped zero-advantage step moved the adapter")
+                    row["param_delta_l2"] = math.sqrt(delta_sq)
+                self.before_step = None
             with (output / "optimizer_audit.jsonl").open("a") as handle:
-                handle.write(json.dumps({"step": state.global_step, **self.summary}) + "\n")
+                handle.write(json.dumps(row) + "\n")
             if max_active_seconds is not None and self.timer.committed >= max_active_seconds:
                 control.should_training_stop = True
                 control.should_save = True
@@ -3165,6 +3356,7 @@ def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None)
     state = json.loads((checkpoint / "trainer_state.json").read_text())
     exposures = json.loads((checkpoint / "exposure.json").read_text())
     entries = exposures["entries"]
+    per_update = record["settings"].get("grpo_overrides", {}).get("prompts_per_update", 1)
     original = {k: record["settings"][k] for k in ("max_steps", "max_active_seconds")}
     if (
         active["scope"] != ACTIVE_TIME_SCOPE
@@ -3177,9 +3369,10 @@ def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None)
         or active["exposure_sha256"] != _file_sha256(checkpoint / "exposure.json")
         or active["checkpoint_file_sha256"]
         != {name: _file_sha256(checkpoint / name) for name in ACTIVE_CHECKPOINT_FILES}
-        or len(entries) != receipt["global_step"]
+        or len(entries) != receipt["global_step"] * per_update
         or len(entries) != receipt["committed_prompt_presentations"]
-        or [entry["global_step"] for entry in entries] != list(range(1, len(entries) + 1))
+        or [entry["global_step"] for entry in entries]
+        != [step for step in range(1, receipt["global_step"] + 1) for _ in range(per_update)]
         or [entry["id"] for entry in entries] != receipt["committed_prompt_ids"]
     ):
         raise LocalVLMError("endpoint checkpoint time/exposure lineage differs")
@@ -3435,7 +3628,18 @@ def train_local(
     `grpo_overrides` sets allowlisted TRL GRPOConfig knobs (GRPO_KNOBS: clip-higher
     epsilon_high, loss_type, scale_rewards, mask_truncated_completions, num_iterations,
     ...). `dynamic_sampling_max_draws` drops all-same reward groups and redraws a
-    deterministic TRAIN replacement, up to that many groups per update.
+    deterministic TRAIN replacement, up to that many groups per update; every draw runs
+    inside the update's active-time span, so dropped draws are charged (C5).
+    Two GRPO_KNOBS are this module's (correction M3): `prompts_per_update` P (1..32)
+    makes one update consume P distinct TRAIN prompts x G generations (see trainer_kwargs)
+    and the exposure ledger commits P entries per global step; P > 1 refuses screening,
+    dynamic sampling and num_iterations > 1, which assume one prompt per update. Each
+    epoch uses floor(|TRAIN| / P) * P prompts (TRL's RepeatSampler drops the remainder).
+    `skip_zero_advantage_steps` (beta 0 only) skips the optimizer step of an update whose
+    whole batch has zero advantage; the skipped update still counts toward max_steps and
+    every stop as P consumed images, not as an applied optimizer update (_ZeroAdvantageGate).
+    Every GRPO optimizer_audit.jsonl row carries `param_delta_l2`, the update's L2 change
+    of the trainable LoRA weights (a log field, not a setting).
     """
     profile.validate()
     if exploratory_sweep is not None and (
@@ -3452,6 +3656,16 @@ def train_local(
     policy_reuse = overrides.get("num_iterations", 1) > 1
     if screen_journal is not None and (policy_reuse or dynamic_sampling_max_draws is not None):
         raise ValueError("screening cannot combine with dynamic sampling or num_iterations > 1")
+    prompts_per_update = overrides.get("prompts_per_update", 1)
+    skip_zero_advantage = overrides.get("skip_zero_advantage_steps", False)
+    if prompts_per_update != 1 and (
+        screen_journal is not None or dynamic_sampling_max_draws is not None
+    ):
+        raise ValueError(
+            "prompts_per_update > 1 cannot combine with screening or dynamic sampling"
+        )
+    if skip_zero_advantage and beta != 0:
+        raise ValueError("skip_zero_advantage_steps requires beta 0 (a KL term has a gradient)")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     if type(threads) is not int or threads < 1:
@@ -3567,6 +3781,8 @@ def train_local(
     )
     if train_only and len(train_rows) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
+    if len(train_rows) < prompts_per_update:
+        raise ValueError("prompts_per_update exceeds the TRAIN rows; it needs distinct prompts")
     if screened and len(train_rows) < target_accepted:
         raise ValueError("screen scan is shorter than target_accepted; it would exhaust S")
     parent_step = 0
@@ -3770,7 +3986,10 @@ def train_local(
         if active_state.get("exposure_sha256") is None:
             raise LocalVLMError("resume requires checkpoint-bound actual prompt exposure")
         exposure_state = json.loads((checkpoint / "exposure.json").read_text())
-        if len(exposure_state.get("entries", [])) != active_state["global_step"]:
+        if (
+            len(exposure_state.get("entries", []))
+            != active_state["global_step"] * prompts_per_update
+        ):
             raise LocalVLMError("checkpoint exposure count differs from optimizer global step")
         if screened != (checkpoint / "screen.json").is_file():
             raise LocalVLMError("screened resume requires exactly a checkpoint screen state")
@@ -3803,7 +4022,11 @@ def train_local(
     elif output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory or complete checkpoint")
     exposure = _ExposureLedger(
-        output, [row["id"] for row in train_rows], exposure_state, inherited=inherited_exposure
+        output,
+        [row["id"] for row in train_rows],
+        exposure_state,
+        inherited=inherited_exposure,
+        prompts_per_update=prompts_per_update,
     )
     screen = (
         _ScreenedScan(
@@ -3947,6 +4170,7 @@ def train_local(
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
         if args.device.type != device:
             raise LocalVLMError(f"Accelerate selected {args.device}, expected {device}")
+        zero_gate = _ZeroAdvantageGate() if skip_zero_advantage else None
         audit = _audit_callback(
             output,
             max_active_seconds,
@@ -3957,6 +4181,8 @@ def train_local(
             stop_after_active_seconds=stop_after_active_seconds,
             **({"screen": screen} if screen is not None else {}),
             **({"loss_scaled": True} if profile.dtype == "float16" else {}),
+            param_delta=mode == "grpo",
+            zero_advantage_gate=zero_gate,
         )
         eos = policy.generation_config.eos_token_id
         eos = [eos] if isinstance(eos, int) else list(eos or [])
@@ -4001,6 +4227,10 @@ def train_local(
                     journal_io_context=audit.timer.exclude_journal_io,
                     summary=dynamic_summary,
                 )
+            if zero_gate is not None:
+                # Outermost generation wrapper: it reads the batch the update optimizes
+                # (dynamic sampling's kept draw, not a dropped one).
+                constructor = _trainer_with_zero_advantage_skip(constructor, zero_gate)
         else:
             if mode == "egsft":
                 constructor = _trainer_with_egsft(
