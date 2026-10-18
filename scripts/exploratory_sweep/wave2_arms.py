@@ -1,4 +1,4 @@
-"""Concrete wave-2 rung-1 arm table for exploratory sweep v2 (plan amendment 3).
+"""Concrete wave-2 rung-1 arm table for exploratory sweep v2 (plan amendment 4).
 
   python3 -I scripts/exploratory_sweep/wave2_arms.py [--check]
 
@@ -156,7 +156,7 @@ def wave2_arms() -> list:
 def table() -> dict:
     arms = wave2_arms()
     return {"study_id": D.STUDY_ID, "schema_version": 1, "rung": 1, "wave": 2,
-            "amendment": 3, "inits": D.INITS, "rung_updates": D.RUNG_UPDATES,
+            "amendment": 4, "inits": D.INITS, "rung_updates": D.RUNG_UPDATES,
             "rung_seeds": {str(k): list(v) for k, v in D.RUNG_SEEDS.items()},
             "control_lr": D.CONTROL_LR, "matched_control_lr": {repr(k): v for k, v in
                                                               CONTROL_LR.items()},

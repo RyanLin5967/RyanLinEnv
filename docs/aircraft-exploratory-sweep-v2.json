@@ -27,6 +27,15 @@
    "why": "the gcd rule alone gives 150, 150, 300 over the 150/600/1500 rungs, so every rung-3 resume would refuse; uwrun v5 added cores/ourThr columns and the positional parser read physical cores as free GB; sftall arms launched before the save_steps fix need an in-place epoch-2 continuation"
   },
   {
+   "accuracy_read_before": "only the init baselines eval-W and eval-I (dev800); no trained arm of this sweep had finished",
+   "at": "2026-10-18T21:30Z",
+   "before_any_val": true,
+   "effect": "34 W-init controls, 13 unlaunched grpo-W, sft-W, egsft-W, noise, sft-I and sftall-rl arms are not launched; grpo-I (6) waits for GATE 0; rung-2 promotion ranks only non-W units",
+   "kind": "amendment 3 (exploratory, before any VAL use)",
+   "what": "the 22 running rung-1 arms finish and are recorded as exploratory; new launches are an allowlist: grpo-I arms and their matched controls only, and only after GATE 0 passes (state gate0.passed is True); runner continue only for sftall-I and sftall-W; no W-init unit is promoted to rung 2 (promote records held_w_init); refresh bootstraps only hosts holding a continuable arm while GATE 0 is open, leaving freed cores to the GATE 0 SFT lane (iccad5/6/7/8/10/13, ecetesla0/1)",
+   "why": "RL lessons audit 2026-10-18 (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md, C8 and C11): GRPO-from-W loses to I by 5-9 pp on dev800, and the GATE 0 SFT runs are starved on our own oversubscribed hosts (21-54 s per SFT update against the benched 11.3)"
+  },
+  {
    "at": "2026-10-18T21:00Z",
    "before_any_wave2_arm": true,
    "corrections": {
@@ -38,7 +47,7 @@
     "source": "runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (root checkout), binding 2026-10-18 ~22:30Z"
    },
    "effect": "wave 1 unchanged; wave-2 arms launch only on a host whose receipt lists their features and has their device kind and GPU model; they rank at rung 1 in the rl track (late-entrant rule); an RFT rung stop is round-granular and records its true update count",
-   "kind": "amendment 3: concrete wave-2 arms (new design file; arms-rung1.json unchanged)",
+   "kind": "amendment 4: concrete wave-2 arms (new design file; arms-rung1.json unchanged)",
    "what": "arms-wave2-rung1.json (scripts/exploratory_sweep/wave2_arms.py --check), 46 arms, all from I: GRPO-I beta 0 fmtpen, closedset, mu2 at LR {1e-5,2e-5,5e-5}, drgrpo also 3e-5, one 3e-6 guard (cpu-float32); dapo with dynamic sampling 8 draws (rtx2080ti-float32); RFT at LR {1e-5,2e-5,5e-5} (rtx3070-bfloat16); 20 matched SFT-from-I controls with LR {5e-6,1e-5,2e-5} by rank (same LR count, C4); 6 W/I device-control evals",
    "why": "the pre-registered wave-2 rows name features without trainer arguments; three features (RFT, format+DAPO knobs, invalid-answer penalty) and CUDA training were built and merged on sweep-wave2-integration.noindex"
   }

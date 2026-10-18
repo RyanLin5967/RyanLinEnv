@@ -283,8 +283,39 @@ checkpoint-2329 under the fixed payload, on the same host.
   `ARM#failN` and relaunches the remaining stops in place on the same host: same id and work
   dir, `resume_stop` set to the last completed stop, and the earlier endpoints carried into the
   new summary.
+- **Memory guard (uwrun v5.4).** Each launch passes `--mem`: 1.2 × the larger of its kind's
+  measured training peak and the assay peak. The training peaks come from 22 live arms
+  (VmHWM per process, summed): SFT 12.97 GiB, GRPO G8 13.56, GRPO G16 15.22. The assay peak
+  is still an extrapolation: it grew to 14.36 GiB over 6 of 25 chunks, giving an estimated
+  20.2 GiB until the first full assay under this payload records its own peak. A kind with no measurement (egsft) gets no
+  per-run cap. `poll` records `failure_reason`:
+  - `oom-guard:host-ram` (infrastructure): the record is retired and the arm relaunches from
+    scratch in a fresh work dir, at most twice. If it already finished a stop, it resumes via
+    `continue` instead.
+  - `oom-guard:mem-cap`: our sizing was wrong; the arm is never relaunched automatically.
+  - Other reasons: `timedout`, `overquota`, `stopped`, `code`.
+  `summary.json` now records `resources` (peak RSS) for every arm.
 
-## Amendment 3 (2026-10-18, before any wave-2 arm ran): the concrete wave-2 arms
+## Amendment 3 (2026-10-18, exploratory, before any VAL use): stop W-init, hold for GATE 0
+
+Recorded before any VAL use. The only accuracies read so far are the init baselines (eval-W
+and eval-I on dev800); no trained arm of this sweep had finished. The reasons come from the
+RL lessons audit (`runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`, C8 and C11):
+GRPO-from-W loses to I by 5–9 pp on dev800, and the GATE 0 SFT runs are starved on our own
+oversubscribed hosts (21–54 s per SFT update against the benched 11.3).
+
+- The 22 running rung-1 arms finish. Their results are recorded as exploratory.
+- New launches are an allowlist in `runner.py` (`LAUNCH_FAMILIES`). Only grpo-I arms and
+  their matched controls may launch, and only once GATE 0 has passed
+  (`state.json` `gate0.passed` is `true`). Every other family is skipped as held: W-init
+  controls, grpo-W, sft-W, egsft-W, noise, sft-I and sftall-rl.
+- `runner.py continue` is allowed only for sftall-I and sftall-W.
+- No W-init unit is promoted to rung 2. `promote` leaves them out of the ranking and lists
+  them in `held_w_init`.
+- Freed cores stay idle for the GATE 0 SFT lane (iccad5/6/7/8/10/13, ecetesla0/1). While
+  GATE 0 is open, `refresh` bootstraps only hosts that hold a continuable sftall arm.
+
+## Amendment 4 (2026-10-18, before any wave-2 arm ran): the concrete wave-2 arms
 
 The wave-2 rows of `arms-rung1.json` name a feature but no trainer arguments, so no runner
 can launch them. Three of the features have now been built and merged (branch

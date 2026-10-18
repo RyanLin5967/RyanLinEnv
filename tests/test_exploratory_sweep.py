@@ -113,8 +113,9 @@ def make_table(arms):
 
 def base_arm(arm_id, track):
     return {
-        "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "W", "mode": "grpo",
-        "lr": 1e-5, "stops": [150], "max_steps_total": 1500, "wave": 1,
+        "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "I", "mode": "grpo",
+        "family": "grpo-I",
+        "lr": 1e-5, "stops": [150], "max_steps_total": 1500, "wave": 1, "num_generations": 8,
         "train_manifest": "s_train_scan_seed42.jsonl", "features": [],
     }
 
@@ -330,7 +331,7 @@ def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, 
                             "features": ["exploratory_sweep"]}},
         "new": {"receipt": {"valid": True, "payload_sha256": "NEW", "root": "/r",
                             "features": ["exploratory_sweep"]}}},
-        "payload": {"sha256": "NEW"}, "uwrun_runs": []}
+        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True}}
     finish(tmp_path, state, "rl0", 0.5)
     state["arms"]["rl0"]["host"] = "old"
     path = setup(tmp_path, monkeypatch, state)
@@ -339,6 +340,7 @@ def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, 
     rows = runner.host_table("host load1 nproc cores availGB ourThr localGB\n"
                              "old 0 72 36 200 0 50\nnew 0 72 36 200 0 50\n")
     monkeypatch.setattr(runner, "host_table", lambda: rows)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
     launched = []
     monkeypatch.setattr(runner, "launch_one",
                         lambda sp, spec, host, root, timeout, dry: launched.append(
@@ -421,7 +423,7 @@ def test_a_continuation_can_itself_be_continued():
 
 def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, monkeypatch):
     spec = {"id": "s", "stops": [2329, 4658], "max_steps_total": 4658, "mode": "sft",
-            "features": []}
+            "features": [], "family": "sftall-W"}
     res = tmp_path / "res"
     res.mkdir()
     (res / "summary.json").write_text(json.dumps(
@@ -439,6 +441,7 @@ def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, mon
         raise SystemExit("REFUSE: uwrun run rc=255")
 
     monkeypatch.setattr(runner, "launch_one", boom)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
 
     class A:
         arm, reason, timeout, dry_run = "s", "epoch-2 refusal", 60, False
@@ -450,7 +453,7 @@ def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, mon
     assert "retired_reason" not in arms["s"]
 
 
-# ---- wave 2 (plan amendment 3): concrete arms reach the trainer with their features ------
+# ---- wave 2 (plan amendment 4): concrete arms reach the trainer with their features ------
 wave2 = load("wave2_arms")
 HIERARCHY_ASSET = ROOT / "scripts/exploratory_sweep/label-hierarchy-train-v1.json"
 
@@ -703,6 +706,181 @@ def test_one_gpu_arm_per_host():
     hosts = {"h": {"load1": 0.0, "nproc": 72, "cores": 36, "avail_gb": 200.0}}
     busy = {"arms": {"g": {"host": "h", "status": "RUNNING", "device": "cuda", "threads": 4,
                            "launched_ts": 0}}}
-    assert runner.capacity(busy, hosts, "h", 4, "cuda") == 0
-    assert runner.capacity(busy, hosts, "h", 4, "cpu") > 0
-    assert runner.capacity({"arms": {}}, hosts, "h", 4, "cuda") > 0
+    assert runner.capacity(busy, hosts, "h", 4, device="cuda") == 0
+    assert runner.capacity(busy, hosts, "h", 4, device="cpu") > 0
+    assert runner.capacity({"arms": {}}, hosts, "h", 4, device="cuda") > 0
+
+
+# uwrun v5.4's own marker line (~/.claude/bin/uwrun memory guard), values planted
+HOST_OOM = ("uwrun: memory guard: the run holds 14000 MB (--mem 19 GB), host RAM free 3000 MB "
+            "(floor 4096 MB): stopped")
+CAP_OOM = ("uwrun: memory guard: the run holds 20000 MB (--mem 19 GB), host RAM free 90000 MB "
+           "(floor 4096 MB): stopped")
+
+
+def test_failure_reason_separates_host_oom_from_our_cap_and_from_code():
+    s = "rlesweep-x iccad8 DONE rc=137 oom-guard"
+    assert runner.failure_reason(s, "...\n" + HOST_OOM) == "oom-guard:host-ram"
+    assert runner.failure_reason(s, CAP_OOM) == "oom-guard:mem-cap"
+    assert runner.failure_reason(s, "no guard line") == "oom-guard:unparsed"
+    assert runner.failure_reason("x h DONE rc=143 timedout", "") == "timedout"
+    assert runner.failure_reason("x h DONE rc=2", "resume must preserve") == "code"
+
+
+def test_poll_marks_oom_guard_failed_and_retires_a_host_kill_for_relaunch(tmp_path, monkeypatch):
+    state = {"hosts": {}, "arms": {
+        "a": {"status": "RUNNING", "run": "ra", "host": "h"},
+        "b": {"status": "RUNNING", "run": "rb", "host": "h"}}}
+    path = setup(tmp_path, monkeypatch, state)
+
+    def fake_uw(*args, **k):
+        if args[0] == "status":
+            return f"{args[1]} h DONE rc=137 oom-guard\n"
+        if args[0] == "logs":
+            return HOST_OOM if args[1] == "ra" else CAP_OOM
+        if args[0] == "fetch":  # a stage-less summary exists (rc=0 would not make it DONE)
+            Path(args[3]).mkdir(parents=True)
+            (Path(args[3]) / "summary.json").write_text(json.dumps({"endpoints": []}))
+        return ""
+
+    monkeypatch.setattr(runner, "uw", fake_uw)
+    runner.cmd_poll(None, path)
+    arms = json.loads(path.read_text())["arms"]
+    assert "a" not in arms and arms["a#fail1"]["failure_reason"] == "oom-guard:host-ram"
+    assert arms["a#fail1"]["retired_from"] == "a"
+    assert arms["b"]["status"] == "FAILED" and arms["b"]["failure_reason"] == "oom-guard:mem-cap"
+
+
+def test_host_oom_retire_keeps_a_resumable_arm_and_stops_after_two():
+    def st(endpoints, prior):
+        arms = {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
+                      "results_dir": "/nonexistent"}}
+        for k in range(prior):
+            arms[f"s#fail{k + 1}"] = {"retired_from": "s", "failure_reason": "oom-guard:host-ram"}
+        return {"arms": arms}
+    assert runner.retire_if_host_oom(st([], 0), "s") == "s#fail1"
+    assert runner.retire_if_host_oom(st([], 1), "s") == "s#fail2"
+    assert runner.retire_if_host_oom(st([], 2), "s") is None
+
+
+def test_host_oom_with_a_completed_stop_stays_failed_for_continue(tmp_path):
+    (tmp_path / "summary.json").write_text(json.dumps(
+        {"endpoints": [{"label": "step2329", "steps": 2329}]}))
+    state = {"arms": {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
+                            "results_dir": str(tmp_path)}}}
+    assert runner.retire_if_host_oom(state, "s") is None
+    assert state["arms"]["s"]["status"] == "FAILED"
+
+
+def test_fresh_work_id_only_for_from_scratch_relaunches():
+    state = {"arms": {"a#fail1": {"retired_from": "a"}, "a#fail2": {"retired_from": "a"}}}
+    assert runner.fresh_work_id(state, {"id": "a"})["work_id"] == "a~a3"
+    assert "work_id" not in runner.fresh_work_id(state, {"id": "new"})
+    assert runner.fresh_work_id(state, {"id": "a", "resume_stop": 150}) == {
+        "id": "a", "resume_stop": 150}
+    assert runner.fresh_work_id(state, {"id": "a", "work_id": "w"})["work_id"] == "w"
+
+
+def test_mem_gb_is_measured_peak_plus_20_percent_and_refuses_unmeasured(monkeypatch):
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", None)
+    with pytest.raises(SystemExit, match="assay peak RSS is unmeasured"):
+        runner.mem_gb({"mode": "sft"})
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    assert runner.mem_gb({"mode": "sft"}) == 16          # ceil(1.2 * 12.97 = 15.564)
+    assert runner.mem_gb({"mode": "grpo", "num_generations": 16}) == 19  # 18.264
+    assert runner.mem_gb({"mode": "grpo", "num_generations": 8}) == 17   # 16.272
+    assert runner.mem_gb({"mode": "eval"}) == 12                         # 12.0
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 16.0)
+    assert runner.mem_gb({"mode": "sft"}) == 20          # assay dominates: ceil(19.2)
+    assert runner.mem_gb({"mode": "grpo", "num_generations": 32}) is None  # unmeasured: no cap
+    assert runner.mem_gb({"mode": "egsft", "num_generations": 4}) is None
+
+
+def test_launch_one_passes_mem_and_a_fresh_work_dir(tmp_path, monkeypatch):
+    state = {"hosts": {"h": {"receipt": {"payload_sha256": "P"}}}, "uwrun_runs": [],
+             "arms": {"a#fail1": {"retired_from": "a"}}}
+    path = setup(tmp_path, monkeypatch, state)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+    name = runner.launch_one(path, {"id": "a", "mode": "sft"}, "h", "/r", 60, False)
+    argv = calls[0]
+    assert argv[argv.index("--mem") + 1] == "16"
+    spec = json.loads((tmp_path / "sweep" / "launch" / name / "arm.json").read_text())
+    assert spec["work_id"] == "a~a2"
+    assert json.loads(path.read_text())["arms"]["a"]["mem_gb"] == 16
+
+
+def test_launch_one_omits_mem_for_an_unmeasured_kind(tmp_path, monkeypatch):
+    path = setup(tmp_path, monkeypatch, {"hosts": {"h": {"receipt": {"payload_sha256": "P"}}},
+                                         "uwrun_runs": [], "arms": {}})
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+    runner.launch_one(path, {"id": "e", "mode": "egsft", "num_generations": 4}, "h", "/r", 60,
+                      False)
+    assert "--mem" not in calls[0]
+    assert json.loads(path.read_text())["arms"]["e"]["mem_gb"] is None
+
+
+def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
+    table = {"g": {"id": "g", "family": "grpo-I"}, "w": {"id": "w", "family": "grpo-W"}}
+    closed, opened = {}, {"gate0": {"passed": True}}
+    for state in (closed, opened):
+        for spec in ({"id": "w", "family": "grpo-W", "track": "rl"},
+                     {"id": "w~ctl", "family": "control", "track": "control", "control_of": "w"},
+                     {"id": "s", "family": "sft-I", "track": "sft"},
+                     {"id": "x", "family": "sftall-rl", "track": "rl"}):
+            assert "allowlist" in runner.launch_hold(state, spec, table)
+    g = {"id": "g", "family": "grpo-I", "track": "rl"}
+    gc = {"id": "g~ctl", "family": "control", "track": "control", "control_of": "g"}
+    assert "GATE 0" in runner.launch_hold(closed, g, table)
+    assert "GATE 0" in runner.launch_hold({"gate0": {"passed": "yes"}}, gc, table)
+    assert runner.launch_hold(opened, g, table) is None
+    assert runner.launch_hold(opened, gc, table) is None
+
+
+def test_amendment3_promotion_never_ranks_w_init_units(tmp_path, monkeypatch):
+    w = [dict(base_arm(f"w{k}", "rl"), init="W", family="grpo-W") for k in range(3)]
+    i = [base_arm(f"i{k}", "rl") for k in range(3)]
+    state = {"arms": {}, "hosts": {}}
+    for k, arm in enumerate(w):
+        finish(tmp_path, state, arm["id"], 0.90 + k / 100)  # W would win if ranked
+    for k, arm in enumerate(i):
+        finish(tmp_path, state, arm["id"], 0.60 + k / 100)
+    path = setup(tmp_path, monkeypatch, state)
+    (tmp_path / "design" / "arms-rung1.json").write_text(json.dumps(make_table(w + i)))
+
+    class A:
+        from_rung, late, overwrite = 1, False, False
+
+    assert runner.cmd_promote(A, path) == 0
+    out = json.loads((tmp_path / "sweep" / "arms-rung2.json").read_text())
+    assert out["promotion"]["rl"] == ["i2"] and out["held_w_init"] == ["w0", "w1", "w2"]
+    assert not [a for a in out["arms"] if a["id"].startswith("w")]
+
+
+def test_amendment3_continue_only_for_sftall(tmp_path, monkeypatch):
+    (tmp_path / "arm.json").write_text(json.dumps({"id": "g", "family": "grpo-W"}))
+    path = setup(tmp_path, monkeypatch, {"hosts": {}, "arms": {"g": {
+        "status": "FAILED", "spec_path": str(tmp_path / "arm.json"), "results_dir": "/x"}}})
+
+    class A:
+        arm, reason, timeout, dry_run = "g", "r", 60, True
+
+    with pytest.raises(SystemExit, match="amendment 3"):
+        runner.cmd_continue(A, path)
+
+
+def test_amendment3_refresh_targets_only_continuable_hosts_while_gate0_open(tmp_path):
+    res = tmp_path / "r"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [{"label": "step2329"}]}))
+    (tmp_path / "a.json").write_text(json.dumps({"family": "sftall-W"}))
+    (tmp_path / "b.json").write_text(json.dumps({"family": "grpo-W"}))
+    state = {"arms": {
+        "s": {"status": "FAILED", "host": "iccad13", "spec_path": str(tmp_path / "a.json"),
+              "results_dir": str(res)},
+        "g": {"status": "FAILED", "host": "iccad8", "spec_path": str(tmp_path / "b.json"),
+              "results_dir": str(res)}}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
