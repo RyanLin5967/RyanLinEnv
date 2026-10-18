@@ -30,8 +30,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
+sys.path.insert(0, str(REPO / "scripts"))
 
-from vision_rl import label_trie as lt  # noqa: E402
+import label_trie as lt  # noqa: E402
+
 from vision_rl.classification_comparison import _score  # noqa: E402
 
 NATIVE_VAL = "reports/2026-10-17-controlled400-native-val"
@@ -215,7 +217,7 @@ def main(argv=None):
                          slack=SLACK)
     trie["provenance"] = {"tokenizer": tokenizer_pins,
                           "builder": {"path": "scripts/build_label_trie.py",
-                                      "module": "src/vision_rl/label_trie.py"}}
+                                      "module": "scripts/label_trie.py"}}
     trie["sha256"] = lt.trie_sha256(trie)
     trie_file_sha = write(args.audit_dir / "label-trie-qwen2vl2b.json", trie)
     index = lt.LabelTrie(trie)

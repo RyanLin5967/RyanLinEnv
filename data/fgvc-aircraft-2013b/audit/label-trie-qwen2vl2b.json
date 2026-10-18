@@ -11345,7 +11345,7 @@
  "path_count": 2184,
  "provenance": {
   "builder": {
-   "module": "src/vision_rl/label_trie.py",
+   "module": "scripts/label_trie.py",
    "path": "scripts/build_label_trie.py"
   },
   "tokenizer": {

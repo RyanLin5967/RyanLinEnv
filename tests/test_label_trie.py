@@ -5,13 +5,17 @@ import hashlib
 import importlib.util
 import json
 import math
+import sys
 from pathlib import Path
 
 import pytest
 
-from vision_rl import label_trie as lt
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_label_trie.py"
+import label_trie as lt  # noqa: E402
+
+SCRIPT = SCRIPTS / "build_label_trie.py"
 
 # Hand-built byte vocab. "AB-1" spells as [7], [3,4,5] and [1,2,4,5]; "A" as [1] only.
 VOCAB = {b"A": 1, b"B": 2, b"AB": 3, b"-": 4, b"1": 5, b"Z": 6, b"AB-1": 7}

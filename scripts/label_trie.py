@@ -11,6 +11,11 @@ Blind spots, stated on purpose:
   * T says nothing about text AROUND the label: a completion with a leading space or newline is
     off-trie even though ``parse_label`` (which strips) would accept it. The coverage check is
     what proves this never happened on the 8 controlled400 VAL journals.
+
+Lives in scripts/, not src/vision_rl/: the activated freshpool plan pins every tracked
+src/vision_rl module (tests/test_freshpool_production.py), and this study is unactivated. A new
+vision_rl module would void that plan's pin set; moving it in belongs to the plan re-cut that
+activates this study.
 """
 
 from __future__ import annotations
