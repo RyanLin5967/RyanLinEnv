@@ -685,3 +685,26 @@ def test_uw_remote_pythonpath_ships_only_src_and_journals_the_rest(tmp_path, mon
     shipped, dropped = runner.remote_pythonpath()
     assert shipped == ["$PWD/repo/src"]
     assert dropped == [str(site), "/opt/elsewhere"]
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_uw_script_exports_the_remote_device_and_not_the_plans_thread_pins(
+        tmp_path, monkeypatch, device):
+    # uwrun exports OMP/MKL/OPENBLAS as its --threads; the plan's Mac values (2) must not
+    # shadow them, and the device is the uw block's, one visible GPU for cuda.
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    runner = _runner(tmp_path, monkeypatch, root, environment={
+        "PYTHONPATH": str(root / "src"), "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2",
+        "OPENBLAS_NUM_THREADS": "2", "HF_HUB_OFFLINE": "1", "ACCELERATE_TORCH_DEVICE": device})
+    runner.uw = {"python": "/var/tmp/env/bin/python", "device": device}
+    runner.device = device
+    context = {"stage_id": "s", "template": {"kind": "train", "entry": "m:main",
+                                             "entry_sha256": "0" * 64}}
+    text = runner.script(context, ["--device", device], "f" * 64)
+    assert "NUM_THREADS" not in text
+    assert f"ACCELERATE_TORCH_DEVICE={device}" in text and "HF_HUB_OFFLINE=1" in text
+    assert ("CUDA_VISIBLE_DEVICES=0" in text) is (device == "cuda")
+    assert f"phase_worker.py --remote-{device} " in text
+    # The pin check is the first command that reads the bundle, before the worker.
+    assert text.index("remote-check") < text.index("phase_worker.py")

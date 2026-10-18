@@ -1588,7 +1588,6 @@ def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make, device):
             device, "6", "6")
         assert argv_value(call["argv"], "--device") == device
         assert call["cuda_visible"] == ("0" if device == "cuda" else None)
-        assert call["omp_threads"] is None  # the plan's Mac thread pins are not exported
         assert not any(part.startswith(str(fixture.tmp)) for part in call["argv"])
     journal = fixture.journal()
     started = [e for e in journal if e["event"] == "stage_started"]
