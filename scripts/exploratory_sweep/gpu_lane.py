@@ -46,11 +46,15 @@ DEVICE_CLASS = {"ecetesla2": "rtx3070-bfloat16", "ecetesla4": "rtx3070-bfloat16"
 DTYPE = {"rtx3070-bfloat16": "bfloat16", "rtx2080ti-float32": "float32"}
 
 
-def _runner():
-    spec = importlib.util.spec_from_file_location("sweep_runner", HERE.parent / "runner.py")
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _runner():
+    return _load("sweep_runner", HERE.parent / "runner.py")
 
 
 def now() -> str:
@@ -247,15 +251,29 @@ def cmd_continue(a) -> int:
     """Continue an arm in place on its host from checkpoint-<resume_stop> (same work dir,
     same trajectory); stops after resume_stop only."""
     t, state = table(), load_state()
-    spec = dict(t[a.of])
-    stops = [x for x in spec["stops"] if x > a.resume_stop]
-    if a.extra_stops:
-        stops += [int(x) for x in a.extra_stops.split(",")]
-    if not stops or max(stops) > spec["max_steps_total"]:
-        raise SystemExit("REFUSE: no stop left, or a stop past max_steps_total")
-    spec.update(work_id=spec["id"], resume_stop=a.resume_stop, stops=sorted(set(stops)))
+    extra = [int(x) for x in a.extra_stops.split(",")] if a.extra_stops else []
+    spec = continue_spec(t[a.of], a.resume_stop, extra)
     push(a.host, spec, a.prio, state, suffix=f"@c{a.resume_stop}")
     return 0
+
+
+def continue_spec(original: dict, resume_stop: int, extra_stops: list) -> dict:
+    """The arm-table spec continued in place from checkpoint-<resume_stop>. save_steps is
+    carried from the trajectory's FIRST launch (the table spec), never recomputed from the
+    continuation's own stops: it is part of the trainer's resume identity."""
+    arm_exec = _load("arm_exec", HERE.parent / "arm_exec.py")
+    if original.get("resume_stop") or original.get("work_id"):
+        raise SystemExit("REFUSE: pass the arm-table spec (the trajectory's first launch)")
+    stops = sorted({x for x in original["stops"] if x > resume_stop} |
+                   {int(x) for x in extra_stops})
+    if not stops or min(stops) <= resume_stop or max(stops) > original["max_steps_total"]:
+        raise SystemExit("REFUSE: no stop past resume_stop, or a stop past max_steps_total")
+    save = arm_exec.save_steps_for(original, original["max_steps_total"])
+    if resume_stop % save or any(x % save for x in stops):
+        raise SystemExit(f"REFUSE: stops must be multiples of the carried save_steps {save}")
+    spec = dict(original)
+    spec.update(work_id=original["id"], resume_stop=resume_stop, stops=stops, save_steps=save)
+    return spec
 
 
 def cmd_control(a) -> int:
