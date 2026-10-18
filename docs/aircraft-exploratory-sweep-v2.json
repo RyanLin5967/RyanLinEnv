@@ -25,6 +25,14 @@
    "kind": "engineering (plan-neutral, not science)",
    "what": "promoted arms carry save_steps; runner reads uwrun v5 host columns by header and counts physical cores; a control on a stale-receipt host waits instead of aborting the launch pass; runner refresh and runner continue",
    "why": "the gcd rule alone gives 150, 150, 300 over the 150/600/1500 rungs, so every rung-3 resume would refuse; uwrun v5 added cores/ourThr columns and the positional parser read physical cores as free GB; sftall arms launched before the save_steps fix need an in-place epoch-2 continuation"
+  },
+  {
+   "at": "2026-10-18T21:00Z",
+   "before_any_wave2_arm": true,
+   "effect": "wave 1 unchanged; wave-2 arms launch only on a host whose receipt lists their features and has their device kind and GPU model; they rank at rung 1 in the rl track (late-entrant rule); an RFT rung stop is round-granular and records its true update count",
+   "kind": "amendment 3: concrete wave-2 arms (new design file; arms-rung1.json unchanged)",
+   "what": "arms-wave2-rung1.json (scripts/exploratory_sweep/wave2_arms.py --check): 18 RL arms at the rung-1 budget (hier, fmtpen, closedset, drgrpo, mu2 on cpu-float32; dapo, rft on rtx3070-bfloat16; cot, closedset-cot on rtx2080ti-float16), 18 matched SFT controls on their RL arm's device, 6 W/I device-control evals (one per class)",
+   "why": "the pre-registered wave-2 rows name features without trainer arguments; three features (hierarchical reward, RFT, format+DAPO knobs) and CUDA training were built and merged on sweep-wave2-integration.noindex"
   }
  ],
  "base_settings": {
@@ -70,7 +78,9 @@
  },
  "design_files_sha256": {
   "arms-rung1.json": "cfdbf2c872b307af8216335f2f8507829696363023e8bc33d94ef934b3e9cabc",
+  "arms-wave2-rung1.json": "570d5c8eae042d85cb1230620673d43bc4c22f8a54b66ab1063362ddb77fbb77",
   "scripts/exploratory_sweep/design.py": "adc155dd4c72ff4f4dc1fcd296099fb791dab9ad9e322d24cf179e0dc1f38a12",
+  "scripts/exploratory_sweep/wave2_arms.py": "50cd02e030e4e23a0e4df2ddf5c8d7298d9e0f4266375e800ff59a477fa55706",
   "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
  },
  "design_reproduce": "python3 -I scripts/exploratory_sweep/design.py --check",

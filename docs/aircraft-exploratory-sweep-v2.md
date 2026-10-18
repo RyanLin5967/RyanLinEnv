@@ -283,3 +283,52 @@ checkpoint-2329 under the fixed payload, on the same host.
   `ARM#failN` and relaunches the remaining stops in place on the same host: same id and work
   dir, `resume_stop` set to the last completed stop, and the earlier endpoints carried into the
   new summary.
+
+## Amendment 3 (2026-10-18, before any wave-2 arm ran): the concrete wave-2 arms
+
+The wave-2 rows of `arms-rung1.json` name a feature but no trainer arguments, so no runner
+can launch them. Three of the features have now been built and merged (branch
+`sweep-wave2-integration.noindex`): hierarchical partial-credit reward, RFT / expert
+iteration, and the format + DAPO-style GRPO knobs. CUDA training has also been merged
+(bf16 on compute capability ≥ 8.0, fp16 with GradScaler on older GPUs). The concrete arms
+are in a separate table, `aircraft-exploratory-sweep-v2/arms-wave2-rung1.json`, which
+`scripts/exploratory_sweep/wave2_arms.py` (`--check`) generates byte-reproducibly. The
+pre-registered `arms-rung1.json` is unchanged, and its abstract `w2-*` rows are never
+launched. The new ids start with `wave2-`, so they cannot collide with those rows.
+
+The rung-1 budget is the plan's: 150 updates, seed 42, declared total 1,500, GRPO-W G 8 at
+LR {5e-6, 1e-5} per family, and RFT at LR {1e-5, 3e-5}. Each arm declares its device
+(`device`, `dtype`, `gpu`, `device_class`).
+
+| family | device | trainer arguments |
+|---|---|---|
+| wave2-hier | CPU fp32 | `--label-hierarchy` (TRAIN-only, shipped in the payload), family 0.5, manufacturer 0.25 |
+| wave2-fmtpen | CPU fp32 | the same hierarchy with credits 0/0, `--invalid-reward -0.5` (exact reward minus an invalid-answer penalty) |
+| wave2-closedset | CPU fp32 | response format `closed_set_answer_only` |
+| wave2-drgrpo | CPU fp32 | `--loss-type dr_grpo --scale-rewards none` |
+| wave2-mu2 | CPU fp32 | `--num-iterations 2` |
+| wave2-dapo | RTX 3070 bf16 | `--loss-type dapo --epsilon-high 0.28 --dynamic-sampling-max-draws 4` |
+| wave2-rft | RTX 3070 bf16 | RFT: K 8 at T 1.0, 32 prompts per round, keep 1 correct, 1 epoch, 400 rounds, cap 1,500 updates |
+| wave2-cot | RTX 2080 Ti fp16 | response format `think_answer` (reward on the answer tag) |
+| wave2-closedset-cot | RTX 2080 Ti fp16 | response format `closed_set_think_answer` |
+
+- **Matched controls.** Every RL arm has its matched SFT control (plan rule). The control
+  runs on the RL arm's own host and device. An RFT arm's examples-matched control replays
+  the prompt of each kept SFT example, one per update, in round order. Within a round the
+  trainer shuffles its examples, so the per-round multiset is exact but the order is canonical.
+- **Device controls.** Assay-only evals of W and of I run on each of the three device
+  classes (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against W/I measured under its
+  own numerics, and each GPU eval against the CPU fp32 eval. A comparison never crosses
+  device classes without them.
+- **RFT stops.** An RFT rung stop is round-granular (`--rft-stop-after-steps`). The endpoint
+  is published at the first round boundary at or past 150 updates and records its true
+  update count. The trajectory does not depend on where it was stopped.
+- **Launch gate.** The runner launches an arm only on a host whose receipt reports the
+  arm's device kind and GPU model, with at most one GPU arm per host at a time.
+  `host_verify.FEATURE_FLAGS` now uses the built features' real flags. Response formats are
+  detected from the trainer's `RESPONSE_FORMATS`.
+- **Promotion.** The wave-2 arms rank at rung 1 in the `rl` track together with wave 1,
+  under the plan's late-entrant rule.
+- **Known limit.** With `--num-iterations 1`, DAPO's clip-higher term never binds, because
+  every update is on-policy. The dapo family is therefore effectively token-level loss plus
+  dynamic sampling. wave2-mu2 is the arm where clipping is active.
