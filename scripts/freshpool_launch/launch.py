@@ -19,8 +19,9 @@ evaluator's own. A gate that is missing, not evaluated, unparseable or not passi
 study; there is no path from a missing result to a pass.
 
 Guards (all refuse, none warn): plan identity and every pinned file hash before every stage;
-frozen environment; a fixed 5 GiB disk reserve the plan may raise but not lower; process-group
-RSS; a second owner of the accelerator, checked before every stage and every
+frozen environment, with ACCELERATE_TORCH_DEVICE mps (cpu only under the plan's explicit
+``"dry_run": true`` marker); a fixed 5 GiB disk reserve the plan may raise but not lower;
+process-group RSS; a second owner of the accelerator, checked before every stage and every
 OWNER_POLL_SECONDS while one runs; per-arm 1.25x forecast caps, counted from the validated
 parent's committed seconds for a continuation plus the wall seconds of every voided instance of
 the arm, cumulatively, so neither a continuation nor an interrupt resets them; the rolling
@@ -265,6 +266,21 @@ def load_evaluator(plan):
     return runpy.run_path(str(resolve(plan["evaluator"])))
 
 
+def verify_device(plan):
+    """A real launch runs on mps; cpu is representable only in a plan carrying the explicit
+    dry-run marker ``"dry_run": true`` (scripts/freshpool_dryrun), and a dry run only on cpu.
+    The marker must be a literal bool when present, so no truthy string turns a launch into
+    a dry run. The phase worker repeats this check (``--dry-run``) and also refuses a stage
+    whose forwarded ``--device`` differs from the device, since the inference entries do not
+    go through Accelerate."""
+    marker = plan.get("dry_run", False)
+    if type(marker) is not bool:
+        raise Stop("dry_run_marker_not_bool", dry_run=marker)
+    device = (plan.get("environment") or {}).get("ACCELERATE_TORCH_DEVICE")
+    if device != ("cpu" if marker else "mps"):
+        raise Stop("plan_device_not_allowed", device=device, dry_run=marker)
+
+
 def verify_plan(plan_path, expected):
     if sha(plan_path) != expected:
         raise Stop("plan_identity_differs")
@@ -279,6 +295,7 @@ def verify_plan(plan_path, expected):
     for name, value in (plan.get("environment") or {}).items():
         if os.environ.get(name) != value:
             raise Stop("frozen_environment_differs", variable=name)
+    verify_device(plan)
     limits = plan.get("limits") or {}
     reserve = limits.get("minimum_free_bytes")
     if type(reserve) is not int or reserve < DISK_RESERVE_BYTES:
@@ -356,7 +373,9 @@ def verify_stage_templates(templates):
       run to completion and only then stop as live_useful_mixed_unmonitored);
     - sft_e gives the trainer exactly ``--stop-after-steps 600`` and one integer
       ``--max-steps`` above 600, so SFT-E ends boundary_reached and SFT-T can continue it
-      (otherwise every SFT-E arm would run and stop only at its fragment check)."""
+      (otherwise every SFT-E arm would run and stop only at its fragment check), and
+      ``--order sequential --cycle``, without which the trainer refuses that max_steps on
+      a 600-row manifest."""
     for name in ("rl150", "rl600", "sft_e"):
         parts = wrapper_and_trainer(templates[name]["argv"])
         if parts is None or not all(isinstance(a, str) for a in templates[name]["argv"]):
@@ -376,6 +395,12 @@ def verify_stage_templates(templates):
     if (len(maxes) != 1 or not isinstance(maxes[0], str) or not maxes[0].isdigit()
             or int(maxes[0]) <= FINAL_UPDATES):
         raise Stop("sft_e_template_max_steps_not_above_600", max_steps=maxes)
+    # RL*'s accepted manifest holds exactly FINAL_UPDATES rows, and the trainer refuses a
+    # sequential run whose max_steps exceeds its manifest unless it cycles
+    # (vlm_local_training.train_local), so SFT-E must replay it --order sequential --cycle.
+    if flag_values(trainer, "--order") != ["sequential"] or trainer.count("--cycle") != 1:
+        raise Stop("sft_e_template_not_sequential_cycle",
+                   order=flag_values(trainer, "--order"), cycle=trainer.count("--cycle"))
 
 
 def verify_pins(plan):
@@ -769,7 +794,8 @@ class Launcher:
             self.plan["python"], "-B", str(HERE / "phase_worker.py"),
             "--guard-dir", str(self.ledger.directory / "guards"), "--stage", stage_id,
             "--kind", template["kind"], "--entry", template["entry"],
-            "--entry-sha256", template["entry_sha256"], "--", *forwarded,
+            "--entry-sha256", template["entry_sha256"],
+            *(["--dry-run"] if self.plan.get("dry_run") is True else []), "--", *forwarded,
         ]
         self.state["attempts"][stage_id] = instance
         self.state["arm_wall_seconds"][stage_id] = used
@@ -929,8 +955,8 @@ class Launcher:
                         or not set(accepted) <= set(scanned)
                         or scanned != self.g0["scan_ids"][: len(scanned)]):
                     return "fragment_screen_manifests_inconsistent"
-                for start in range(0, max(0, len(mixed) - 99)):
-                    if sum(mixed[start:start + 100]) / 100 < 0.40:
+                for start in range(0, max(0, len(mixed) - MIXED_WINDOW + 1)):
+                    if sum(mixed[start:start + MIXED_WINDOW]) < MIXED_MIN_IN_WINDOW:
                         return "rolling_useful_mixed_below_0_40"
             return check(f) if check else None
 
