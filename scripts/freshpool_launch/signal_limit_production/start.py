@@ -37,10 +37,10 @@ refusal (exit 2, one JSON line naming the reason) rather than a warning:
 
 import argparse
 import hashlib
-import re
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys

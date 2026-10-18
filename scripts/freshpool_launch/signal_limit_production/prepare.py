@@ -515,8 +515,8 @@ def repo_pins():
     files = tracked.stdout.split()
     if TRAINER not in files:
         raise SystemExit("git ls-files found no trainer: wrong repository")
-    return (*LAUNCH_PINS, UWRUN_FROZEN, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED, CONFLICTS,
-            LABEL_TRIE, CONFUSION_MAP, TAXONOMY, G0_PREVIEW, *files)
+    return (*LAUNCH_PINS, UWRUN_FROZEN, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED,
+            CONFLICTS, LABEL_TRIE, CONFUSION_MAP, TAXONOMY, G0_PREVIEW, *files)
 
 
 def runtime_pins():
