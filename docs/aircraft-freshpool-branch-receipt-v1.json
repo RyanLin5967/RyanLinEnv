@@ -1,0 +1,115 @@
+{
+ "schema_version": 1,
+ "study_id": "aircraft-freshpool-screened-grpo-v1",
+ "receipt": "controlled400 native-VAL branch resolution (study.json branches_on_controlled400_val) and D_req publication, both G0 items",
+ "sources": {
+  "comparison": {
+   "path": "reports/2026-10-17-controlled400-native-val/comparison.json",
+   "sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5"
+  },
+  "plan": {
+   "path": "reports/2026-10-17-controlled400-native-val/plan.json",
+   "sha256": "cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896"
+  },
+  "report": "reports/2026-10-17-controlled400-native-val/README.md",
+  "metric": "mean(diag(row_normalized_confusion))",
+  "split": "native_validation",
+  "n": 3333,
+  "test_consumed": false
+ },
+ "a_star": 0.7539126559714795,
+ "b4_edge_extension": false,
+ "w_valid_eos": 0.9726972697269727,
+ "w_evaluator_refused": false,
+ "w_val_accuracy": 0.6784313725490196,
+ "d_req": 0.05,
+ "mode": "full",
+ "g3_margin": 0.02,
+ "branches": {
+  "B0": {
+   "rule": "W interface failure (valid EOS < 0.95 or evaluator refusal) -> do not launch",
+   "w_valid_eos_fraction": 0.9726972697269727,
+   "w_invalid_or_missing": 91,
+   "evaluator_failures_common": 0,
+   "outcome": "pass"
+  },
+  "B1": {
+   "rule": "W VAL outside [0.15, 0.85] -> do not launch",
+   "w_val_mean_class_accuracy": 0.6784313725490196,
+   "outcome": "pass"
+  },
+  "B2": {
+   "rule": "publish D_req(a*) = max(0.05, 0.2(1-a*), 0.80-a*) (lower bound); D_req > 0.10 -> mechanism mode, else full mode",
+   "a_star": 0.7539126559714795,
+   "a_star_endpoint": "sft-1e5-time",
+   "terms": {
+    "floor": 0.05,
+    "relative_error": 0.0492174688057041,
+    "absolute_0_80": 0.04608734402852055
+   },
+   "d_req": 0.05,
+   "mode": "full",
+   "g3_margin": 0.02,
+   "rl_val_needed_lower_bound": 0.8039126559714795,
+   "note": "Lower bound: fresh-pool SFT endpoints also enter the strongest-SFT pool and can raise a*."
+  },
+  "B3": {
+   "rule": "all controlled400 SFT endpoints enter the strongest-SFT pool (no new VAL looks)",
+   "pool": {
+    "sft-1e4-exposure": {
+     "val_mean_class_accuracy": 0.7301426024955436,
+     "valid_fraction": 0.9897989798979898,
+     "adapter_sha256": "456a4c3e1029463228ea50e532769e80f568b4719403a7ab0c15f3ef93aa3440"
+    },
+    "sft-1e4-time": {
+     "val_mean_class_accuracy": 0.7520499108734403,
+     "valid_fraction": 0.9873987398739874,
+     "adapter_sha256": "ca762da20acba723e06b1246baa1707df6cdf5039ff0da0bb1ac619c18d70ed4"
+    },
+    "sft-1e5-exposure": {
+     "val_mean_class_accuracy": 0.7109001782531195,
+     "valid_fraction": 0.9771977197719772,
+     "adapter_sha256": "148f9158a9c5053630f03307d046a304de7d5ac5709a1311a2e4485d913dea82"
+    },
+    "sft-1e5-time": {
+     "val_mean_class_accuracy": 0.7539126559714795,
+     "valid_fraction": 0.9876987698769877,
+     "adapter_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
+    },
+    "sft-5e5-exposure": {
+     "val_mean_class_accuracy": 0.7399286987522282,
+     "valid_fraction": 0.9831983198319832,
+     "adapter_sha256": "be1d9cfc5fe8129c5f1b5ac9a365f14021b02e784e15f6837ca986056fd6c6d9"
+    },
+    "sft-5e5-time": {
+     "val_mean_class_accuracy": 0.7534135472370767,
+     "valid_fraction": 0.9831983198319832,
+     "adapter_sha256": "6a29c6fb82f77236ed3df85e0c7c54ceda3b9b93bdb58cf08159e5edd79593dc"
+    }
+   }
+  },
+  "B4": {
+   "rule": "best controlled400 answer-SFT LR = 1e-4 -> add 2e-4 to both grids",
+   "best_endpoint": "sft-1e5-time",
+   "best_lr": "1e-05",
+   "best_exposure_matched_endpoint": "sft-5e5-exposure",
+   "b4_edge_extension": false,
+   "note": "Neither the best endpoint (equal time) nor the best exposure-matched endpoint is at 1e-4, so the reading does not matter."
+  },
+  "B5": {
+   "rule": "W identity match -> reuse W VAL; else +0.94 h",
+   "controlled400_common_adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+   "controlled400_common_config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+   "freshpool_w_adapter_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c",
+   "match": true,
+   "reuse_w_val": true
+  },
+  "B6": {
+   "rule": "RL400 VAL reported as stale-pool reference; RL*-RL400 never reported as a pool effect",
+   "rl400_val_mean_class_accuracy": 0.6981818181818181,
+   "rl400_valid_fraction": 0.976897689768977,
+   "rl400_adapter_sha256": "83226668a3b765ea20eb5e625cd55bda56c463ace09e7091b37c9ce6afb37d1f"
+  },
+  "invariant": "No branch alters margins, seeds, TEST rules or the strongest-SFT definition."
+ }
+}

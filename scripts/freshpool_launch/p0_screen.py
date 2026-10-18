@@ -28,6 +28,9 @@ each chunk seeded with ``transformers.set_seed(seed)`` at its start.
 
 The fragment is the evaluator's ``g1`` document: seed, adapter_sha256 (W's weights file
 SHA256), scan_order (every manifest ID), journal (400 entries) and rollouts (128 groups).
+Each rollout completion also carries its ``completion_ids``: when more than 2% of the correct
+ones are non-canonical, the launcher sums the screen's p over every correct tokenization
+observed here (study.json alt_tokenization_switch, frozen before G2).
 """
 
 import argparse
@@ -137,11 +140,14 @@ def g1_document(rows, scores, samples, adapter_sha, labels):
             completions = []
             for completion in group:
                 value, ended = h_assay.answer(completion, labels)
+                ids = list(completion.get("completion_ids", []))
                 completions.append({
                     "correct": value == row["label"], "valid": value is not None,
-                    "eos": ended,
-                    "canonical_tokenization": list(completion.get("completion_ids", []))
-                    == canonical[row["id"]]})
+                    "eos": ended, "canonical_tokenization": ids == canonical[row["id"]],
+                    # The response is the label alone (no think block, tags or other text).
+                    "label_only": completion.get("response", "").strip() == row["label"],
+                    # The launcher builds the alt-tokenization file from the correct ones.
+                    "completion_ids": ids})
             rollouts.append({"id": row["id"], "seed": seed, "completions": completions})
     return {"seed": SEED, "adapter_sha256": adapter_sha,
             "scan_order": [row["id"] for row in rows], "journal": journal,

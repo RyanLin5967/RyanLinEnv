@@ -1,0 +1,215 @@
+name: Aircraft named baseline (native VAL, sharded CPU)
+# Pre-registered by docs/aircraft-named-baseline-ci-plan-v1.json. VAL stages are manual and
+# refuse the committed (unactivated) plan: dispatch with a committed, root-activated copy and
+# its SHA256. Every image is scored by the frozen 85f0865 evaluator code; the merge job refuses
+# unless every image of the stage was scored exactly once by attempt 1 of this run.
+# Pull requests touching this pipeline run only the plumbing job: three pinned TRAIN images,
+# never scored, no VAL.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: discovery or full
+        type: choice
+        options: [discovery, full]
+        required: true
+      shards:
+        description: Number of shards (discovery exactly 4; full by the plan's shard rule, max 256)
+        type: string
+        required: true
+      plan:
+        description: Path of the committed, activated plan copy
+        type: string
+        required: true
+      plan_sha256:
+        description: SHA256 of that activated plan copy
+        type: string
+        required: true
+      discovery_receipt:
+        description: Full stage only - committed discovery-receipt.json of this activated plan
+        type: string
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - .github/workflows/aircraft-named-baseline-ci.yml
+      - scripts/aircraft_named_baseline_ci.py
+      - scripts/aircraft_ci_experiment.py
+      - scripts/export_native_val_endpoint_predictions.py
+      - tests/test_aircraft_named_baseline_ci.py
+      - docs/aircraft-named-baseline-ci-plan-v1*
+      - docs/aircraft-named-baseline-ci-v1/**
+      - reports/2026-10-17-controlled400-native-val/plan.json
+      - reports/2026-10-17-controlled400-native-val/comparison.json
+      - requirements-vlm-local.lock
+      - pyproject.toml
+      - uv.lock
+      - requirements-torch-cpu.lock
+      - .python-version
+permissions:
+  contents: read
+# A dispatched VAL run is never cancelled or replaced by another dispatch (each is its own
+# group, and the plan requires every dispatched run to be reported); a newer push to a pull
+# request supersedes its older plumbing run.
+concurrency:
+  group: aircraft-named-baseline-ci-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  TOKENIZERS_PARALLELISM: "false"
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_DATASETS_OFFLINE: "1"
+  OMP_NUM_THREADS: "4"
+jobs:
+  setup:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'RyanLin5967/RyanLinEnv' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Refuse any ref but main (a branch could edit the plan and the runner together)
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "VAL stages are dispatched only from refs/heads/main, not $REF" >&2
+            exit 1
+          fi
+      - name: Refuse an unactivated plan, a bad shard count or a failed discovery gate
+        id: matrix
+        env:
+          STAGE: ${{ inputs.stage }}
+          SHARDS: ${{ inputs.shards }}
+          PLAN: ${{ inputs.plan }}
+          PLAN_SHA256: ${{ inputs.plan_sha256 }}
+          DISCOVERY_RECEIPT: ${{ inputs.discovery_receipt }}
+        run: |
+          set -euo pipefail
+          args=(matrix --stage "$STAGE" --shards "$SHARDS" --plan "$PLAN" --plan-sha256 "$PLAN_SHA256")
+          if [ -n "$DISCOVERY_RECEIPT" ]; then args+=(--discovery-receipt "$DISCOVERY_RECEIPT"); fi
+          matrix=$(timeout 300 python3 -I scripts/aircraft_named_baseline_ci.py "${args[@]}")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  shard:
+    needs: setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip install --no-deps --require-hashes --index-url https://download.pytorch.org/whl/cpu -r requirements-torch-cpu.lock
+      - run: uv pip check
+      - name: Score one shard with the frozen evaluator
+        env:
+          STAGE: ${{ inputs.stage }}
+          SHARDS: ${{ inputs.shards }}
+          INDEX: ${{ matrix.shard }}
+          PLAN: ${{ inputs.plan }}
+          PLAN_SHA256: ${{ inputs.plan_sha256 }}
+        run: >-
+          timeout 20400 .venv/bin/python -B scripts/aircraft_named_baseline_ci.py shard
+          --stage "$STAGE" --shards "$SHARDS" --index "$INDEX"
+          --plan "$PLAN" --plan-sha256 "$PLAN_SHA256"
+          --work "$RUNNER_TEMP/named-baseline-work" --output "$RUNNER_TEMP/named-baseline-shard"
+      - name: Retain the shard record and journal, never weights or images
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: named-baseline-${{ inputs.stage }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/named-baseline-shard/
+          retention-days: 30
+          if-no-files-found: warn
+
+  merge:
+    needs: [setup, shard]
+    if: always() && needs.setup.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: named-baseline-${{ inputs.stage }}-shard-*
+          path: ${{ runner.temp }}/named-baseline-artifacts
+      - name: Refuse any gap, duplicate or re-run, then score with the frozen evaluator
+        env:
+          STAGE: ${{ inputs.stage }}
+          SHARDS: ${{ inputs.shards }}
+          PLAN: ${{ inputs.plan }}
+          PLAN_SHA256: ${{ inputs.plan_sha256 }}
+        run: >-
+          timeout 1500 .venv/bin/python -B scripts/aircraft_named_baseline_ci.py merge
+          --stage "$STAGE" --shards "$SHARDS" --plan "$PLAN" --plan-sha256 "$PLAN_SHA256"
+          --artifacts "$RUNNER_TEMP/named-baseline-artifacts"
+          --work "$RUNNER_TEMP/named-baseline-merge-work" --output "$RUNNER_TEMP/named-baseline-merged"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: named-baseline-${{ inputs.stage }}-merged
+          path: ${{ runner.temp }}/named-baseline-merged/
+          retention-days: 90
+          if-no-files-found: error
+
+  tests:
+    # Full history, so the frozen-evaluator materialisation test runs instead of skipping.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - name: Runner refusal tests with the frozen commit required
+        env:
+          REQUIRE_FROZEN_COMMIT: "1"
+        run: timeout 600 .venv/bin/pytest -q -rs tests/test_aircraft_named_baseline_ci.py
+
+  plumbing:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv sync --extra dev --locked
+      - run: uv pip install --no-deps --require-hashes -r requirements-vlm-local.lock
+      - run: uv pip install --no-deps --require-hashes --index-url https://download.pytorch.org/whl/cpu -r requirements-torch-cpu.lock
+      - run: uv pip check
+      - name: Frozen comparison reproduces the committed endpoint report from the export
+        run: >-
+          timeout 1200 .venv/bin/python -B scripts/aircraft_named_baseline_ci.py verify-endpoints
+          --work "$RUNNER_TEMP/named-baseline-verify"
+      - name: Same shard path on three pinned TRAIN images (never scored, no VAL)
+        run: >-
+          timeout 3000 .venv/bin/python -B scripts/aircraft_named_baseline_ci.py plumbing
+          --work "$RUNNER_TEMP/named-baseline-work" --output "$RUNNER_TEMP/named-baseline-plumbing"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: named-baseline-plumbing
+          path: ${{ runner.temp }}/named-baseline-plumbing/
+          retention-days: 14
+          if-no-files-found: warn

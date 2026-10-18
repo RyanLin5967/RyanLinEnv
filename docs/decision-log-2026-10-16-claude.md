@@ -212,3 +212,172 @@ diagnostics, never held-out results.
 
 ## D21 — Named Qwen3.8-27B-8bit baseline activated (discovery first)
 - Activated copy docs/aircraft-named-baseline-plan-v1-activated.json, sha256 4c9845f0faac78a5e526f1ac3aa81e6fb764894510af69ddf76738299180132b, committed before any baseline call. Discovery (100 protocol-salted VAL images) runs first under supervise_local_vlm; its gate result is committed before full VAL. Single accelerator owner; TEST untouched.
+
+## D22 — 27B discovery complete: 34/100 (0 invalid), gate proceed; root git-pull incident
+- Discovery (plan 4c9845f0...) completed 100/100 over 2 invocations (inv 1: 50, inv 2: 50), 0 invalid, 0 unknown, mean 5.61 s/image. Equal-class accuracy 0.34 (Hoeffding 95% [0.204, 0.476]). Gate: proceed; projected full VAL 19,253 s, cap 38,506 s.
+- Incident (root error): during invocation 2 my background merge script ran `git pull` in the checkout the runner reads; the end-of-invocation re-verification saw a mid-write tree and exited 2 after the ledger had recorded a normal finish. Re-running the same check minutes later passes; parse_label/prompt hashes unchanged (f75d20ee..., 859dd366...). Generation used sources verified at invocation start; results kept. Also: chain v1 ran only one invocation and treated it as done; chain v2 first failed before any model work on a fixed telemetry filename.
+- RULE: no git checkout/pull/merge in the run tree while any run is in flight; do git work in a separate worktree.
+
+## D23 — 27B baseline run 2: fresh discovery + full VAL under one code identity (pre-registered)
+- Full VAL refused (correctly) because discovery ran under different source files: PR #11 merged mid-stage. Run 1 (runs/aircraft-named-baseline-v1, discovery 34/100) is preserved and will be reported.
+- Run 2 uses a NEW output root runs/aircraft-named-baseline-v1-run2 at main da4e401: discovery (same 100 IDs, same activated plan 4c9845f0...) then full VAL, chained in one detached script. Both discovery results are reported side by side; full VAL proceeds if the run-2 gate says proceed. The rerun is not outcome-selected: run 1 already passed the gate.
+- No git checkout/pull/merge in /Users/idide/RyanLinEnv until run 2 ends.
+## D24 — Freshpool production launch package; protocol activated; branch and D_req published (2026-10-17)
+- Numbered D24, not D22: open PR #16 (`named-baseline-discovery-gate`) adds D22 and D23 to this file.
+- Activation: `docs/aircraft-rl-protocol-freshpool-v1-activated.json`, protocol id
+  `fgvc-aircraft-freshpool-screened-grpo-v1-activated-2026-10-17`, is a separately identified copy of
+  the unactivated revision `docs/aircraft-rl-protocol-freshpool-v1.json` (pinned by sha256 in its
+  `activation.activates`). Only `protocol_id`, `status`, `activated` and `activation` differ; both salts
+  (`data.train_holdout.hash_protocol_id`, `revises.baseline_discovery_salt.literal`) stay the literal
+  `fgvc-aircraft-freshpool-screened-grpo-v1`, equal to the G0 manifests' `hash_protocol_id`, so H and the
+  VAL discovery sample cannot reshuffle. `launch.py` now requires exactly this form. Frozen in the copy:
+  actor model revision and manifest, W (`f05840be…`), data spec, answer-only prompt text sha256, parser
+  grammar, trainer source sha256, processor file hashes, 27B baseline revision and manifest, and the
+  activated named-baseline plan (D21, sha256 pinned; native-instruct profile, D20), which only G6 uses.
+  Scope: seed-42 development through G3b and EG-SFT; VAL/TEST only via the native-VAL package.
+- GPU ownership: the named-baseline runner (D21) does not detect other accelerator processes, so it must
+  not be started while this study runs; this launcher refuses to start or continue a stage while it runs
+  (owner patterns include `aircraft_named_baseline.py` and `supervise_local_vlm.py`).
+- Branch (`docs/aircraft-freshpool-branch-receipt-v1.json`, from `reports/2026-10-17-controlled400-native-val/comparison.json`):
+  B0 pass (W valid+EOS 0.9727 ≥ 0.95, 0 evaluator failures); B1 pass (W 0.6784 in [0.15, 0.85]);
+  B2 a* = 0.7539 (sft-1e5-time), **D_req = 0.05, full mode** (G3a/G3b margin +0.02); an RL arm needs VAL
+  ≥ 0.8039 against an unchanged a*; B3 all six controlled400 SFT endpoints enter the pool; B4 best LR 1e-5
+  (best exposure-matched 5e-5), no 2e-4 arm; B5 W weights and config hashes equal controlled400's common
+  adapter, W VAL reused; B6 RL400 VAL 0.6982 is a stale-pool reference only.
+- Launch package: `scripts/freshpool_launch/production/` (`prepare.py` writes the receipts, evidence base
+  and `plan.json`; `start.py` is the single command; `chain.py` runs the launcher detached; `status.py`
+  monitors). The launch runs from a detached worktree at the merge commit
+  (`/Users/idide/wt/RyanLinEnv-freshpool-launch-v1.noindex`), so later edits to main cannot change a
+  running study's pinned files or receipts.
+- Production E0 entry `scripts/freshpool_launch/e0_gate.py` replaces the dry-run-only `dryrun_e0.py`:
+  4 vs 2+2 vs 1+3 updates, each trainer part in its own guarded process, plus an altered-reference resume
+  that must be refused; 11 checks, all required by the launcher. E0 learning rate 1e-4 (grid maximum).
+- Defects found while building it, fixed in the same PR: (1) the G0 manifests' image paths are relative to
+  `data/fgvc-aircraft-2013b/development/`, not to the manifest directory, so E0 would have died on its
+  first image; G0 now checks every H and scan image resolves, and `start.py` links
+  `manifests/images` to the development images; (2) RL passed `{active_cap}`, which shrinks after a voided
+  instance, so a 600 continuation after any interruption would have been refused by the trainer's resume
+  identity check; RL now passes the constant `{arm_cap}` and plan load requires rl600 = rl150 minus its
+  150 boundary; (3) the study's alt-tokenization switch (>2% non-canonical correct P0 samples) was not
+  implemented; the launcher now freezes the tokenization file after G1 and passes it to RL and EG-SFT;
+  (4) the study's EG-SFT estimate omitted EG-SFT's extra no-grad forward per update, so its 1.25x cap would
+  likely have tripped; the forecast is 600 x (5.64 + 0.97) s; (5) the owner scan matched any command line,
+  so a `grep` naming a pattern would stop the study; it now reads only Python programs.
+- Forecasts (caps are 1.25x): E0 7,200 s; P0 3,564 s; RL 13,338 s (study T_RL); SFT-E 3,384 s; EG-SFT
+  3,966 s; H-select/H-gate assays 2,513/4,608.8 s from the slowest measured 32-image chunk (controlled400
+  RL400 assay), since an assay cap only guards a hang.
+- Review fixes (three adversarial reviews of PR #17 at 5db8a61; each has a test in
+  `tests/test_freshpool_{launch,production,e0,launch_wrappers}.py` or `tests/test_evaluate_freshpool_gates.py`):
+  (1) chain.py's SIGKILL after its bound killed only the launcher; every stage runs in its own
+  session, so the stage kept the GPU unguarded and the next resume would have stopped on it as a
+  second owner. The launcher now records `running_stage` (pgid + leader start time); chain.py kills
+  the launcher's group and reaps that stage (`launch.reap_orphan_stage`, identity-checked), and a
+  resume reaps it before its owner scan. A second signal during cleanup is ignored (`interrupt_once`).
+  (2) Ordinary test runs stopped the study: owner patterns matched substrings (`test_local_vision.py`
+  named `local_vision.py`) and every launcher test spawns `phase_worker.py`. Patterns now match whole
+  command-line words; a `phase_worker.py --dry-run` (CPU by its own refusal) and its descendants are
+  not owners; `freshpool_launch/launch.py` is no longer a pattern (it never touches the GPU);
+  `tests/conftest.py` and the dry run refuse while the production state is `running` for any test
+  module naming an owner pattern; an owner already present at launch or resume is a refusal (state
+  untouched), not a stop. (3) The interpreter: the plan pins the binary the venv link resolves to
+  and launch.py re-resolves the link before every stage (`interpreter_link_changed`). (4) Disk:
+  start.py's output allowance is measured (18 x 107,084 KiB, the largest controlled400 trainer
+  output, + 128 MiB = 1.96 GiB; required 6.96 GiB; `df` showed 9.7 GiB free on 2026-10-17), a resume
+  needs what the launcher needs, and before every stage the launcher PAUSES (exit 3, resumable,
+  nothing voided) unless free >= reserve + 4 x 107,084 KiB, so a slow squeeze stops between stages
+  instead of breaching the 5 GiB standing stop mid-stage. Swap shares the volume: still a risk.
+  (5) D22 collision: this entry is D24; start.py runs from a detached worktree of the merged commit
+  (no checkout, pull or merge in the main checkout, which PR #16's D23 forbids while its run 2 is live),
+  so a later decision-log edit on main does not break the plan's pinned receipt.
+  (6, 3-reviewer) Caps from measured pilot timing: after G1 the launcher freezes RL = N(20.29 + s k/a)
+  and EG-SFT = N(5.64 + s k) from P0's measured acceptance a, scorer seconds s and the tokenization
+  count k (one teacher-forced forward per scored sequence), journalled as
+  `forecasts_frozen_from_measured_pilot`; the plan's 13,338 / 3,966 s are no longer caps. At G1's
+  worst pass (a 0.30, s 2.0) the cap is 1.25 x 16,176 s, not 16,672.5 s.
+  (7) Quiet mode is waited out before every stage and a mid-stage priority drop is journalled
+  (`stage_demoted`); it cannot be undone without root. (8) start.py: verify-only timeout is a
+  refusal; "launched" only after the launcher journals its start; lock = pid + start time, so a pid
+  reused after a reboot is stale, not "still running".
+  (9) The alt-tokenization share counted think-block/tagged correct answers as non-canonical
+  tokenizations; numerator is now bare-label (`label_only`) and non-canonical only.
+  (10) SFT-E and EG-SFT exposure: the fragment carries the receipt's `committed_prompt_ids`; the
+  launcher requires exactly RL*'s 600 accepted IDs in order, and for SFT-T SFT-E's then the scanned
+  sequence from row 0, cycling. (11) RL vs SFT interrupt charging: SFT-T is charged its SFT-E
+  parent's voided seconds (`lineage`), as RL 600 is charged RL 150's under one arm label. Parents
+  are charged committed active seconds and voids wall seconds in both lineages (wall >= active).
+  (12) E0 now also checks `scorer_seconds_within_active_time`. (13) Verify-only and every stage
+  check the import tree: `import_root` (FROZEN/src) must be first on PYTHONPATH and every importable
+  file in it pinned, so an untracked `src/sitecustomize.py` stops it. (14) A latent crash: macOS
+  answers `killpg` with EPERM for an all-zombie group, which escaped `stop_group` as an
+  `unexpected_exception` study stop when a stage exited between polls; EPERM is now settled by the
+  member list. (15) G0 checked that each image exists, not its bytes: the plan now pins
+  `g0.images_sha256` over every H and S_scan_seed42 image file (`launch.images_digest`).
+- Interpretations in `scripts/evaluate_freshpool_gates.py`, ratified at this activation: sampled
+  macro over every completion per image, greedy included (one reading, used identically for every
+  arm, so it cannot favour one); G2's rolling useful-mixed fraction over the last 100 accepted
+  updates (the study's standing-stop window); G3a validity/EOS reuse G1's 0.90/0.95 (the only
+  thresholds the study gives); G1's 64 rollout images are the first 64 scanned candidates, accepted
+  or not ("64 of them"); the alt-tokenization share counts bare-label non-canonical completions only.
+- Activated protocol: `root_review_status` now describes the activated copy (allowed to differ from
+  the revision, as `launch.py` ACTIVATION_KEYS states), and `activation.prerequisites` records how
+  each of the protocol's six prerequisites is met or enforced (E0 and the measured forecasts are
+  enforced by the launcher, not yet met).
+
+## D25 — Freshpool study stopped at G1 (pre-registered; final, not rerun) (2026-10-18)
+Launched 2026-10-18 00:35 from frozen worktree @6be5d02 (plan 7facaf2c…). E0 passed 12/12 checks
+(2,166 s); W H-select and H-gate assays completed; P0 completed. G1 (`runs/aircraft-freshpool-v1/gates/G1-report-1.json`,
+sha 4cbcbe18…) FAILED two of six checks: acceptance 0.2975 < 0.30 and valid 0.8926 < 0.90
+(eos 1.0, mean_u_accepted 0.715, observed useful-mixed 0.367 vs predicted 0.311, scorer 0.74 s/candidate all passed).
+The launcher stopped the study by design. Per the protocol this is final: no rerun, no threshold change.
+No RL arm was trained, so there is no RL-vs-SFT result from this study. Next: forensics and a new unactivated
+pre-registration (workflow wf_b00c5f55-971), informed by the contingency draft (PR #19).
+
+## D26 — 27B baseline run 2 full stage resumed (2026-10-18)
+The GPU became free when the freshpool study stopped. `runs/aircraft-named-baseline-v1-run2/chain-full-resume.sh`
+(copy of chain.sh: discovery skipped, full invocations 2..32) relaunched against the unchanged root checkout
+(main da4e401, clean), so run 2 stays under one code identity (D23). The pause after full-inv-1 was for Ryan's
+machine lag, not a run defect. Root checkout must not move until chain_end.
+
+## D27 — Freshpool confirmatory phase pre-registered, then withdrawn not run (PR #21; 2026-10-18)
+- docs/aircraft-freshpool-confirmatory-v1.json/.md pre-register G5 (seeds 314 and 2718; RL at RL*'s frozen LR; SFT-E and SFT-T at every LR in Q) and a once-only sealed native TEST (G6) for exactly four allowlisted roles: RL* seed 42, the protocol-pool strongest SFT, W, and Qwen3.8-27B-8bit @815b83c0 (native-instruct profile).
+- There is one primary endpoint: RL* minus the strongest SFT under the unchanged substantial_rl gates, with the class-stratified bootstrap (20,000 draws, seed 2718). Multiplicity is a fixed sequence of conjunctive (intersection-union) families, G4 -> G5 -> G6a -> G6b. Secondary measures are descriptive only. The plan names 17 refusal conditions.
+- scripts/validate_freshpool_confirmatory.py works as follows. validate refuses a malformed plan, drift in any pin or inherited block, and an envelope receipt that exists now or ever existed in git history. authorize derives the contenders from the pinned evaluator on committed pre-TEST evidence, then writes and commits the receipt by exclusive create. claim allows one committed look per role. The 55 tests use hand-coded expected values.
+- Status: the parent study stopped at G1 (D25), so under the plan's own development_stop_before_G4 outcome it is never activated and is to be marked WITHDRAWN_NOT_RUN.
+Withdrawn in the same breath: the freshpool study stopped at G1 (D25), so per the plan's own development_stop_before_G4 rule it is never activated; status set to UNACTIVATED_WITHDRAWN_NOT_RUN. TEST stays sealed.
+
+## D28 — Freshpool results report tool (PR #22)
+gate results for aircraft-freshpool-screened-grpo-v1 are reported with scripts/freshpool_report.py. Every gate and every journal selection is recomputed by the pinned evaluator (scripts/evaluate_freshpool_gates.py, run via runpy after its bytes, launch.py's and classification_comparison.py's are hashed against the plan's pins) from journal-admitted fragments only, and must agree with the launcher's own evidence, report and selection records; any disagreement, missing fragment, or unreproducible selection is a refusal (exit 2, one JSON line), never a warning. Only H-select / H-gate assays are admitted, so VAL and TEST are never scored; H uncertainty is the protocol's paired within-class bootstrap (20,000 draws, seed 2718). The VAL target 0.8039 = a* 0.7539 + D_req 0.05 is a lower bound (G4 also needs +0.05 over the strongest SFT on VAL). Live run aircraft-freshpool-v1 stopped at G1 gate_failed (acceptance 0.2975 < 0.30, valid 0.8926 < 0.90, per gates/G1-report-1.json). Known launcher window (state.json saved before stage_completed is appended) fails closed with gate_evidence_differs_from_fragments; launch.py is unchanged because the live plan pins it.
+## D29 — Pretrained Harbor dogfood reproduction on a GitHub-hosted runner (PR #25)
+We add a manual workflow, `aircraft-harbor-dogfood.yml`, that re-runs the passing local plan `62fe9ff1…` byte-for-byte on a free `ubuntu-24.04` runner. Plan files come from the tracked archive checked against `plan-SHA256SUMS`. Host and build files come from source commit `1323eb1`. Inputs come from `setup_runtime`. The trial is `local_run.execute`, with only its Mac/Colima launch gate swapped for a first-attempt GitHub-runner gate. Pass means C1–C4 from `local_run` hold **and** the driver's `dogfood-local-result.json` exists with `pass: true` and `driver_error: null`. There are three deviations from the plan, all disclosed in `docs/aircraft-harbor-dogfood-ci.md`:
+- The outer timeout is `timeout -s INT -k 120 15300` instead of the plan's 14600 s with TERM.
+- The README step 3 cgroup read runs in the runtime image.
+- The runner recreates `/Users/idide/RyanLinEnv` rather than editing pinned plan bytes.
+
+The scope stays integration-only (TRAIN fixtures, not held-out, not RL-vs-SFT). Known risks, all unmeasured on x86:
+- About 0.2 GiB of headroom over the 14 GiB preflight.
+- SFT tree RSS has never been measured on x86.
+- C2 can fail through a uniform-reward GRPO group.
+
+A failure is reported as a result and is never retried. The status is not yet dispatched.
+
+Review check at head 9e31db3 (read-only, nothing run locally): both blocking findings are resolved and every CI check passes.
+1. The PR body now describes this PR. It lists the same four files as the diff (`.github/workflows/aircraft-harbor-dogfood.yml`, `scripts/harbor_dogfood_ci.py`, `docs/aircraft-harbor-dogfood-ci.md`, `tests/test_harbor_dogfood_ci.py`). The named-baseline plan text is gone.
+2. `criteria()` now calls `driver_record_error(root/output/local_run.RESULT_NAME)`, and `RESULT_NAME` is `dogfood-local-result.json` in the v4 `local_run.py`. That function returns an error if the file is missing or unreadable, if `driver_error` is non-null, or if `pass` is not true. The error is passed into `local_run.evaluate`, which sets pass to `driver_error is None and all(criteria)`. A new parametrized planted test, `test_driver_failure_fails_although_evidence_passes`, covers a CalledProcessError, the wall guard, `pass: false` and a missing file. In each case C1–C4 still pass, but the receipt fails and the exit code is 1.
+
+CI (`gh pr checks 25`): cpu, detection, harbor and local-vlm passed in both runs.
+## D30 — Named open-weight baseline Qwen2.5-VL-3B on free CI, pre-registered unactivated (PR #27)
+named open-weight baseline on free CI, pre-registered and UNACTIVATED. Adds plan aircraft-named-baseline-ci-qwen2.5-vl-3b-v1 (docs/aircraft-named-baseline-ci-plan-v1.json): Qwen/Qwen2.5-VL-3B-Instruct@66285546d2b821cf421d4f5eb2576359d3770cd3, all 13 files pinned by SHA256. It runs zero-shot in bf16 on free ubuntu-24.04 CPU runners as a sharded workflow_dispatch matrix. Prompt, greedy predict, the EOS-terminated parse_label(allow_reasoning=True) and the metrics/bootstrap (20,000 draws, seed 2718) come from the frozen evaluator at 85f0865. All 41 sources are materialised and hash-checked against reports/2026-10-17-controlled400-native-val/plan.json (cf871cfb...).
+
+Disclosed deviations: bf16 on CPU, repetition_penalty 1.0, 4 threads, and ATen AVX2 with oneDNN off on every host. The pinned kernel path was added because an AVX-512 bf16 host changed one greedy TRAIN answer. The PR plumbing canary requires the pre-registered answers.
+
+Stages: plumbing (3 TRAIN images, never scored), discovery (the D13 100-ID sample, exactly 4 shards) and full VAL (3,333 images). Full VAL is gated on a committed discovery receipt from one first-attempt run on main, made by the same runner and workflow SHA256, with at least 90% valid answers. Its shard count must satisfy N >= ceil(3333 / floor((19800-900-max fixed setup) / max(330, 3.0 x (slowest discovery shard mean latency + mean fetch)))).
+
+VAL is dispatched only from refs/heads/main. The merge refuses any missing, duplicate or misplaced image, any non-completed outcome, any re-run shard, any foreign run and any identity mismatch. No TEST data is touched.
+
+Activation requires root to commit an activated copy, which may differ only in activated, activation and status, and to pass its SHA256.
+
+Review (2026-10-18), against head fca62ef with read-only checks: all three blocking findings are resolved. (1) Merge gaps and duplicates: verify_shards and read_shard_records refuse every case. (2) Prompt and parse drift: the frozen Backend.predict, _deadline, the run_chunk output checks and the terminated-only parse were reused unchanged, and the merge re-parses every response. (3) Pinning: the model revision is the full hash and equals the frozen MODEL_REVISIONS, with per-file SHA256 and hashed torch locks. CI is green on fca62ef: runs 39124910292, 39124907507 and 39124910205.
+## D31 — Housekeeping and compute (2026-10-18)
+- Closed unmerged (branches kept): #20 and #23 (duplicates from agents that died; superseded by reviewed #25 and #27); #19 contingency draft (fresh verification found unresolved blocking issues; superseded by PR #26 and the exploratory sweep PR #29).
+- 27B MLX baseline run 2 paused permanently on the Mac after full invocations 1-3 (37.5 GB wired memory lagged Ryan's Mac). Replacement: v2 plan on UWaterloo big-RAM CPU hosts (PR #28), a different engine identity; v1 run-2 partial results are not merged with v2.
+- Heavy compute moved to UWaterloo Engineering hosts via uwrun (Ryan's order). Exploratory sweeps there use TRAIN-derived holdouts only; native VAL and sealed TEST are untouched until a recipe is pre-registered.
