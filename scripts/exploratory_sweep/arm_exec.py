@@ -50,6 +50,25 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
+def save_steps_for(spec: dict, max_steps: int) -> int:
+    """--save-steps for every stage of this arm's trajectory.
+
+    save_steps is part of the trainer's resume identity (settings), so it must be the same in
+    every stage of one trajectory, across promotions too. A trajectory's first arm uses the
+    gcd of its declared stops (and resume_stop); a promoted arm carries the value its
+    trajectory started with in `save_steps` (runner.promoted_arms sets it), because the gcd
+    rule alone drifts across rungs (150 -> 600 -> 1500 gives 150, 150, then 300). A stage
+    boundary always saves its own checkpoint regardless. (It was `stop`, which changed between
+    stages and made every multi-stop arm refuse to resume: "resume must preserve exact
+    model/data/profile/settings"; ported from GPU lane acdab57.)
+    """
+    if spec.get("save_steps"):
+        return int(spec["save_steps"])
+    marks = [int(x) for x in spec.get("stops") or []] + (
+        [int(spec["resume_stop"])] if spec.get("resume_stop") else [])
+    return math.gcd(*marks) if marks else int(max_steps)
+
+
 class Arm:
     def __init__(self, root: Path, spec: dict, results: Path):
         self.root, self.spec, self.results = root, spec, results
@@ -107,15 +126,7 @@ class Arm:
                 "--num-generations", str(s["num_generations"]),
                 "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
                 "--max-completion-length", str(s["max_completion_length"])]
-        # save_steps is part of the trainer's resume identity (settings), so it must be the
-        # same in every stage of one run: the gcd of the declared stops (and a promoted run's
-        # resume_stop). A stage boundary always saves its own checkpoint regardless. (It was
-        # `stop`, which changed between stages and made every multi-stop arm refuse to resume:
-        # "resume must preserve exact model/data/profile/settings"; ported from GPU lane acdab57.)
-        marks = [int(x) for x in s.get("stops") or []] + (
-            [int(s["resume_stop"])] if s.get("resume_stop") else [])
-        save = math.gcd(*marks) if marks else max_steps
-        args += ["--save-steps", str(save)]
+        args += ["--save-steps", str(save_steps_for(s, max_steps))]
         if stop and stop < max_steps:
             args += ["--stop-after-steps", str(stop)]
         if mode == "grpo":
@@ -270,7 +281,9 @@ def run(arm: Arm, final_check: bool) -> dict:
     write_json(arm.results / "arm.json", s)
     holdout = "h_gate_final.jsonl" if final_check else "dev800.jsonl"
     summary = {"arm": s["id"], "host": os.uname().nodename, "root": str(arm.root),
-               "receipt_sha256": sha_file(arm.root / "RECEIPT.json"), "endpoints": []}
+               "receipt_sha256": sha_file(arm.root / "RECEIPT.json"),
+               # an in-place continuation (runner.py continue) carries its earlier endpoints
+               "endpoints": list(s.get("prior_endpoints") or [])}
     if s["mode"] == "eval":
         adapter = arm.init_adapter()
         summary["endpoints"].append({"label": "init", "steps": 0,

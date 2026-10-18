@@ -267,3 +267,113 @@ def test_poll_finds_summary_under_rsync_subpath_semantics(tmp_path, monkeypatch)
     arm = json.loads(path.read_text())["arms"]["a1"]
     assert arm["status"] == "DONE"
     assert (Path(arm["results_dir"]) / "summary.json").is_file()
+
+
+def test_save_steps_stays_constant_through_rung2_and_rung3_promotion():
+    # Rung budgets 150 -> 600 -> 1500. The trajectory's first stage saved every 150 (seed 42)
+    # or every 600 (a seed that enters at rung 2); each later stage must pass the same value.
+    # The gcd of a rung-3 arm's own stops and resume_stop is gcd(1500, 600) = 300: wrong.
+    table = make_table([])
+    r1 = dict(base_arm("u", "sft"), mode="sft")
+    rung2 = {a["seed"]: a for a in runner.promoted_arms("u", [r1], "sft", 1, table)}
+    assert rung2[42]["save_steps"] == 150 and "save_steps" not in rung2[314]
+    rung3 = {a["seed"]: a for a in runner.promoted_arms(
+        "u", list(rung2.values()), "sft", 2, table)}
+    assert (rung3[42]["resume_stop"], rung3[42]["save_steps"]) == (600, 150)
+    assert (rung3[314]["resume_stop"], rung3[314]["save_steps"]) == (600, 600)
+    m = Path("m.jsonl")
+    for seed, want in ((42, "150"), (314, "600"), (2718, "600")):
+        arm = arm_exec.Arm(Path("/nonexistent"), dict(rung3[seed], response_format="x",
+                           num_generations=1, min_pixels=1, max_pixels=2,
+                           max_completion_length=8), Path("/nonexistent/r"))
+        assert _save_steps(arm.trainer_args(m, 1500, 1500, Path("c"))) == want
+    for seed in (314, 2718):  # rung-2 entrants: their own first stage
+        arm = arm_exec.Arm(Path("/nonexistent"), dict(rung2[seed], response_format="x",
+                           num_generations=1, min_pixels=1, max_pixels=2,
+                           max_completion_length=8), Path("/nonexistent/r"))
+        assert _save_steps(arm.trainer_args(m, 1500, 600, None)) == "600"
+
+
+UWRUN_V5_HOSTS = """\
+host         load1 nproc cores availGB ourThr localGB rootfs  shmGB  avx glibc speed freeCores
+iccad13      46.59    72    36     235      0       8    yes    129  512  2.28  12.3         0
+iccad4        0.02    24    24     121      0       0    yes     62    2  2.28  10.6        23
+"""
+
+
+def test_host_table_reads_uwrun_v5_columns_by_header():
+    t = runner.host_table(UWRUN_V5_HOSTS)
+    assert t["iccad13"] == {"load1": 46.59, "nproc": 72, "cores": 36, "avail_gb": 235.0,
+                            "local_gb": 8.0}
+    assert t["iccad4"]["avail_gb"] == 121.0 and t["iccad4"]["cores"] == 24
+    old = "host load1 nproc availGB localGB\niccad4 0.0 24 121 0\n"
+    with pytest.raises(SystemExit, match="header lacks"):
+        runner.host_table(old)
+
+
+def test_capacity_counts_physical_cores():
+    t = runner.host_table(UWRUN_V5_HOSTS)
+    # iccad4: 0.75 * 24 cores - 0.02 load = 17.98 -> one 16-thread arm; 0.75 * 121 GB -> 5
+    assert runner.capacity({"arms": {}}, t, "iccad4", 16) == 1
+    # iccad13: 0.75 * 36 = 27 cores < load 46.59 -> none (by nproc 72 it would be 0.3 -> 0
+    # too, so plant a lighter load where the two rules disagree: 0.75*72-20=34 vs 27-20=7)
+    t["iccad13"]["load1"] = 20.0
+    assert runner.capacity({"arms": {}}, t, "iccad13", 16) == 0
+
+
+def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, monkeypatch):
+    rl = base_arm("rl0", "rl")
+    other = base_arm("rl1", "rl")
+    ctl = runner.control_for(rl, {"W": 1e-5})
+    state = {"arms": {}, "hosts": {
+        "old": {"receipt": {"valid": True, "payload_sha256": "OLD", "root": "/r",
+                            "features": ["exploratory_sweep"]}},
+        "new": {"receipt": {"valid": True, "payload_sha256": "NEW", "root": "/r",
+                            "features": ["exploratory_sweep"]}}},
+        "payload": {"sha256": "NEW"}, "uwrun_runs": []}
+    finish(tmp_path, state, "rl0", 0.5)
+    state["arms"]["rl0"]["host"] = "old"
+    path = setup(tmp_path, monkeypatch, state)
+    table = tmp_path / "t.json"
+    table.write_text(json.dumps(make_table([rl, ctl, other])))
+    rows = runner.host_table("host load1 nproc cores availGB ourThr localGB\n"
+                             "old 0 72 36 200 0 50\nnew 0 72 36 200 0 50\n")
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    launched = []
+    monkeypatch.setattr(runner, "launch_one",
+                        lambda sp, spec, host, root, timeout, dry: launched.append(
+                            (spec["id"], host)))
+
+    class A:
+        ids = wave = rung = hosts = None
+        max_launch, timeout, dry_run = 1000, 60, False
+
+    A.table = str(table)
+    assert runner.cmd_launch(A, path) == 0
+    assert launched == [("rl1", "new")]
+
+
+def test_drained_stale_hosts_never_include_a_host_with_a_live_arm():
+    state = {"payload": {"sha256": "NEW"}, "arms": {
+        "a": {"status": "RUNNING", "host": "busy"},
+        "b": {"status": "DONE", "host": "drained"}}, "hosts": {
+        "busy": {"receipt": {"payload_sha256": "OLD"}},
+        "drained": {"receipt": {"payload_sha256": "OLD"}},
+        "booting": {"receipt": {"payload_sha256": "OLD"}, "boot_payload_sha256": "NEW"},
+        "current": {"receipt": {"payload_sha256": "NEW"}},
+        "never": {"receipt": None}}}
+    assert runner.drained_stale_hosts(state) == ["drained"]
+
+
+def test_continuation_resumes_sftall_epoch2_in_place_with_its_epoch1_endpoint():
+    spec = {"id": "sftall-W-1e-5", "stops": [2329, 4658], "max_steps_total": 4658,
+            "mode": "sft"}
+    e1 = {"label": "step2329", "steps": 2329, "metrics": {"accuracy": 0.5}}
+    cont = runner.continuation_spec(spec, {"endpoints": [e1]})
+    assert (cont["id"], cont["stops"], cont["resume_stop"]) == ("sftall-W-1e-5", [4658], 2329)
+    # epoch 1 ran (under the old and the new rule alike) with save_steps 2329
+    assert (cont["save_steps"], cont["work_id"], cont["prior_endpoints"]) == (
+        2329, "sftall-W-1e-5", [e1])
+    for bad in ([], [dict(e1, steps=2000)], [e1, dict(e1, label="step4658", steps=4658)]):
+        with pytest.raises(SystemExit, match="proper prefix"):
+            runner.continuation_spec(spec, {"endpoints": bad})
