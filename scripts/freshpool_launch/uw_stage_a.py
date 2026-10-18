@@ -375,6 +375,17 @@ class UWRunner:
             resolved = str(path.resolve())
             if resolved in mapped:
                 remote[key] = mapped[resolved]
+            elif path.is_dir() and (path.parent / "local_training.json").is_file():
+                # An adapter or checkpoint of a trainer run: the trainer reads its parent's
+                # local_training.json (the endpoint identity of an init adapter, the run a
+                # checkpoint continues), and a continuation copies the whole parent output
+                # (trainer_fragment --continue-output-from). So the parent run directory
+                # ships, under its own name, and the remote path keeps the
+                # parent/name layout the trainer checks (final_adapter, checkpoint-N).
+                target = directory / "inputs" / key / path.parent.name
+                shutil.copytree(path.parent, target, copy_function=shutil.copy2,
+                                symlinks=False)
+                remote[key] = f"inputs/{key}/{path.parent.name}/{path.name}"
             elif path.is_dir():
                 target = directory / "inputs" / key
                 shutil.copytree(path, target, copy_function=shutil.copy2, symlinks=False)

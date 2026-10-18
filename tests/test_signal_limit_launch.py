@@ -281,6 +281,12 @@ def main(argv):
     if spec is None:
         return 7
     behaviour = spec.get("behaviour", {})
+    if os.environ.get("FAKE_INIT_IN_RUN") == "1" and "--init" in argv:
+        # The real trainer reads the init adapter's run record: <run>/local_training.json
+        # beside <run>/final_adapter.
+        init = Path(argv[argv.index("--init") + 1])
+        if init.name != "final_adapter" or not (init.parent / "local_training.json").is_file():
+            return 11
     time.sleep(behaviour.get("sleep", 0))
     if "exit" in behaviour:
         return behaviour["exit"]
@@ -293,6 +299,7 @@ def main(argv):
         adapter.mkdir(parents=True, exist_ok=True)
         (adapter / "adapter_model.safetensors").write_text(
             behaviour.get("adapter_text", payload["run_id"]))
+        (arm / "local_training.json").write_text("{}")  # the run record, as the trainer
         payload.update(checkpoint=str(checkpoint), adapter_path=str(adapter))
     if payload.get("arm") == "RL":
         groups = arm / "trainer" / "reward_groups.jsonl"
@@ -753,6 +760,8 @@ class Fixture:
                             "HF_HUB_OFFLINE": "1", "PYTHONPATH": str(pkg),
                             "FAKE_CALLS": str(self.calls),
                             "FAKE_SCENARIO": str(self.scenario_path)}
+        if overrides.get("init_in_run"):
+            self.environment["FAKE_INIT_IN_RUN"] = "1"
         for name, value in self.environment.items():
             monkeypatch.setenv(name, value)
         monkeypatch.delenv("VISION_RL_TORCH_THREADS", raising=False)
@@ -791,9 +800,17 @@ class Fixture:
                for split, items in H_ROWS.items()},
             **self.overrides.get("base_extra_rows", {})}}))
         self.base = {"path": str(base), "sha256": sha_file(base)}
+        self.init_paths = {}
         for role, text in (("i", "I adapter"), ("w", "W adapter")):
-            (self.tmp / f"init-{role}").mkdir()
-            (self.tmp / f"init-{role}" / "adapter_model.safetensors").write_text(text)
+            # init_in_run: as the real W and I, a final_adapter inside its trainer run, whose
+            # local_training.json the trainer reads (fake entry rule FAKE_INIT_IN_RUN).
+            folder = (self.tmp / f"run-{role}" / "final_adapter"
+                      if self.overrides.get("init_in_run") else self.tmp / f"init-{role}")
+            folder.mkdir(parents=True)
+            (folder / "adapter_model.safetensors").write_text(text)
+            if self.overrides.get("init_in_run"):
+                (folder.parent / "local_training.json").write_text('{"record": "' + text + '"}')
+            self.init_paths[role] = str(folder)
         trie = self.tmp / "label-trie.json"
         trie.write_text(TRIE_TEXT)
         self.trie = {"path": str(trie), "sha256": TRIE_SHA}
@@ -926,8 +943,8 @@ class Fixture:
             "templates": templates,
             "init_endpoints": {
                 "I": {"adapter_sha256": o.get("i_sha", I_SHA),
-                      "adapter_path": str(self.tmp / "init-i")},
-                "W": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "init-w")}},
+                      "adapter_path": self.init_paths["i"]},
+                "W": {"adapter_sha256": W_SHA, "adapter_path": self.init_paths["w"]}},
             "label_trie": self.trie, "evidence_base": self.base,
             **{name: {**entry, "sha256": o.get("resource_sha", {}).get(name, entry["sha256"])}
                for name, entry in self.resources.items()},
@@ -1603,6 +1620,23 @@ def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make, device):
             e["remote_peak_cuda_allocated_bytes"] == 3 * 1024**3 for e in finished)
     # Quiet mode on this machine is not waited out: no stage runs here.
     assert not [e for e in journal if e["event"] == "quiet_mode_wait"]
+
+
+def test_uw_ships_an_adapter_with_its_run_record(make):
+    # W and I are final_adapter directories inside their trainer runs; the trainer reads
+    # <run>/local_training.json, so the run directory ships with the adapter (fake rule).
+    local = make(init_in_run=True)
+    assert signal_limit.main(local.argv) == 0  # the same layout passes here
+
+
+def test_uw_ships_an_adapter_with_its_run_record_remotely(make):
+    fixture = make(uw_all="cpu", init_in_run=True)
+    assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-3:]
+    calls = {c["stage"]: c for c in fixture.stages_called()}
+    assert argv_value(calls["P0-I"]["argv"], "--adapter") == (
+        "inputs/init_adapter/run-i/final_adapter")
+    stage0 = calls["Stage-0"]["argv"]
+    assert argv_value(stage0, "--init") == "inputs/init_adapter/run-w/final_adapter"
 
 
 def test_uw_every_stage_ignores_local_quiet_mode(make):

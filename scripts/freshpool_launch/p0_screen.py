@@ -17,7 +17,7 @@ of them". Pre-registered here:
     ``_task_group_generation_config``), via the trainer's ``_batch_gold_probability`` --
     the same function its screened scan uses. No alternate tokenizations: P0 MEASURES the
     non-canonical share that decides the study's alt-tokenization switch;
-  * scorer_seconds: that forward only, MPS-synchronized on both sides;
+  * scorer_seconds: that forward only, device-synchronized (MPS or CUDA) on both sides;
   * u, accepted: ``group_useful_probability(p, 4)`` and u >= 0.5;
   * each sampled completion: eos = ended at EOS; valid = ended at EOS and parses to a
     vocabulary label; correct = valid and equal to the gold label (exact-EOS canonical, as
@@ -90,6 +90,8 @@ def score_candidates(rows, *, adapter, data_spec, model_directory, device, profi
     def sync():
         if device == "mps":
             torch.mps.synchronize()
+        elif device == "cuda":
+            torch.cuda.synchronize()
 
     results = []
     try:
@@ -110,6 +112,8 @@ def score_candidates(rows, *, adapter, data_spec, model_directory, device, profi
         gc.collect()
         if device == "mps":
             torch.mps.empty_cache()
+        elif device == "cuda":
+            torch.cuda.empty_cache()
     return results
 
 
@@ -202,7 +206,7 @@ def main(argv=None):
     parser.add_argument("--stage-dir", type=Path, required=True)
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=("mps", "cpu", "cuda"), default="mps")
     parser.add_argument("--predict-groups", type=parse_groups)
     parser.add_argument("--choose-groups", type=parse_groups)
     parser.add_argument("--a-floor", type=float)

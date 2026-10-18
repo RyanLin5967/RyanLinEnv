@@ -175,7 +175,7 @@ def main(argv=None):
     parser.add_argument("--stage-dir", type=Path, required=True)
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=("mps", "cpu", "cuda"), default="mps")
     parser.add_argument("--training-group", type=int, choices=TRAINING_GROUPS)
     parser.add_argument("--label-trie", type=Path)
     parser.add_argument("--label-trie-sha256")
