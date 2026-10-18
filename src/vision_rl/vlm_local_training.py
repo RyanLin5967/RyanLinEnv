@@ -130,6 +130,17 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
     (output / "adapter-source.py").write_bytes(source)
 
 
+def _torch_threads() -> int:
+    """Torch CPU threads: 2, unless VISION_RL_TORCH_THREADS (1..256) says otherwise. Only the
+    UWaterloo CPU execution path (scripts/freshpool_launch/uw_stage_a.py) sets it."""
+    value = os.environ.get("VISION_RL_TORCH_THREADS")
+    if value is None:
+        return 2
+    if not value.isdigit() or not 1 <= int(value) <= 256:
+        raise LocalVLMError(f"VISION_RL_TORCH_THREADS must be 1..256, got {value!r}")
+    return int(value)
+
+
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
     if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
@@ -974,7 +985,7 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(_torch_threads())
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -3626,7 +3637,7 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(2)
+        torch.set_num_threads(_torch_threads())
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
