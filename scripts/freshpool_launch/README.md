@@ -326,6 +326,13 @@ The Stage 0 entry (cost probe and the G8 / beta 0 / dr_grpo resume proof) is the
 `stage0` template; the launcher requires its fragment to report the checks named in
 `signal_limit_launch.STAGE0_CHECKS` under each G's own key (`checks["8"]`, `checks["16"]`),
 sampler-teacher agreement <= 0.001 and `c_seconds_per_accepted_update` for G8 and G16.
+Its entry is `stage0_gate.py` (`stage0_gate:main`): per G a screened beta-0 dr_grpo cost probe
+to 8 accepted updates (c(G) = committed active seconds / accepted, scorer included) and E0
+(4 vs 2+2 vs 1+3, each part in its own `phase_worker.py` process, forwarding the parent's UW
+flag), with the five launcher checks plus e0_gate's checks that apply at beta 0; the
+docstring names every observable and blind spot. `--groups`, `--e0-steps` and
+`--probe-accepted` exist only for a smoke: the fragment records them and the launcher
+refuses any fragment not at E0 4 and probe >= 8. Tests: `tests/test_stage0_gate.py`.
 
 Tests: `tests/test_signal_limit_launch_units.py` (stage table, counts, P0 and assay options,
 profile fields, `--remote-cpu`, the UW helpers) and `tests/test_signal_limit_launch.py` (the

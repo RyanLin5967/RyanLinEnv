@@ -108,6 +108,7 @@ STAGE0_CHECKS = (
 # at both G in {8, 16}, over at least this many screened accepted steps each, and E0 runs at
 # both G (GB0 may choose either).
 STAGE0_MIN_C_STEPS = 8
+STAGE0_E0_STEPS = 4  # study.json Stage 0: "E0 (4 vs 2+2 vs 1+3 byte-identical)"
 DIAGNOSTIC_STAGES = ("P0-I", "Stage-0", "P0-prime")  # no endpoint of their own
 # trainer_fragment.signal_limit_profile: the RL identity the gates check.
 PROFILE_KEYS = ("mode", "loss_type", "scale_rewards", "beta", "group", "reward")
@@ -456,7 +457,14 @@ class SignalLimitLauncher(L.Launcher):
         (``checks["8"]``, ``checks["16"]``, so a run that proved E0 at one G cannot report
         it for both) and listed in ``e0_groups``, sampler-teacher agreement <= 0.001 (as E0),
         and c(G) > 0 for G8 and G16, each measured over at least STAGE0_MIN_C_STEPS accepted
-        steps (study.json Stage 0 writes)."""
+        steps (study.json Stage 0 writes). The entry (stage0_gate.py) accepts other E0 and
+        probe sizes only for a smoke and records them; a fragment not at the study's E0 of
+        STAGE0_E0_STEPS updates and a probe of at least STAGE0_MIN_C_STEPS accepted updates is
+        refused here."""
+        if (type(f.get("e0_steps")) is not int or f["e0_steps"] != STAGE0_E0_STEPS
+                or type(f.get("probe_accepted")) is not int
+                or f["probe_accepted"] < STAGE0_MIN_C_STEPS):
+            return "stage0_not_at_study_e0_steps_or_probe_size"
         if f.get("e0_groups") != list(T.STAGE_B_GROUPS):
             return "stage0_e0_not_at_every_g"
         checks = f.get("checks")

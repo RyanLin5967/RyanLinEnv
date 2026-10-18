@@ -193,6 +193,7 @@ def scenario():
         "Stage-0": {"payload": {
             "checks": {g: dict.fromkeys(signal_limit.STAGE0_CHECKS, True) for g in ("8", "16")},
             "sampler_teacher_max_abs_logprob_difference": 0.0005, "e0_groups": [8, 16],
+            "e0_steps": 4, "probe_accepted": 8,
             "c_accepted_steps": {"8": 8, "16": 8},
             "c_seconds_per_accepted_update": {"8": 10.0, "16": 20.0}}},
         "P0-prime": p0_document(i_star_sha, 8, predicted={
@@ -1188,6 +1189,7 @@ def test_missing_c_g_stops_at_stage_0(make):
 
 
 FEW_C_STEPS = "stage0_c_g_not_measured_over_enough_steps"
+STUDY_SIZES = "stage0_not_at_study_e0_steps_or_probe_size"
 
 
 @pytest.mark.parametrize(("change", "reason"), [
@@ -1200,6 +1202,12 @@ FEW_C_STEPS = "stage0_c_g_not_measured_over_enough_steps"
     (lambda p: p["checks"]["8"].pop("no_reference_forward_at_beta_0"), "e0_failed"),
     (lambda p: p["c_accepted_steps"].update({"16": 7}), FEW_C_STEPS),  # 7 < 8
     (lambda p: p.pop("c_accepted_steps"), FEW_C_STEPS),
+    # A smoke's sizes, recorded by stage0_gate.py, never pass the study's Stage 0.
+    (lambda p: p.update(e0_steps=2), STUDY_SIZES),
+    (lambda p: p.pop("e0_steps"), STUDY_SIZES),
+    (lambda p: p.update(e0_steps=4.0), STUDY_SIZES),
+    (lambda p: p.update(probe_accepted=7), STUDY_SIZES),  # 7 < 8
+    (lambda p: p.pop("probe_accepted"), STUDY_SIZES),
 ])
 def test_stage_0_must_measure_c_g_and_prove_e0_at_both_g(make, change, reason):
     fixture = make()
