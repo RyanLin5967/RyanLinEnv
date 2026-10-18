@@ -64,6 +64,7 @@ def test_beta_zero_grpo_declares_the_legacy_loss_type():
     grpo_row(mode="rft"),
     grpo_row(stops=[60, 100], save_steps=40),  # 60 is not a multiple of the carried 40
     grpo_row(device_class="gtx1070-fp16"),    # C2: GRPO only in fp32
+    grpo_row(device_class="gtx1070-fp32", mode="sft"),  # measured: fp32 weights exceed 8 GB
     grpo_row(extra_trainer_args=["--dynamic-sampling-max-draws", "4"]),  # C5: < 8 draws
     grpo_row(track="rl", group="g", rung=1),  # table has no fixed rung_stops (C11)
     grpo_row(track="rl", rung=1),             # an RL arm needs a best-of-k group

@@ -1,6 +1,6 @@
 {
  "study_id": "aircraft-rl-campaign-I",
- "purpose": "launcher smoke, not a result: 2 GRPO updates from I per device class (s/update, memory peaks, dev800 at steps 1 and 2, time-matched control), a same-device I baseline, and the C19 E0 resume check (4 uninterrupted x2 vs 2+2 resumed) per device class",
+ "purpose": "launcher smoke, not a result. cpu-fp32: 2 GRPO G8 updates from I (s/update, peak RSS, dev800 at steps 1 and 2, time-matched control), same-host I baseline, C19 E0 (4 uninterrupted x2 vs 2+2 resumed). gtx1070-fp32 is infeasible (measured: fp32 weights 8426 MiB > 8107 MiB card); gtx1070-fp16 (SFT/eval only, C2): 2 SFT updates from I, I baseline, SFT E0.",
  "defaults": {"init": "I", "mode": "grpo", "lr": 1e-05, "beta": 0.04, "num_generations": 8,
               "temperature": 1.0, "stops": [1, 2], "max_steps_total": 2, "track": "smoke",
               "train_manifest": "s_train_scan_seed42.jsonl", "seed": 42},
@@ -8,10 +8,10 @@
   {"id": "smoke-cpu-A", "device_class": "cpu-fp32"},
   {"id": "smoke-cpu-B", "device_class": "cpu-fp32"},
   {"id": "smoke-cpu-C", "device_class": "cpu-fp32"},
-  {"id": "smoke-g8-fp32-ecetesla3", "device_class": "gtx1070-fp32", "host": "ecetesla3"},
-  {"id": "smoke-g4-fp32-eceubuntu4", "device_class": "gtx1070-fp32", "host": "eceubuntu4", "num_generations": 4},
   {"id": "eval-I-cpu-A", "device_class": "cpu-fp32", "mode": "eval", "track": "eval"},
   {"id": "e0-cpu", "device_class": "cpu-fp32", "kind": "e0", "track": "e0", "e0_updates": 4, "assay": false, "stops": [2, 4], "max_steps_total": 4},
-  {"id": "e0-gtx1070-fp32", "device_class": "gtx1070-fp32", "host": "ecetesla3", "kind": "e0", "track": "e0", "e0_updates": 4, "assay": false, "stops": [2, 4], "max_steps_total": 4}
+  {"id": "smoke-sft-fp16-ecetesla3", "device_class": "gtx1070-fp16", "host": "ecetesla3", "mode": "sft", "order": "sequential", "cycle": true, "max_active_seconds": 3600},
+  {"id": "eval-I-fp16-ecetesla3", "device_class": "gtx1070-fp16", "host": "ecetesla3", "mode": "eval", "track": "eval"},
+  {"id": "e0-gtx1070-fp16-sft", "device_class": "gtx1070-fp16", "host": "eceubuntu4", "mode": "sft", "order": "sequential", "cycle": true, "max_active_seconds": 3600, "kind": "e0", "track": "e0", "e0_updates": 4, "assay": false, "stops": [2, 4], "max_steps_total": 4}
  ]
 }

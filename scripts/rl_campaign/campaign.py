@@ -89,7 +89,11 @@ DEVICE_CLASSES = {
     "cpu-fp32": {"device": "cpu", "dtype": "float32", "wait": "cpu", "threads": 16,
                  "gpu": None},
     "gtx1070-fp32": {"device": "cuda", "dtype": "float32", "wait": "gpu", "threads": 4,
-                     "gpu": "GTX 1070", "need_mib": 7600, "mem_gb": 24},
+                     "gpu": "GTX 1070", "need_mib": 7600, "mem_gb": 24,
+                     # measured 2026-10-18 (uwrun run rlc-memprobe-ecetesla3-1792359646): the 2.209 B
+                     # fp32 weights need 8426 MiB; the card has 8107 MiB; .to("cuda") OOMs at
+                     # 7850 MiB allocated, before any generation. G4 and G8 cannot fit.
+                     "infeasible": "fp32 Qwen2-VL-2B weights (8426 MiB) exceed the 8107 MiB card"},
     "gtx1070-fp16": {"device": "cuda", "dtype": "float16", "wait": "gpu", "threads": 4,
                      "gpu": "GTX 1070", "need_mib": 7600, "mem_gb": 24},
 }
@@ -247,6 +251,9 @@ def build_spec(table: dict, arm: dict) -> dict:
     cls = DEVICE_CLASSES.get(spec.get("device_class"))
     if cls is None:
         raise SystemExit(f"REFUSE: {spec['id']}: unknown device_class {spec.get('device_class')}")
+    if cls.get("infeasible"):
+        raise SystemExit(f"REFUSE: {spec['id']}: {spec['device_class']} is infeasible: "
+                         f"{cls['infeasible']}")
     if spec["init"] != "I":
         raise SystemExit(f"REFUSE: {spec['id']}: this campaign starts every arm from I")
     spec.update(device=cls["device"], dtype=cls["dtype"], threads=cls["threads"],
