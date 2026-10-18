@@ -89,10 +89,11 @@ BASE = {"adapter_profile": "legacy-qv-v1", "max_completion_length": 256, "max_pi
         "train_manifest": "s_train_scan_seed42.jsonl"}
 
 
-def grpo(cls: str, lr: float, beta: float, screened: bool, g: int = 8, t: float = 1.0) -> dict:
+def grpo(cls: str, lr: float, beta: float, screened: bool, g: int = 8, t: float = 1.0,
+         init: str = "W") -> dict:
     tag = "s" if screened else "n"
-    arm = dict(BASE, id=f"gpu-{cls.split('-')[0]}-grpo-W-lr{lr:g}-g{g}-b{beta:g}-t{t:g}-{tag}",
-               family="grpo-W", track="rl", mode="grpo", lr=lr, beta=beta, temperature=t,
+    arm = dict(BASE, id=f"gpu-{cls.split('-')[0]}-grpo-{init}-lr{lr:g}-g{g}-b{beta:g}-t{t:g}-{tag}",
+               family=f"grpo-{init}", init=init, track="rl", mode="grpo", lr=lr, beta=beta, temperature=t,
                num_generations=g, dtype=DTYPE[cls], device_class=cls,
                screen_threshold=0.5 if screened else None,
                # screened: s_train has 1,424 unique rows, so 600 accepted is the ceiling
@@ -119,6 +120,15 @@ def cmd_specs(a) -> int:
     for lr, beta, screened in ((1e-5, 0.0, False), (5e-6, 0.04, False), (2e-5, 0.0, False),
                                (1e-5, 0.04, True)):
         arms.append(grpo("rtx2080ti-float32", lr, beta, screened))
+    # Amendment 1 (coordinator, after the first W endpoints; before any GRPO-I result):
+    # SFT -> RL. GRPO from I (the strongest SFT), extending the CPU sweep's grpo-I family:
+    # LR {1e-6, 3e-6, 1e-5} x beta {0, 0.04} x screening {off, on}, G8, T 1.0, on both
+    # device classes; each gets a time-matched SFT-continuation-from-I control (LR 5e-6).
+    for cls in ("rtx3070-bfloat16", "rtx2080ti-float32"):
+        for lr in (1e-6, 3e-6, 1e-5):
+            for beta in (0.0, 0.04):
+                for screened in (False, True):
+                    arms.append(grpo(cls, lr, beta, screened, init="I"))
     ids = [x["id"] for x in arms]
     if len(set(ids)) != len(ids):
         raise SystemExit("REFUSE: duplicate arm ids")
@@ -295,7 +305,9 @@ def cmd_control(a) -> int:
     keep = ("adapter_profile", "max_completion_length", "max_pixels", "min_pixels", "seed",
             "threads", "device", "features", "wave", "init", "dtype", "device_class")
     ctl = {k: rl[k] for k in keep}
-    ctl.update(id=f"{a.of}~ctl", family="control", track="control", mode="sft", lr=1e-5,
+    # CPU sweep control rule: SFT LR 1e-5 from W, 5e-6 from I
+    ctl.update(id=f"{a.of}~ctl", family="control", track="control", mode="sft",
+               lr={"W": 1e-5, "I": 5e-6}[rl["init"]],
                control_of=a.of, order="sequential", cycle=True, num_generations=4,
                response_format="answer_only", beta=None, temperature=None,
                screen_threshold=None, max_steps_total=100000, max_active_seconds=259200.0,
