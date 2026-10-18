@@ -69,6 +69,30 @@ def test_arm_exec_score_is_equal_class_mean():
     assert m["equal_class_accuracy"] == pytest.approx((1 / 3 + 1) / 2)
 
 
+def _save_steps(argv):
+    return argv[argv.index("--save-steps") + 1]
+
+
+def test_arm_exec_save_steps_is_constant_across_stages(tmp_path):
+    # save_steps is in the trainer's resume identity: every stage of one run must pass the same
+    base = {"id": "a", "init": "W", "mode": "sft", "lr": 1e-5, "seed": 42,
+            "response_format": "answer_only", "num_generations": 4, "min_pixels": 1,
+            "max_pixels": 2, "max_completion_length": 8, "max_active_seconds": 100.0}
+    m = tmp_path / "m.jsonl"
+    two = arm_exec.Arm(tmp_path, dict(base, stops=[2, 4]), tmp_path / "r")
+    first = two.trainer_args(m, 10, 2, None)
+    second = two.trainer_args(m, 10, 4, tmp_path / "checkpoint-2")
+    assert _save_steps(first) == _save_steps(second) == "2"
+    promoted = arm_exec.Arm(tmp_path, dict(base, stops=[600], resume_stop=150), tmp_path / "r")
+    assert _save_steps(promoted.trainer_args(m, 1500, 600, tmp_path / "c")) == "150"
+    epochs = arm_exec.Arm(tmp_path, dict(base, stops=[2329, 4658]), tmp_path / "r")
+    assert {_save_steps(epochs.trainer_args(m, 4658, k, None)) for k in (2329, 4658)} == {"2329"}
+    ctl = arm_exec.Arm(tmp_path, dict(base, stops=[150]), tmp_path / "r")
+    step = ctl.trainer_args(m, 1500, 150, None)
+    timed = ctl.trainer_args(m, 1500, None, tmp_path / "c", stop_seconds=50.0)
+    assert _save_steps(step) == _save_steps(timed) == "150"
+
+
 def test_arm_exec_refuses_holdout_training_manifest(tmp_path):
     (tmp_path / "RECEIPT.json").write_text("{}")
     for name in ("dev800.jsonl", "h_gate_final.jsonl", "h_select.jsonl", "../x.jsonl"):
