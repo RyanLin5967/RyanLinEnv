@@ -322,3 +322,18 @@ diagnostics, never held-out results.
   the revision, as `launch.py` ACTIVATION_KEYS states), and `activation.prerequisites` records how
   each of the protocol's six prerequisites is met or enforced (E0 and the measured forecasts are
   enforced by the launcher, not yet met).
+
+## D25 — Freshpool study stopped at G1 (pre-registered; final, not rerun) (2026-10-18)
+Launched 2026-10-18 00:35 from frozen worktree @6be5d02 (plan 7facaf2c…). E0 passed 12/12 checks
+(2,166 s); W H-select and H-gate assays completed; P0 completed. G1 (`runs/aircraft-freshpool-v1/gates/G1-report-1.json`,
+sha 4cbcbe18…) FAILED two of six checks: acceptance 0.2975 < 0.30 and valid 0.8926 < 0.90
+(eos 1.0, mean_u_accepted 0.715, observed useful-mixed 0.367 vs predicted 0.311, scorer 0.74 s/candidate all passed).
+The launcher stopped the study by design. Per the protocol this is final: no rerun, no threshold change.
+No RL arm was trained, so there is no RL-vs-SFT result from this study. Next: forensics and a new unactivated
+pre-registration (workflow wf_b00c5f55-971), informed by the contingency draft (PR #19).
+
+## D26 — 27B baseline run 2 full stage resumed (2026-10-18)
+The GPU became free when the freshpool study stopped. `runs/aircraft-named-baseline-v1-run2/chain-full-resume.sh`
+(copy of chain.sh: discovery skipped, full invocations 2..32) relaunched against the unchanged root checkout
+(main da4e401, clean), so run 2 stays under one code identity (D23). The pause after full-inv-1 was for Ryan's
+machine lag, not a run defect. Root checkout must not move until chain_end.
