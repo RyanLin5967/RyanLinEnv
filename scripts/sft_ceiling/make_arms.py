@@ -46,10 +46,10 @@ def main():
     for seed in (1, 2, 3, 4, 5, 42):
         arms.append(dict(COMMON, id=f"sftceil-I-seed{seed}", family="I-seed", init="W", lr=1e-5,
                          seed=seed, train_ids=t400, stops=[2464], max_steps_total=6000))
-    # seed 6 runs on iccad2 (no AVX2): never quoted until the no-AVX2 numerics check passes
-    arms.append(dict(COMMON, id="sftceil-I-seed6", family="I-seed-noavx2", init="W", lr=1e-5,
-                     seed=6, train_ids=t400, stops=[2464], max_steps_total=6000,
-                     tag="no-AVX2 host, numerics pending"))
+    # seed 6: first placed on iccad2 (no AVX2); torch 2.14.1 SIGILLs there intermittently
+    # (rc=-4 in our first run), so it runs on an AVX2 host like the others.
+    arms.append(dict(COMMON, id="sftceil-I-seed6", family="I-seed", init="W", lr=1e-5,
+                     seed=6, train_ids=t400, stops=[2464], max_steps_total=6000))
     for lr in (3e-6, 5e-6, 1e-5, 2e-5):
         tag = f"{lr:.0e}".replace("e-0", "e-")
         arms.append(dict(COMMON, id=f"sftceil-cont-all-lr{tag}", family="cont-all", init="I",
