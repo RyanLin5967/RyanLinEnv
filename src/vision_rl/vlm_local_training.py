@@ -31,6 +31,11 @@ from .data import assert_disjoint, image_hash
 from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_lora_config
 
 DEFAULT_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
+DEVICES = ("mps", "cpu", "cuda")
+GRPO_LOSS_TYPES = ("grpo", "dr_grpo")
+GRPO_REWARD_SCALES = ("group", "none")
+REWARDS = ("exact", "exact_hn")
+CONSTRAINED_GREEDY = "label-trie-constrained-greedy/pass@1"
 OUTPUT_GRAMMAR = "canonical-label-v2/optional-tags"
 # Study controllers freeze finite original budgets before execution. The TRAIN
 # diagnostic bounds RL updates, while a matched-time SFT trajectory may need
@@ -80,8 +85,8 @@ class Profile:
     def validate(self) -> None:
         if self.response_format not in {"answer_only", "think_then_answer"}:
             raise ValueError("response_format must be answer_only or think_then_answer")
-        if self.dtype not in {"float32", "bfloat16"}:
-            raise ValueError("dtype must be float32 or bfloat16")
+        if self.dtype not in {"float32", "bfloat16", "float16"}:
+            raise ValueError("dtype must be float32, bfloat16 or float16")
         for name, value in asdict(self).items():
             if name not in {"dtype", "temperature", "response_format", "adapter_profile"}:
                 if type(value) is not int or value < 1:
@@ -127,8 +132,8 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
 
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
-    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
-        raise LocalVLMError("Use one local process with --device mps or cpu")
+    if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps, cpu or cuda")
     if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
     try:
@@ -155,6 +160,19 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
     if device == "mps" and not torch.backends.mps.is_available():
         raise LocalVLMError("MPS is unavailable; no model files have been opened")
+    cuda = {}
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise LocalVLMError("CUDA is unavailable; no model files have been opened")
+        # Hugging Face Trainer wraps a multi-GPU process in DataParallel, which would split
+        # the one-prompt update; one visible device keeps the single-device contract.
+        if torch.cuda.device_count() != 1:
+            raise LocalVLMError("CUDA needs exactly one visible device; set CUDA_VISIBLE_DEVICES")
+        cuda["cuda_device"] = {
+            "name": torch.cuda.get_device_name(0),
+            "capability": list(torch.cuda.get_device_capability(0)),
+            "native_bfloat16": bool(torch.cuda.is_bf16_supported(including_emulation=False)),
+        }
     return {
         "device": device,
         "python": sys.version.split()[0],
@@ -163,7 +181,15 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         "adapter_source_sha256": _file_sha256(Path(__file__)),
         "model_execution": "not tested by preflight",
         "model_downloads": False,
+        **cuda,
     }
+
+
+def _refuse_unsupported_dtype(environment: dict, profile: Profile) -> None:
+    """A CUDA card without native bfloat16 (e.g. RTX 2080 Ti) must run float16 or float32."""
+    device = environment.get("cuda_device")
+    if device is not None and profile.dtype == "bfloat16" and not device["native_bfloat16"]:
+        raise LocalVLMError(f"{device['name']} has no native bfloat16; use float16 or float32")
 
 
 def load_spec(path: Path) -> dict[str, Any]:
@@ -336,8 +362,18 @@ def make_reward(
     allow_reasoning: bool = True,
     journal_io_context=None,
     observe_prompt=None,
+    reward: str = "exact",
+    confusers: dict[str, list[str]] | None = None,
 ):
-    """Exact task reward with journaled groups; never inject synthetic variance."""
+    """Exact task reward with journaled groups; never inject synthetic variance.
+
+    `reward="exact_hn"` is a separately named reward: 1 for the exact gold + EOS,
+    HN_CONFUSER_REWARD (-0.5) for a terminated canonical answer that is one of the gold's
+    confusers in the frozen `confusers` map, 0 otherwise (invalid answers included).
+    Correctness statistics still count exact gold only; `mixed` follows the rewards.
+    """
+    if reward not in REWARDS or (reward == "exact_hn") != (confusers is not None):
+        raise ValueError("reward must be exact, or exact_hn with a frozen confusion map")
     stats = {"groups": 0, "mixed_groups": 0, "all_correct_groups": 0, "all_zero_groups": 0}
     stats.update(
         unique_prompt_ids=0,
@@ -352,6 +388,8 @@ def make_reward(
         canonical_completions=0,
         recognition_mixed_groups=0,
     )
+    if reward == "exact_hn":
+        stats["confuser_completions"] = 0
     seen_ids = set()
 
     def exact_label_accuracy(completions, label, id, completion_ids, **_):
@@ -367,6 +405,22 @@ def make_reward(
             )
             for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
         ]
+        exact = rewards
+        if confusers is not None:
+            confused = [
+                not correct
+                and bool(tokens)
+                and tokens[-1] in eos_ids
+                and parse_label(text, labels, allow_reasoning=allow_reasoning)
+                in confusers.get(expected, ())
+                for text, expected, tokens, correct in zip(
+                    completions, label, completion_ids, exact, strict=True
+                )
+            ]
+            rewards = [
+                HN_CONFUSER_REWARD if hit else correct
+                for hit, correct in zip(confused, exact, strict=True)
+            ]
         serialized = []
         for start in range(0, len(rewards), group_size):
             stop = start + group_size
@@ -376,6 +430,8 @@ def make_reward(
                 observe_prompt(id[start])
             group = rewards[start:stop]
             mixed = min(group) != max(group)
+            # Correctness counts read exact gold only; for "exact" this is `group` itself.
+            correct = exact[start:stop]
             texts = [_completion_text(x) for x in completions[start:stop]]
             terminated = [
                 bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
@@ -387,15 +443,15 @@ def make_reward(
                 parse_label(text, labels, allow_reasoning=allow_reasoning) if ended else None
                 for text, ended in zip(texts, terminated, strict=True)
             ]
-            recognition_mixed = any(group) and any(
+            recognition_mixed = any(correct) and any(
                 value is not None and value != label[start] for value in canonical
             )
             lengths = [len(tokens) for tokens in completion_ids[start:stop]]
             seen_ids.add(id[start])
             stats["groups"] += 1
             stats["mixed_groups"] += int(mixed)
-            stats["all_correct_groups"] += int(all(group))
-            stats["all_zero_groups"] += int(not any(group))
+            stats["all_correct_groups"] += int(all(correct))
+            stats["all_zero_groups"] += int(not any(correct))
             stats["unique_prompt_ids"] = len(seen_ids)
             stats["prompt_presentations"] += 1
             stats["sampled_completions"] += len(group)
@@ -406,11 +462,15 @@ def make_reward(
             stats["canonical_completions"] += sum(value is not None for value in canonical)
             stats["recognition_mixed_groups"] += int(recognition_mixed)
             stats["task_correct_with_think"] += sum(
-                int(value) for value, thought in zip(group, thinking, strict=True) if thought
+                int(value) for value, thought in zip(correct, thinking, strict=True) if thought
             )
             stats["task_correct_without_think"] += sum(
-                int(value) for value, thought in zip(group, thinking, strict=True) if not thought
+                int(value) for value, thought in zip(correct, thinking, strict=True) if not thought
             )
+            extra = {}
+            if confusers is not None:
+                stats["confuser_completions"] += sum(confused[start:stop])
+                extra = {"exact": correct, "confuser": confused[start:stop]}
             serialized.append(
                 json.dumps(
                     {
@@ -425,6 +485,7 @@ def make_reward(
                         "completion_tokens": lengths,
                         "terminated": terminated,
                         "complete_think_block": thinking,
+                        **extra,
                     }
                 )
                 + "\n"
@@ -438,7 +499,15 @@ def make_reward(
         return rewards
 
     exact_label_accuracy.stats = stats
-    return exact_label_accuracy
+    if reward == "exact":
+        return exact_label_accuracy
+
+    def exact_hn_reward(completions, label, id, completion_ids, **kwargs):
+        return exact_label_accuracy(completions, label, id, completion_ids, **kwargs)
+
+    # TRL logs each reward under its function name: the HN reward never reads as "exact".
+    exact_hn_reward.stats = stats
+    return exact_hn_reward
 
 
 def trainer_kwargs(
@@ -453,10 +522,21 @@ def trainer_kwargs(
     save_steps: int,
     beta: float = 0.04,
     order: str = "random",
+    loss_type: str | None = None,
+    scale_rewards: str = "group",
 ) -> dict:
-    """Explicit comparable defaults; one unique prompt per optimizer update."""
+    """Explicit comparable defaults; one unique prompt per optimizer update.
+
+    `loss_type` None is the legacy "grpo" (per-sequence length normalisation); "dr_grpo"
+    divides by the constant max_completion_length. `scale_rewards` "none" drops the
+    group-std advantage scaling (Dr-GRPO). Both are GRPO-only.
+    """
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
+    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
+        raise ValueError("loss_type and scale_rewards apply only to GRPO")
     common = dict(
         output_dir=str(output),
         max_steps=max_steps,
@@ -504,8 +584,8 @@ def trainer_kwargs(
             use_transformers_continuous_batching=False,
             beta=beta,
             sync_ref_model=False,
-            loss_type="grpo",
-            scale_rewards="group",
+            loss_type=loss_type or "grpo",
+            scale_rewards=scale_rewards,
             epsilon=0.2,
             importance_sampling_level="token",
             mask_truncated_completions=True,
@@ -665,7 +745,10 @@ def classification_metrics(
     }
 
 
-def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -> tuple[dict, dict]:
+def _evaluate(
+    policy, processor, rows, spec, profile, device, *, journal=None, trie=None
+) -> tuple[dict, dict]:
+    """Greedy pass@1; `trie` adds the assay-only label-trie constrained-greedy mask."""
     torch = import_module("torch")
     predictions = {}
     was_training = policy.training
@@ -677,11 +760,19 @@ def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -
         for row in rows:
             started = time.monotonic()
             inputs = _inputs(processor, row, spec, profile).to(device)
+            constrained = {}
+            if trie is not None:
+                constrained["logits_processor"] = import_module(
+                    "transformers"
+                ).LogitsProcessorList(
+                    [label_trie_logits_processor(trie, int(inputs["input_ids"].shape[1]))]
+                )
             tokens = policy.generate(
                 **inputs,
                 max_new_tokens=profile.max_completion_length,
                 do_sample=False,
                 use_cache=True,
+                **constrained,
             )
             tail = tokens[:, inputs["input_ids"].shape[1] :]
             predictions[row["id"]] = {
@@ -701,6 +792,7 @@ def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -
         predictions,
         spec["labels"],
         allow_reasoning=True,
+        **({"decoding_protocol": CONSTRAINED_GREEDY} if trie is not None else {}),
     ), predictions
 
 
@@ -780,8 +872,12 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
+    label_trie: Path | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
+
+    `label_trie` makes the greedy pass the secondary label-trie constrained decoder
+    (assays only; never sampling), with the trie file's sha256 in the record.
 
     This permits a prospectively selected subset of classes while retaining the
     complete task vocabulary. Its mean-class score covers only represented
@@ -795,6 +891,8 @@ def predict_train_subset(
         raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
         raise ValueError("sample_groups must be boolean and seed a nonnegative integer")
+    if label_trie is not None and sample_groups:
+        raise ValueError("label-trie constrained decoding is greedy-only")
     if model not in MODEL_REVISIONS:
         raise ValueError("choose one of the explicitly pinned Qwen models")
     spec = load_spec(data_spec)
@@ -811,6 +909,7 @@ def predict_train_subset(
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory")
     environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile)
     model_directory = Path(model_directory).resolve()
     output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -847,6 +946,14 @@ def predict_train_subset(
         "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
         "optimizer_steps": 0,
     }
+    trie = None
+    if label_trie is not None:
+        _, trie, trie_sha256 = load_label_trie(label_trie)
+        record["constrained_decoding"] = {
+            "label_trie_sha256": trie_sha256,
+            "protocol": CONSTRAINED_GREEDY,
+            "scope": LabelTrieLogitsProcessor.scope,
+        }
     if _expanded.is_expanded(profile) and not init_adapter:
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
@@ -928,6 +1035,7 @@ def predict_train_subset(
                 profile,
                 device,
                 journal=output / "predictions.json",
+                trie=trie,
             )
             record["metrics"] = metrics
         record.update(status="completed", elapsed_seconds=time.monotonic() - started)
@@ -1011,7 +1119,11 @@ def group_useful_probability(p: float, group_size: int = 4) -> float:
 
 
 def expected_gradient_weight(
-    p: float, group_size: int = 4, eps: float = TRL_ADVANTAGE_EPS
+    p: float,
+    group_size: int = 4,
+    eps: float = TRL_ADVANTAGE_EPS,
+    *,
+    scale_rewards: str = "group",
 ) -> float:
     """w_G(p): expected GRPO update on an exact-match reward as a multiple of the gold SFT gradient.
 
@@ -1021,9 +1133,23 @@ def expected_gradient_weight(
     C(G,k) p^k (1-p)^(G-k-1) k (G-k) / (G (s_k + eps)); k = 0 and k = G have zero
     advantage. KL, token-length normalization and the 1/G loss mean are ignored; the
     last cancels in the EG-SFT ratio w_G(p) / w_G(0.5).
+
+    `scale_rewards="none"` (Dr-GRPO) drops the std: the same enumeration over k = 0..G
+    without the 1 / (s_k + eps) factor, which equals (G - 1) p for every G.
     """
     if not math.isfinite(p) or not 0 <= p <= 1 or type(group_size) is not int or group_size < 2:
         raise ValueError("p must be in [0, 1] and group_size an integer >= 2")
+    if scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("scale_rewards must be group or none")
+    if scale_rewards == "none":
+        # Per k: correct samples carry (1 - k/G) g each, wrong ones (-k/G)(-p g / (1 - p));
+        # the sum is C(G,k) p^k (1-p)^(G-k-1) k (G-k) / G. k = 0 and k = G contribute zero.
+        return sum(
+            math.comb(group_size, k) * p**k * (1 - p) ** (group_size - k - 1) * k * (group_size - k)
+            / group_size
+            for k in range(group_size + 1)
+            if 0 < k < group_size
+        )
     total = 0.0
     for k in range(1, group_size):
         mean = k / group_size
@@ -1039,16 +1165,58 @@ def expected_gradient_weight(
     return total
 
 
-def egsft_weight(p: float, group_size: int = 4) -> float:
-    """EG-SFT per-sample loss multiplier w_G(p) / w_G(0.5); a constant, never differentiated."""
-    return expected_gradient_weight(p, group_size) / expected_gradient_weight(0.5, group_size)
+def egsft_weight(p: float, group_size: int = 4, *, scale_rewards: str = "group") -> float:
+    """EG-SFT per-sample loss multiplier w_G(p) / w_G(0.5); a constant, never differentiated.
+
+    With `scale_rewards="none"` this is (G-1)p / ((G-1)/2) = 2p for every G.
+    """
+    if scale_rewards == "group":
+        return expected_gradient_weight(p, group_size) / expected_gradient_weight(0.5, group_size)
+    return expected_gradient_weight(
+        p, group_size, scale_rewards=scale_rewards
+    ) / expected_gradient_weight(0.5, group_size, scale_rewards=scale_rewards)
 
 
-def _completion_logprob(policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens):
-    """Sum log-probability of one completion under the sampler's logit transforms.
+# The screened sampler accepts u_G(p) >= 0.5; the EG-SFT band B_G is that same set of p.
+EGSFT_BAND_THRESHOLD = 0.5
+EGSFT_BAND_GROUPS = (4, 8, 16)
+
+
+def egsft_in_band(p: float, band_group: int, threshold: float = EGSFT_BAND_THRESHOLD) -> bool:
+    """1[p in B_G]: the image a G-sample screen would accept, u_G(p) >= threshold."""
+    return group_useful_probability(p, band_group) >= threshold
+
+
+def _restrict_logits(logits, allowed_tokens):
+    """Set every token outside `allowed_tokens[i]` to -inf at completion position i.
+
+    `logits` is [1, L, V]; `allowed_tokens` has one entry per position, each a collection
+    of token ids or None (that position is left unrestricted). Returns a new tensor.
+    """
+    torch = import_module("torch")
+    if len(allowed_tokens) != logits.shape[1]:
+        raise LocalVLMError("allowed-token mask must have one entry per completion position")
+    keep = torch.ones(logits.shape[1:], dtype=torch.bool, device=logits.device)
+    for position, allowed in enumerate(allowed_tokens):
+        if allowed is None:
+            continue
+        allowed = sorted({int(token) for token in allowed})
+        if not allowed or allowed[0] < 0 or allowed[-1] >= logits.shape[-1]:
+            raise LocalVLMError("allowed-token mask holds an empty or out-of-vocabulary row")
+        keep[position] = False
+        keep[position, allowed] = True
+    return logits.masked_fill(~keep.unsqueeze(0), -torch.inf)
+
+
+def _completion_token_logps(
+    policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens, allowed_tokens=None
+):
+    """Per-token log-probabilities [1, L] of one completion, with the autograd graph.
 
     Same order as `_sampler_parity`: divide by temperature, then remove suppressed
-    tokens (TRL suppresses the image token while sampling) and renormalize.
+    tokens (TRL suppresses the image token while sampling) and renormalize. An
+    `allowed_tokens` mask (one entry per position, see `_restrict_logits`) then
+    renormalises over the allowed set only: the label trie's constrained softmax.
     """
     torch = import_module("torch")
     prompt_ids = prompt_inputs["input_ids"]
@@ -1069,21 +1237,38 @@ def _completion_logprob(policy, prompt_inputs, completion_ids, *, temperature, s
     logits = logits[:, :-1].float() / temperature
     for token in suppress_tokens:
         logits[..., token] = -torch.inf
-    logps = logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
+    if allowed_tokens is not None:
+        logits = _restrict_logits(logits, allowed_tokens)
+    return logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
+
+
+def _completion_logprob(
+    policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens, allowed_tokens=None
+):
+    """Sum log-probability of one completion under the sampler's logit transforms.
+
+    `allowed_tokens` (trie mask, see `_completion_token_logps`) scores constrained
+    decoding; None is the unmasked legacy path. A completion off the mask scores -inf.
+    """
+    logps = _completion_token_logps(
+        policy,
+        prompt_inputs,
+        completion_ids,
+        temperature=temperature,
+        suppress_tokens=suppress_tokens,
+        allowed_tokens=allowed_tokens,
+    )
     value = float(logps.sum().item())
     if math.isnan(value) or value > 0:
         raise LocalVLMError("invalid gold completion log-probability")
     return value
 
 
-def _batch_gold_probability(
-    policy, batch, *, eos_token_ids, suppress_tokens, temperature, alternatives=()
-) -> tuple[float, list[int]]:
-    """P(gold through its first EOS) from one collated completion-only SFT batch.
+def _supervised_completion(batch, eos_token_ids) -> tuple[dict, list[int], list[int]]:
+    """(prompt inputs, full supervised suffix, canonical gold through its first EOS).
 
     The collator supervises the chat template's tokens after the assistant EOS too;
     sampling stops at the first EOS, so the canonical sequence is cut there.
-    `alternatives` adds other exact token sequences (each ending at its only EOS).
     """
     torch = import_module("torch")
     ids, labels = batch["input_ids"], batch["labels"]
@@ -1100,7 +1285,25 @@ def _batch_gold_probability(
     stop = next((i for i, token in enumerate(completion) if token in eos), None)
     if stop is None:
         raise LocalVLMError("gold completion has no EOS token")
-    canonical = completion[: stop + 1]
+    prompt = {
+        key: value[:, :first] if key in _TOKEN_ALIGNED_KEYS else value
+        for key, value in batch.items()
+        if key not in _NOT_MODEL_INPUT_KEYS
+    }
+    return prompt, completion, completion[: stop + 1]
+
+
+def _batch_gold_probability(
+    policy, batch, *, eos_token_ids, suppress_tokens, temperature, alternatives=()
+) -> tuple[float, list[int]]:
+    """P(gold through its first EOS) from one collated completion-only SFT batch.
+
+    The collator supervises the chat template's tokens after the assistant EOS too;
+    sampling stops at the first EOS, so the canonical sequence is cut there.
+    `alternatives` adds other exact token sequences (each ending at its only EOS).
+    """
+    prompt, _, canonical = _supervised_completion(batch, eos_token_ids)
+    eos = set(eos_token_ids)
     sequences = [canonical]
     for sequence in alternatives:
         sequence = [int(token) for token in sequence]
@@ -1108,11 +1311,6 @@ def _batch_gold_probability(
             raise LocalVLMError("alternative gold tokenization must end at its only EOS")
         if sequence not in sequences:
             sequences.append(sequence)
-    prompt = {
-        key: value[:, :first] if key in _TOKEN_ALIGNED_KEYS else value
-        for key, value in batch.items()
-        if key not in _NOT_MODEL_INPUT_KEYS
-    }
     probability = sum(
         math.exp(
             _completion_logprob(
@@ -1198,6 +1396,198 @@ def _load_tokenizations(path: Path | None) -> dict[str, list[list[int]]]:
             "screen tokenizations require schema_version 1 and label -> token-id lists"
         )
     return sequences
+
+
+def label_trie(sequences: dict[str, list[list[int]]]) -> dict:
+    """Prefix tree T over every allowed label tokenisation (each ends at its only EOS).
+
+    Input is the `_load_tokenizations` format's `sequences` (the label-trie file built by
+    scripts/build_label_trie.py). Nodes are {token: child}; a complete sequence ends at
+    an empty node. Refuses a sequence that is a proper prefix of another, since an
+    EOS-terminated path must be a leaf.
+    """
+    root: dict = {}
+    for label, options in sequences.items():
+        if not options:
+            raise ValueError(f"label trie has no tokenisation for {label!r}")
+        for option in options:
+            if not option or any(type(token) is not int or token < 0 for token in option):
+                raise ValueError("label trie sequences must be nonempty token-id lists")
+            node = root
+            for index, token in enumerate(option):
+                if index == len(option) - 1 and node.get(token):
+                    raise ValueError("a label tokenisation is a proper prefix of another")
+                if index < len(option) - 1 and token in node and not node[token]:
+                    raise ValueError("a label tokenisation is a proper prefix of another")
+                node = node.setdefault(token, {})
+    if not root:
+        raise ValueError("label trie is empty")
+    return root
+
+
+def trie_allowed(trie: dict, prefix) -> list[int] | None:
+    """Next tokens T allows after `prefix`; None once the prefix is complete or off T."""
+    node = trie
+    for token in prefix:
+        node = node.get(int(token))
+        if node is None:
+            return None
+    return sorted(node) or None
+
+
+def trie_position_mask(trie: dict, completion_ids, *, require_on_trie: bool = True) -> list:
+    """Per-position allowed sets for teacher forcing `completion_ids` under T.
+
+    Positions after the trie path completes (the chat template's post-EOS tail) are
+    None, i.e. unrestricted. With `require_on_trie`, a completion that leaves T before
+    completing a path refuses (a gold label must be a path of T).
+    """
+    mask, node = [], trie
+    for token in completion_ids:
+        if node is None or not node:
+            mask.append(None)
+            node = None
+            continue
+        mask.append(sorted(node))
+        node = node.get(int(token))
+        if node is None and require_on_trie:
+            raise LocalVLMError("completion leaves the label trie before completing a label")
+    if require_on_trie and node:
+        raise LocalVLMError("completion ends inside the label trie, before its EOS")
+    return mask
+
+
+def load_label_trie(path: Path) -> tuple[dict, dict, str]:
+    """(sequences, trie, sha256 of the file) from a label-trie tokenisations file."""
+    sequences = _load_tokenizations(Path(path))
+    if not sequences:
+        raise ValueError("label trie file holds no sequences")
+    return sequences, label_trie(sequences), _file_sha256(Path(path))
+
+
+class LabelTrieLogitsProcessor:
+    """Generation-time trie mask for constrained greedy in ASSAYS ONLY.
+
+    It is a secondary decoder, never the primary evaluator, and is never passed to GRPO
+    sampling: the trainer builds TRL's own generation config and no code path hands it
+    this processor. Rows whose generated suffix completed (or left) a trie path are left
+    unrestricted; generation stops at that EOS anyway.
+    """
+
+    scope = "assay-only constrained greedy"
+
+    def __init__(self, trie: dict, prompt_length: int):
+        if type(prompt_length) is not int or prompt_length < 1:
+            raise ValueError("prompt_length must be a positive integer")
+        self.trie = trie
+        self.prompt_length = prompt_length
+
+    def __call__(self, input_ids, scores):
+        torch = import_module("torch")
+        allowed = [
+            trie_allowed(self.trie, row[self.prompt_length :].tolist()) for row in input_ids
+        ]
+        keep = torch.ones_like(scores, dtype=torch.bool)
+        for index, tokens in enumerate(allowed):
+            if tokens is not None:
+                keep[index] = False
+                keep[index, tokens] = True
+        return scores.masked_fill(~keep, -torch.inf)
+
+
+def label_trie_logits_processor(trie: dict, prompt_length: int) -> LabelTrieLogitsProcessor:
+    """Constrained-greedy mask for `generate(logits_processor=[...])`; assays only."""
+    return LabelTrieLogitsProcessor(trie, prompt_length)
+
+
+def load_confusion_map(path: Path, labels: list[str]) -> dict[str, list[str]]:
+    """Frozen confuser map {"schema_version": 1, "confusers": {gold: [confuser, ...]}}.
+
+    Every key and confuser is a declared label; a gold label never confuses itself.
+    """
+    value = json.loads(Path(path).read_text())
+    confusers = value.get("confusers") if isinstance(value, dict) else None
+    if value.get("schema_version") != 1 or not isinstance(confusers, dict):
+        raise ValueError("confusion map requires schema_version 1 and gold -> confuser lists")
+    for gold, options in confusers.items():
+        if (
+            gold not in labels
+            or not isinstance(options, list)
+            or any(option not in labels for option in options)
+            or len(set(options)) != len(options)
+        ):
+            raise ValueError("confusion map entries must be unique declared labels")
+        if gold in options:
+            raise ValueError(f"confusion map lists {gold!r} as its own confuser")
+    return confusers
+
+
+def load_taxonomy(path: Path, labels: list[str]) -> dict[str, dict[str, str]]:
+    """TRAIN-annotation taxonomy file.
+
+    Format: {"schema_version": 1, "labels": {label: {"family": f, "manufacturer": m}}}.
+    """
+    value = json.loads(Path(path).read_text())
+    entries = value.get("labels") if isinstance(value, dict) else None
+    if (
+        value.get("schema_version") != 1
+        or not isinstance(entries, dict)
+        or set(entries) != set(labels)
+        or any(
+            not isinstance(entry, dict)
+            or set(entry) != {"family", "manufacturer"}
+            or not all(isinstance(entry[key], str) and entry[key] for key in entry)
+            for entry in entries.values()
+        )
+    ):
+        raise ValueError("taxonomy must give every declared label one family and manufacturer")
+    return entries
+
+
+HN_CONFUSER_REWARD = -0.5
+HN_SFT_COEFFICIENT = 0.5
+HLS_EPSILON = {"family": 0.05, "manufacturer": 0.05}
+
+
+def hls_targets(gold: str, taxonomy: dict, epsilon: dict = HLS_EPSILON) -> dict[str, float]:
+    """Hierarchical label-smoothing target q over the label sequences.
+
+    eps_family is spread uniformly over the gold's family siblings and eps_manufacturer
+    over same-manufacturer labels of other families; a tier with no siblings returns its
+    mass to the gold. q sums to 1 over the declared labels.
+    """
+    family, manufacturer = taxonomy[gold]["family"], taxonomy[gold]["manufacturer"]
+    tiers = {
+        "family": sorted(
+            label for label, entry in taxonomy.items()
+            if label != gold and entry["family"] == family
+        ),
+        "manufacturer": sorted(
+            label for label, entry in taxonomy.items()
+            if entry["manufacturer"] == manufacturer and entry["family"] != family
+        ),
+    }
+    targets = {gold: 1.0}
+    for tier, siblings in tiers.items():
+        if siblings:
+            targets[gold] -= epsilon[tier]
+            for label in siblings:
+                targets[label] = targets.get(label, 0.0) + epsilon[tier] / len(siblings)
+    return targets
+
+
+def unlikelihood_term(sequence_logprob):
+    """-log(1 - pi(c)) from log pi(c), stable as pi(c) -> 0 or 1 (a torch scalar)."""
+    torch = import_module("torch")
+    # pi(c) = 1 exactly would make the term infinite; cap it just below 1.
+    return -torch.log(-torch.expm1(sequence_logprob.clamp(max=-1e-12)))
+
+
+def constrained_nll(token_logps, count: int):
+    """Mean NLL over `count` supervised tokens from (already masked) per-token log-probs."""
+    if type(count) is not int or count < 1 or token_logps.numel() != count:
+        raise LocalVLMError("constrained loss needs one log-probability per supervised token")
+    return -token_logps.sum() / count
 
 
 SCREEN_SCOPE = (
@@ -1649,8 +2039,14 @@ def _trainer_with_egsft(
     labels_by_id=None,
     journal_io_context=None,
     resume_state=None,
+    scale_rewards="group",
+    band_group=None,
 ):
     """EG-SFT: completion-only SFT loss times stopgrad[w_G(p) / w_G(0.5)].
+
+    `scale_rewards="none"` is the Dr-GRPO limit, stopgrad[2p]; `band_group` G_B multiplies
+    by 1[u_{G_B}(p) >= 0.5], the screened sampler's band: an image outside it contributes
+    zero loss but still takes its optimizer update. Both are recorded per row only when used.
 
     Rows carry an invocation_id. The physical `journal` is append-only and keeps rows
     of steps a resume later discarded and re-ran; the canonical weights are the
@@ -1699,7 +2095,11 @@ def _trainer_with_egsft(
                     temperature=temperature,
                     alternatives=(tokenizations or {}).get(label, ()),
                 )
-            weight = egsft_weight(probability, group_size)
+            weight = egsft_weight(probability, group_size, scale_rewards=scale_rewards)
+            in_band = None
+            if band_group is not None:
+                in_band = egsft_in_band(probability, band_group)
+                weight = weight if in_band else 0.0
             # Pass return_outputs through: TRL recomputes full logits with an extra
             # forward whenever outputs are requested.
             result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
@@ -1714,6 +2114,8 @@ def _trainer_with_egsft(
                 "weight": weight,
                 "invocation_id": invocation_id,
             }
+            if in_band is not None:
+                row["in_band"] = in_band
             if torch.is_grad_enabled():
                 # Checkpoint save refuses anything but one row per committed step.
                 self._vision_rl_egsft_entries.append(row)
@@ -1723,6 +2125,117 @@ def _trainer_with_egsft(
             return (loss, outputs) if return_outputs else loss
 
     return ExpectedGradientTrainer
+
+
+LABEL_LOSS_MODES = ("hn_sft", "hls_sft", "cce_sft")
+
+
+def _trainer_with_label_loss(
+    base,
+    *,
+    mode,
+    journal,
+    labels_by_id,
+    eos_token_ids,
+    label_token_ids=None,
+    confusers=None,
+    taxonomy=None,
+    trie=None,
+    journal_io_context=None,
+):
+    """Answer-only supervised objectives over label sequences (Stage A arms A3-A5).
+
+    - hn_sft: TRL's CE + HN_SFT_COEFFICIENT * -log(1 - pi(c)); c is the gold's frozen-map
+      confuser with the highest live sequence probability (no-grad scoring), then one
+      teacher-forced pass with gradient for c. No confuser in the map: CE only.
+    - hls_sft: q_gold * CE + sum_s q_s * mean-token NLL(s) with q from `hls_targets`.
+    - cce_sft: replaces TRL's CE with the mean over supervised tokens of the log-softmax
+      restricted to the label trie's allowed next tokens; the post-EOS template tail is
+      unrestricted, so with no trie restriction it equals TRL's completion-only CE.
+
+    Sibling/confuser sequences are `label_token_ids[label]` + the gold's own EOS token; the
+    gold's tokenizer sequence must equal the collated canonical gold or the step refuses.
+    The physical `journal` is append-only, one row per loss call (diagnostic, not resumable
+    state). Sequence probabilities use the raw policy (temperature 1, no suppression).
+    """
+    torch = import_module("torch")
+    if mode not in LABEL_LOSS_MODES:
+        raise ValueError("label-loss mode must be hn_sft, hls_sft or cce_sft")
+    required = {"hn_sft": confusers, "hls_sft": taxonomy, "cce_sft": trie}[mode]
+    if required is None or (mode != "cce_sft" and label_token_ids is None):
+        raise ValueError(f"{mode} requires its frozen label resource")
+    invocation_id = str(time.time_ns())
+    score = dict(temperature=1.0, suppress_tokens=())
+
+    class LabelLossTrainer(base):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            identifier = getattr(self, "_vision_rl_prompt_id", None)
+            gold = labels_by_id[identifier]
+            prompt, completion, canonical = _supervised_completion(inputs, eos_token_ids)
+            row = {
+                "global_step": self.state.global_step + 1,
+                "id": identifier,
+                "mode": mode,
+                "invocation_id": invocation_id,
+            }
+            outputs = None
+            if mode == "cce_sft":
+                mask = trie_position_mask(trie, completion)
+                logps = _completion_token_logps(
+                    model, prompt, completion, allowed_tokens=mask, **score
+                )
+                loss = constrained_nll(logps[0], len(completion))
+                row["constrained_positions"] = sum(entry is not None for entry in mask)
+            else:
+                result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+                loss, outputs = result if return_outputs else (result, None)
+                if list(label_token_ids[gold]) + [canonical[-1]] != canonical:
+                    raise LocalVLMError("tokenizer label sequence differs from collated gold")
+
+                def sequence(label):
+                    return list(label_token_ids[label]) + [canonical[-1]]
+
+                if mode == "hn_sft":
+                    candidates = list(confusers.get(gold, ()))
+                    if gold in candidates:
+                        raise LocalVLMError("hn_sft confuser equals the gold label")
+                    if candidates:
+                        with torch.no_grad():
+                            scored = [
+                                _completion_logprob(model, prompt, sequence(c), **score)
+                                for c in candidates
+                            ]
+                        confuser = candidates[max(range(len(scored)), key=scored.__getitem__)]
+                        logp = _completion_token_logps(
+                            model, prompt, sequence(confuser), **score
+                        ).sum()
+                        term = unlikelihood_term(logp)
+                        loss = loss + HN_SFT_COEFFICIENT * term
+                        row.update(
+                            confuser=confuser,
+                            confuser_probability=math.exp(float(logp.detach())),
+                            unlikelihood=float(term.detach()),
+                        )
+                    else:
+                        row["confuser"] = None
+                else:
+                    targets = hls_targets(gold, taxonomy)
+                    loss = loss * targets[gold]
+                    for label, weight in sorted(targets.items()):
+                        if label != gold:
+                            tokens = sequence(label)
+                            logps = _completion_token_logps(model, prompt, tokens, **score)
+                            loss = loss + weight * constrained_nll(logps[0], len(tokens))
+                    row.update(gold_weight=targets[gold], smoothed_labels=len(targets) - 1)
+            if not torch.isfinite(loss.detach()).all():
+                raise LocalVLMError(f"nonfinite {mode} loss")
+            row["loss"] = float(loss.detach())
+            with journal_io_context() if journal_io_context else nullcontext():
+                with Path(journal).open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row) + "\n")
+            return (loss, outputs) if return_outputs else loss
+
+    return LabelLossTrainer
 
 
 class _ActiveStepTimer:
@@ -1753,6 +2266,8 @@ class _ActiveStepTimer:
     def _sync(self):
         if self.device == "mps":
             import_module("torch").mps.synchronize()
+        elif self.device == "cuda":
+            import_module("torch").cuda.synchronize()
 
     def _persist(self):
         value = {
@@ -2654,8 +3169,25 @@ def train_local(
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
+    loss_type: str | None = None,
+    scale_rewards: str = "group",
+    reward: str = "exact",
+    confusion_map: Path | None = None,
+    taxonomy: Path | None = None,
+    label_trie: Path | None = None,
+    egsft_scale: str = "group",
+    egsft_band_group: int | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
+
+    Signal-limit options (each enters settings only when it differs from its default):
+    `loss_type`/`scale_rewards` select TRL's GRPO aggregation and advantage scaling
+    ("dr_grpo"/"none" is Dr-GRPO); beta=0 GRPO refuses unless loss_type is passed
+    explicitly. `reward="exact_hn"` with a frozen `confusion_map` adds -0.5 for a
+    confuser answer. `egsft_scale="none"` makes EG-SFT the Dr-GRPO limit stopgrad[2p] and
+    `egsft_band_group` masks it to the G-sample screen's band. Modes hn_sft (needs
+    `confusion_map`), hls_sft (`taxonomy`) and cce_sft (`label_trie`) are the answer-only
+    supervised limits of `_trainer_with_label_loss`.
 
     `mode="egsft"` is SFT weighted by stopgrad[w_G(p) / w_G(0.5)]. `order="sequential"`
     replays the TRAIN manifest order for SFT/EG-SFT, and `cycle` lets further epochs
@@ -2677,8 +3209,32 @@ def train_local(
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
         if type(value) is not int or value <= 0:
             raise ValueError(f"{name} must be a valid nonnegative/positive integer")
-    if mode not in {"grpo", "sft", "egsft"} or model not in MODEL_REVISIONS:
-        raise ValueError("choose sft/egsft/grpo and one of the explicitly pinned Qwen models")
+    if mode not in {"grpo", "sft", "egsft", *LABEL_LOSS_MODES} or model not in MODEL_REVISIONS:
+        raise ValueError(
+            "choose sft/egsft/grpo (or hn_sft/hls_sft/cce_sft) and one of the explicitly "
+            "pinned Qwen models"
+        )
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
+    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
+        raise ValueError("loss_type and scale_rewards apply only to GRPO")
+    if mode == "grpo" and beta == 0 and loss_type is None:
+        raise ValueError("beta=0 GRPO requires an explicit loss_type (grpo or dr_grpo)")
+    if reward not in REWARDS or (reward != "exact" and mode != "grpo"):
+        raise ValueError("reward must be exact, or exact_hn for GRPO")
+    if (confusion_map is not None) != (reward == "exact_hn" or mode == "hn_sft"):
+        raise ValueError("confusion_map is required by, and only by, exact_hn or hn_sft")
+    if (taxonomy is not None) != (mode == "hls_sft"):
+        raise ValueError("taxonomy is required by, and only by, hls_sft")
+    if (label_trie is not None) != (mode == "cce_sft"):
+        raise ValueError("label_trie is required by, and only by, cce_sft")
+    if egsft_scale not in GRPO_REWARD_SCALES or egsft_band_group not in (
+        None,
+        *EGSFT_BAND_GROUPS,
+    ):
+        raise ValueError("egsft_scale must be group or none and egsft_band_group 4, 8 or 16")
+    if mode != "egsft" and (egsft_scale != "group" or egsft_band_group is not None):
+        raise ValueError("egsft_scale and egsft_band_group apply only to EG-SFT")
     if order not in {"random", "sequential"} or (order == "sequential" and mode == "grpo"):
         raise ValueError("order must be random, or sequential for sft/egsft")
     if type(cycle) is not bool or (cycle and order != "sequential"):
@@ -2737,7 +3293,7 @@ def train_local(
     if train_only and (validation is not None or probe):
         raise ValueError("TRAIN-only diagnostic forbids validation/probe")
     if train_only:
-        step_cap = None if screened else TRAIN_ONLY_STEP_CAPS["sft" if mode == "egsft" else mode]
+        step_cap = None if screened else TRAIN_ONLY_STEP_CAPS["grpo" if mode == "grpo" else "sft"]
         if step_cap is not None and max_steps > step_cap:
             raise ValueError(f"TRAIN-only {mode} diagnostic exceeds {step_cap} steps")
         if mode != "grpo" and max_steps > 400 and max_active_seconds is None:
@@ -2812,6 +3368,9 @@ def train_local(
         or mode not in {"grpo", "sft"}
         or (mode == "grpo" and beta != 0.04)
         or continue_from_checkpoint is not None
+        or loss_type not in (None, "grpo")
+        or scale_rewards != "group"
+        or reward != "exact"
     ):
         raise ValueError(
             "expanded training requires the approved init, SFT or GRPO with beta .04, "
@@ -2863,6 +3422,42 @@ def train_local(
             "advantage_eps": TRL_ADVANTAGE_EPS,
             "weight": "stopgrad[w_G(p) / w_G(0.5)], TRL Bessel-corrected group std",
         }
+        if egsft_scale != "group":
+            settings["egsft"].update(
+                scale_rewards=egsft_scale,
+                weight="stopgrad[2p]: Dr-GRPO no-std limit (G-1)p / ((G-1)/2), any G",
+            )
+        if egsft_band_group is not None:
+            settings["egsft"]["band"] = {
+                "group_size": egsft_band_group,
+                "threshold": EGSFT_BAND_THRESHOLD,
+                "mask": "1[u_G(p) >= threshold]; outside: zero loss, update still counted",
+            }
+    if loss_type not in (None, "grpo"):
+        settings["loss_type"] = loss_type
+    if scale_rewards != "group":
+        settings["scale_rewards"] = scale_rewards
+    if reward != "exact":
+        settings["reward"] = {"name": reward, "confuser_reward": HN_CONFUSER_REWARD}
+    confusers = taxonomy_entries = trie = None
+    if confusion_map is not None:
+        confusers = load_confusion_map(confusion_map, spec["labels"])
+        settings["confusion_map_sha256"] = _file_sha256(Path(confusion_map))
+    if mode in LABEL_LOSS_MODES:
+        settings["label_loss"] = {
+            "objective": {
+                "hn_sft": "CE + 0.5 * -log(1 - pi(c)), c = top live frozen-map confuser",
+                "hls_sft": "q_gold CE + sum q_s mean-token NLL(s), q = hierarchical smoothing",
+                "cce_sft": "mean CE of the trie-restricted log-softmax; post-EOS tail free",
+            }[mode],
+            **({"coefficient": HN_SFT_COEFFICIENT} if mode == "hn_sft" else {}),
+            **({"epsilon": HLS_EPSILON} if mode == "hls_sft" else {}),
+        }
+    if taxonomy is not None:
+        taxonomy_entries = load_taxonomy(taxonomy, spec["labels"])
+        settings["taxonomy_sha256"] = _file_sha256(Path(taxonomy))
+    if label_trie is not None:
+        _, trie, settings["label_trie_sha256"] = load_label_trie(label_trie)
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
     continuation = None
@@ -2984,6 +3579,7 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
         environment["expanded_source_closure"] = _expanded.source_closure()
@@ -2996,9 +3592,13 @@ def train_local(
         "algorithm": f"TRL-{mode.upper()}",
         "regularization_profile": ("initial-policy-KL" if beta else "beta-zero-ablation")
         if mode == "grpo"
-        else "completion-only-SFT"
-        if mode == "sft"
-        else "expected-gradient-weighted-completion-only-SFT",
+        else {
+            "sft": "completion-only-SFT",
+            "egsft": "expected-gradient-weighted-completion-only-SFT",
+            "hn_sft": "completion-only-SFT-plus-confuser-unlikelihood",
+            "hls_sft": "hierarchical-label-smoothed-completion-only-SFT",
+            "cce_sft": "label-trie-constrained-completion-only-SFT",
+        }[mode],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "control_identity": identity,
         "settings": settings,
@@ -3034,7 +3634,7 @@ def train_local(
         record["processor_audit"] = _audit_processor(
             processor, train_rows + validation_rows, spec, profile
         )
-        record_mode = "sft" if mode == "egsft" else mode
+        record_mode = "grpo" if mode == "grpo" else "sft"
         dataset = _dataset(train_rows, spec, record_mode, profile)
         policy = transformers.AutoModelForImageTextToText.from_pretrained(
             str(model_directory),
@@ -3101,6 +3701,8 @@ def train_local(
             save_steps=save_steps,
             beta=beta,
             **({"order": order} if order != "random" else {}),
+            **({"loss_type": loss_type} if loss_type is not None else {}),
+            **({"scale_rewards": scale_rewards} if scale_rewards != "group" else {}),
         )
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
         if args.device.type != device:
@@ -3126,6 +3728,7 @@ def train_local(
             allow_reasoning=True,
             journal_io_context=audit.timer.exclude_journal_io,
             observe_prompt=audit.observe_prompt,
+            **({"reward": reward, "confusers": confusers} if reward != "exact" else {}),
         )
         constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
         if mode == "grpo":
@@ -3150,6 +3753,28 @@ def train_local(
                     labels_by_id={row["id"]: row["label"] for row in train_rows},
                     journal_io_context=audit.timer.exclude_journal_io,
                     resume_state=egsft_state,
+                    **({"scale_rewards": egsft_scale} if egsft_scale != "group" else {}),
+                    **(
+                        {"band_group": egsft_band_group}
+                        if egsft_band_group is not None
+                        else {}
+                    ),
+                )
+            if mode in LABEL_LOSS_MODES:
+                constructor = _trainer_with_label_loss(
+                    constructor,
+                    mode=mode,
+                    journal=output / "label_loss.jsonl",
+                    labels_by_id={row["id"]: row["label"] for row in train_rows},
+                    eos_token_ids=eos,
+                    label_token_ids={
+                        label: processor.tokenizer.encode(label, add_special_tokens=False)
+                        for label in spec["labels"]
+                    },
+                    confusers=confusers,
+                    taxonomy=taxonomy_entries,
+                    trie=trie,
+                    journal_io_context=audit.timer.exclude_journal_io,
                 )
             constructor = _trainer_with_sft_exposure(constructor, audit)
             if continuation is not None:
@@ -3389,7 +4014,9 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Frozen-base sampled reward groups on at most 32 TRAIN images; never fits",
     )
-    parser.add_argument("--mode", choices=("grpo", "sft", "egsft"), default="grpo")
+    parser.add_argument(
+        "--mode", choices=("grpo", "sft", "egsft", *LABEL_LOSS_MODES), default="grpo"
+    )
     for name in (
         "train",
         "validation",
@@ -3401,10 +4028,18 @@ def main(argv: list[str] | None = None) -> int:
         "screen-journal",
         "screen-tokenizations",
         "continue-from-checkpoint",
+        "confusion-map",
+        "taxonomy",
+        "label-trie",
     ):
         parser.add_argument(f"--{name}", type=Path)
+    parser.add_argument("--loss-type", choices=GRPO_LOSS_TYPES)
+    parser.add_argument("--scale-rewards", choices=GRPO_REWARD_SCALES, default="group")
+    parser.add_argument("--reward", choices=REWARDS, default="exact")
+    parser.add_argument("--egsft-scale", choices=GRPO_REWARD_SCALES, default="group")
+    parser.add_argument("--egsft-band-group", type=int, choices=EGSFT_BAND_GROUPS)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--device", choices=DEVICES, default="mps")
     parser.add_argument("--max-steps", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument(
@@ -3467,17 +4102,26 @@ def main(argv: list[str] | None = None) -> int:
                         "screen_journal",
                         "screen_tokenizations",
                         "continue_from_checkpoint",
+                        "loss_type",
+                        "confusion_map",
+                        "taxonomy",
+                        "egsft_band_group",
                     )
                 ) or (args["order"], args["screen_threshold"], args["target_accepted"]) != (
                     "random",
                     0.5,
                     600,
-                ):
+                ) or (args["scale_rewards"], args["reward"], args["egsft_scale"]) != (
+                    "group",
+                    "exact",
+                    "group",
+                ) or (args["label_trie"] and sample_train is not None):
                     parser.error("TRAIN inference cannot be combined with training inputs")
                 function = sample_train_groups if sample_train is not None else predict_train_subset
                 result = function(
                     sample_train if sample_train is not None else predict_train,
                     **({"seed": args["seed"]} if sample_train is not None else {}),
+                    **({"label_trie": args["label_trie"]} if args["label_trie"] else {}),
                     **{
                         key: args[key]
                         for key in (
