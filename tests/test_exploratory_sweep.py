@@ -377,3 +377,19 @@ def test_continuation_resumes_sftall_epoch2_in_place_with_its_epoch1_endpoint():
     for bad in ([], [dict(e1, steps=2000)], [e1, dict(e1, label="step4658", steps=4658)]):
         with pytest.raises(SystemExit, match="proper prefix"):
             runner.continuation_spec(spec, {"endpoints": bad})
+
+
+def test_bootstrap_refuses_a_host_whose_var_tmp_is_full(monkeypatch):
+    # iccad4 2026-10-18: / (holding /var/tmp) at 100%, 0 GB localGB; the sync would fill it
+    rows = runner.host_table(UWRUN_V5_HOSTS)
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+
+    class A:
+        payload, host, repin = "/nonexistent", ["iccad13", "iccad4"], False
+
+    with pytest.raises(SystemExit, match=r"\['iccad4'\] have < 3.0 GB"):
+        runner.cmd_bootstrap(A, Path("/nonexistent/state.json"))
+    assert calls == []
+    assert runner.low_disk_hosts(rows, ["iccad13", "iccad4", "unlisted"]) == ["iccad4", "unlisted"]

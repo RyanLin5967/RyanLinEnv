@@ -140,7 +140,19 @@ def safe_name(text: str) -> str:
 
 
 # ---- bootstrap and receipts ------------------------------------------------------------
+MIN_LOCAL_GB = 3.0  # uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+
+
+def low_disk_hosts(hosts: dict, names) -> list:
+    """Hosts whose free /var/tmp (uwrun's localGB) is below MIN_LOCAL_GB, or not listed at all."""
+    return sorted(h for h in names if (hosts.get(h) or {}).get("local_gb", 0.0) < MIN_LOCAL_GB)
+
+
 def cmd_bootstrap(a, state_path: Path) -> int:
+    low = low_disk_hosts(host_table(), a.host)
+    if low:
+        raise SystemExit(f"REFUSE: {low} have < {MIN_LOCAL_GB} GB free in /var/tmp (uwrun hosts"
+                         " localGB); the payload sync would fill a shared disk")
     payload = Path(a.payload).resolve()
     doc = json.loads((payload / "PAYLOAD.json").read_bytes())
     import hashlib
@@ -211,6 +223,10 @@ def cmd_refresh(a, state_path: Path) -> int:
     """Bootstrap the pinned payload on every drained host whose receipt is stale."""
     state = read_state(state_path)
     hosts = drained_stale_hosts(state)
+    low = low_disk_hosts(host_table(), hosts)
+    for host in low:
+        print(f"refresh: skip {host}: < {MIN_LOCAL_GB} GB free in /var/tmp")
+    hosts = [h for h in hosts if h not in low]
     if not hosts:
         print("refresh: no drained host with a stale receipt")
         return 0
