@@ -7,7 +7,7 @@ All heavy work runs on UW hosts through ~/.claude/bin/uwrun; this script only la
 polls and fetches small files, so it is light enough for the Mac under quiet mode
 (Python 3.9 standard library only).
 
-  runner.py bootstrap --payload DIR --host H [--host H ...]
+  runner.py bootstrap --payload DIR [--repin] [--host H ...]  # no host: pin only
   runner.py receipts                       # read every host's bootstrap receipt into state
   runner.py refresh                        # bootstrap the pinned payload on drained stale hosts
   runner.py continue ARM --reason R        # FAILED multi-stop arm: rest of its stops, in place
@@ -149,6 +149,11 @@ def low_disk_hosts(hosts: dict, names) -> list:
 
 
 def cmd_bootstrap(a, state_path: Path) -> int:
+    live = sorted({x.get("host") for x in read_state(state_path)["arms"].values()
+                   if x.get("status") in ("LAUNCHED", "RUNNING")} & set(a.host))
+    if live:
+        raise SystemExit(f"REFUSE: {live} run our arms; bootstrap rewrites ROOT/payload under"
+                         " them (wait until drained; `refresh` does this)")
     low = low_disk_hosts(host_table(), a.host)
     if low:
         raise SystemExit(f"REFUSE: {low} have < {MIN_LOCAL_GB} GB free in /var/tmp (uwrun hosts"
@@ -316,13 +321,14 @@ def continuation_spec(spec: dict, summary: dict) -> dict:
 
     Same id, work dir and host; the completed endpoints are carried into the new summary.
     Refuses unless the completed `step` endpoints are exactly a proper prefix of the stops."""
-    stops = [int(x) for x in spec.get("stops") or []]
+    # a continuation keeps the arm's full stop list, so it can itself be continued
+    stops = [int(x) for x in spec.get("stops_all") or spec.get("stops") or []]
     done = [int(e["steps"]) for e in summary.get("endpoints", [])
             if str(e.get("label", "")).startswith("step")]
     if not done or done != stops[:len(done)] or len(done) >= len(stops):
         raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
     cont = dict(spec)
-    cont.update(stops=stops[len(done):], resume_stop=done[-1],
+    cont.update(stops=stops[len(done):], stops_all=stops, resume_stop=done[-1],
                 save_steps=arm_exec_module().save_steps_for(spec, int(spec["max_steps_total"])),
                 work_id=spec.get("work_id", spec["id"]),
                 prior_endpoints=summary["endpoints"])
@@ -343,16 +349,32 @@ def cmd_continue(a, state_path: Path) -> int:
     r = valid_receipt(state, host, cont.get("features", []))
     if capacity(state, host_table(), host, cont.get("threads", 16)) < 1 and not a.dry_run:
         raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
-    if not a.dry_run:
+    if a.dry_run:
+        launch_one(state_path, cont, host, r["root"], a.timeout, True)
+        return 0
+    with state_lock(state_path) as st:
+        n = 1
+        while f"{a.arm}#fail{n}" in st["arms"]:
+            n += 1
+        retired = f"{a.arm}#fail{n}"
+        rec = st["arms"].pop(a.arm)
+        rec.update(retired_reason=a.reason, retired_at=now(), retired_from=a.arm,
+                   kind="retired", continued_by=True)
+        st["arms"][retired] = rec
+    try:
+        launch_one(state_path, cont, host, r["root"], a.timeout, False)
+    except BaseException:
+        # the launch never happened: put the FAILED record back, so a plain `launch` cannot
+        # treat the arm as new and restart it from scratch over its kept checkpoints
         with state_lock(state_path) as st:
-            n = 1
-            while f"{a.arm}#fail{n}" in st["arms"]:
-                n += 1
-            rec = st["arms"].pop(a.arm)
-            rec.update(retired_reason=a.reason, retired_at=now(), retired_from=a.arm,
-                       kind="retired", continued_by=True)
-            st["arms"][f"{a.arm}#fail{n}"] = rec
-    launch_one(state_path, cont, host, r["root"], a.timeout, a.dry_run)
+            if a.arm not in st["arms"]:
+                rec = st["arms"].pop(retired)
+                for k in ("retired_reason", "retired_at", "retired_from", "kind",
+                          "continued_by"):
+                    rec.pop(k, None)
+                rec["kind"] = x.get("kind", "train")
+                st["arms"][a.arm] = rec
+        raise
     return 0
 
 
@@ -803,7 +825,8 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("bootstrap")
     b.add_argument("--payload", required=True)
-    b.add_argument("--host", action="append", required=True)
+    b.add_argument("--host", action="append", default=[],
+                   help="none: only (re)pin the payload; drained hosts follow via `refresh`")
     b.add_argument("--repin", action="store_true")
     sub.add_parser("receipts")
     sub.add_parser("refresh")

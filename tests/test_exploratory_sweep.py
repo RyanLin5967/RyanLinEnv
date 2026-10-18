@@ -379,7 +379,7 @@ def test_continuation_resumes_sftall_epoch2_in_place_with_its_epoch1_endpoint():
             runner.continuation_spec(spec, {"endpoints": bad})
 
 
-def test_bootstrap_refuses_a_host_whose_var_tmp_is_full(monkeypatch):
+def test_bootstrap_refuses_a_host_whose_var_tmp_is_full(tmp_path, monkeypatch):
     # iccad4 2026-10-18: / (holding /var/tmp) at 100%, 0 GB localGB; the sync would fill it
     rows = runner.host_table(UWRUN_V5_HOSTS)
     monkeypatch.setattr(runner, "host_table", lambda: rows)
@@ -390,6 +390,61 @@ def test_bootstrap_refuses_a_host_whose_var_tmp_is_full(monkeypatch):
         payload, host, repin = "/nonexistent", ["iccad13", "iccad4"], False
 
     with pytest.raises(SystemExit, match=r"\['iccad4'\] have < 3.0 GB"):
-        runner.cmd_bootstrap(A, Path("/nonexistent/state.json"))
+        runner.cmd_bootstrap(A, setup(tmp_path, monkeypatch, {"arms": {}, "hosts": {}}))
     assert calls == []
     assert runner.low_disk_hosts(rows, ["iccad13", "iccad4", "unlisted"]) == ["iccad4", "unlisted"]
+
+
+def test_bootstrap_refuses_a_host_running_our_arm(tmp_path, monkeypatch):
+    path = setup(tmp_path, monkeypatch, {"hosts": {}, "arms": {
+        "a": {"status": "RUNNING", "host": "iccad13"}, "b": {"status": "DONE", "host": "x"}}})
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+
+    class A:
+        payload, host, repin = "/nonexistent", ["iccad13", "x"], True
+
+    with pytest.raises(SystemExit, match=r"\['iccad13'\] run our arms"):
+        runner.cmd_bootstrap(A, path)
+    assert calls == []
+
+
+def test_a_continuation_can_itself_be_continued():
+    spec = {"id": "s", "stops": [2329, 4658, 6987], "max_steps_total": 6987, "mode": "sft"}
+    e1 = {"label": "step2329", "steps": 2329}
+    e2 = {"label": "step4658", "steps": 4658}
+    first = runner.continuation_spec(spec, {"endpoints": [e1]})
+    assert first["stops"] == [4658, 6987]
+    second = runner.continuation_spec(first, {"endpoints": [e1, e2]})
+    assert (second["stops"], second["resume_stop"], second["save_steps"]) == ([6987], 4658, 2329)
+
+
+def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, monkeypatch):
+    spec = {"id": "s", "stops": [2329, 4658], "max_steps_total": 4658, "mode": "sft",
+            "features": []}
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps(
+        {"endpoints": [{"label": "step2329", "steps": 2329}]}))
+    (tmp_path / "arm.json").write_text(json.dumps(spec))
+    state = {"payload": {"sha256": "P"}, "uwrun_runs": [], "hosts": {"h": {"receipt": {
+        "valid": True, "payload_sha256": "P", "root": "/r", "features": ["exploratory_sweep"]}}},
+        "arms": {"s": {"status": "FAILED", "host": "h", "run": "r1", "kind": "train",
+                       "spec_path": str(tmp_path / "arm.json"), "results_dir": str(res)}}}
+    path = setup(tmp_path, monkeypatch, state)
+    rows = runner.host_table("host load1 nproc cores availGB ourThr localGB\nh 0 72 36 200 0 50\n")
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+
+    def boom(*a, **k):
+        raise SystemExit("REFUSE: uwrun run rc=255")
+
+    monkeypatch.setattr(runner, "launch_one", boom)
+
+    class A:
+        arm, reason, timeout, dry_run = "s", "epoch-2 refusal", 60, False
+
+    with pytest.raises(SystemExit, match="rc=255"):
+        runner.cmd_continue(A, path)
+    arms = json.loads(path.read_text())["arms"]
+    assert list(arms) == ["s"] and arms["s"]["status"] == "FAILED"
+    assert "retired_reason" not in arms["s"]
