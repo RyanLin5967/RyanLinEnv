@@ -332,3 +332,30 @@ profile fields, `--remote-cpu`, the UW helpers) and `tests/test_signal_limit_lau
 whole sequence with a fake stage entry, a contract evaluator or the real one when present, and a
 fake `uwrun`: concurrency per host, a lost host and its resume, a remote timeout, a transfer
 mismatch, launch failure and every host refusal).
+
+### Every stage on UWaterloo (`"execution": "uwaterloo"`) and the production package
+
+`"execution": "uwaterloo"` runs **every** signal-limit stage (P0-I, Stage 0, Stage A, P0', RL,
+SFT-E, SFT-T, LIM-T and every H assay) through `uw_stage_a.UWRunner`, on the `uw` block's one
+device class (`device: cpu`, or `cuda` with `min_free_vram_mib` and `per_host: 1`). The Mac
+only sequences, gates (the evaluator's numpy bootstrap) and journals; quiet mode is not waited
+out. What the all-stages path adds over the Stage-A-only one:
+
+| Concern | How |
+|---|---|
+| Forecasts | the plan's `forecast_seconds` are the UW ones; `uw.forecast_seconds` must be absent |
+| Continuations | RL 100 -> 300 and SFT-E -> SFT-T ship the fetched parent checkpoint; any adapter or checkpoint whose parent holds `local_training.json` ships with its whole run directory (the trainer reads that record) |
+| RL manifests | the fetched accepted/scanned manifests name remote image paths; on fetch they are rewritten to the local bundle's copies (`*.local.jsonl`), refusing any path outside the run's inputs |
+| Live useful-mixed | every `uw.mixed_poll_seconds` the remote `reward_groups.jsonl` is mirrored under the local arm directory (`uwrun ssh ... tail -c +N`) and read by the same `MixedMonitor`; a window below 0.40 stops the remote run; after the fetch the mirror must be a prefix of the fetched file and is completed for the late poll |
+| Threads | the plan's Mac thread pins (`OMP/MKL/OPENBLAS_NUM_THREADS=2`) are not exported remotely; uwrun's `--threads` stand |
+| Busy hosts | `min_idle_threads`: a host qualifies only with `nproc - load1` at least that many |
+| CUDA | `phase_worker.py --remote-cuda`: `ACCELERATE_TORCH_DEVICE=cuda`, `CUDA_VISIBLE_DEVICES=0`, one device, peak CUDA allocation journalled; `p0_screen.py` and `h_assay.py` accept `--device cuda` |
+| Host setup | there is no `uw.setup` hook (it would run before the pin check or rewrite the bundle unseen after it); hosts are provisioned beforehand with `signal_limit_production/provision_host.sh` and the probe checks the result |
+
+`signal_limit_production/`: `prepare.py --write|--check` (activated study and protocol copies
+differing only in `status`/`activated`/`activation`, the G0 manifests, the evidence base, the
+plan and its sha256); `start.py [--dry-run|--resume]` (frozen worktree, root's decision-log
+line naming both activated copies' sha256, `prepare.py --check`, disk, single-use state, the
+host probe, `--verify-only`; then `production/chain.py`); `provision_host.sh` (venv + model on
+a host's `/var/tmp`, preflight receipt); `measure_units.sh` (unit costs on TRAIN rows);
+`smoke_stage0.sh` (Stage 0's entry at G8, two steps, on a host).
