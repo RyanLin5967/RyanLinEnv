@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION = ROOT / "scripts" / "freshpool_launch" / "production"
 sys.path.insert(0, str(PRODUCTION))
 
-import chain  # noqa: E402
 import start  # noqa: E402
 import status  # noqa: E402
 
