@@ -4564,6 +4564,9 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
+    if device != "cuda":
+        # signal-limit refusal (LocalVLMError, "float16 training ..."): no GradScaler off CUDA
+        _refuse_unsupported_dtype(environment, profile, training=True)
     check_device_dtype(device, profile.dtype, environment, training=True)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.

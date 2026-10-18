@@ -411,6 +411,23 @@ def score(pred: dict, gold: dict) -> dict:
             "classes": len(by)}
 
 
+def time_endpoints(spec: dict) -> list:
+    """[(label, active seconds)] to stop, keep and assay at after the step stops.
+
+    `time_budget_seconds` (one value; the CPU sweep's and GPU lane's matched control) keeps
+    its label "time". `time_stops` (a strictly increasing list; the RL campaign's per-
+    checkpoint time-matched control) gives "time1", "time2", ... Both at once refuse."""
+    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
+    if one and many:
+        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
+    if one:
+        return [("time", float(one))]
+    stops = [float(x) for x in many or []]
+    if any(not 0 < a < b for a, b in zip([0.0] + stops, stops)):
+        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
+    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
+
+
 def run(arm: Arm, final_check: bool) -> dict:
     s = arm.spec
     arm.results.mkdir(parents=True, exist_ok=True)
@@ -465,17 +482,27 @@ def run(arm: Arm, final_check: bool) -> dict:
         previous = stop
         if receipt["status"] == "total_budget_exhausted":
             break
-    exhausted = summary["endpoints"][-1]["receipt_status"] == "total_budget_exhausted"
-    if s.get("time_budget_seconds") and not exhausted:
-        resume = arm.out / f"checkpoint-{previous}"
-        receipt = arm.run_stage("train-time", arm.trainer_args(
-            manifest, total, None, resume, stop_seconds=float(s["time_budget_seconds"])))
-        arm.keep_adapter("time")
+    exhausted = bool(summary["endpoints"]) and (
+        summary["endpoints"][-1].get("receipt_status") == "total_budget_exhausted")
+    resume = arm.out / f"checkpoint-{previous}" if previous else None
+    for label, seconds in time_endpoints(s):
+        if exhausted:
+            break
+        if resume is not None and not resume.is_dir():
+            raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
+        receipt = arm.run_stage(f"train-{label}", arm.trainer_args(
+            manifest, total, None, resume, stop_seconds=seconds))
+        arm.keep_adapter(label)
         summary["endpoints"].append({
-            "label": "time", "steps": receipt.get("global_step"),
+            "label": label, "steps": receipt.get("global_step"),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay_isolated(arm.out / "final_adapter", "time", holdout)})
+            "metrics": arm.assay_isolated(arm.out / "final_adapter", label, holdout)})
+        arm.copy_small()
+        write_json(arm.results / "summary.json", summary)
+        # every stop (step or active-time) saves its own boundary checkpoint
+        resume = arm.out / f"checkpoint-{receipt['global_step']}"
+        exhausted = receipt["status"] == "total_budget_exhausted"
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_json(arm.results / "summary.json", summary)

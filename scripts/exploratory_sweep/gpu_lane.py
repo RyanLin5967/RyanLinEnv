@@ -23,7 +23,6 @@ import argparse
 import base64
 import importlib.util
 import json
-import shlex
 import subprocess
 import sys
 import time
@@ -92,8 +91,9 @@ BASE = {"adapter_profile": "legacy-qv-v1", "max_completion_length": 256, "max_pi
 def grpo(cls: str, lr: float, beta: float, screened: bool, g: int = 8, t: float = 1.0,
          init: str = "W") -> dict:
     tag = "s" if screened else "n"
-    arm = dict(BASE, id=f"gpu-{cls.split('-')[0]}-grpo-{init}-lr{lr:g}-g{g}-b{beta:g}-t{t:g}-{tag}",
-               family=f"grpo-{init}", init=init, track="rl", mode="grpo", lr=lr, beta=beta, temperature=t,
+    arm_id = f"gpu-{cls.split('-')[0]}-grpo-{init}-lr{lr:g}-g{g}-b{beta:g}-t{t:g}-{tag}"
+    arm = dict(BASE, id=arm_id, family=f"grpo-{init}", init=init, track="rl", mode="grpo",
+               lr=lr, beta=beta, temperature=t,
                num_generations=g, dtype=DTYPE[cls], device_class=cls,
                screen_threshold=0.5 if screened else None,
                # screened: s_train has 1,424 unique rows, so 600 accepted is the ceiling
@@ -174,7 +174,8 @@ def cmd_worker(a) -> int:
     state = load_state()
     name = f"rlegpu-worker-{a.host}-{int(time.time())}"
     need = {"eceubuntu2": 10500}.get(a.host, 6500)  # MiB free before an arm starts
-    inner = (f"R={ROOT}; NEED_MIB={need} exec bash \"$R/payload/code/scripts/exploratory_sweep/gpu_worker.sh\" "
+    inner = (f"R={ROOT}; NEED_MIB={need} exec bash "
+             "\"$R/payload/code/scripts/exploratory_sweep/gpu_worker.sh\" "
              f"\"$R\" \"$PWD/results\"")
     # --mem: host RSS cap for the uwrun memory guard (a GPU arm's trainer + assay child hold
     # the model in host RAM while loading; 24 GB is headroom over that, not a measurement).
@@ -294,7 +295,8 @@ def cmd_control(a) -> int:
     res, t, state = arm_results(), table(), load_state()
     rl = t.get(a.of) or json.loads((res[a.of] / "arm.json").read_text())
     d = res.get(a.of)
-    if d is None or not (d / "summary.json").is_file() or not (d / "endpoint_receipt.json").is_file():
+    if (d is None or not (d / "summary.json").is_file()
+            or not (d / "endpoint_receipt.json").is_file()):
         raise SystemExit(f"REFUSE: {a.of} has no fetched summary/receipt")
     summary = json.loads((d / "summary.json").read_text())
     receipt = json.loads((d / "endpoint_receipt.json").read_text())
