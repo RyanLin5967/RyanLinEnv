@@ -1,0 +1,610 @@
+"""Drive the exploratory sweep v2 from the Mac: bootstrap hosts, launch arms, fetch, report.
+
+Exploratory only (docs/aircraft-exploratory-sweep-v2.md): every arm trains and is assayed on
+TRAIN-derived data. Nothing here reads, lists or copies native VAL or the sealed TEST.
+
+All heavy work runs on UW hosts through ~/.claude/bin/uwrun; this script only launches,
+polls and fetches small files, so it is light enough for the Mac under quiet mode
+(Python 3.9 standard library only).
+
+  runner.py bootstrap --payload DIR --host H [--host H ...]
+  runner.py receipts                       # read every host's bootstrap receipt into state
+  runner.py launch --table T [--ids A,B] [--wave 1] [--rung 1] [--hosts H,...]
+                   [--max-launch N] [--timeout S] [--dry-run]
+  runner.py bench --host H --kind grpo4|grpo8|sft [--steps N] [--threads 16]
+  runner.py poll                           # status, fetch finished arms, resolve controls
+  runner.py promote --from-rung 1|2         # successive halving -> runs/.../arms-rung{2,3}.json
+  runner.py report [--resamples 20000]     # dev800 table + paired bootstrap vs matched SFT
+
+State lives in --state (default runs/aircraft-exploratory-sweep-v2/state.json in the root
+checkout) and is rewritten atomically under an fcntl lock after every change, keeping keys
+other writers own (e.g. "features").
+
+Refusals (exit non-zero, nothing launched): a host with no receipt, a receipt whose payload
+sha256 differs from the payload this sweep pinned, a receipt without the trainer features an
+arm needs, an arm whose dependency has not finished, a control whose RL arm summary is
+missing, a launch that would leave less than 25% of a host's cores or memory free.
+"""
+
+from __future__ import annotations
+
+import argparse
+import bisect
+import contextlib
+import fcntl
+import json
+import math
+import os
+import random
+import re
+import shlex
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+STUDY = "aircraft-exploratory-sweep-v2"
+ROOT_CHECKOUT = Path("/Users/idide/RyanLinEnv")
+SWEEP_DIR = ROOT_CHECKOUT / "runs" / STUDY
+DEFAULT_STATE = SWEEP_DIR / "state.json"
+UWRUN = Path.home() / ".claude" / "bin" / "uwrun"
+HERE = Path(__file__).resolve()
+DESIGN = HERE.parents[2] / "docs" / STUDY
+ARM_EXEC = "payload/code/scripts/exploratory_sweep/arm_exec.py"
+RECEIPTS = "~/rlesweep/receipts"
+HEADROOM = 0.75  # leave a quarter of every host's cores and memory free
+ARM_RSS_GB = 16.0  # measured max RSS of one fp32 2B LoRA trainer was ~13.6 GB (iccad1, GNU time)
+NAME_OK = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ---- state ---------------------------------------------------------------------------
+@contextlib.contextmanager
+def state_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(str(path) + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = json.loads(path.read_text()) if path.is_file() else {}
+        state.setdefault("schema_version", 1)
+        state.setdefault("study_id", STUDY)
+        for key in ("hosts", "arms"):
+            state.setdefault(key, {})
+        state.setdefault("uwrun_runs", [])
+        yield state
+        state["updated_at"] = now()
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, indent=1, sort_keys=True) + "\n")
+        tmp.replace(path)
+
+
+def read_state(path: Path) -> dict:
+    with state_lock(path) as state:
+        return json.loads(json.dumps(state))
+
+
+# ---- uwrun ---------------------------------------------------------------------------
+def uw(*args: str, timeout: int = 300, check: bool = True) -> str:
+    proc = subprocess.run([str(UWRUN), *args], capture_output=True, text=True,
+                          timeout=timeout)
+    if check and proc.returncode != 0:
+        raise SystemExit(f"REFUSE: uwrun {' '.join(args[:2])} rc={proc.returncode}: "
+                         f"{(proc.stderr or proc.stdout).strip()[-400:]}")
+    return proc.stdout
+
+
+def run_status(name: str) -> str:
+    out = uw("status", name, timeout=180, check=False).strip().splitlines()
+    return out[-1] if out else "UNKNOWN"
+
+
+def host_table() -> dict:
+    """{host: {load1, nproc, avail_gb, local_gb}} from `uwrun hosts all`."""
+    hosts = {}
+    for line in uw("hosts", "all", timeout=300).splitlines():
+        parts = line.split()
+        if len(parts) >= 6 and parts[1].replace(".", "", 1).isdigit():
+            hosts[parts[0]] = {"load1": float(parts[1]), "nproc": int(parts[2]),
+                               "avail_gb": float(parts[3]), "local_gb": float(parts[5])}
+    if not hosts:
+        raise SystemExit("REFUSE: `uwrun hosts all` returned no parsable host rows")
+    return hosts
+
+
+def safe_name(text: str) -> str:
+    return NAME_OK.sub("_", text)[:90]
+
+
+# ---- bootstrap and receipts ------------------------------------------------------------
+def cmd_bootstrap(a, state_path: Path) -> int:
+    payload = Path(a.payload).resolve()
+    doc = json.loads((payload / "PAYLOAD.json").read_bytes())
+    import hashlib
+
+    sha = hashlib.sha256((payload / "PAYLOAD.json").read_bytes()).hexdigest()
+    if doc.get("code_dirty"):
+        raise SystemExit("REFUSE: payload was staged from a dirty tree; commit, then restage")
+    with state_lock(state_path) as state:
+        pinned = state.get("payload", {}).get("sha256")
+        if pinned and pinned != sha and not a.repin:
+            raise SystemExit(f"REFUSE: state pins payload {pinned[:12]}; pass --repin to move")
+        state["payload"] = {"sha256": sha, "dir": str(payload), "code_head": doc["code_head"]}
+    for host in a.host:
+        name = safe_name(f"rlesweep-boot-{host}-{doc['code_head'][:7]}-{int(time.time())}")
+        uw("run", "--host", host, "--threads", "8", "--timeout", "5400", "--sync",
+           str(payload), "--name", name, "--", "bash",
+           "code/scripts/exploratory_sweep/bootstrap_host.sh", timeout=1800)
+        with state_lock(state_path) as state:
+            h = state["hosts"].setdefault(host, {})
+            h.update(boot_run=name, boot_payload_sha256=sha, boot_started=now(), receipt=None)
+            state["uwrun_runs"].append({"name": name, "host": host, "kind": "bootstrap",
+                                        "at": now()})
+        print(f"bootstrap {host}: {name}")
+    return 0
+
+
+def cmd_receipts(a, state_path: Path) -> int:
+    state = read_state(state_path)
+    bad = 0
+    for host, h in sorted(state["hosts"].items()):
+        status = run_status(h["boot_run"]) if h.get("boot_run") else "NONE"
+        raw = uw("ssh", host, f"cat {RECEIPTS}/{host}.json", timeout=180, check=False)
+        try:
+            receipt = json.loads(raw)
+        except json.JSONDecodeError:
+            receipt = None
+        ok = (receipt is not None and "DONE rc=0" in status
+              and receipt["payload"]["payload_sha256"] == state.get("payload", {}).get("sha256"))
+        summary = None
+        if receipt is not None:
+            summary = {"root": receipt["root"], "nproc": receipt["nproc"],
+                       "payload_sha256": receipt["payload"]["payload_sha256"],
+                       "code_head": receipt["payload"]["code_head"],
+                       "features": receipt["features"]["available"],
+                       "device": receipt["device"], "cpu_model": receipt["cpu_model"],
+                       "created_at": receipt["created_at"], "valid": ok}
+        with state_lock(state_path) as st:
+            st["hosts"][host].update(boot_status=status, receipt=summary)
+        print(f"{host}: {status} receipt={'OK' if ok else 'MISSING/STALE'}")
+        bad += not ok
+    return 1 if bad else 0
+
+
+def valid_receipt(state: dict, host: str, features) -> dict:
+    h = state["hosts"].get(host) or {}
+    r = h.get("receipt")
+    if not r or not r.get("valid"):
+        raise SystemExit(f"REFUSE: {host} has no valid bootstrap receipt (run `receipts`)")
+    if r["payload_sha256"] != state.get("payload", {}).get("sha256"):
+        raise SystemExit(f"REFUSE: {host} receipt is for another payload")
+    missing = sorted(set(features) | {"exploratory_sweep"} - set(r["features"]))
+    if missing:
+        raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
+    return r
+
+
+# ---- launching ------------------------------------------------------------------------
+def capacity(state: dict, hosts: dict, host: str, threads: int) -> int:
+    """Arms of `threads` threads `host` can take now, keeping 25% of cores and memory."""
+    t = hosts.get(host)
+    if t is None:
+        return 0
+    ours = [x for x in state["arms"].values()
+            if x.get("host") == host and x.get("status") in ("LAUNCHED", "RUNNING")]
+    our_threads = sum(x.get("threads", 16) for x in ours)
+    # load1 lags a fresh launch; count our own arms at full weight until load reflects them
+    busy = max(t["load1"], our_threads)
+    cores = HEADROOM * t["nproc"] - busy
+    recent = sum(ARM_RSS_GB for x in ours if time.time() - x.get("launched_ts", 0) < 900)
+    mem = HEADROOM * t["avail_gb"] - recent
+    return max(0, min(int(cores // threads), int(mem // ARM_RSS_GB)))
+
+
+def control_spec(state: dict, ctl: dict) -> dict:
+    rl = state["arms"].get(ctl["control_of"]) or {}
+    summary_path = Path(rl.get("results_dir", "")) / "summary.json"
+    receipt_path = Path(rl.get("results_dir", "")) / "endpoint_receipt.json"
+    if rl.get("status") != "DONE" or not summary_path.is_file() or not receipt_path.is_file():
+        raise SystemExit(f"REFUSE: control {ctl['id']} needs a finished {ctl['control_of']}")
+    summary = json.loads(summary_path.read_text())
+    receipt = json.loads(receipt_path.read_text())
+    last = [e for e in summary["endpoints"] if e["label"].startswith("step")][-1]
+    ids = receipt["committed_prompt_ids"]
+    if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
+        raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
+    spec = dict(ctl)
+    # examples-matched: one SFT update per prompt the RL arm committed, in its order
+    spec.update(train_ids=ids, stops=[len(ids)],
+                time_budget_seconds=float(last["active_seconds"]))
+    return spec
+
+
+def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
+               dry: bool) -> str:
+    name = safe_name(f"rlesweep-{spec['id']}-{int(time.time() * 1000) % 10**9}")
+    launch_dir = SWEEP_DIR / "launch" / name
+    launch_dir.mkdir(parents=True, exist_ok=False)
+    (launch_dir / "arm.json").write_text(json.dumps(spec, indent=1, sort_keys=True) + "\n")
+    inner = (f"R={shlex.quote(root)}; exec \"$R/venv/bin/python\" -I \"$R/{ARM_EXEC}\" "
+             f"--root \"$R\" --arm-json arm.json --results results")
+    argv = ["run", "--host", host, "--threads", str(spec.get("threads", 16)), "--timeout",
+            str(timeout), "--sync", str(launch_dir), "--name", name, "--", "bash", "-c", inner]
+    if dry:
+        print("DRY", host, name, " ".join(shlex.quote(x) for x in argv[-3:]))
+        return name
+    uw(*argv, timeout=900)
+    with state_lock(state_path) as state:
+        state["arms"][spec["id"]] = {
+            "status": "LAUNCHED", "host": host, "run": name, "launched_at": now(),
+            "launched_ts": time.time(), "threads": spec.get("threads", 16),
+            "spec_path": str(launch_dir / "arm.json"), "kind": spec.get("kind", "train"),
+            "wave": spec.get("wave"), "rung": spec.get("rung"), "track": spec.get("track"),
+            "family": spec.get("family"), "control_of": spec.get("control_of"),
+            "receipt_payload_sha256": state["hosts"][host]["receipt"]["payload_sha256"]}
+        state["uwrun_runs"].append({"name": name, "host": host, "kind": "arm",
+                                    "arm": spec["id"], "at": now()})
+    print(f"launched {spec['id']} on {host}: {name}")
+    return name
+
+
+def cmd_launch(a, state_path: Path) -> int:
+    table = json.loads(Path(a.table).read_text())
+    if table.get("study_id") != STUDY:
+        raise SystemExit("REFUSE: arm table is for another study")
+    state = read_state(state_path)
+    wanted = set(a.ids.split(",")) if a.ids else None
+    arms = [x for x in table["arms"]
+            if (wanted is None or x["id"] in wanted)
+            and (a.wave is None or x["wave"] == a.wave)
+            and (a.rung is None or x["rung"] == a.rung)
+            and state["arms"].get(x["id"], {}).get("status") not in
+            ("LAUNCHED", "RUNNING", "DONE")]
+    if wanted is not None and len(arms) != len(wanted):
+        missing = wanted - {x["id"] for x in arms}
+        raise SystemExit(f"REFUSE: ids absent, finished or running: {sorted(missing)}")
+    hosts = host_table()
+    allowed = a.hosts.split(",") if a.hosts else sorted(
+        h for h, v in state["hosts"].items() if (v.get("receipt") or {}).get("valid"))
+    if not allowed:
+        raise SystemExit("REFUSE: no host has a valid receipt; run bootstrap and receipts")
+    launched = 0
+    skipped = []
+    for spec in arms:
+        if launched >= a.max_launch:
+            break
+        if spec["track"] == "control":
+            try:
+                spec = control_spec(read_state(state_path), spec)
+            except SystemExit as exc:
+                skipped.append(str(exc))
+                continue
+            host = read_state(state_path)["arms"][spec["control_of"]]["host"]
+            choices = [host]
+        elif spec.get("same_host_as"):
+            parent = read_state(state_path)["arms"].get(spec["same_host_as"]) or {}
+            if parent.get("status") != "DONE":
+                skipped.append(f"{spec['id']}: waits for {spec['same_host_as']}")
+                continue
+            choices = [parent["host"]]
+        else:
+            choices = allowed
+        st = read_state(state_path)
+        best = None
+        for host in choices:
+            try:
+                r = valid_receipt(st, host, spec.get("features", []))
+            except SystemExit as exc:
+                if spec["track"] == "control":
+                    raise
+                skipped.append(str(exc))
+                continue
+            free = capacity(st, hosts, host, spec.get("threads", 16))
+            if free > 0 and (best is None or free > best[1]):
+                best = (host, free, r["root"])
+        if best is None:
+            skipped.append(f"{spec['id']}: no host with free capacity")
+            continue
+        launch_one(state_path, spec, best[0], best[2], a.timeout, a.dry_run)
+        launched += 1
+    for line in skipped:
+        print("SKIP", line)
+    print(f"launched {launched} of {len(arms)} eligible arms")
+    return 0
+
+
+def cmd_bench(a, state_path: Path) -> int:
+    base = json.loads((DESIGN / "arms-rung1.json").read_text())
+    template = next(x for x in base["arms"] if x["family"] == "sft-W" and x["lr"] == 1e-5)
+    spec = dict(template)
+    mode, g = {"grpo4": ("grpo", 4), "grpo8": ("grpo", 8), "sft": ("sft", 4)}[a.kind]
+    spec.update(id=f"bench-{a.kind}-{a.host}-t{a.threads}-{int(time.time())}", kind="bench",
+                track="bench", family="bench", mode=mode, num_generations=g,
+                bench_steps=a.steps, threads=a.threads, stops=None, max_active_seconds=None)
+    if mode == "grpo":
+        spec.update(beta=0.04, temperature=1.0, screen_threshold=None)
+    st = read_state(state_path)
+    r = valid_receipt(st, a.host, [])
+    launch_one(state_path, spec, a.host, r["root"], a.timeout, a.dry_run)
+    return 0
+
+
+# ---- polling --------------------------------------------------------------------------
+def cmd_poll(a, state_path: Path) -> int:
+    state = read_state(state_path)
+    for arm_id, x in sorted(state["arms"].items()):
+        if x.get("status") not in ("LAUNCHED", "RUNNING"):
+            continue
+        status = run_status(x["run"])
+        update = {"run_status": status, "polled_at": now()}
+        if "RUNNING" in status:
+            update["status"] = "RUNNING"
+        elif " DONE " in f" {status} ":
+            dest = SWEEP_DIR / "results" / safe_name(arm_id)
+            if dest.exists():
+                dest = dest.with_name(dest.name + f"-{int(time.time())}")
+            uw("fetch", x["run"], "work/results", str(dest), timeout=900, check=False)
+            summary = dest / "summary.json"
+            ok = "rc=0" in status and summary.is_file()
+            update.update(status="DONE" if ok else "FAILED", results_dir=str(dest),
+                          finished_at=now())
+            if not ok:
+                update["log_tail"] = uw("logs", x["run"], timeout=180, check=False)[-1500:]
+        elif "LOST" in status or "UNREACH" in status:
+            update["status"] = "LOST" if "LOST" in status else x["status"]
+        with state_lock(state_path) as st:
+            st["arms"][arm_id].update(update)
+        print(f"{arm_id}: {status}")
+    return 0
+
+
+# ---- promotion (successive halving; the rule is pre-registered in the plan) ------------
+def last_step_accuracy(state: dict, arm_id: str):
+    x = state["arms"].get(arm_id) or {}
+    if x.get("status") != "DONE":
+        return None
+    summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+    steps = [e for e in summary.get("endpoints", []) if e["label"].startswith("step")]
+    if not steps:
+        return None
+    m = steps[-1]["metrics"]
+    return (m["accuracy"], m["equal_class_accuracy"], m["valid_fraction"])
+
+
+def control_for(rl: dict, control_lr: dict) -> dict:
+    keep = ("init", "seed", "threads", "device", "dtype", "max_pixels", "min_pixels",
+            "max_completion_length", "adapter_profile", "num_generations", "wave", "rung",
+            "max_steps_total")
+    ctl = {k: rl[k] for k in keep if k in rl}
+    lr = control_lr.get(rl["init"], 5e-6) if isinstance(rl["init"], str) else 5e-6
+    ctl.update(id=f"{rl['id']}~ctl", track="control", family="control", mode="sft", lr=lr,
+               control_of=rl["id"], depends_on=[rl["id"]], same_host_as=rl["id"],
+               order="sequential", cycle=True, train_manifest=f"@consumed:{rl['id']}",
+               response_format="answer_only", beta=None, temperature=None,
+               screen_threshold=None, features=[f for f in rl.get("features", [])
+                                                if f == "cuda"],
+               max_active_seconds=SFT_ACTIVE_CAP_SECONDS)
+    return ctl
+
+
+SFT_ACTIVE_CAP_SECONDS = 259200.0
+
+
+def cmd_promote(a, state_path: Path) -> int:
+    """Rung r -> r+1. Within each track (sft, rl) rank units by dev800 accuracy at their
+    last step endpoint (rung 2+: mean over seeds; ties: equal-class accuracy, then valid
+    fraction); rung 1 keeps the top third (ceil), rung 2 the top 3. Every unit must have
+    finished; an arm that FAILED ranks last and is never promoted."""
+    state = read_state(state_path)
+    r = a.from_rung
+    src = DESIGN / "arms-rung1.json" if r == 1 else SWEEP_DIR / f"arms-rung{r}.json"
+    table = json.loads(src.read_text())
+    seeds_next = table["rung_seeds"][str(r + 1)]
+    updates_next = table["rung_updates"][str(r + 1)]
+    units = {}
+    for x in table["arms"]:
+        if x["track"] in ("sft", "rl") and x["rung"] == r:
+            units.setdefault(x.get("unit", x["id"]), []).append(x)
+    pending = [x["id"] for xs in units.values() for x in xs
+               if (state["arms"].get(x["id"]) or {}).get("status") not in ("DONE", "FAILED")]
+    if pending and not a.allow_unfinished:
+        raise SystemExit(f"REFUSE: {len(pending)} rung-{r} arms unfinished, e.g. {pending[:3]}")
+    scored = {}
+    for unit, xs in units.items():
+        vals = [last_step_accuracy(state, x["id"]) for x in xs]
+        vals = [v for v in vals if v is not None]
+        mean = tuple(sum(v[i] for v in vals) / len(vals) for i in range(3)) if vals else None
+        scored[unit] = (mean if len(vals) == len(xs) else None, xs)
+    keep = {}
+    for track in ("sft", "rl"):
+        ranked = sorted((u for u, (m, xs) in scored.items() if xs[0]["track"] == track),
+                        key=lambda u: (scored[u][0] is not None, scored[u][0] or ()),
+                        reverse=True)
+        n = math.ceil(len(ranked) / 3) if r == 1 else min(3, len(ranked))
+        keep[track] = [u for u in ranked[:n] if scored[u][0] is not None]
+    arms = []
+    for track, kept in keep.items():
+        for unit in kept:
+            base = next(x for x in scored[unit][1] if x["seed"] == 42)
+            for seed in seeds_next:
+                prev = next((x for x in scored[unit][1] if x["seed"] == seed), None)
+                arm = dict(base)
+                arm.update(id=f"{unit}@r{r + 1}-s{seed}", unit=unit, rung=r + 1, seed=seed,
+                           updates=updates_next, stops=[updates_next])
+                arm.pop("resume_stop", None)
+                if prev is not None:  # continue this seed's own trajectory in place
+                    arm.update(work_id=prev.get("work_id", prev["id"]),
+                               resume_stop=prev["stops"][-1], same_host_as=prev["id"],
+                               train_manifest=prev["train_manifest"])
+                else:
+                    arm.update(work_id=arm["id"], same_host_as=None,
+                               train_manifest=base["train_manifest"].replace(
+                                   "seed42", f"seed{seed}"))
+                arms.append(arm)
+                if track == "rl":
+                    arms.append(control_for(arm, table["control_lr"]))
+    out = dict(table, rung=r + 1, arms=arms, promoted_from=str(src),
+               promotion={t: keep[t] for t in keep}, created_at=now())
+    path = SWEEP_DIR / f"arms-rung{r + 1}.json"
+    if path.exists() and not a.overwrite:
+        raise SystemExit(f"REFUSE: {path} exists; pass --overwrite to re-derive it")
+    path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+    with state_lock(state_path) as st:
+        st.setdefault("promotions", {})[f"{r}->{r + 1}"] = {
+            "table": str(path), "kept": keep, "at": now()}
+    print(json.dumps({"rung": r + 1, "kept": keep, "arms": len(arms), "table": str(path)},
+                     indent=1))
+    return 0
+
+
+# ---- report ---------------------------------------------------------------------------
+class Binomial:
+    """Exact binomial draws by inverse CDF (tables cached per n); stdlib only."""
+
+    def __init__(self, rng: random.Random):
+        self.rng, self.tables = rng, {}
+
+    def draw(self, n: int, p: float) -> int:
+        if n == 0 or p <= 0:
+            return 0
+        if p >= 1:
+            return n
+        key = (n, p)
+        cdf = self.tables.get(key)
+        if cdf is None:
+            logs = [math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+                    + k * math.log(p) + (n - k) * math.log1p(-p) for k in range(n + 1)]
+            total, cdf = 0.0, []
+            for v in logs:
+                total += math.exp(v)
+                cdf.append(total)
+            self.tables[key] = cdf
+        return min(bisect.bisect_left(cdf, self.rng.random() * cdf[-1]), n)
+
+
+def paired_bootstrap(a: dict, b: dict, gold: dict, resamples: int, seed: int) -> dict:
+    """Accuracy(a) - accuracy(b) over the same items, resampled jointly (multinomial)."""
+    d = [(a[i] == g) - (b[i] == g) for i, g in gold.items()]
+    n = len(d)
+    plus, minus = d.count(1), d.count(-1)
+    rng = random.Random(seed)
+    binom = Binomial(rng)
+    deltas = []
+    for _ in range(resamples):
+        x = binom.draw(n, plus / n)
+        rest = n - x
+        y = binom.draw(rest, minus / (n - plus)) if n > plus else 0
+        deltas.append((x - y) / n)
+    deltas.sort()
+    lo, hi = deltas[int(0.025 * resamples)], deltas[int(0.975 * resamples) - 1]
+    return {"delta": (plus - minus) / n, "ci95": [lo, hi], "n": n, "resamples": resamples,
+            "p_le_0": sum(v <= 0 for v in deltas) / resamples, "wins": plus, "losses": minus}
+
+
+def cmd_report(a, state_path: Path) -> int:
+    state = read_state(state_path)
+    gold = {}
+    for line in (DESIGN / "manifests" / "dev800.jsonl").read_text().splitlines():
+        r = json.loads(line)
+        gold[r["id"]] = r["label"]
+
+    def endpoint(arm_id, label=None):
+        x = state["arms"].get(arm_id) or {}
+        if x.get("status") != "DONE":
+            return None
+        s = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+        eps = s.get("endpoints") or []
+        ep = next((e for e in eps if e["label"] == label), None) if label else (
+            eps[-1] if eps else None)
+        if ep is None:
+            return None
+        doc = json.loads((Path(x["results_dir"]) / "assays" / f"{ep['label']}.json").read_text())
+        if set(doc["predictions"]) != set(gold):
+            raise SystemExit(f"REFUSE: {arm_id} assay is not over dev800")
+        return ep, doc["predictions"]
+
+    rows, comparisons = [], []
+    for arm_id, x in sorted(state["arms"].items()):
+        if x.get("kind") == "bench" or x.get("status") != "DONE":
+            continue
+        found = endpoint(arm_id)
+        if found is None:
+            continue
+        ep, pred = found
+        m = ep["metrics"]
+        rows.append({"arm": arm_id, "track": x.get("track"), "label": ep["label"],
+                     "steps": ep.get("steps"), "accuracy": m["accuracy"],
+                     "valid_fraction": m["valid_fraction"],
+                     "equal_class_accuracy": m["equal_class_accuracy"]})
+        ctl_id = f"{arm_id}~ctl"
+        if x.get("track") in ("rl", "noise") and ctl_id in state["arms"]:
+            for label in ("step", "time"):
+                ctl = None
+                cx = state["arms"][ctl_id]
+                if cx.get("status") == "DONE":
+                    s = json.loads((Path(cx["results_dir"]) / "summary.json").read_text())
+                    labels = [e["label"] for e in s["endpoints"]]
+                    pick = [l for l in labels if l.startswith(label)]
+                    ctl = endpoint(ctl_id, pick[-1]) if pick else None
+                if ctl is None:
+                    continue
+                comparisons.append({"rl": arm_id, "control": ctl_id, "matched": label,
+                                    **paired_bootstrap(pred, ctl[1], gold, a.resamples,
+                                                       seed=20261018)})
+    out = {"study_id": STUDY, "exploratory": True, "holdout": "dev800", "created_at": now(),
+           "arms": sorted(rows, key=lambda r: -r["accuracy"]), "rl_vs_matched_sft": comparisons}
+    path = SWEEP_DIR / "report.json"
+    path.write_text(json.dumps(out, indent=1, sort_keys=True) + "\n")
+    for r in out["arms"]:
+        print(f"{r['accuracy']:.4f} {r['valid_fraction']:.3f} {r['equal_class_accuracy']:.4f} "
+              f"{r['track']:>8} {r['arm']} [{r['label']}]")
+    for c in comparisons:
+        print(f"{c['rl']} vs {c['matched']}-matched SFT: {c['delta']:+.4f} "
+              f"CI95 [{c['ci95'][0]:+.4f}, {c['ci95'][1]:+.4f}]")
+    print(f"wrote {path}")
+    return 0
+
+
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("bootstrap")
+    b.add_argument("--payload", required=True)
+    b.add_argument("--host", action="append", required=True)
+    b.add_argument("--repin", action="store_true")
+    sub.add_parser("receipts")
+    l = sub.add_parser("launch")
+    l.add_argument("--table", default=str(DESIGN / "arms-rung1.json"))
+    l.add_argument("--ids")
+    l.add_argument("--wave", type=int)
+    l.add_argument("--rung", type=int)
+    l.add_argument("--hosts")
+    l.add_argument("--max-launch", type=int, default=1000)
+    l.add_argument("--timeout", type=int, default=86400)
+    l.add_argument("--dry-run", action="store_true")
+    be = sub.add_parser("bench")
+    be.add_argument("--host", required=True)
+    be.add_argument("--kind", choices=("grpo4", "grpo8", "sft"), required=True)
+    be.add_argument("--steps", type=int, default=6)
+    be.add_argument("--threads", type=int, default=16)
+    be.add_argument("--timeout", type=int, default=14400)
+    be.add_argument("--dry-run", action="store_true")
+    sub.add_parser("poll")
+    pr = sub.add_parser("promote")
+    pr.add_argument("--from-rung", type=int, choices=(1, 2), required=True)
+    pr.add_argument("--allow-unfinished", action="store_true")
+    pr.add_argument("--overwrite", action="store_true")
+    r = sub.add_parser("report")
+    r.add_argument("--resamples", type=int, default=20000)
+    a = p.parse_args(argv)
+    fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "launch": cmd_launch,
+          "bench": cmd_bench, "poll": cmd_poll, "report": cmd_report,
+          "promote": cmd_promote}[a.cmd]
+    return fn(a, a.state)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

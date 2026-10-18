@@ -1,6 +1,6 @@
 """Run one exploratory-sweep arm on a bootstrapped host: train stages, then the dev assay.
 
-  ROOT/venv/bin/python -I arm_exec.py --root ROOT --arm-b64 B64 --results DIR
+  ROOT/venv/bin/python -I arm_exec.py --root ROOT (--arm-json FILE | --arm-b64 B64) --results DIR
 
 The arm spec (base64 JSON from runner.py) names the init, mode, hyperparameters, manifest,
 `stops` (cumulative update counts to stop, assay and keep an adapter at) and, for a matched
@@ -100,7 +100,7 @@ class Arm:
                 "--output", str(self.out), "--model-directory", str(self.model),
                 "--device", s.get("device", "cpu"), "--dtype", s.get("dtype", "float32"),
                 "--train-only", "--exploratory-sweep", SWEEP,
-                "--init-adapter", str(self.payload / "adapters" / s["init"] / "final_adapter"),
+                "--init-adapter", str(self.init_adapter()),
                 "--learning-rate", repr(float(s["lr"])), "--seed", str(s["seed"]),
                 "--max-steps", str(max_steps), "--lora-rank", "8",
                 "--response-format", s["response_format"],
@@ -155,20 +155,30 @@ class Arm:
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
         return receipt
 
+    def init_adapter(self) -> Path:
+        """W or I from the payload, or {"arm", "label"}: a kept endpoint on this host."""
+        init = self.spec["init"]
+        if isinstance(init, str):
+            if init not in ("W", "I"):
+                raise SystemExit(f"REFUSE: unknown init {init!r}")
+            return self.payload / "adapters" / init / "final_adapter"
+        path = self.root / "arms" / init["arm"] / "kept" / init["label"] / "final_adapter"
+        receipt = json.loads((path.parent / "endpoint_receipt.json").read_text())
+        if sha_file(path / "adapter_model.safetensors") != receipt["final_adapter"]["weights_sha256"]:
+            raise SystemExit(f"REFUSE: kept init {path} differs from its endpoint receipt")
+        return path
+
     def keep_adapter(self, label: str) -> Path:
-        dst = self.work / "adapters" / label
+        # kept/<label>/{final_adapter, local_training.json, endpoint_receipt.json}: the
+        # trainer binds an init adapter to the run record beside it, so a kept endpoint can
+        # seed a later arm on this host (e.g. SFT(all TRAIN) -> GRPO).
+        dst = self.work / "kept" / label
         if dst.exists():
             shutil.rmtree(dst)
-        shutil.copytree(self.out / "final_adapter", dst)
-        # the trainer's TRAIN-assay verifier reads the run record next to the adapter
+        shutil.copytree(self.out / "final_adapter", dst / "final_adapter")
         for name in ("local_training.json", "endpoint_receipt.json"):
-            shutil.copy2(self.out / name, dst.parent / f"{label}.{name}")
+            shutil.copy2(self.out / name, dst / name)
         return self.out / "final_adapter"
-
-    def committed_seconds(self) -> float:
-        rows = [json.loads(l) for l in (self.out / "optimizer_audit.jsonl").read_text().splitlines()
-                if l.strip()]
-        return float(rows[-1]["active_seconds"]) if rows else 0.0
 
     def copy_small(self) -> None:
         for name in ("local_training.json", "endpoint_receipt.json", "optimizer_audit.jsonl",
@@ -252,7 +262,7 @@ def run(arm: Arm, final_check: bool) -> dict:
     summary = {"arm": s["id"], "host": os.uname().nodename, "root": str(arm.root),
                "receipt_sha256": sha_file(arm.root / "RECEIPT.json"), "endpoints": []}
     if s["mode"] == "eval":
-        adapter = arm.payload / "adapters" / s["init"] / "final_adapter"
+        adapter = arm.init_adapter()
         summary["endpoints"].append({"label": "init", "steps": 0,
                                      "metrics": arm.assay(adapter, "init", holdout)})
         write_json(arm.results / "summary.json", summary)
@@ -260,6 +270,7 @@ def run(arm: Arm, final_check: bool) -> dict:
     manifest = arm.manifest()
     kind = s.get("kind", "train")
     if kind == "bench":
+        load_start = os.getloadavg()[0]
         arm.run_stage("bench", arm.trainer_args(manifest, s["bench_steps"], None, None))
         rows = [json.loads(l) for l in (arm.out / "optimizer_audit.jsonl").read_text().splitlines()]
         cum = [r["active_seconds"] for r in rows]
@@ -267,7 +278,9 @@ def run(arm: Arm, final_check: bool) -> dict:
         steady = sorted(per[1:])
         summary["bench"] = {"per_update_seconds": [round(x, 2) for x in per],
                             "median_after_first": steady[len(steady) // 2] if steady else None,
-                            "threads": s.get("threads"), "load1_end": os.getloadavg()[0]}
+                            "threads": s.get("threads"), "nproc": os.cpu_count(),
+                            "load1_start": load_start, "load1_end": os.getloadavg()[0],
+                            "stage_wall_seconds": arm.log[-1]["wall_seconds"]}
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
         return summary
@@ -281,7 +294,7 @@ def run(arm: Arm, final_check: bool) -> dict:
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
-            "receipt_status": receipt["status"], "active_seconds": arm.committed_seconds(),
+            "receipt_status": receipt["status"], "active_seconds": receipt["committed_active_seconds"],
             "metrics": arm.assay(arm.out / "final_adapter", f"step{stop}", holdout)})
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
@@ -295,7 +308,7 @@ def run(arm: Arm, final_check: bool) -> dict:
         arm.keep_adapter("time")
         summary["endpoints"].append({
             "label": "time", "steps": receipt.get("global_step"),
-            "receipt_status": receipt["status"], "active_seconds": arm.committed_seconds(),
+            "receipt_status": receipt["status"], "active_seconds": receipt["committed_active_seconds"],
             "metrics": arm.assay(arm.out / "final_adapter", "time", holdout)})
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
@@ -306,13 +319,15 @@ def run(arm: Arm, final_check: bool) -> dict:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--root", type=Path, required=True)
-    p.add_argument("--arm-b64", required=True)
+    src = p.add_mutually_exclusive_group(required=True)
+    src.add_argument("--arm-b64")
+    src.add_argument("--arm-json", type=Path, help="arm spec file (runner.py syncs it)")
     p.add_argument("--results", type=Path, required=True)
     p.add_argument("--final-check", action="store_true")
     a = p.parse_args(argv)
     if not (a.root / "RECEIPT.json").is_file():
         raise SystemExit(f"REFUSE: {a.root} has no bootstrap RECEIPT.json")
-    spec = json.loads(base64.b64decode(a.arm_b64))
+    spec = json.loads(a.arm_json.read_text() if a.arm_json else base64.b64decode(a.arm_b64))
     summary = run(Arm(a.root, spec, a.results), a.final_check)
     print(json.dumps({"arm": spec["id"], "endpoints": [
         {k: e[k] for k in ("label", "steps")} | {"accuracy": e["metrics"]["accuracy"]}
