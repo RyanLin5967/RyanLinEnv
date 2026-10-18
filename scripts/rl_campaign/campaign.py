@@ -90,7 +90,7 @@ DEVICE_CLASSES = {
                  "gpu": None},
     "gtx1070-fp32": {"device": "cuda", "dtype": "float32", "wait": "gpu", "threads": 4,
                      "gpu": "GTX 1070", "need_mib": 7600, "mem_gb": 24,
-                     # measured 2026-10-18 (uwrun run rlc-memprobe-ecetesla3-1792359646): the 2.209 B
+                     # measured 2026-10-18 (uwrun run rlc-memprobe-ecetesla3-1792359646): 2.209 B
                      # fp32 weights need 8426 MiB; the card has 8107 MiB; .to("cuda") OOMs at
                      # 7850 MiB allocated, before any generation. G4 and G8 cannot fit.
                      "infeasible": "fp32 Qwen2-VL-2B weights (8426 MiB) exceed the 8107 MiB card"},
