@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-freshpool-confirmatory-v1",
+  "status": "UNACTIVATED_DRAFT_ROOT_REVIEW_REQUIRED",
+  "activated": false,
+  "activation": null,
+  "created_date": "2026-10-18",
+  "author_agent": "claude (workflow subagent, branch confirmatory-prereg-v1.noindex)",
+  "scope": "Confirmatory phase of aircraft-freshpool-screened-grpo-v1: G5 replication at seeds 314 and 2718, then the once-only sealed native TEST evaluation (G6). It launches only after seed 42 passes G4 on native VAL. It changes no margin, seed, N, grid, pool rule or TEST rule of the activated protocol; it fixes the operational details the protocol leaves open: which identities get TEST, the order of the claims, the single-use envelope and the refusals. Nothing in this plan came from running a model; every cost is marked unverified or cited.",
+  "pins": {
+    "protocol_activated": {
+      "path": "docs/aircraft-rl-protocol-freshpool-v1-activated.json",
+      "sha256": "df8e0867d6aa2d073904109d4ff2b19717a03d7a5c0245cbbcc8411de0cddf14",
+      "protocol_id": "fgvc-aircraft-freshpool-screened-grpo-v1-activated-2026-10-17"
+    },
+    "protocol_revision": {
+      "path": "docs/aircraft-rl-protocol-freshpool-v1.json",
+      "sha256": "3d735a3244a733e5576c618474ef8b60068f34094ab3f5a326fd694d490968b9"
+    },
+    "study": {
+      "path": "docs/aircraft-freshpool-study-v1.json",
+      "sha256": "c21a792001dd36ed04af36a5042d402b834023254912d73301b3be5fd5c2514d"
+    },
+    "branch_receipt": {
+      "path": "docs/aircraft-freshpool-branch-receipt-v1.json",
+      "sha256": "846716f56654991e5a8f2571b60af79b911c71dc6c391d6f712023ea037ab630"
+    },
+    "named_baseline_plan": {
+      "path": "docs/aircraft-named-baseline-plan-v1-activated.json",
+      "sha256": "4c9845f0faac78a5e526f1ac3aa81e6fb764894510af69ddf76738299180132b"
+    },
+    "gate_evaluator": {
+      "path": "scripts/evaluate_freshpool_gates.py",
+      "sha256": "9a575a94f4961d9cad386776507e6929c22df341265d115ce42fab036a43354d",
+      "role": "computes G4, G5 and G6 and the TEST contenders; frozen bootstrap and gate code (protocol evaluation_and_seal.test_freeze_before_access)"
+    },
+    "comparison_module": {
+      "path": "src/vision_rl/classification_comparison.py",
+      "sha256": "269b2d789f4197b215e5bc6b29e226e688ce4bf9e3df93cb7bbf1222c7d46861",
+      "role": "paired class-stratified bootstrap used by every gate"
+    }
+  },
+  "inherited_unchanged": {
+    "rule": "Canonical JSON (sorted keys, compact separators, UTF-8) SHA256 of each block of the activated protocol. The validator recomputes them; any difference is a refusal.",
+    "substantial_gain_gates": "f58da53c40654c0c3ffeadabe1841c6494223db05c4b0cbcda9603363682ffb9",
+    "strong_baseline": "818a3c1f9b37691c86000a35ae6a6b58c714529b2a2bc8046c331b69ff0d60b5",
+    "evaluation_and_seal.uncertainty": "f66221fe8f312f61688a54a367569f91cb60107b256e9f681c621d045a1aac0b",
+    "evaluation_and_seal.final_test": "146a79c5962f26cef8f4e9c58d6768e2107394ddc11926f088c4e7f81384b78a"
+  },
+  "restated_thresholds": {
+    "note": "Copies for the reader. The validator checks each against the activated protocol; the protocol wins.",
+    "substantial_rl": {
+      "minimum_absolute_accuracy": 0.8,
+      "minimum_delta_vs_common_initialization": 0.05,
+      "minimum_delta_vs_strongest_sft": 0.05,
+      "minimum_relative_error_reduction_vs_strongest_sft": 0.2,
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_vs_strongest_sft_strictly_greater_than": 0.0
+    },
+    "named_frontier_comparison": {
+      "minimum_delta": 0.1,
+      "minimum_relative_error_reduction": 0.25,
+      "paired_ci_confidence_level": 0.95,
+      "paired_ci_lower_bound_strictly_greater_than": 0.05
+    },
+    "replicate_mean_delta_minimum": 0.05
+  },
+  "branch": {
+    "source": "pins.branch_receipt",
+    "mode": "full",
+    "d_req": 0.05,
+    "g3_margin": 0.02,
+    "b4_edge_extension": false,
+    "a_star": 0.7539126559714795
+  },
+  "entry_condition": {
+    "requires": "scripts/evaluate_freshpool_gates.py on the seed-42 evidence document reports G1, G2, G3a, G3b and G4 evaluated and passed (G4 = protocol verdict against the protocol pool), with failed_at null.",
+    "robust_verdict": "The G4 robust verdict (pool + EG-SFT) is reported but does not gate entry: the study defines the protocol verdict as governing and EG-SFT as a mechanism control.",
+    "before_entry": "Replicate training is not authorized by the activated protocol's scope (seed-42 development through G3b and EG-SFT). Activating this plan is what authorizes it."
+  },
+  "replication": {
+    "gate": "G5",
+    "primary_seed": 42,
+    "seeds": [314, 2718],
+    "N_accepted_updates": 600,
+    "scan_manifests": {
+      "314": "s_scan_seed314.jsonl from scripts/prepare_aircraft_freshpool.py (G0 manifests; SCAN_SEEDS)",
+      "2718": "s_scan_seed2718.jsonl from scripts/prepare_aircraft_freshpool.py (G0 manifests; SCAN_SEEDS)"
+    },
+    "arms_per_seed": [
+      {"arm": "RL", "lr": "RL*'s learning rate from seed 42, frozen", "updates": 600, "data": "accepted IDs of that seed's own scan, screened under that seed's live adapter", "note": "no 150-update screen, no LR search"},
+      {"arm": "SFT-E", "lr": "every LR in Q", "updates": 600, "data": "that seed's RL accepted sequence, same order"},
+      {"arm": "SFT-T", "lr": "every LR in Q", "updates": "continue that seed's SFT-E without reset to that seed's T_RL", "data": "that seed's full scanned sequence, scan order, cycling"}
+    ],
+    "Q": "gates.G3a.sft_t_lrs of the seed-42 gate report: every SFT-E LR within 2.0 pp (H-select sampled macro) of the best seed-42 SFT-E. Frozen from seed 42; never re-chosen per seed.",
+    "shared": "W is seedless and shared; its VAL is the seed-42 one (exact identity match, branch B5).",
+    "not_run": ["EG-SFT at replicate seeds", "RL at other learning rates", "any H-gate gate at replicate seeds"],
+    "per_seed_strongest_sft": "max full-VAL mean-class accuracy over W, that seed's SFT-E and SFT-T for every LR in Q; protocol tie rule (lower committed active seconds, then run ID).",
+    "pass_rule": "Protocol substantial_rl.validation_replicates unchanged: each of the three per-seed deltas (seed 42 = G4 protocol delta vs strongest SFT) > 0, and their mean >= 0.05. Computed by gate_g5 of the pinned evaluator.",
+    "val_looks": "Each replicate endpoint is evaluated on the full 3,333-image native VAL at most once and logged in the VAL-look ledger. VAL predictions from a capped or interrupted arm are never quoted.",
+    "stops_and_caps": "The study's standing stops and the 1.25x active-time caps apply unchanged; the caps are frozen from the seed-42 measured forecasts before the first replicate stage. A capped or interrupted arm is re-run from scratch and its first attempt published.",
+    "order": "Seed 314 then seed 2718, one MPS owner, serially. Both seeds always run to completion even if seed 314 already fails, so no seed is hidden; G5 is evaluated once, after both."
+  },
+  "test": {
+    "gate": "G6",
+    "split": "native_test",
+    "images": 3333,
+    "uses": 1,
+    "contenders": [
+      {"role": "rl_star_seed42", "identity_source": "gate_report.gates.G4.rl_star", "kind": "actor_adapter"},
+      {"role": "strongest_sft_protocol_pool", "identity_source": "gate_report.gates.G4.protocol.strongest_sft", "kind": "actor_adapter_or_w"},
+      {"role": "initial_policy_w", "identity_source": "the evidence document's W endpoint; its adapter must equal the activated protocol's frozen_identities.initial_policy_w.adapter_sha256", "kind": "actor_adapter"},
+      {"role": "named_baseline_27b", "identity_source": "activated protocol frozen_identities.strong_baseline", "kind": "named_baseline", "repository": "mlx-community/Qwen3.8-27B-8bit", "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9", "profile": "the activated named-baseline plan's native-instruct direct-answer profile"}
+    ],
+    "never_on_test": ["replicate-seed endpoints (314, 2718)", "EG-SFT", "RL endpoints other than RL*", "SFT endpoints other than the protocol-pool strongest", "controlled400 endpoints, unless one is the protocol-pool strongest", "RL400", "any endpoint chosen after a TEST output exists"],
+    "strongest_sft_is_w": "If W is the protocol-pool strongest, the two roles name one identity; it is evaluated on TEST once and both roles read that one prediction file.",
+    "decoding": "Actor: one deterministic greedy completion per image, max 256 tokens, frozen pixel profile, same parser and cropped RGB (protocol actor_and_sft_decoding). Named baseline: its frozen native profile, unchanged.",
+    "scoring": "All contender prediction files are complete and committed before any TEST score is computed. Scores are computed once, by gate_g6 of the pinned evaluator."
+  },
+  "primary_endpoint": {
+    "hypothesis": "H1-confirmatory: on native TEST, seed-42 RL* beats the VAL-selected strongest SFT by the unchanged substantial_rl gates.",
+    "metric": "mean of per-class exact-label accuracies over the fixed 100 classes on all 3,333 native TEST images (author confusion-matrix evaluator; protocol evaluation_and_seal.primary_metric). Malformed, missing or truncated outputs are errors in the denominator.",
+    "comparison": "RL* minus strongest SFT (protocol pool, chosen on VAL), paired on the same images",
+    "test": "paired class-stratified image bootstrap: within each of the 100 classes resample images with replacement, same indices for both models, 20,000 draws, seed 2718, linear-percentile two-sided 95% interval",
+    "bootstrap": {"draws": 20000, "seed": 2718, "confidence_level": 0.95},
+    "decision_rule": "All of: RL* accuracy >= 0.80; RL* - W >= 0.05; RL* - strongest SFT >= 0.05; relative error reduction >= 0.20; lower 95% bound of RL* - strongest SFT > 0. Every condition must hold (intersection-union test)."
+  },
+  "secondary_confirmatory": {
+    "hypothesis": "H2-confirmatory: on native TEST, seed-42 RL* beats the named Qwen3.8-27B-8bit baseline by the unchanged named_frontier_comparison gates.",
+    "tested_only_if": "the primary endpoint passes",
+    "decision_rule": "All of: baseline valid EOS-terminated fraction >= 0.95 (else interface failure, no visual-superiority claim); RL* - baseline >= 0.10; relative error reduction >= 0.25; lower 95% bound > 0.05."
+  },
+  "multiplicity": {
+    "procedure": "fixed_sequence_conjunctive",
+    "sequence": ["G4_val_seed42", "G5_val_replication", "G6a_test_rl_vs_strongest_sft", "G6b_test_rl_vs_named_baseline"],
+    "rationale": "Each family is a conjunction of conditions that must all pass, an intersection-union test that is level-alpha without adjustment. The families are tested in a fixed order and each is tested only if every earlier one passed, so the familywise error over the confirmatory claims stays at the per-test level (one-sided 2.5% for each lower bound). No family is re-tested and no order is changed after any output.",
+    "descriptive_only": ["RL* - W on TEST as its own claim", "G4 robust verdict (EG-SFT) and the EG-SFT statement", "micro accuracy", "per-class accuracy and confusion matrix, including Gulfstream IV/V, E-190/E-195, 737-500/600", "class-cluster bootstrap sensitivity interval", "EOS, invalid and truncation rates; tokens, latency, memory", "seed spread of the G5 deltas"],
+    "descriptive_rule": "Descriptive results carry no confirmatory claim and spend no alpha; they are reported whatever they show."
+  },
+  "gate_outcomes": {
+    "development_stop_before_G4": {"test_access": false, "action": "Study stops at its gate. This plan is never activated; a new commit marks it WITHDRAWN_NOT_RUN. TEST stays sealed."},
+    "G4_protocol_fail": {"test_access": false, "action": "Substantial claim FAILED at seed 42. No replicates, no TEST. Publish every VAL endpoint and both verdicts."},
+    "G4_protocol_pass_robust_fail": {"test_access": false, "action": "Proceed to G5 on the protocol verdict. Report the robust failure; if EG-SFT >= RL* on VAL, state that there is no evidence RL adds anything beyond reweighting. TEST access is still decided only by G5."},
+    "G4_pass_G5_fail": {"test_access": false, "action": "Replication FAILED. No TEST. Publish both replicate seeds' pools and deltas next to seed 42."},
+    "G4_pass_G5_pass": {"test_access": true, "action": "Authorize the single-use TEST envelope for exactly the four contender roles, run each once, commit all predictions, then score once with gate_g6."},
+    "G6a_fail": {"test_access": false, "action": "Final claim FAILED: RL* does not beat the strongest SFT on TEST by the protocol gates. Report all TEST numbers. No second TEST look for any contender."},
+    "G6a_pass_baseline_interface_failure": {"test_access": false, "action": "Report the RL-vs-SFT TEST result as the protocol claim. The baseline's valid EOS fraction < 0.95 is an interface failure: no frontier claim, no baseline re-run, no prompt change."},
+    "G6a_pass_G6b_fail": {"test_access": false, "action": "RL beats tuned SFT on TEST (protocol claim stands); no frontier claim. Name the exact baseline, quantization, profile, dataset and split."},
+    "G6a_pass_G6b_pass": {"test_access": false, "action": "Final claim holds as worded in the protocol's final_claim, scoped to this baseline, quantization, profile, dataset, label access (train400 + scanned stream) and split."},
+    "test_run_incomplete": {"test_access": false, "action": "A contender's TEST run that is interrupted resumes only from its append-only journal under the identical identity, never predicting an image twice and with no output read before completion. If it cannot complete, its TEST result and every claim needing it are INCOMPLETE; the envelope is not re-issued."}
+  },
+  "refusal_conditions": [
+    {"id": "plan_not_activated", "when": "authorize", "condition": "plan activated is false, or the activated copy's activation.activates SHA256 does not match this file, or any non-activation field differs from it"},
+    {"id": "pin_mismatch", "when": "validate", "condition": "any pins.* file SHA256 differs from the file on disk"},
+    {"id": "inherited_block_changed", "when": "validate", "condition": "any inherited_unchanged canonical SHA256 or restated threshold differs from the activated protocol"},
+    {"id": "seeds_or_n_changed", "when": "validate", "condition": "primary seed, replication seeds or N differ from the activated protocol"},
+    {"id": "branch_mismatch", "when": "validate", "condition": "branch fields differ from the branch receipt, or the receipt records test_consumed true"},
+    {"id": "test_not_sealed", "when": "validate", "condition": "the activated protocol's data.test_status does not start with SEALED"},
+    {"id": "contender_not_allowlisted", "when": "validate", "condition": "test.contenders is not exactly the four allowlisted roles, once each, or an identity contains a wildcard, or the baseline identity differs from the activated protocol"},
+    {"id": "envelope_already_used", "when": "validate", "condition": "the envelope receipt exists, or ever existed in git history, or plan state is not unused, or max uses is not 1"},
+    {"id": "evidence_contains_test", "when": "authorize", "condition": "the evidence document handed to authorize has TEST rows, TEST predictions or named-baseline TEST predictions"},
+    {"id": "gates_not_passed", "when": "authorize", "condition": "the pinned evaluator does not report G4 and G5 evaluated and passed with failed_at null and G6 awaiting evidence"},
+    {"id": "evidence_branch_mismatch", "when": "authorize", "condition": "evidence a_star or b4_edge_extension differ from the branch receipt"},
+    {"id": "w_identity_mismatch", "when": "authorize", "condition": "the W endpoint's adapter differs from the activated protocol's frozen W"},
+    {"id": "look_not_allowlisted", "when": "claim", "condition": "a TEST look is claimed for a role or identity not in the envelope receipt"},
+    {"id": "look_already_taken", "when": "claim", "condition": "a TEST look for that role was already claimed"}
+  ],
+  "test_seal": {
+    "allowlist_guard": "scripts/validate_freshpool_confirmatory.py authorize derives the TEST identities from the pinned evaluator's own report on the pre-TEST evidence; nobody types them. claim then refuses any role or identity not in the envelope receipt. It is an allowlist: anything not named is refused.",
+    "envelope": {
+      "receipt_path": "reports/aircraft-freshpool-confirmatory-v1/test-envelope.json",
+      "looks_dir": "reports/aircraft-freshpool-confirmatory-v1/test-looks",
+      "max_uses": 1,
+      "state": "unused",
+      "creation": "exclusive create (open mode x): a second authorize fails because the file exists",
+      "commit_rule": "The receipt is committed to main by PR immediately after authorize, before any TEST image is opened, so it stays in git history even if the file is later deleted."
+    },
+    "runner_obligation": "Any TEST runner calls claim for its contender and refuses unless it returns a look record, before it opens any file under data/fgvc-aircraft-2013b/sealed/. A deterministic contender run resumes from its own journal; it never claims twice.",
+    "blind_spots": [
+      "It cannot stop a process that opens the sealed directory without calling claim; the guard binds cooperating runners only. The sealed path is also kept out of every development manifest by the data pipeline.",
+      "History detection reads git log of the local clone: a shallow clone sees only its own commits. Validate from a full clone before activation.",
+      "It cannot tell whether predictions came from the identity that claimed the look; prediction files must carry the adapter or model hash and the gate evaluator trusts it, as it states."
+    ]
+  },
+  "compute_mps_hours_unverified": {
+    "source": "docs/aircraft-freshpool-study-v1.md section 10 rates (extrapolated, unverified) and D22's measured 27B discovery mean of 5.61 s/image",
+    "replicate_seed_each": "17.68 h if two SFT LRs qualify, 12.10 h if one",
+    "actor_test_three_identities": "2.81 h",
+    "named_baseline_test": "about 5.2 h (3,333 x 5.61 s, from the 100-image discovery mean; unverified at full scale)",
+    "single_owner": "One MPS owner at a time; the 27B runner and the actor never overlap."
+  },
+  "activation_prerequisites": [
+    "Seed 42 G4 report (pinned evaluator, pre-TEST evidence) committed with G4 protocol pass.",
+    "Root reviews this draft and commits a separately identified activated copy docs/aircraft-freshpool-confirmatory-v1-activated.json whose activation.activates pins this file's SHA256; only status, activated and activation may differ.",
+    "The validator passes on the activated copy from a full clone (no envelope receipt in history).",
+    "Replicate forecasts (1.25x caps) frozen from the seed-42 measured values before the first replicate stage.",
+    "The named-baseline run-2 profile used on VAL (D23) is the profile frozen for TEST; no new profile choice."
+  ],
+  "amendments": []
+}
