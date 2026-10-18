@@ -40,6 +40,7 @@ import hashlib
 import json
 import random
 import runpy
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -63,7 +64,13 @@ G0 = "scripts/freshpool_launch/signal_limit_production/g0"  # committed; images:
 G0_DIR = REPO / G0
 DEVELOPMENT_IMAGES = DATA_ROOT / "data" / "fgvc-aircraft-2013b" / "development" / "images"
 CONTROLLED400_PLAN = DATA_ROOT / "runs" / "aircraft-controlled400-launch-v1" / "launch-plan.json"
-UWRUN = Path("/Users/idide/.claude/bin/uwrun")
+UWRUN = Path("/Users/idide/.claude/bin/uwrun")  # the shared, often-updated tool
+# The launch runs a FROZEN copy of uwrun, committed here and pinned like every launcher file:
+# the shared tool is updated by other sessions (v5.x on 2026-10-18), and a pinned file that
+# changes mid-study stops it (launch.verify_pins before every stage). It calls itself through
+# "$0" and keeps its ledger and lock in ~/.claude/uw, shared with the live tool. --write makes
+# the copy only when it is absent; to adopt a newer uwrun, delete the copy and --write again.
+UWRUN_FROZEN = "scripts/freshpool_launch/signal_limit_production/uwrun.frozen"
 
 STUDY = "docs/aircraft-rl-next-study-v1.json"
 STUDY_ACTIVATED = "docs/aircraft-rl-next-study-v1-activated.json"
@@ -485,7 +492,7 @@ def repo_pins():
     files = tracked.stdout.split()
     if TRAINER not in files:
         raise SystemExit("git ls-files found no trainer: wrong repository")
-    return (*LAUNCH_PINS, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED, LABEL_TRIE,
+    return (*LAUNCH_PINS, UWRUN_FROZEN, STUDY, STUDY_ACTIVATED, PROTOCOL, PROTOCOL_ACTIVATED, LABEL_TRIE,
             CONFUSION_MAP, TAXONOMY, G0_PREVIEW, *files)
 
 
@@ -509,7 +516,7 @@ def launch_plan():
         W_ADAPTER / "adapter_model.safetensors", W_ADAPTER / "adapter_config.json",
         W_ADAPTER.parent / "local_training.json", I_ADAPTER / "adapter_model.safetensors",
         I_ADAPTER / "adapter_config.json", I_ADAPTER.parent / "local_training.json",
-        PYTHON.resolve(), UWRUN)}
+        PYTHON.resolve())}
     launcher = runpy.run_path(str(REPO / "scripts" / "freshpool_launch" / "launch.py"))
     return {
         "schema": "signal-limit-launch-plan-v1",
@@ -552,7 +559,7 @@ def launch_plan():
         "g0": {"manifest_dir": G0,
                "files_sha256": {name: sha(G0_DIR / name) for name in G0_MANIFESTS},
                "images_sha256": launcher["images_digest"](G0_DIR, G0_MANIFESTS)},
-        "uw": {"uwrun": str(UWRUN), "hosts": EXECUTION["hosts"],
+        "uw": {"uwrun": str(FROZEN / UWRUN_FROZEN), "hosts": EXECUTION["hosts"],
                "per_host": EXECUTION["per_host"], "max_concurrent": len(EXECUTION["hosts"]),
                "threads": EXECUTION["threads"], "python": UW_PYTHON,
                "model_directory": UW_MODEL, "min_local_gb": 8, "min_free_ram_gb": 32,
@@ -568,6 +575,12 @@ def main(argv=None):
     mode.add_argument("--write", action="store_true")
     mode.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
+    frozen_uwrun = REPO / UWRUN_FROZEN
+    if not frozen_uwrun.is_file():
+        if not args.write:
+            print(json.dumps({"status": "stale", "files": [UWRUN_FROZEN]}))
+            return 1
+        shutil.copy2(UWRUN, frozen_uwrun)
     texts, sizes = g0_manifests()
     write_g0(texts, args.write)
     outputs = activated_copies()

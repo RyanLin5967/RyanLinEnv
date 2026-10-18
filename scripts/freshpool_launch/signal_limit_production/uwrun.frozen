@@ -1,0 +1,484 @@
+#!/bin/bash
+# uwrun: run a command on the UWaterloo Engineering compute hosts (r226lin), from any session on this Mac.
+# Handoff and host inventory: ~/uwaterloo-access/UWATERLOO_COMPUTE_HANDOFF.md
+#
+#   uwrun hosts [POOL]                  live per-host load, cores, free RAM, local disk, RAM disk, AVX, glibc, speed
+#   POOLS (measured 2026-10-18; benchmark raws in ~/uwaterloo-access/bench-20261018/):
+#     cpu  (default) the most total throughput: iccad7/8/10/12/13 (Xeon 6154, 36 cores / 72 threads), iccad0/9/11
+#          (Xeon 6136, 24c/48t), ecetesla1/2/4 (Ryzen 9 5900X, 12c/24t, the fastest cores here), iccad4 (24c/24t),
+#          iccad6 (8c/16t)
+#     fast  single-thread speed first: ecetesla1/2/4 (about 2x an iccad core; the Mac M5 Pro is about 1.35x them)
+#     disk  big host-local disks: ecetesla4 594 GB, ecetesla1 525, ecetesla3 402, eceubuntu2 306, ecetesla2 305, ...
+#     ram   503 GB RAM: iccad1/3 (NO AVX2: pass --need none), iccad5
+#     gpu   ecetesla2/4 (RTX 3070 8 GB), eceubuntu2 (2080 Ti 11 GB), ecetesla3/eceubuntu4 (1070), eceubuntu1 (P4)
+#     all   every host
+#   A second hardware thread adds about 3% (ecetesla2) to 0% (iccad6) of a core on CPU-bound work (measured), so
+#   placement counts PHYSICAL cores. Load history of every host (ours vs other users', GPUs): ryanlinenv's
+#   ~/uwaterloo-access/HOST_PATTERNS.md and `~/.claude/bin/uwpick`. glibc differs: 2.28 on the RHEL 8 iccad hosts,
+#   newer elsewhere (libc::gettid and other 2.30+ symbols crash on iccad); `uwrun hosts` shows it.
+#   uwrun run [opts] -- CMD ARGS...     sync a dir up, run CMD in tmux on a host, return at once (prints NAME last)
+#       --host H|auto    a host of the pools above, or auto (default): the host giving this run the most compute NOW,
+#                        i.e. the physical cores this run will get (the free ones, or its fair share when the host is
+#                        full, up to --threads) times that host's measured core speed. Busy = load1 + the declared
+#                        threads of our runs that load1 cannot see yet (live under 120 s, or launched and not yet
+#                        live). Ties go to the most free cores.
+#                        If the chosen host refuses the claim, the next one is tried (up to 3 hosts).
+#       --pool POOL      pool used by --host auto (default cpu)
+#       --need avx2|avx512|none   CPU features required (default avx2 with auto, none with an explicit --host)
+#       --sync DIR       local dir copied to the run's work/ (default: none; CMD runs in an empty work/)
+#       --exclude PAT    extra rsync exclude (repeatable). Always excluded: target/ .venv*/ node_modules/ __pycache__/ *.noindex/
+#       --name NAME      run name, [A-Za-z0-9_-]+ (default: <project>-<timestamp>-<pid>); must be unique
+#       --threads N      N >= 1: sets OMP/MKL/OPENBLAS/RAYON/CARGO_BUILD_JOBS/GOMAXPROCS (default 16). Declare what
+#                        the run really uses: placement and every later placement on that host count it.
+#       --timeout SECS   SECS >= 1, hard bound on CMD (default 86400); TERM at the bound, KILL 30 s later
+#       --disk GB        free scratch the run needs (default 5; alias --min-local). Hosts without it are skipped.
+#       --scratch disk|shm   where the run dir lives: disk (default) = host-local /var/tmp, which must keep --disk GB
+#                        free (+3 GB headroom where /var/tmp is the host's shared root filesystem, as on the iccad hosts);
+#                        shm = /dev/shm (RAM disk, 31-200 GB per host, fast, GONE ON REBOOT, uses the host's RAM;
+#                        the run is stopped if it grows past --disk GB, and 16 GB of RAM must stay free). shm is
+#                        never chosen unless asked for. (auto is accepted and means disk.)
+#       --mem GB         stop the run if its processes together hold more than GB of RAM (resident set; default: no
+#                        per-run cap). Hosts have NO per-user memory cap (measured on 18 hosts, 2026-10-18), so every
+#                        run also has a host guard: it is stopped (marker oom-guard) if the host's free RAM falls under
+#                        max(4 GB, 3% of RAM) while the run holds 2 GB or more. Size memory-heavy jobs with --mem.
+#       --nfs            keep the run dir on the NFS home instead (quota ~16 GB TOTAL for everyone; tiny runs only;
+#                        refused while the home reads 12 GB or more)
+#       --wait           block until it finishes, fetch, and exit with CMD's rc (99 = host unreachable for 40 checks
+#                        in a row, 10-50 min; 98 = run LOST: no rc and no process of the run left)
+#     CMD is run as an argv, word by word. For a pipeline or `&&`, pass it as: -- bash -c 'a && b | c'
+#   uwrun status [NAME]                 RUNNING / DONE rc=N [timedout|stopped|overquota|leaked:PIDS] / LOST /
+#                                       UNREACHABLE / UNKNOWN (not in the ledger)
+#   uwrun logs NAME [-f]                tail the run's log
+#   uwrun fetch [--all] NAME [SUBPATH] [DEST]   copy results back (never target/, venvs, node_modules, tmp/,
+#                                       cache/). Refused over 2 GB unless --all. Default DEST
+#                                       ~/.claude/uw/results/NAME is mirrored (--delete); a user-given DEST must be an
+#                                       empty or absent directory.
+#   uwrun stop NAME                     TERM then KILL every process of the run (its session, and any process
+#                                       carrying UWRUN_NAME=NAME, e.g. one that called setsid), verify, mark rc=143
+#   uwrun rm NAME                       delete a finished run's dir on its host (refused while any process is left)
+#   uwrun ssh [HOST] [CMD...]           ssh with the right key; CMD runs in bash (the login shell is tcsh)
+#
+# Remote layout: the run dir is HOST-LOCAL, /var/tmp/r226lin-runs/<NAME>/ (or /dev/shm/r226lin-runs/<NAME>/), and
+#   ~/runs/<NAME> on the NFS home is a symlink to it. The NFS home is shared by all hosts and all sessions, with a
+#   per-user quota of about 16 GB (`quota` prints nothing); ~/.uw-nfs-usage (job nfswatch-1, every 10 min) measures it.
+#   Inside a run, TMPDIR, CARGO_TARGET_DIR, CARGO_HOME (registry) and every known cache (uv, pip, XDG, npm, GOPATH and
+#   go caches, gradle, maven, ivy, HF, torch, triton, Spark local dirs, java.io.tmpdir for Maven/Spark) live off the
+#   NFS home: shared per-host caches in /var/tmp/r226lin-* (mode 700, owner-checked) for disk runs, the run's own
+#   cache/ for shm runs (freed by rm). `uwrun ssh` commands get the same cache variables (on /var/tmp).
+#   Files: work/ (synced tree, CWD of CMD), tmp/, run.log, rc (written when CMD ends), timedout / stopped markers,
+#   sid (the session), tpid, threads, cmd, host, started, ended.
+# Local ledger: ~/.claude/uw/ledger.tsv (time, name, host, threads, local cwd, sync dir, cmd, scratch). Shared by every
+#   session on this Mac; written under a lock BEFORE launch. A host that refused a claim is rewritten ABANDONED-<host>.
+#
+# Notes for agents:
+# - The run continues if this Mac sleeps or the session dies: find it with `uwrun status`, fetch it later.
+# - Python: `uv` is on the remote PATH, with CPython 3.12/3.13 installed; system python3 on the RHEL (iccad*) hosts
+#   is 3.6, so use `uv venv -p 3.12` or `uv run -p 3.12`.
+# - Rust: ~/.cargo/bin is on PATH (rustup stable). CARGO_TARGET_DIR defaults to work/target (host-local).
+# - Measurements: other users share these hosts. Fine for correctness work (tests, fuzzing, hunts, builds); timing
+#   and fsync/durability numbers taken here are not comparable to dedicated hardware.
+# - Process tracking (stop, status, rm, end-of-run cleanup): the run's session (only while its leader is the same
+#   process: start times are recorded, so a reused session id is never trusted), every descendant of the launcher (a
+#   child subreaper, so setsid, double fork and setproctitle stay in its tree), every process with UWRUN_NAME in its
+#   environment, and a nested tmux gets its own server inside the run. Survivors are reported as `leaked:` in status.
+#   Blind spot: a process handed to a different, already-running daemon (e.g. `at`, an existing tmux socket by -S).
+# - run.log is not size-capped. Write logs sensibly.
+set -u
+KEY=/Users/idide/.ssh/uwaterloo_r226lin_ed25519
+KH=/Users/idide/uwaterloo-access/known_hosts
+U=r226lin
+UWD="$HOME/.claude/uw"; LEDGER="$UWD/ledger.tsv"; mkdir -p "$UWD/results" "$UWD/cm"; touch "$LEDGER"
+# Connection multiplexing: one master connection per host is reused for 10 minutes. A fresh login can take
+# over 25 s (measured on iccad0, 2026-10-18), while a multiplexed call takes about 0.1 s. %C keeps the socket
+# path short (a long ControlPath fails at 104 bytes).
+SSHO=(-i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=40 -o ServerAliveInterval=30
+      -o ServerAliveCountMax=4 -o UserKnownHostsFile="$KH" -o ControlMaster=auto -o "ControlPath=$UWD/cm/%C"
+      -o ControlPersist=600)
+RSYNC_E="ssh -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=40 -o UserKnownHostsFile=$KH -o ControlMaster=auto -o ControlPath=$UWD/cm/%C -o ControlPersist=600"
+POOL_cpu="iccad12 iccad13 iccad10 iccad7 iccad8 iccad9 iccad11 iccad0 iccad4 iccad6 ecetesla1 ecetesla2 ecetesla4"
+POOL_fast="ecetesla1 ecetesla2 ecetesla4"
+POOL_disk="ecetesla4 ecetesla1 ecetesla3 eceubuntu2 ecetesla2 eceubuntu4 eceubuntu1 ecetesla0"
+POOL_ram="iccad5 iccad1 iccad3"
+POOL_gpu="ecetesla2 ecetesla4 eceubuntu2 ecetesla3 eceubuntu4 eceubuntu1"
+POOL_all="$POOL_cpu $POOL_ram iccad2 ecetesla0 ecetesla3 eceubuntu1 eceubuntu2 eceubuntu4"
+# Per-core speed by CPU model: a pure-Python loop (Mloop/s, CPython 3.12), the best of the hosts with that model on
+# 2026-10-18, so the least contended reading. The Mac M5 Pro read 31.2.
+SPEED="ecetesla1=23.2 ecetesla2=23.2 ecetesla4=23.2 eceubuntu4=13.1 iccad6=12.7 ecetesla3=12.6 iccad7=12.3 iccad8=12.3 iccad10=12.3 iccad12=12.3 iccad13=12.3 iccad4=10.6 eceubuntu1=10.4 ecetesla0=10.2 eceubuntu2=9.7 iccad0=8.0 iccad9=8.0 iccad11=8.0 iccad1=6.2 iccad2=6.2 iccad3=6.2 iccad5=4.4"
+EXCL=(--exclude target/ --exclude '.venv*/' --exclude node_modules/ --exclude __pycache__/ --exclude '*.noindex/')
+FEXCL=("${EXCL[@]}" --exclude /tmp/ --exclude /cache/ --exclude /work/tmp/ --exclude 'venv*/' --exclude '.tox/')
+
+die() { echo "uwrun: $*" >&2; exit 2; }
+validname() { local LC_ALL=C; case "$1" in *[!A-Za-z0-9_-]*|"") die "name must match [A-Za-z0-9_-]+ (got '$1')";; esac; }
+tsv() { printf '%s' "$1" | tr '\t\n\r' '   '; }
+# ONE list of every cache uwrun keeps off the NFS home, used by runs, claims and `uwrun ssh` alike. P is the prefix
+# (/var/tmp/r226lin- for disk runs and ssh; the run's own cache/ for shm runs). Each dir must be ours, a real dir,
+# and mode 700; anything else sets CACHE_BAD (a run refuses, a claim moves on to another host).
+CACHES="uvcache pipcache xdgcache cargo gopath npmcache gomod gocache gradle hf torch triton m2 ivy"
+CACHE_CHECK='CACHE_BAD=0; for k in '"$CACHES"'; do d="${P}$k"; [ -e "$d" ] || mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ -O "$d" ] && [ ! -L "$d" ]; then chmod 700 "$d" 2>/dev/null; else echo "uwrun: cache dir $d is not ours, not a dir, or a symlink" >&2; CACHE_BAD=1; fi; done'
+CACHE_ENV='export UV_CACHE_DIR=${P}uvcache PIP_CACHE_DIR=${P}pipcache XDG_CACHE_HOME=${P}xdgcache CARGO_HOME=${P}cargo GOPATH=${P}gopath NPM_CONFIG_CACHE=${P}npmcache GOMODCACHE=${P}gomod GOCACHE=${P}gocache GRADLE_USER_HOME=${P}gradle HF_HOME=${P}hf TORCH_HOME=${P}torch TRITON_CACHE_DIR=${P}triton UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python" RUSTUP_HOME="$HOME/.rustup" GOTELEMETRY=off; export PATH="$HOME/.local/bin:$HOME/.cargo/bin:${P}cargo/bin:${P}gopath/bin:$PATH"'
+# Every live process of a run (needs R and n set). Three sources, so no single trick escapes all of them:
+#  - its session, but only while the session leader is the SAME process (start time recorded at launch; a reused
+#    session id after a pid wrap is never trusted, so stop can never kill another run);
+#  - every descendant of the launcher, which is a child subreaper (prctl PR_SET_CHILD_SUBREAPER), so setsid, double
+#    fork and setproctitle-style environ rewrites stay in its tree;
+#  - every process carrying UWRUN_NAME=n in its environment.
+# EXCL_PIDS names pids to spare (the caller, the launcher's own helpers).
+MEMBERS_FN='st() { sed "s/.*) //" /proc/$1/stat 2>/dev/null | awk "{print \$20}"; }
+members() { local sid lp l; sid=$(cat $R/sid 2>/dev/null); lp=$(cat $R/lpid 2>/dev/null)
+  l=$({ if [ -n "$sid" ] && { [ "$(st $sid)" = "$(cat $R/sid.start 2>/dev/null)" ] || { [ ! -f $R/sid.start ] && [ ! -f $R/rc ]; }; }; then ps -eo pid=,sid= | awk -v s=$sid "\$2==s{print \$1}"; fi
+    if [ -n "$lp" ] && [ "$(st $lp)" = "$(cat $R/lpid.start 2>/dev/null)" ]; then ps -eo pid=,ppid= | awk -v r=$lp "{pp[\$1]=\$2} END{for (p in pp) {q=p; k=0; while (q!=r && (q in pp) && q>1 && k<300) {q=pp[q]; k++}; if (q==r) print p}}"; fi
+    grep -lzx "UWRUN_NAME=$n" /proc/[0-9]*/environ 2>/dev/null | cut -d/ -f3; } | sort -u)
+  # the listings own helpers (ps, awk, sort, grep, subshells) are descendants too, but they are gone by now: keep
+  # only pids that still exist, and never the callers own shells
+  local p ex=" $$ ${BASHPID:-} ${EXCL_PIDS:-} "; for p in $l; do case "$ex" in *" $p "*) continue;; esac; [ -d /proc/$p ] || continue; [ "$(sed "s/.*) //" /proc/$p/stat 2>/dev/null | cut -c1)" = Z ] && continue; echo $p; done; }
+run_kill() { local p; for p in $(members); do kill -$1 $p 2>/dev/null; done; }
+verify_kill() { local i l p; for i in 1 2 3 4 5 6 7 8; do l=$(members); [ -z "$l" ] && return 0; for p in $l; do kill -KILL $p 2>/dev/null; done; sleep 1; done; [ -z "$(members)" ]; }'
+fqdn() { echo "$1.uwaterloo.ca"; }
+known_host() { case " $POOL_all " in *" $1 "*) return 0;; esac; return 1; }
+pool_hosts() { case "$1" in cpu|fast|disk|ram|gpu|all) local v="POOL_$1"; echo "${!v}";; *) return 1;; esac; }
+# The remote login shell is tcsh, so every remote command is sent base64-encoded and eval'd by bash: tcsh never
+# parses it. ssh -n: a remote command never reads this script's stdin (that swallowed `status`'s loop input).
+# Every remote command gets host-local caches (the NFS home quota is ~16 GB for ALL sessions) and uv/cargo on PATH.
+RENV='P=/var/tmp/r226lin-; { '"$CACHE_CHECK"'; } 2>/dev/null; '"$CACHE_ENV"'; export MAVEN_OPTS="-Dmaven.repo.local=${P}m2 ${MAVEN_OPTS:-}" SPARK_SUBMIT_OPTS="-Divy.home=${P}ivy ${SPARK_SUBMIT_OPTS:-}";'
+# A multiplex master can wedge: it answers -O check but every new session hangs (measured 2026-10-18: 11 of 22
+# masters at once, 30 uwrun processes stuck up to 19 min). So every remote call is time-bounded; a timeout or an ssh
+# failure closes that host's master (the next call opens a fresh one); read-only calls (UWRUN_RETRY=1) retry once over
+# a direct, non-multiplexed connection. Calls that change remote state never retry (they may have run).
+RSH_TMO=${UWRUN_RSH_TIMEOUT:-300}
+SSHO_DIRECT=("${SSHO[@]/ControlMaster=auto/ControlMaster=no}")
+mux_reset() { timeout 10 ssh "${SSHO[@]}" -O exit "$U@$(fqdn "$1")" >/dev/null 2>&1; }
+rsh() { local h=$1; shift; local b rc; b=$(printf '%s %s' "$RENV" "$*" | base64 | tr -d '\n')
+  local cmd="bash -c 'eval \"\$(echo $b | base64 -d)\"'"
+  timeout "$RSH_TMO" ssh -n "${SSHO[@]}" "$U@$(fqdn "$h")" "$cmd"; rc=$?
+  if [ $rc = 124 ] || [ $rc = 255 ]; then mux_reset "$h"
+    if [ "${UWRUN_RETRY:-0}" = 1 ]; then timeout "$RSH_TMO" ssh -n "${SSHO_DIRECT[@]}" -o ControlPath=none "$U@$(fqdn "$h")" "$cmd"; rc=$?
+    else echo "uwrun: remote call to $h timed out or failed (rc $rc); its ssh master was reset. Check with 'uwrun status' before retrying a state-changing command." >&2; fi
+  fi; return $rc; }
+# rsync with an I/O timeout (a stalled transfer aborts) and one retry over a direct connection (rsync is idempotent)
+rsync_uw() { local h=$1; shift; local rc
+  timeout 3600 rsync --timeout=300 "$@"; rc=$?
+  if [ $rc != 0 ]; then mux_reset "$h"; timeout 3600 rsync --timeout=300 -e "${RSYNC_E/ControlMaster=auto/ControlMaster=no} -o ControlPath=none" "$@"; rc=$?; fi
+  return $rc; }
+b64() { printf '%s' "$1" | base64 | tr -d '\n'; }
+host_of() { validname "$1"; awk -F'\t' -v n="$1" '$2==n && $3 !~ /^ABANDONED-/ {h=$3} END{print h}' "$LEDGER"; }
+
+# Local lock around every ledger read-decide-write (mkdir is atomic). The holder's pid is recorded; a lock is taken
+# over only when that pid is gone (or the lock has had no pid for over 10 s), never because a holder is slow.
+lstart() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
+# The holder is recorded as pid + start time, so a dead holder whose pid was reused by another process is still
+# recognised as dead. A takeover happens only under a second mkdir (.lock/steal), with the holder re-read under it,
+# and a lock is always removed by renaming it first, so two waiters can never both take one stale lock. A wait is
+# capped at 120 s and then names the holder.
+lock() { local t0; t0=$(date +%s); while :; do
+    if mkdir "$UWD/.lock" 2>/dev/null; then echo "$$ $(lstart $$)" > "$UWD/.lock/holder"; return; fi
+    local h p st; h=$(cat "$UWD/.lock/holder" 2>/dev/null); p=${h%% *}; st=${h#* }
+    local dead=0
+    if [ -n "$h" ]; then { [ -n "$p" ] && kill -0 "$p" 2>/dev/null && [ "$(lstart "$p")" = "$st" ]; } || dead=1
+    else local age; age=$(( $(date +%s) - $(stat -f %m "$UWD/.lock" 2>/dev/null || date +%s) )); [ "$age" -gt 10 ] && dead=1; fi
+    if [ $dead = 1 ] && mkdir "$UWD/.lock/steal" 2>/dev/null; then
+      if [ "$(cat "$UWD/.lock/holder" 2>/dev/null)" = "$h" ]; then mv "$UWD/.lock" "$UWD/.lock.dead.$$" 2>/dev/null; rm -rf "$UWD/.lock.dead.$$"; continue; fi
+      rmdir "$UWD/.lock/steal" 2>/dev/null; fi
+    [ $(( $(date +%s) - t0 )) -gt 120 ] && die "the ledger lock has been held for over 120 s by: ${h:-unknown} (remove $UWD/.lock if that process is gone)"
+    sleep 0.3; done; }
+unlock() { mv "$UWD/.lock" "$UWD/.lock.dead.$$" 2>/dev/null && rm -rf "$UWD/.lock.dead.$$"; }
+
+# The probe: one tagged line per host, validated field by field (anything else drops the host, with a message).
+IFS= read -r -d '' PROBE_SH <<'P' || true
+l=$(cut -d" " -f1 /proc/loadavg); n=$(nproc --all)
+c=$(cat /sys/devices/system/cpu/cpu[0-9]*/topology/thread_siblings_list 2>/dev/null | sort -u | wc -l)
+[ "$c" -ge 1 ] 2>/dev/null || c=$n
+m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)
+d=$(df -Pk /var/tmp | awk 'NR==2{print int($4/1048576)}'); s=$(df -Pk /dev/shm | awk 'NR==2{print int($4/1048576)}')
+x=0; grep -q -w avx2 /proc/cpuinfo && x=2; grep -q -w avx512f /proc/cpuinfo && x=512
+g=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$'); [ -n "$g" ] || g=0
+rf=0; [ "$(df -P /var/tmp | awk 'NR==2{print $6}')" = / ] && rf=1
+r=0; o=0; names=","
+rd=0; rs=0
+now=$(date +%s)
+for t in $(tmux ls -F '#S' 2>/dev/null | grep '^uw-'); do k=${t#uw-}; r=$((r+1)); names="$names$k,"
+  ss=$(cat ~/runs/$k/started.s 2>/dev/null); case "$ss" in ''|*[!0-9]*) ss=$now;; esac; age=$((now-ss))
+  v=$(cat ~/runs/$k/threads 2>/dev/null); case "$v" in ''|*[!0-9]*) v=0;; esac
+  # a run younger than 120 s has not shown up in load1 yet (1-minute time constant): count its declared threads
+  [ $age -lt 120 ] && o=$((o+10#$v))
+  # a run younger than 10 min may not have written its scratch yet: reserve its declared --disk; older runs are in df
+  [ $age -lt 600 ] || continue
+  w=$(cat ~/runs/$k/disk 2>/dev/null); case "$w" in ''|*[!0-9]*) w=0;; esac
+  case "$(cat ~/runs/$k/kind 2>/dev/null)" in shm) rs=$((rs+10#$w));; disk) rd=$((rd+10#$w));; esac; done
+echo "UWPROBE $l $n $c $m $r $o $d $s $x $g $rf $rd $rs $names"
+P
+# probe fields: 1 host 2 load1 3 nproc 4 cores 5 availRAM 6 ourRuns 7 threads declared by our runs younger than 120 s
+#   8 diskGB 9 shmGB 10 avx 11 glibc
+#   12 rootfs (1 = /var/tmp is on the host's shared / filesystem) 13 GB of disk scratch declared by our live runs
+#   14 GB of shm declared by our live runs 15 names of our live runs
+probe() { local h=$1 out
+  out=$(UWRUN_RETRY=1 UWRUN_RSH_TIMEOUT=45 timeout 100 "$0" ssh "$h" "$PROBE_SH" 2>/dev/null)
+  [ -n "$out" ] || { echo "uwrun: skipped $h: no probe answer" >&2; return; }
+  echo "$out" | awk -v h="$h" '
+    $1=="UWPROBE" && NF==15 {
+      ok=1; for (i=2;i<=14;i++) if ($i !~ /^[0-9]+(\.[0-9]+)?$/) ok=0
+      if (ok && $3>=1 && $4>=1 && $4<=$3 && ($10==0 || $10==2 || $10==512) && ($12==0 || $12==1)) { $1=h; print; found=1; exit } }
+    END { if (!found) print "uwrun: skipped " h ": malformed probe answer" > "/dev/stderr" }'; }
+probe_pool() { local tmp=$1; shift; local h; for h in "$@"; do probe "$h" >>"$tmp" & done; wait; }
+
+# rank PROBEFILE THREADS DISKGB SCRATCH AVX EXCLUDED: eligible hosts, best first, as "host kind" lines.
+# Call it under the lock, so concurrent launches see each other's ledger lines.
+rank() {
+  local f=$1 thr=$2 need=$3 scr=$4 avx=$5 excl=" ${6:-} "
+  local recent; recent=$(awk -F'\t' -v t="$(date -u -v-3M +%FT%TZ)" '$1>=t && $3 !~ /^ABANDONED-/ {print $3"="$4"="$2}' "$LEDGER" | tr '\n' ' ')
+  awk -v thr="$thr" -v rec="$recent" -v need="$need" -v scr="$scr" -v avx="$avx" -v sp="$SPEED" -v excl="$excl" -v mem="${MEMREQ:-0}" '
+    BEGIN { n=split(sp, a, " "); for (i=1;i<=n;i++) if (split(a[i], kv, "=")==2) speed[kv[1]]=kv[2] }
+    index(excl, " "$1" ") { next }
+    $5>=8+mem && $10>=avx {
+      # the declared --disk of our live runs is reserved (conservatively: in full, as if not yet written)
+      k=""; if (scr=="shm") { if ($9-$14>=need && $5-$14-need>=16) k="shm" } else if ($8-$13>=need+($12?3:0)) k="disk"
+      if (k=="") next
+      pen=0; m=split(rec, rr, " "); for (j=1;j<=m;j++) if (split(rr[j], hv, "=")==3 && hv[1]==$1 && index($15, ","hv[3]",")==0) pen+=hv[2]
+      # busy = what already runs (load1) + our launches it cannot see yet (live under 120 s, or not yet live)
+      busy=$2+$7+pen; if (busy<0) busy=0
+      # the cores this run gets: the free physical cores, or its fair share of the physical cores when the host is
+      # full (the scheduler shares them among busy+thr runnable threads), whichever is larger, up to thr
+      fs=$4*thr/(busy+thr); fr=$4-busy; eff=(fr>fs?fr:fs); if (eff>thr) eff=thr
+      free=$4-busy; c=($1 in speed)?speed[$1]:5
+      printf "0 %014.4f %014.4f %s %s\n", 1e6-eff*c, 1e6-free, $1, k }' "$f" \
+    | sort -k1,1n -k2,2n -k3,3n -k4,4 | awk '{print $4, $5}'; }
+
+cmd_hosts() {
+  local pool; pool=$(pool_hosts "${1:-all}") || die "unknown pool ${1:-} (cpu fast disk ram gpu all)"
+  local tmp; tmp=$(mktemp); probe_pool "$tmp" $pool
+  printf "%-11s %6s %5s %5s %7s %6s %7s %6s %6s %6s %4s %5s %5s %9s\n" host load1 nproc cores availGB ourThr localGB resGB rootfs shmGB avx glibc speed freeCores
+  sort -k1,1 "$tmp" | awk -v sp="$SPEED" 'BEGIN { n=split(sp, a, " "); for (i=1;i<=n;i++) if (split(a[i], kv, "=")==2) speed[kv[1]]=kv[2] }
+    { b=$2+$7; f=$4-b; if (f<0) f=0
+      printf "%-11s %6s %5s %5s %7s %6s %7s %6s %6s %6s %4s %5s %5s %9d\n",$1,$2,$3,$4,$5,$7,$8,$13+$14,($12?"yes":"no"),$9,$10,$11,speed[$1],f }'
+  local h; for h in $pool; do grep -q "^$h " "$tmp" || printf "%-11s %s\n" "$h" "UNREACHABLE"; done
+  rm -f "$tmp"; }
+
+abandon() { lock; awk -F'\t' -v n="$1" -v h="$2" 'BEGIN{OFS="\t"} $2==n && $3==h {$3="ABANDONED-" h} {print}' "$LEDGER" > "$LEDGER.tmp.$$" && mv "$LEDGER.tmp.$$" "$LEDGER"; unlock; }
+posint() { case "$2" in ''|*[!0-9]*|0[0-9]*) die "$1 takes an integer >= $3 without leading zeros (got '$2')";; esac; [ "$2" -ge "$3" ] || die "$1 takes an integer >= $3 (got '$2')"; }
+
+cmd_run() {
+  local host=auto pool=cpu sync="" name="" thr=16 tmo=86400 wait=0 nfs=0 minloc=5 scr=auto need="" mem=0; local -a xx=()
+  while [ $# -gt 0 ]; do
+    case "$1" in --host|--pool|--sync|--exclude|--name|--threads|--timeout|--min-local|--disk|--scratch|--need|--mem)
+      [ $# -ge 2 ] || die "$1 needs a value";; esac
+    case "$1" in
+    --host) host=$2; shift 2;; --pool) pool=$2; shift 2;; --sync) sync=$2; shift 2;;
+    --exclude) xx+=(--exclude "$2"); shift 2;; --name) name=$2; shift 2;;
+    --threads) thr=$2; shift 2;; --timeout) tmo=$2; shift 2;; --wait) wait=1; shift;;
+    --nfs) nfs=1; shift;; --min-local|--disk) minloc=$2; shift 2;;
+    --scratch) scr=$2; shift 2;; --need) need=$2; shift 2;; --mem) mem=$2; shift 2;;
+    --) shift; break;; *) die "unknown option $1 (put the command after --)";; esac; done
+  [ $# -gt 0 ] || die "no command given (uwrun run [opts] -- CMD...)"
+  posint --threads "$thr" 1; posint --timeout "$tmo" 1; posint --disk "$minloc" 0; posint --mem "$mem" 0
+  [ $nfs = 1 ] && minloc=0
+  case "$scr" in auto) scr=disk;; disk|shm) ;; *) die "--scratch takes disk or shm";; esac
+  [ "$scr" = shm ] && [ "$minloc" -lt 1 ] && die "--scratch shm needs --disk GB >= 1 (the run is stopped past it)"
+  local hosts=""
+  if [ "$host" = auto ]; then hosts=$(pool_hosts "$pool") || die "unknown pool $pool (cpu fast disk ram gpu all)"
+  else known_host "$host" || die "unknown host $host (one of: $POOL_all)"; fi
+  [ -n "$need" ] || { if [ "$host" = auto ]; then need=avx2; else need=none; fi; }
+  local avx; case "$need" in none) avx=0;; avx2) avx=2;; avx512) avx=512;; *) die "--need takes avx2, avx512 or none";; esac
+  [ -z "$sync" ] || [ -d "$sync" ] || die "--sync $sync is not a directory"
+  local proj; proj=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr -c 'A-Za-z0-9_\n-' '_')
+  [ -n "$name" ] || name="$proj-$(date -u +%Y%m%dT%H%M%S)-$$"
+  validname "$name"
+  # argv is shipped %q-quoted; bash 3.2 leaves a leading ~ unquoted, so it is escaped by hand
+  local q="" a e; for a in "$@"; do e=$(printf '%q' "$a"); case "$e" in '~'*) e="\\$e";; esac; q="$q$e "; done
+  local tmp; tmp=$(mktemp)
+  if [ "$host" = auto ]; then probe_pool "$tmp" $hosts; [ -s "$tmp" ] || probe_pool "$tmp" $hosts
+  else probe_pool "$tmp" "$host"; [ -s "$tmp" ] || { rm -f "$tmp"; die "$host did not answer the probe"; }
+    if [ $nfs = 0 ] && awk -v a="$avx" '$10<a{f=1} END{exit !f}' "$tmp"; then rm -f "$tmp"; die "$host lacks CPU feature $need (pass --need none to run there anyway)"; fi
+  fi
+  local tried="" attempt kind base R="runs/$name"
+  for attempt in 1 2 3; do
+    lock
+    if [ -n "$(host_of "$name")" ]; then unlock; rm -f "$tmp"; die "a run named $name is already in the ledger; pick another --name"; fi
+    local pk
+    if [ $nfs = 1 ]; then pk=$(awk '{print $1, "nfs"; exit}' "$tmp"); [ "$host" = auto ] || pk="$host nfs"
+    else pk=$(MEMREQ=$mem rank "$tmp" "$thr" "$minloc" "$scr" "$avx" "$tried" | head -1); fi
+    if [ -z "$pk" ]; then unlock; rm -f "$tmp"
+      [ -n "$tried" ] && die "every eligible host refused the claim (tried:$tried)"
+      if [ "$host" = auto ]; then die "no reachable host in pool $pool has >= 8 GB free RAM, CPU feature $need and ${minloc} GB of $scr scratch; try --pool disk, --pool all, --scratch shm or a smaller --disk"
+      else die "$host has under ${minloc} GB of $scr scratch (disk: /var/tmp keeps 3 GB more on a shared root fs; shm: 16 GB RAM must stay free) or under 8 GB free RAM"; fi; fi
+    local h=${pk% *}; kind=${pk#* }
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$name" "$h" "$thr" "$(tsv "$PWD")" "$(tsv "${sync:--}")" "$(tsv "$q")" "$kind" >> "$LEDGER"
+    unlock
+    base=/var/tmp; [ "$kind" = shm ] && base=/dev/shm
+    local nfsmsg="u=\$(awk '/^total_kb/{print \$2}' ~/.uw-nfs-usage 2>/dev/null); m=\$(head -1 ~/.uw-nfs-usage 2>/dev/null)"
+    local ok=0 rc nonce; nonce="$$-$RANDOM-$(date +%s)"
+    if [ $nfs = 1 ]; then
+      rsh "$h" "$nfsmsg; [ -n \"\$u\" ] && [ \$u -ge 12582912 ] && { echo \"the shared NFS home reads \$((u/1048576)) GB (\$m): --nfs refused\" >&2; exit 5; }
+        mkdir -m 700 -p /var/tmp/r226lin-nfstmp && mkdir -m 700 /var/tmp/r226lin-nfstmp/$name || exit 4
+        { mkdir -p runs && mkdir $R && mkdir $R/work; } || { rmdir /var/tmp/r226lin-nfstmp/$name; exit 4; }
+        echo $nonce > $R/claim; echo 0 > $R/disk; echo nfs > $R/kind"; rc=$?
+    else
+      rsh "$h" "$nfsmsg; [ -n \"\$u\" ] && [ \$u -ge 14155776 ] && echo \"uwrun: WARNING: the shared NFS home reads \$((u/1048576)) GB of ~16 GB (\$m); free it\" >&2
+        [ $kind = disk ] && [ \"\$CACHE_BAD\" != 0 ] && { echo \"a shared cache dir on $h is not ours: claim refused (moving on)\" >&2; exit 4; }
+        hr=0; [ $kind = disk ] && [ \"\$(df -P $base | awk 'NR==2{print \$6}')\" = / ] && hr=3
+        a=\$(df -Pk $base | awk 'NR==2{print int(\$4/1048576)}'); [ \$a -ge \$(( $minloc + hr )) ] || { echo \"only \$a GB free in $base on $h\" >&2; exit 3; }
+        mkdir -p $base/r226lin-runs && chmod 700 $base/r226lin-runs || exit 4
+        mkdir $base/r226lin-runs/$name || exit 4
+        mkdir -p runs; [ -L $R ] && [ ! -e $R ] && rm -f $R
+        { mkdir $base/r226lin-runs/$name/work $base/r226lin-runs/$name/tmp $base/r226lin-runs/$name/cache && ln -sT $base/r226lin-runs/$name $R; } || { rm -rf $base/r226lin-runs/$name; exit 4; }
+        echo $nonce > $R/claim; echo $minloc > $R/disk; echo $kind > $R/kind"; rc=$?
+    fi
+    [ $rc = 0 ] && ok=1
+    # a timeout or a dropped connection may hide a claim that DID happen: read the nonce back before giving up
+    if [ $ok = 0 ] && { [ $rc = 124 ] || [ $rc = 255 ]; }; then
+      [ "$(UWRUN_RETRY=1 UWRUN_RSH_TIMEOUT=45 rsh "$h" "cat $R/claim 2>/dev/null")" = "$nonce" ] && { ok=1; echo "uwrun: the claim on $h went through despite rc $rc (nonce matches)" >&2; }
+    fi
+    if [ $ok = 1 ]; then host=$h; break; fi
+    abandon "$name" "$h"
+    echo "uwrun: $h refused the claim of $name; ledger line marked ABANDONED-$h" >&2
+    tried="$tried $h"
+    { [ "$host" = auto ] && [ $nfs = 0 ]; } || { rm -f "$tmp"; die "cannot claim $name on $h"; }
+  done
+  rm -f "$tmp"
+  [ $ok = 1 ] || die "cannot claim $name on any of:$tried"
+  [ "$kind" = shm ] && echo "uwrun: NOTE: $name lives on $host:/dev/shm (RAM disk, wiped by a reboot; stopped past ${minloc} GB); fetch results promptly" >&2
+  if [ -n "$sync" ]; then
+    rsync_uw "$host" -a --delete "${EXCL[@]}" ${xx[@]+"${xx[@]}"} -e "$RSYNC_E" "${sync%/}/" "$U@$(fqdn "$host"):$R/work/" \
+      || { rsh "$host" "[ \"\$(cat $R/claim 2>/dev/null)\" = $nonce ] && { t=\$(readlink $R); [ -n \"\$t\" ] && rm -rf \"\$t\"; rm -rf $R; [ $nfs = 1 ] && rm -rf /var/tmp/r226lin-nfstmp/$name; }"; abandon "$name" "$host"; die "rsync of $sync to $host failed (run $name not started; its claim was removed; ledger line marked ABANDONED)"; }
+  fi
+  local SHM=0; [ "$kind" = shm ] && SHM=1; local NFS=$nfs; local DK=$((10#$minloc))
+  local launch; launch=$(cat <<EOF
+#!/bin/bash -l
+# Become a child subreaper first (prctl PR_SET_CHILD_SUBREAPER = 36, syscall 157 on x86_64): orphaned descendants
+# (setsid, double fork, daemons) then reparent to this launcher instead of init, so stop and the cleanup can find them.
+if [ -z "\${UW_SUBREAPER:-}" ] && command -v perl >/dev/null 2>&1; then export UW_SUBREAPER=1; exec perl -e 'syscall(157, 36, 1); exec @ARGV or die' /bin/bash -l "\$0"; fi
+R="\$HOME/$R"; n=$name
+cd "\$R/work" || exit 97
+echo $thr > "\$R/threads"
+# Everything that writes bulk stays off the 16 GB NFS home: one list of caches (see CACHES in uwrun), shared per host
+# in /var/tmp for disk runs, the run's own cache/ for shm runs (same filesystem, so uv can hardlink; freed by rm).
+if [ $SHM = 1 ]; then P="\$R/cache/"; else P=/var/tmp/r226lin-; fi
+$CACHE_CHECK
+if [ "\$CACHE_BAD" != 0 ]; then echo "uwrun: a cache dir is not ours (or a symlink); refusing" > "\$R/run.log"; echo 96 > "\$R/rc"; date -u +%FT%TZ > "\$R/ended"; exit 96; fi
+$CACHE_ENV
+T="\$R/tmp"; [ $NFS = 1 ] && T=/var/tmp/r226lin-nfstmp/$name; mkdir -p "\$T"
+export TMPDIR="\$T" TMP="\$T" TEMP="\$T" SPARK_LOCAL_DIRS="\$T"
+if [ $NFS = 1 ]; then export CARGO_TARGET_DIR="\${CARGO_TARGET_DIR:-\$T/target}"; else export CARGO_TARGET_DIR="\${CARGO_TARGET_DIR:-\$R/work/target}"; fi
+export MAVEN_OPTS="-Dmaven.repo.local=\${P}m2 -Djava.io.tmpdir=\$T \${MAVEN_OPTS:-}" SPARK_SUBMIT_OPTS="-Divy.home=\${P}ivy -Djava.io.tmpdir=\$T \${SPARK_SUBMIT_OPTS:-}"
+# a tmux started by the command gets its own server (under TMPDIR), forked inside this launcher's tree
+unset TMUX TMUX_PANE; export TMUX_TMPDIR="\$T"
+export OMP_NUM_THREADS=$thr MKL_NUM_THREADS=$thr OPENBLAS_NUM_THREADS=$thr NUMEXPR_NUM_THREADS=$thr RAYON_NUM_THREADS=$thr CARGO_BUILD_JOBS=$thr GOMAXPROCS=$thr UWRUN_THREADS=$thr UWRUN_NAME=$name
+hostname > "\$R/host"; date -u +%s > "\$R/started.s"; date -u +%FT%TZ > "\$R/started"
+$MEMBERS_FN
+SID=\$(ps -o sid= -p \$\$ | tr -d ' '); echo \$SID > "\$R/sid"; st \$SID > "\$R/sid.start"; echo \$\$ > "\$R/lpid"; st \$\$ > "\$R/lpid.start"
+trap '' HUP
+EXCL_PIDS="\$PPID"
+nice -n 10 timeout -k 30 $tmo bash -c "\$(cat "\$R/cmd")" > "\$R/run.log" 2>&1 &
+cpid=\$!; echo \$cpid > "\$R/tpid"
+# an shm run may not grow past its declared --disk (RAM-disk pages cannot be reclaimed): checked every 2 s through the
+# filesystem's growth (cheap), confirmed by du of the run dir; also stopped if the host's free RAM falls under 8 GB
+# while this run holds a GB or more of it
+if [ $SHM = 1 ]; then ( EXCL_PIDS="\$PPID \$BASHPID \$\$"; b0=\$(df -Pk /dev/shm | awk 'NR==2{print \$3}')
+  while kill -0 \$cpid 2>/dev/null; do
+    g=\$(( (\$(df -Pk /dev/shm | awk 'NR==2{print \$3}') - b0) / 1024 )); ma=\$(awk '/MemAvailable/{print int(\$2/1024)}' /proc/meminfo)
+    if [ \$g -gt $((DK*1024)) ] || [ \$ma -lt 8192 ]; then u=\$(du -sm "\$R/" 2>/dev/null | cut -f1)
+      if [ "\${u:-0}" -gt $((DK*1024)) ] || { [ \$ma -lt 8192 ] && [ "\${u:-0}" -ge 1024 ]; }; then
+        echo "uwrun: shm run holds \${u} MB (--disk ${DK} GB), host RAM free \${ma} MB: stopped" >> "\$R/run.log"; touch "\$R/overquota"; run_kill TERM; sleep 2; run_kill KILL; break; fi; fi
+    sleep 2; done ) & fi
+# memory guard, every run: stop it if its processes hold more than --mem GB (when set), or if the host's free RAM
+# falls under max(4 GB, 3% of RAM) while the run holds 2 GB or more (no per-user cap exists on these hosts)
+( EXCL_PIDS="\$PPID \$BASHPID \$\$"; tot=\$(awk '/MemTotal/{print int(\$2/1024)}' /proc/meminfo); fl=\$(( tot*3/100 )); [ \$fl -lt 4096 ] && fl=4096
+  while kill -0 \$cpid 2>/dev/null; do sleep 5
+    ma=\$(awk '/MemAvailable/{print int(\$2/1024)}' /proc/meminfo)
+    if [ $mem -gt 0 ] || [ \$ma -lt \$fl ]; then
+      rss=\$(for p in \$(members); do awk '/^VmRSS/{print \$2}' /proc/\$p/status 2>/dev/null; done | awk '{s+=\$1} END{print int(s/1024)}')
+      if { [ $mem -gt 0 ] && [ "\${rss:-0}" -gt $((10#$mem*1024)) ]; } || { [ \$ma -lt \$fl ] && [ "\${rss:-0}" -ge 2048 ]; }; then
+        echo "uwrun: memory guard: the run holds \${rss} MB (--mem $mem GB), host RAM free \${ma} MB (floor \${fl} MB): stopped" >> "\$R/run.log"; touch "\$R/oom-guard"; run_kill TERM; sleep 3; run_kill KILL; break; fi; fi
+  done ) &
+wait \$cpid; rc=\$?
+# nothing the command started may outlive it: kill, then verify (several KILL passes); what still survives is reported
+EXCL_PIDS="\$PPID"; run_kill TERM; sleep 3; verify_kill || { members > "\$R/leaked"; }
+end=\$(date -u +%s); { [ \$rc = 124 ] || [ \$rc = 137 ]; } && [ \$((end - \$(cat "\$R/started.s"))) -ge $tmo ] && touch "\$R/timedout"
+[ -f "\$R/rc" ] || { echo \$rc > "\$R/rc.tmp" && mv "\$R/rc.tmp" "\$R/rc"; }
+date -u +%FT%TZ > "\$R/ended"
+EOF
+)
+  # cmd and launch.sh go over stdin, never in the ssh command line: through the multiplex socket a long command line
+  # fails with "mm_send_fd: sendmsg: Message too long" (fastest-linux, 2026-10-18, a 350-char CMD with v5's launch.sh).
+  { printf '%s' "$q" | timeout 120 ssh "${SSHO[@]}" "$U@$(fqdn "$host")" "cat > $R/cmd" && printf '%s\n' "$launch" | timeout 120 ssh "${SSHO[@]}" "$U@$(fqdn "$host")" "cat > $R/launch.sh" \
+    && rsh "$host" "chmod +x $R/launch.sh && tmux new-session -d -s uw-$name \"\$HOME/$R/launch.sh\""; } \
+    || { rsh "$host" "if ! tmux has-session -t '=uw-$name' 2>/dev/null && [ ! -f $R/started ] && [ \"\$(cat $R/claim 2>/dev/null)\" = $nonce ]; then t=\$(readlink $R); [ -n \"\$t\" ] && rm -rf \"\$t\"; rm -rf $R; echo removed-unlaunched; else echo 'launch state UNKNOWN: the run may have started; check uwrun status'; fi" >&2; die "tmux launch on $host failed or timed out (the ledger line stays)"; }
+  echo "uwrun: started $name on $host (threads $thr, timeout ${tmo}s, scratch $kind); remote dir ~/$R" >&2
+  echo "$name"
+  if [ $wait = 1 ]; then
+    local fails=0 st
+    while :; do sleep 15
+      st=$(state_raw "$host" "$name") || st=""
+      case "$st" in
+        "") fails=$((fails+1)); [ $fails -ge 40 ] && { echo "uwrun: $name: $host unreachable for 40 checks in a row" >&2; exit 99; };;
+        RUNNING*) fails=0;;
+        LOST*) echo "uwrun: $name LOST (no rc, and no process of the run is left)" >&2; exit 98;;
+        DONE*) local rc; rc=$(echo "$st" | sed -n 's/.*rc=\([0-9][0-9]*\).*/\1/p'); [ -n "$rc" ] || { echo "uwrun: $name: unreadable rc ($st)" >&2; exit 1; }
+          if ( cmd_fetch "$name" >/dev/null ); then echo "uwrun: $name $st; results in $UWD/results/$name" >&2
+          else echo "uwrun: $name $st, but the fetch FAILED: $UWD/results/$name is partial" >&2; fi
+          exit "$rc";;
+        *) echo "uwrun: $name: unexpected state '$st'" >&2; exit 1;;
+      esac
+    done
+  fi
+}
+
+# Remote helper: every live process of run $n (its session, plus anything carrying UWRUN_NAME=$n).
+RUNPROCS="R=runs/\$n; $MEMBERS_FN"
+# remote state of a run, as one line; non-zero exit if the host did not answer
+state_raw() { local h=$1 n=$2
+  UWRUN_RETRY=1 UWRUN_RSH_TIMEOUT=45 timeout 100 "$0" ssh "$h" "n=$n; R=runs/$n; $RUNPROCS
+    show() { m=''; [ -f \$R/timedout ] && m=' timedout'; [ -f \$R/stopped ] && m=\"\$m stopped\"; [ -f \$R/overquota ] && m=\"\$m overquota\"; [ -f \$R/oom-guard ] && m=\"\$m oom-guard\"; [ -f \$R/leaked ] && m=\"\$m leaked:\$(tr '\\n' ',' < \$R/leaked)\"; echo \"DONE rc=\$(cat \$R/rc)\$m\"; }
+    if [ -f \$R/rc ]; then show
+    elif tmux has-session -t '=uw-$n' 2>/dev/null || [ -n \"\$(members)\" ]; then echo \"RUNNING since=\$(cat \$R/started 2>/dev/null)\"
+    elif [ -f \$R/rc ]; then show
+    elif [ -L \$R ] && [ ! -e \$R ]; then echo \"LOST scratch-gone (\$(readlink \$R) missing; host up since \$(uptime -s 2>/dev/null)); local results, if fetched, are in ~/.claude/uw/results/$n\"
+    elif [ ! -e \$R ]; then echo LOST no-remote-dir
+    else echo LOST; fi"; }
+state() { local n=$1 h; h=$(host_of "$n"); [ -n "$h" ] || { echo "- UNKNOWN"; return; }
+  local s; s=$(state_raw "$h" "$n" 2>/dev/null) || s=UNREACHABLE; echo "$h ${s:-UNREACHABLE}"; }
+cmd_status() {
+  if [ $# -gt 0 ]; then validname "$1"; echo "$1 $(state "$1")"; return; fi
+  [ -s "$LEDGER" ] || { echo "no runs yet"; return; }
+  local n; for n in $(awk -F'\t' '$3 !~ /^ABANDONED-/ && $2 ~ /^[A-Za-z0-9_-]+$/ {print $2}' "$LEDGER"); do printf "%-48s %s\n" "$n" "$(state "$n" </dev/null)"; done; }
+cmd_logs() { local n=${1:?name}; validname "$n"; local h; h=$(host_of "$n"); [ -n "$h" ] || die "no run $n"
+  if [ "${2:-}" = -f ]; then ssh "${SSHO[@]}" "$U@$(fqdn "$h")" "tail -n 50 -f runs/$n/run.log"
+  else rsh "$h" "tail -n 200 runs/$n/run.log"; fi; }
+cmd_fetch() { local all=0; [ "${1:-}" = --all ] && { all=1; shift; }
+  local n=${1:?name} sub=${2:-} dst=${3:-}; local h; h=$(host_of "$n"); [ -n "$h" ] || die "no run $n"
+  case "$sub" in *..*|*[!A-Za-z0-9._/-]*) die "SUBPATH must be a plain relative path ([A-Za-z0-9._/-], no ..)";; esac
+  local -a del=()
+  if [ $all = 0 ]; then local by
+    # sized with exactly the transfer's own filter (a dry run), so the guard and the copy can never disagree
+    by=$(timeout 300 rsync -an --stats "${FEXCL[@]}" -e "$RSYNC_E" "$U@$(fqdn "$h"):runs/$n/${sub}" "$UWD/.sizecheck-$$/" 2>/dev/null | awk -F: '/Total file size/{gsub(/[^0-9]/,"",$2); print $2}')
+    [ -n "$by" ] || die "cannot size $n's results on $h (pass --all to fetch anyway)"
+    [ "$by" -le 2147483648 ] || die "$n's results are $((by/1048576)) MB on $h (over 2 GB): fetch a SUBPATH, or pass --all"; fi
+  if [ -z "$dst" ]; then dst="$UWD/results/$n"; del=(--delete)
+  elif [ -e "$dst" ] && [ ! -d "$dst" ]; then die "DEST $dst is not a directory"
+  elif [ -n "$(ls -A "$dst" 2>/dev/null)" ]; then die "DEST $dst is not empty (refusing: stale files could read as results)"; fi
+  mkdir -p "$dst"; rsync_uw "$h" -a ${del[@]+"${del[@]}"} "${FEXCL[@]}" -e "$RSYNC_E" "$U@$(fqdn "$h"):runs/$n/${sub}" "$dst/" || die "fetch of $n failed"
+  echo "$dst"; }
+cmd_stop() { local n=${1:?name}; validname "$n"; local h; h=$(host_of "$n"); [ -n "$h" ] || die "no run $n"
+  rsh "$h" "n=$n; R=runs/$n; $RUNPROCS
+    if [ -f \$R/rc ] && [ -z \"\$(members)\" ]; then echo \"already finished: rc=\$(cat \$R/rc)\"; exit 0; fi
+    for p in \$(members); do kill -TERM \$p 2>/dev/null; done
+    for i in 1 2 3 4 5 6 7 8 9 10; do [ -z \"\$(members)\" ] && break; sleep 1; done
+    for p in \$(members); do kill -KILL \$p 2>/dev/null; done; sleep 1
+    tmux kill-session -t '=uw-$n' 2>/dev/null
+    touch \$R/stopped; [ -f \$R/rc ] || { echo 143 > \$R/rc.tmp && mv \$R/rc.tmp \$R/rc; date -u +%FT%TZ > \$R/ended; }
+    for i in 1 2 3 4 5 6 7 8; do l=\$(members); [ -z \"\$l\" ] && break; for p in \$l; do kill -KILL \$p 2>/dev/null; done; sleep 1; done
+    rest=\$(members | tr '\\n' ' ')
+    if [ -n \"\$rest\" ]; then echo \"WARNING: still alive: \$rest\"; ps -o pid,ppid,sid,stat,args -p \$(echo \$rest | tr ' ' ',') 2>/dev/null; exit 1; fi
+    echo \"stopped (no process of the run is left)\""; local rc=$?; echo "($n on $h)"; return $rc; }
+cmd_rm() { local n=${1:?name}; validname "$n"; local h; h=$(host_of "$n"); [ -n "$h" ] || die "no run $n"
+  local st; st=$(state_raw "$h" "$n") || die "$h unreachable"; case "$st" in RUNNING*) die "$n is RUNNING (a process of it is alive); stop it first";; esac
+  rsh "$h" "n=$n; $RUNPROCS; [ -n \"\$(members)\" ] && { echo \"refusing: processes of $n are alive\" >&2; exit 1; }
+    t=\$(readlink runs/$n); [ -n \"\$t\" ] && { chmod -R u+w \"\$t\" 2>/dev/null; rm -rf \"\$t\"; }; rm -rf runs/$n /var/tmp/r226lin-nfstmp/$n; echo removed"; }
+cmd_ssh() { local h=${1:-iccad12}; shift || true
+  if [ $# -gt 0 ]; then rsh "$h" "$@"; else ssh "${SSHO[@]/BatchMode=yes/BatchMode=no}" -t "$U@$(fqdn "$h")"; fi; }
+
+sub=${1:-}; shift || true
+case "$sub" in
+  hosts) cmd_hosts "$@";; run) cmd_run "$@";; status) cmd_status "$@";; logs) cmd_logs "$@";;
+  fetch) cmd_fetch "$@";; stop) cmd_stop "$@";; rm) cmd_rm "$@";; ssh) cmd_ssh "$@";;
+  ""|-h|--help|help) awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0";;
+  *) die "unknown subcommand $sub (try: uwrun help)";;
+esac

@@ -40,6 +40,7 @@
   "scripts/freshpool_launch/e0_gate.py": "d91d95fbff12a247f47ca6f319fae2ea8bec771c52de94018dba3d34987f6c7f",
   "scripts/evaluate_signal_limit_gates.py": "16b8d51cbed969d72e1eb9546c17e28e3e0a8b58d5ee9b75521e6d2b262b3bf8",
   "scripts/evaluate_freshpool_gates.py": "9a575a94f4961d9cad386776507e6929c22df341265d115ce42fab036a43354d",
+  "scripts/freshpool_launch/signal_limit_production/uwrun.frozen": "e4261e36d75d237e2799608a11249c6db1076e91d3a0776a54d27fd2c9630683",
   "docs/aircraft-rl-next-study-v1.json": "060a2a51bf53d3279081baabe15c8329548b35fb9f8bd17ae396b2d316947141",
   "docs/aircraft-rl-next-study-v1-activated.json": "40c7552949afb7c9b6865414bccf3203fa60519f388814211c294ec7b43c630d",
   "docs/aircraft-rl-protocol-signal-limit-v1.json": "e2c2aca81c0ed9afeb0fe67aeac61f595a240320302a53686d04a8643317a406",
@@ -105,7 +106,6 @@
   "/Users/idide/RyanLinEnv/runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/final_adapter/adapter_config.json": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
   "/Users/idide/RyanLinEnv/runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/local_training.json": "d7693c83b232351341083dd19dc1391636a3e47020b72431ba2f25d0e705674f",
   "/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12/bin/python3.12": "94be2db6796807c796419e7adbc45cbff3e71966c107c2adcbf931cf70393941",
-  "/Users/idide/.claude/bin/uwrun": "2185fc22f665fac496540d83f2372b745d9a34f2906e1518393d78eaf2b9ceeb",
   "/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/torch-2.14.1.dist-info/METADATA": "b9d1eec08600fef67d552cd550f34e2a08f536925aee84f358dd09db4789e9e9",
   "/Users/idide/RyanLinEnv/.venv-detection/lib/python3.12/site-packages/torchvision-0.29.1.dist-info/METADATA": "5f287ef6d6511e91e9a3a1ff4ef1cbafc35594218e6523e8fa133c835b03ce70",
   "/Users/idide/RyanLinEnv/runs/vlm-local-libs/site-packages/trl-1.16.0.dist-info/METADATA": "193422de1afb4c2b86ab68fefa318651641f6734742875c8a85a379fc96b4dcb",
@@ -1140,7 +1140,7 @@
   "images_sha256": "cc8dd125313e29da3cfae988b9bf1d8e3457435da6095e2a84741b7f7031852f"
  },
  "uw": {
-  "uwrun": "/Users/idide/.claude/bin/uwrun",
+  "uwrun": "/Users/idide/wt/RyanLinEnv-signal-limit-launch-v1.noindex/scripts/freshpool_launch/signal_limit_production/uwrun.frozen",
   "hosts": [
    "ecetesla1",
    "ecetesla2",
