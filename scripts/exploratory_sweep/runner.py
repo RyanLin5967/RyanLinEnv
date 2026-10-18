@@ -52,6 +52,7 @@ UWRUN = Path.home() / ".claude" / "bin" / "uwrun"
 HERE = Path(__file__).resolve()
 DESIGN = HERE.parents[2] / "docs" / STUDY
 ARM_EXEC = "payload/code/scripts/exploratory_sweep/arm_exec.py"
+WAVE2_TABLE = "arms-wave2-rung1.json"  # scripts/exploratory_sweep/wave2_arms.py
 RECEIPTS = "~/rlesweep/receipts"
 HEADROOM = 0.75  # leave a quarter of every host's cores and memory free
 ARM_RSS_GB = 16.0  # measured max RSS of one fp32 2B LoRA trainer was ~13.6 GB (iccad1, GNU time)
@@ -173,7 +174,18 @@ def cmd_receipts(a, state_path: Path) -> int:
     return 1 if bad else 0
 
 
-def valid_receipt(state: dict, host: str, features) -> dict:
+def receipt_gpu(device: dict) -> str | None:
+    """The GPU model class a receipt's device names (None for a CPU receipt)."""
+    if device.get("kind") != "cuda":
+        return None
+    name = str(device.get("gpu", "")).replace(" ", "").lower()
+    for model in ("3070", "2080ti", "a100", "a40", "a6000", "l40", "3090", "4090"):
+        if model in name:
+            return "rtx" + model if model[0].isdigit() else model
+    return name or "unknown"
+
+
+def valid_receipt(state: dict, host: str, features, spec: dict | None = None) -> dict:
     h = state["hosts"].get(host) or {}
     r = h.get("receipt")
     if not r or not r.get("valid"):
@@ -183,17 +195,29 @@ def valid_receipt(state: dict, host: str, features) -> dict:
     missing = sorted(set(features) | {"exploratory_sweep"} - set(r["features"]))
     if missing:
         raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
+    if spec is not None:
+        # The trainer feature "cuda" only says the code supports it; the host's device is
+        # the receipt's. An arm runs only where its declared device (and GPU model) is.
+        want = spec.get("device", "cpu")
+        have = (r.get("device") or {}).get("kind", "cpu")
+        if want != have:
+            raise SystemExit(f"REFUSE: {spec['id']} declares {want}, {host} is {have}")
+        if want == "cuda" and spec.get("gpu") != receipt_gpu(r.get("device") or {}):
+            raise SystemExit(f"REFUSE: {spec['id']} declares GPU {spec.get('gpu')}, {host} "
+                             f"has {receipt_gpu(r.get('device') or {})}")
     return r
 
 
 # ---- launching ------------------------------------------------------------------------
-def capacity(state: dict, hosts: dict, host: str, threads: int) -> int:
+def capacity(state: dict, hosts: dict, host: str, threads: int, device: str = "cpu") -> int:
     """Arms of `threads` threads `host` can take now, keeping 25% of cores and memory."""
     t = hosts.get(host)
     if t is None:
         return 0
     ours = [x for x in state["arms"].values()
             if x.get("host") == host and x.get("status") in ("LAUNCHED", "RUNNING")]
+    if device == "cuda" and any(x.get("device") == "cuda" for x in ours):
+        return 0  # one GPU arm per host at a time (one GPU each)
     our_threads = sum(x.get("threads", 16) for x in ours)
     # load1 lags a fresh launch; count our own arms at full weight until load reflects them
     busy = max(t["load1"], our_threads)
@@ -207,6 +231,8 @@ def control_spec(state: dict, ctl: dict) -> dict:
     rl = state["arms"].get(ctl["control_of"]) or {}
     summary_path = Path(rl.get("results_dir", "")) / "summary.json"
     receipt_path = Path(rl.get("results_dir", "")) / "endpoint_receipt.json"
+    if not receipt_path.is_file():  # an RFT arm: arm_exec's derived endpoint receipt
+        receipt_path = receipt_path.with_name("rft_endpoint_receipt.json")
     if rl.get("status") != "DONE" or not summary_path.is_file() or not receipt_path.is_file():
         raise SystemExit(f"REFUSE: control {ctl['id']} needs a finished {ctl['control_of']}")
     summary = json.loads(summary_path.read_text())
@@ -240,6 +266,7 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
         state["arms"][spec["id"]] = {
             "status": "LAUNCHED", "host": host, "run": name, "launched_at": now(),
             "launched_ts": time.time(), "threads": spec.get("threads", 16),
+            "device": spec.get("device", "cpu"),
             "spec_path": str(launch_dir / "arm.json"), "kind": spec.get("kind", "train"),
             "wave": spec.get("wave"), "rung": spec.get("rung"), "track": spec.get("track"),
             "family": spec.get("family"), "control_of": spec.get("control_of"),
@@ -295,13 +322,14 @@ def cmd_launch(a, state_path: Path) -> int:
         best = None
         for host in choices:
             try:
-                r = valid_receipt(st, host, spec.get("features", []))
+                r = valid_receipt(st, host, spec.get("features", []), spec)
             except SystemExit as exc:
                 if spec["track"] == "control":
                     raise
                 skipped.append(str(exc))
                 continue
-            free = capacity(st, hosts, host, spec.get("threads", 16))
+            free = capacity(st, hosts, host, spec.get("threads", 16),
+                            spec.get("device", "cpu"))
             if free > 0 and (best is None or free > best[1]):
                 best = (host, free, r["root"])
         if best is None:
@@ -376,9 +404,9 @@ def last_step_accuracy(state: dict, arm_id: str):
 
 
 def control_for(rl: dict, control_lr: dict) -> dict:
-    keep = ("init", "seed", "threads", "device", "dtype", "max_pixels", "min_pixels",
-            "max_completion_length", "adapter_profile", "num_generations", "wave", "rung",
-            "max_steps_total")
+    keep = ("init", "seed", "threads", "device", "dtype", "gpu", "device_class", "max_pixels",
+            "min_pixels", "max_completion_length", "adapter_profile", "num_generations", "wave",
+            "rung", "max_steps_total")
     ctl = {k: rl[k] for k in keep if k in rl}
     lr = control_lr.get(rl["init"], 5e-6) if isinstance(rl["init"], str) else 5e-6
     ctl.update(id=f"{rl['id']}~ctl", track="control", family="control", mode="sft", lr=lr,
@@ -433,6 +461,9 @@ def cmd_promote(a, state_path: Path) -> int:
     r = a.from_rung
     src = DESIGN / "arms-rung1.json" if r == 1 else SWEEP_DIR / f"arms-rung{r}.json"
     table = json.loads(src.read_text())
+    if r == 1 and (DESIGN / WAVE2_TABLE).is_file():
+        # The concrete wave-2 arms (plan amendment 3) rank in the same tracks at rung 1.
+        table["arms"] = table["arms"] + json.loads((DESIGN / WAVE2_TABLE).read_text())["arms"]
     units = {}
     for x in table["arms"]:
         if x["track"] in ("sft", "rl") and x["rung"] == r:

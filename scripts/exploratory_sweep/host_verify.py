@@ -32,6 +32,11 @@ CORE = ("torch", "torchvision", "transformers", "peft", "accelerate", "trl", "da
 PIN_EXCEPTIONS = {"fsspec": "2026.7.0"}
 # Trainer flags that stand for a wave-2 feature; the runner launches a gated arm only on a
 # host whose receipt lists every feature the arm needs. Unknown features never match.
+# A flag is "--name" (present in --help), ("--option", "choice") (listed in its choices),
+# or ("@attr", NAME, member): member of the trainer module's constant NAME (for a value of
+# a free-text option such as --response-format, whose choices --help does not list).
+# Wave-2 integration (2026-10-18): the built features' real flags replace the placeholder
+# names this table was pre-registered with; features nobody built yet keep theirs.
 FEATURE_FLAGS = {
     "exploratory_sweep": "--exploratory-sweep",
     "cuda": ("--device", "cuda"),
@@ -40,15 +45,18 @@ FEATURE_FLAGS = {
     "trie_constrained_decoding": "--constrained-decoding",
     "confuser_unlikelihood": "--confuser-unlikelihood",
     "constrained_ce": "--constrained-ce",
-    "hierarchical_reward": "--hierarchical-reward",
-    "closed_set_prompt": "--closed-set-prompt",
-    "cot_answer_reward": "--cot-answer-reward",
+    "hierarchical_reward": "--label-hierarchy",
+    "closed_set_prompt": ("@attr", "RESPONSE_FORMATS", "closed_set_answer_only"),
+    "cot_answer_reward": ("@attr", "RESPONSE_FORMATS", "think_answer"),
+    "dynamic_sampling": "--dynamic-sampling-max-draws",
     "prompts_per_update": "--prompts-per-update",
     "num_iterations": "--num-iterations",
     "lr_schedule": "--lr-scheduler",
     "rl_aux_nll": "--aux-nll-coef",
-    "invalid_answer_penalty": "--invalid-penalty",
+    "invalid_answer_penalty": "--invalid-reward",
     "rejection_sampling_ft": ("--mode", "rft"),
+    "rft_step_boundary": "--rft-stop-after-steps",
+    "cuda_float16": "--loss-scale-init",
     "sft_augmentation": "--sft-augmentation",
     "resolution_transfer": "--pixel-transfer",
 }
@@ -153,6 +161,8 @@ def features(payload: Path) -> dict:
     def has(flag):
         if isinstance(flag, str):
             return re.search(re.escape(flag) + r"(?![\w-])", text) is not None
+        if flag[0] == "@attr":
+            return flag[2] in getattr(vlt, flag[1], ())
         option, choice = flag
         found = re.search(re.escape(option) + r" \{([^}]*)\}", text)
         return bool(found) and choice in found.group(1).split(",")

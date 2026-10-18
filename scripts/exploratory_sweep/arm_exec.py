@@ -91,9 +91,65 @@ class Arm:
         return self.payload / "data" / "manifests" / name
 
     # ---- training --------------------------------------------------------------------
+    def payload_arg(self, value) -> str:
+        """`@payload/<rel>` names a file shipped in this host's payload (e.g. the TRAIN
+        label hierarchy); it may not escape the payload directory."""
+        text = str(value)
+        if not text.startswith("@payload/"):
+            return text
+        path = (self.payload / text.removeprefix("@payload/")).resolve()
+        if not path.is_relative_to(self.payload.resolve()) or not path.is_file():
+            raise SystemExit(f"REFUSE: {text} is not a file in the payload")
+        return str(path)
+
+    def cuda_args(self) -> list[str]:
+        if self.spec.get("device", "cpu") != "cuda":
+            return []
+        # CUDA lane: explicit torch CPU threads (the GPU does the math), and a W/I init
+        # trained in float32 needs its declared base-precision transfer.
+        args = ["--threads", str(self.spec.get("threads", 4))]
+        transfer = self.precision_transfer(self.init_adapter())
+        if transfer:  # repeated on resume so the run's settings identity is unchanged
+            args += ["--initial-adapter-precision-transfer", transfer]
+        return args
+
+    def rft_args(self, manifest: Path, max_steps: int, stop: int | None) -> list[str]:
+        """--mode rft: rounds of K samples per prompt, keep exact-EOS correct, SFT on them.
+        A rung stop is the trainer's round-granular --rft-stop-after-steps boundary (never
+        part of the run's identity), so a promoted arm continues the same output dir."""
+        s, r = self.spec, self.spec["rft"]
+        args = ["-m", "vision_rl.vlm_local_training", "--mode", "rft",
+                "--train", str(manifest), "--data-spec", str(self.spec_path),
+                "--output", str(self.out), "--model-directory", str(self.model),
+                "--device", s.get("device", "cpu"), "--dtype", s.get("dtype", "float32"),
+                "--init-adapter", str(self.init_adapter()),
+                "--learning-rate", repr(float(s["lr"])), "--seed", str(s["seed"]),
+                "--max-steps", str(max_steps), "--lora-rank", "8",
+                "--response-format", s["response_format"],
+                "--num-generations", str(s["num_generations"]),
+                "--temperature", repr(float(s["temperature"])),
+                "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
+                "--max-completion-length", str(s["max_completion_length"]),
+                "--rft-rounds", str(int(r["rounds"])),
+                "--rft-prompts-per-round", str(int(r["prompts_per_round"])),
+                "--rft-epochs-per-round", str(int(r.get("epochs_per_round", 1))),
+                "--rft-max-keep-per-prompt", str(int(r.get("max_keep_per_prompt", 1)))]
+        if r.get("skip_all_correct"):
+            args += ["--rft-skip-all-correct"]
+        args += self.cuda_args()
+        if stop and stop < max_steps:
+            args += ["--rft-stop-after-steps", str(stop)]
+        if s.get("max_active_seconds"):
+            args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
+        return args + [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
+
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
         s = self.spec
+        if s["mode"] == "rft":
+            if resume is not None or stop_seconds is not None:
+                raise SystemExit("REFUSE: RFT resumes its own output dir and has no time stop")
+            return self.rft_args(manifest, max_steps, stop)
         mode = "sft" if s["mode"] == "sft" else s["mode"]
         args = ["-m", "vision_rl.vlm_local_training", "--mode", mode,
                 "--train", str(manifest), "--data-spec", str(self.spec_path),
@@ -107,13 +163,7 @@ class Arm:
                 "--num-generations", str(s["num_generations"]),
                 "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
                 "--max-completion-length", str(s["max_completion_length"])]
-        if s.get("device", "cpu") == "cuda":
-            # CUDA lane: explicit torch CPU threads (the GPU does the math), and a W/I init
-            # trained in float32 needs its declared base-precision transfer.
-            args += ["--threads", str(s.get("threads", 4))]
-            transfer = self.precision_transfer(self.init_adapter())
-            if transfer:  # repeated on resume so the run's settings identity is unchanged
-                args += ["--initial-adapter-precision-transfer", transfer]
+        args += self.cuda_args()
         # save_steps is part of the trainer's resume identity (settings), so it must be the
         # same in every stage of one run: the gcd of the declared stops (and a promoted run's
         # resume_stop). A stage boundary always saves its own checkpoint regardless. (It was
@@ -144,7 +194,7 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        args += [str(x) for x in s.get("extra_trainer_args", [])]
+        args += [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
         return args
 
     def run_stage(self, label: str, args: list[str]) -> dict:
@@ -162,13 +212,51 @@ class Arm:
             write_json(self.results / "stages.json", self.log)
             print("\n".join(tail), file=sys.stderr)
             raise SystemExit(f"REFUSE: stage {label} rc={rc}")
-        receipt = json.loads((self.out / "endpoint_receipt.json").read_text())
+        receipt = (self.rft_receipt() if self.spec["mode"] == "rft" else
+                   json.loads((self.out / "endpoint_receipt.json").read_text()))
         adapter = self.out / receipt["final_adapter"]["path"]
         weights = receipt["final_adapter"]["weights_sha256"]
         if sha_file(adapter / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+        return receipt
+
+    def rft_receipt(self) -> dict:
+        """The runner-facing endpoint of an RFT stage, derived from the trainer's own bound
+        record (local_training.json: status completed, final_adapter_sha256) and its
+        committed rounds (round-NN/kept.json). `committed_prompt_ids` lists the prompt of
+        every SFT example in round order, one per optimizer update: what an
+        examples-matched SFT control replays. Within a round the trainer shuffles its
+        examples, so the order is canonical, not the trainer's; the per-round multiset is
+        exact unless the total cap cut the last round."""
+        rec = json.loads((self.out / "local_training.json").read_text())
+        reasons = ("stop_after_steps", "max_steps", "max_active_seconds", "rounds")
+        if rec.get("status") != "completed" or rec.get("stop_reason") not in reasons:
+            raise SystemExit(f"REFUSE: RFT stage ended {rec.get('status')}/"
+                             f"{rec.get('stop_reason')}")
+        sha = sha_file(self.out / "final_adapter" / "adapter_model.safetensors")
+        if sha != rec["final_adapter_sha256"]:
+            raise SystemExit("REFUSE: RFT final adapter differs from its record")
+        epochs = int(rec["settings"]["epochs_per_round"])
+        ids = []
+        for entry in rec["rounds"]:
+            kept = json.loads((self.out / f"round-{entry['round']:02d}" / "kept.json")
+                              .read_text())["kept"]
+            one_pass = [pid for pid, texts in kept.items() for _ in texts]
+            ids += (one_pass * epochs)[:entry["optimizer_steps"]]
+        if len(ids) != rec["optimizer_steps"]:
+            raise SystemExit("REFUSE: RFT kept examples do not account for its updates")
+        receipt = {
+            "schema": "arm_exec-rft-endpoint-v1",
+            "derived_from": "local_training.json rounds + round-NN/kept.json",
+            "status": ("boundary_reached" if rec["stop_reason"] == "stop_after_steps"
+                       else "total_budget_exhausted"),
+            "stop_reason": rec["stop_reason"], "global_step": rec["optimizer_steps"],
+            "committed_active_seconds": rec["active_seconds"],
+            "committed_prompt_ids": ids, "rounds": len(rec["rounds"]),
+            "final_adapter": {"path": "final_adapter", "weights_sha256": sha}}
+        write_json(self.out / "rft_endpoint_receipt.json", receipt)
         return receipt
 
     def init_adapter(self) -> Path:
@@ -200,14 +288,17 @@ class Arm:
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(self.out / "final_adapter", dst / "final_adapter")
-        for name in ("local_training.json", "endpoint_receipt.json"):
-            shutil.copy2(self.out / name, dst / name)
+        for name in ("local_training.json", "endpoint_receipt.json",
+                     "rft_endpoint_receipt.json"):
+            if (self.out / name).is_file():
+                shutil.copy2(self.out / name, dst / name)
         return self.out / "final_adapter"
 
     def copy_small(self) -> None:
         for name in ("local_training.json", "endpoint_receipt.json", "optimizer_audit.jsonl",
                      "physical_prompt_events.jsonl", "reward_groups.jsonl",
-                     "screen_journal.jsonl", "egsft_weights.jsonl", "trainer_state.json"):
+                     "screen_journal.jsonl", "egsft_weights.jsonl", "trainer_state.json",
+                     "dynamic_sampling.jsonl", "rft_endpoint_receipt.json"):
             src = self.out / name
             if src.is_file() and src.stat().st_size < 64 * 1024**2:
                 shutil.copy2(src, self.results / name)
@@ -279,8 +370,11 @@ class Arm:
                     raise SystemExit(f"REFUSE: no prediction for {r['id']}")
                 ended = bool(c.get("terminated"))
                 terminated += ended
-                predictions[r["id"]] = (vlt.parse_label(c.get("response", ""), labels,
-                                                        allow_reasoning=True) if ended else None)
+                # Legacy formats: _format_kwargs is {} and parse_answer is parse_label.
+                predictions[r["id"]] = (vlt.parse_answer(c.get("response", ""), labels,
+                                                         allow_reasoning=True,
+                                                         **vlt._format_kwargs(profile))
+                                        if ended else None)
         if len(predictions) != len(rows):
             raise SystemExit("REFUSE: assay row count differs from its manifest")
         gold = {r["id"]: r["label"] for r in rows}
@@ -340,7 +434,9 @@ def run(arm: Arm, final_check: bool) -> dict:
     total = int(s["max_steps_total"])
     previous = s.get("resume_stop")  # promotion: continue this host's own boundary
     for stop in s["stops"]:
-        resume = arm.out / f"checkpoint-{previous}" if previous else None
+        # RFT continues its own output dir (round-level resume), never a checkpoint.
+        resume = (arm.out / f"checkpoint-{previous}" if previous and s["mode"] != "rft"
+                  else None)
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
         receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume))
