@@ -15,6 +15,12 @@ guard, so the driver guard is not armed. Every forwarded ``--device`` must equal
 and a stage forwarding none is taken at the entries' default, ``mps``, so an inference entry
 (which does not go through Accelerate) can never run on a device the guard does not cover.
 
+``--remote-cpu`` is the UWaterloo execution path (uw_stage_a.py): a real (not dry) run on a
+remote host's CPU in FP32. It requires ``cpu`` and refuses together with ``--dry-run``; torch
+gets the host's ``UWRUN_THREADS`` threads (uwrun --threads) instead of 2, and there is no MPS
+allocation to guard. The trainer takes its thread count from ``VISION_RL_TORCH_THREADS``, which
+must then equal ``UWRUN_THREADS``; without ``--remote-cpu`` that variable refuses the stage.
+
 Blind spots, stated: the hash covers the entry module's own file, not modules it imports
 (the launcher pins those through the plan's ``file_sha256``); the driver limit is sampled,
 so an allocation spike shorter than one interval is missed; kind ``common`` gets no MPS
@@ -55,6 +61,14 @@ def forwarded_devices(forwarded):
     return values or [ENTRY_DEFAULT_DEVICE]
 
 
+def remote_threads():
+    """uwrun's --threads, exported as UWRUN_THREADS; refuses anything but 1..256."""
+    value = os.environ.get("UWRUN_THREADS", "")
+    if not value.isdigit() or not 1 <= int(value) <= 256:
+        raise RuntimeError(f"--remote-cpu needs UWRUN_THREADS in 1..256, got {value!r}")
+    return int(value)
+
+
 def write(path, value):
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
@@ -91,6 +105,7 @@ def main(argv=None):
     parser.add_argument("--entry", required=True)
     parser.add_argument("--entry-sha256", required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--remote-cpu", action="store_true")
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--" not in argv:
         raise ValueError("forwarded entry arguments must follow a literal --")
@@ -100,10 +115,18 @@ def main(argv=None):
         if os.environ.get(name) != value:
             raise RuntimeError(f"{name} must be {value!r} before any torch import")
     device = os.environ.get("ACCELERATE_TORCH_DEVICE")
-    required = DRY_RUN_DEVICE if args.dry_run else DEVICE
+    if args.remote_cpu and args.dry_run:
+        raise RuntimeError("--remote-cpu is a real run; it cannot also be --dry-run")
+    required = DRY_RUN_DEVICE if args.dry_run or args.remote_cpu else DEVICE
     if device != required:
         raise RuntimeError(f"ACCELERATE_TORCH_DEVICE must be {required!r} before any torch "
                            f"import (dry run: {args.dry_run}), got {device!r}")
+    threads = os.environ.get("VISION_RL_TORCH_THREADS")
+    if args.remote_cpu and threads != str(remote_threads()):
+        raise RuntimeError("--remote-cpu needs VISION_RL_TORCH_THREADS equal to UWRUN_THREADS")
+    if not args.remote_cpu and threads is not None:
+        # The trainer reads it; outside the UW path a stage keeps its 2 threads.
+        raise RuntimeError("VISION_RL_TORCH_THREADS is set only by the UW path (--remote-cpu)")
     if args.kind in MODEL_KINDS and set(forwarded_devices(forwarded)) != {device}:
         raise RuntimeError(f"forwarded --device {forwarded_devices(forwarded)} differs from "
                            f"ACCELERATE_TORCH_DEVICE {device!r}")
@@ -117,6 +140,7 @@ def main(argv=None):
         "kind": args.kind,
         "device": device,
         "dry_run": args.dry_run,
+        **({"remote_cpu": True} if args.remote_cpu else {}),
         "entry": args.entry,
         "entry_sha256": args.entry_sha256,
         "argv": forwarded,
@@ -135,7 +159,7 @@ def main(argv=None):
         if args.kind in MODEL_KINDS and device == "cpu":
             import torch
 
-            torch.set_num_threads(2)
+            torch.set_num_threads(remote_threads() if args.remote_cpu else 2)
             stats["mps_driver_guard"] = "not armed: device cpu"
         elif args.kind in MODEL_KINDS:
             import torch
