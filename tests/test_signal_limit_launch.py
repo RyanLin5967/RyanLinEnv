@@ -1694,6 +1694,14 @@ def test_uw_late_useful_mixed_window_stops_after_the_fetch(make):
     assert fixture.state()["stop_reason"] == "rolling_useful_mixed_below_0_40"
 
 
+def test_uw_busy_host_below_the_idle_thread_floor_is_not_used(make):
+    # 28 cores at load 25: 3 idle < 6 required; the other host (load 0.5 of 24) is used.
+    fixture = make(uw_all="cpu", uw_patch={"min_idle_threads": 6},
+                   hosts={"busy": [25.0, 28, 100, 0, 100, 1], "idle": [0.5, 24, 100, 0, 100, 1]})
+    assert signal_limit.main(fixture.argv) == 0
+    assert {e["host"] for e in fixture.uw_log() if e["event"] == "run"} == {"idle"}
+
+
 def test_uw_cuda_host_below_the_vram_floor_is_not_used(make):
     # Another process holds the GPU: 4,000 MiB free < the 10,000 MiB floor.
     fixture = make(uw_all="cuda", hosts={"gpua": [0.1, 20, 80, 0, 300, 1, 1, 4000]})
@@ -1719,6 +1727,7 @@ def test_uw_cuda_host_below_the_vram_floor_is_not_used(make):
     ({"uw": True, "uw_patch": {"device": "cuda", "min_free_vram_mib": 9000}},
      "uw_stage_a_only_mode_is_cpu"),
     ({"uw_all": "cpu", "uw_patch": {"mixed_poll_seconds": 0}}, "uw_limit_invalid"),
+    ({"uw_all": "cpu", "uw_patch": {"min_idle_threads": 0}}, "uw_limit_invalid"),
 ])
 def test_uw_every_stage_plan_refusals(make, capsys, options, reason):
     fixture = make(**options)

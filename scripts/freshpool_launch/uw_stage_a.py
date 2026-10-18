@@ -81,9 +81,12 @@ UW_KEYS = ("uwrun", "hosts", "per_host", "max_concurrent", "threads", "python",
 # FP32: the trainer refuses float16 training and the 2080 Ti has no bfloat16).
 # ``min_free_vram_mib``: required with cuda. ``mixed_poll_seconds``: how often a running RL
 # stage's reward_groups.jsonl is mirrored here for the live useful-mixed stop.
+# ``min_idle_threads``: a host qualifies only with nproc - load1 at least this (a launch on
+# a shared host that already runs other users' work gets its cores, not a slice of them).
 # ``forecast_seconds``: required for the Stage-A-only mode, where the plan's own forecasts
 # are MPS ones; absent when every stage runs here (the plan's forecasts are then UW ones).
-UW_OPTIONAL = ("device", "min_free_vram_mib", "mixed_poll_seconds", "forecast_seconds")
+UW_OPTIONAL = ("device", "min_free_vram_mib", "mixed_poll_seconds", "forecast_seconds",
+               "min_idle_threads")
 UW_DEVICES = ("cpu", "cuda")
 UW_FORECASTS = ("assay_h_select", "stage_a_sft", "stage_a_egsft", "stage_a_hn_sft",
                 "stage_a_hls_sft", "stage_a_cce_sft")
@@ -176,6 +179,10 @@ def verify_uw_block(plan):
     if device == "cuda" and uw["per_host"] != 1:
         # One stage per GPU: two would share 11 GiB and each other's clock.
         raise Stop("uw_cuda_per_host_not_1", per_host=uw["per_host"])
+    if "min_idle_threads" in uw and (type(uw["min_idle_threads"]) is not int
+                                     or not 1 <= uw["min_idle_threads"] <= 256):
+        raise Stop("uw_limit_invalid", limit="min_idle_threads",
+                   value=uw["min_idle_threads"])
     if "mixed_poll_seconds" in uw and (type(uw["mixed_poll_seconds"]) not in (int, float)
                                        or not uw["mixed_poll_seconds"] > 0):
         raise Stop("uw_limit_invalid", limit="mixed_poll_seconds",
@@ -316,7 +323,10 @@ class UWRunner:
         for host, (load, nproc, avail, uwruns, local, ready) in self.hosts().items():
             if (not ready or avail < self.uw["min_free_ram_gb"]
                     or local < self.uw["min_local_gb"]
-                    or max(uwruns, ours.get(host, 0)) >= self.uw["per_host"]):
+                    or max(uwruns, ours.get(host, 0)) >= self.uw["per_host"]
+                    # Idle cores for the stage's whole thread count, by load1: a stage
+                    # squeezed onto a busy host runs slower against its fixed wall cap.
+                    or nproc - load < self.uw.get("min_idle_threads", 0)):
                 continue
             key = (uwruns, load / max(nproc, 1), host)
             if best is None or key < best[0]:
