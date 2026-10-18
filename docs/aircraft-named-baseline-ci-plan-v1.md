@@ -148,9 +148,11 @@ identical responses (about 990 prompt tokens each), and every answer terminated.
 | 39105775526 | e3c1fbd | 539c87c | 115.0, 112.0, 112.2 | 66.6 |
 | 39106233184 | b59e234 | d5021f8 | 302.4, 295.5, 295.7 | 41.7 |
 | 39106885360 | e8f25fd | 7f54ec8 | 302.5, 295.3, 295.6 | 68.7 |
+| 39109149251 | f9168de | d4f2eec | 302.3, 295.3, 295.6 | 63.6 |
 
-Per-image latency differs 2.63× between runners that report the same vCPU count and memory. These
-runs did not record the CPU model, so the cause is not attributed; shards now record it. In each job,
+Per-image latency differs 2.63× between runners that report the same vCPU count and memory. Only
+run 39109149251 recorded the CPU: AMD EPYC 7763 with no AVX-512 or bf16 instructions, a slow host. The
+fast host's CPU was not recorded, so the cause is only partly attributed. In each job,
 `verify-endpoints` reproduced the committed RL400 and strongest-SFT comparisons exactly from the export.
 
 Three images per run are not a forecast; this projection is unverified. Full VAL generation is about

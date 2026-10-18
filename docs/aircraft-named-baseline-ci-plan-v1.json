@@ -273,6 +273,23 @@
         "fixed_setup_seconds": 65.4,
         "image_fetch_seconds": 3.2,
         "elapsed_seconds": 962.0
+      },
+      {
+        "run_id": "39109149251",
+        "head_commit": "f9168deace05c7f795ce3632ba0a15d258a7c422",
+        "artifact_run_sha": "d4f2eecf30e4eb7f1b1912d30ece3a566af47000",
+        "cpu_model": "AMD EPYC 7763 64-Core Processor",
+        "cpu_flags_note": "102 flags; no avx512f, avx512_bf16 or amx flags",
+        "per_image_latency_seconds": [
+          302.3,
+          295.3,
+          295.6
+        ],
+        "setup_seconds": 63.6,
+        "load_seconds": 18.6,
+        "fixed_setup_seconds": 62.4,
+        "image_fetch_seconds": 1.2,
+        "elapsed_seconds": 956.8
       }
     ],
     "run_sha_note": "artifact_run_sha is GITHUB_SHA of the pull_request run, i.e. GitHub's merge commit of the head into main at that time, not the head commit; both are given so the instrument can be re-located.",
@@ -282,7 +299,7 @@
       983
     ],
     "all_terminated": true,
-    "spread": "Mean per-image latency 113.07 s on one runner and 297.80 / 297.87 s on two others: 2.63x. The CPU model was not recorded by these runs (added to host facts afterwards), so the cause is unattributed.",
+    "spread": "Mean per-image latency 113.07 s on one runner and 297.73-297.87 s on three others: 2.63x. Only the fourth run recorded the CPU (AMD EPYC 7763, no AVX-512 or bf16 instructions) and it is a slow host; the fast host's CPU was not recorded, so the cause is only partly attributed.",
     "endpoint_export_check": "verify-endpoints in each of these jobs: the frozen compare_classification reproduced versus_common_initialization for rl-exposure and sft-1e5-time exactly",
     "projection_unverified": "Three images per run are not a forecast. Full VAL generation is 3333 x 113 s = ~105 runner-hours on fast hosts and 3333 x 298 s = ~276 runner-hours on slow hosts, free on a public repository. The shard rule (factor 3.0, fixed setup ~65 s, fetch ~1.1 s per image) gives N = ceil(3333 / floor(18835 / (3.0 x 114.1))) = 61 shards if every discovery shard is fast, and ceil(3333 / floor(18835 / (3.0 x 298.9))) = 159 if any is slow; both are within the 256 maximum. The binding numbers come from the committed discovery receipt, not from this record."
   }
