@@ -96,7 +96,8 @@ class Recording(Base):
             row = scores[0].float().contiguous()
             self.record["first_scores_sha256"] = hashlib.sha256(row.numpy().tobytes()).hexdigest()
             top = torch.topk(row, 5)
-            self.record["first_top5"] = [[int(i), float(v)] for v, i in zip(top.values, top.indices)]
+            self.record["first_top5"] = [[int(i), float(v)]
+                                         for v, i in zip(top.values, top.indices)]
             self.record["cpu_at_first_token"] = cpu_seconds() - self.record["cpu_start"]
         out = super().__call__(input_ids, scores)
         self.record["drawn"] = list(self.drawn)
@@ -128,8 +129,9 @@ for result, record in zip(smoke["results"], fingerprints):
 
 # Forced-length text-only greedy decode: s/token with negligible prefill.
 backend = backends[0]
-from transformers import LogitsProcessorList  # noqa: E402
 import copy  # noqa: E402
+
+from transformers import LogitsProcessorList  # noqa: E402
 
 messages = [{"role": "user", "content": [{"type": "text", "text":
             "Write the numbers from one to two hundred in English words, separated by commas."}]}]

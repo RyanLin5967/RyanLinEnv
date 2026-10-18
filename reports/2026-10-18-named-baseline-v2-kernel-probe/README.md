@@ -14,6 +14,8 @@ figures, not dedicated-hardware numbers.
   answer, drawn token ids, latency, prefill, decode step times, and the SHA256 and top 5 of the
   first-step score row. It then runs a 16-token forced greedy text decode and records s/token,
   CPU-seconds per wall-second ("cores busy") and loadavg.
+- The committed `kernel_probe.py` differs from the copy that ran only by two lint-only edits for
+  the repo's ruff check (one line wrapped, two imports reordered); its behaviour is unchanged.
 - Configurations:
 
   | name | ATEN_CPU_CAPABILITY | MKL_CBWR | oneDNN | ONEDNN_MAX_CPU_ISA |
