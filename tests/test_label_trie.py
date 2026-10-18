@@ -311,6 +311,13 @@ def test_committed_artifacts_load_in_the_trainer_with_one_trie():
             for cut in range(len(full)):
                 assert set(local.trie_allowed(trie, full[:cut])) == set(
                     reader.allowed(full[:cut]))
+                # Off T: a token the trie does not allow here. Both readers allow nothing
+                # (the trainer's None, the reader's empty set, whose mask_row refuses).
+                off = [*full[:cut], max(reader.allowed(full[:cut])) + 1]
+                assert local.trie_allowed(trie, off) is None
+                assert reader.allowed(off) == frozenset()
+            # Past a complete path, likewise.
+            assert local.trie_allowed(trie, full) is None and reader.allowed(full) == frozenset()
     confusers = local.load_confusion_map(AUDIT / "p0-confusion-map.json", labels)
     assert set(confusers) == set(labels)
     # Hand-checked in the committed map: 707-320's only confuser is DC-8 (observed).
@@ -319,15 +326,15 @@ def test_committed_artifacts_load_in_the_trainer_with_one_trie():
     assert taxonomy["737-300"] == {"family": "Boeing 737", "manufacturer": "Boeing"}
 
 
-def test_builder_writes_nothing_when_a_check_refuses(tmp_path, monkeypatch):
-    # Forced fire: coverage refuses after the taxonomy, confusion map and trie are built.
-    # The committed G0 artifacts must stay untouched, so the audit dir must stay empty.
+def _builder_inputs(tmp_path, monkeypatch, completions, comparison_extra=None):
+    """A native-VAL report and stubbed sources for scripts/build_label_trie.py main()."""
     builder = script()
     labels = [f"L{i}" for i in range(100)]
     report = tmp_path / "native-val"
     report.mkdir()
     (report / "comparison.json").write_text(json.dumps(
-        {"test_consumed": False, "prediction_journal_sha256": {}, "n": 0}))
+        {"test_consumed": False, "prediction_journal_sha256": {}, "n": 0,
+         **(comparison_extra or {})}))
     (report / "plan.json").write_text(json.dumps({"labels": labels}))
     sums = "".join(
         f"{hashlib.sha256((report / name).read_bytes()).hexdigest()}  "
@@ -339,12 +346,51 @@ def test_builder_writes_nothing_when_a_check_refuses(tmp_path, monkeypatch):
     vocab = {label.encode(): i + 1 for i, label in enumerate(labels)}
     monkeypatch.setattr(builder, "load_tokenizer", lambda _: (
         vocab, lambda label: [vocab[label.encode()]], [999], {}))
-    monkeypatch.setattr(builder, "val_completions", lambda *_: {arm: {} for arm in builder.ARMS})
-    audit = tmp_path / "audit"
+    monkeypatch.setattr(builder, "val_completions", lambda *_: completions(builder))
+    gold = tmp_path / "gold.json"
+    gold.write_text("[]")
+    return builder, ["--native-val-report", str(report), "--audit-dir",
+                     str(tmp_path / "audit"), "--report", str(tmp_path / "report.json"),
+                     "--gold", str(gold)]
+
+
+def test_builder_writes_nothing_when_a_check_refuses(tmp_path, monkeypatch):
+    # Forced fire: coverage refuses after the taxonomy, confusion map and trie are built.
+    # The committed G0 artifacts must stay untouched, so the audit dir must stay empty.
+    builder, argv = _builder_inputs(
+        tmp_path, monkeypatch, lambda b: {arm: {} for arm in b.ARMS})
     with pytest.raises(ValueError, match="zero valid completions"):
-        builder.main(["--native-val-report", str(report), "--audit-dir", str(audit),
-                      "--report", str(tmp_path / "report.json")])
-    assert not audit.exists() and not (tmp_path / "report.json").exists()
+        builder.main(argv)
+    assert not (tmp_path / "audit").exists() and not (tmp_path / "report.json").exists()
+
+
+def test_builder_writes_nothing_when_the_upper_bound_check_refuses(tmp_path, monkeypatch):
+    # Coverage passes (one valid on-trie completion per arm, 8 in all, the expected count);
+    # the upper-bound table, the last check, then refuses: comparison.json's arms differ.
+    builder, argv = _builder_inputs(
+        tmp_path, monkeypatch, lambda b: {arm: {"v0": ("L0", [1, 999])} for arm in b.ARMS},
+        {"versus_common_initialization": {"x": {"comparator": {}, "candidate": {}}}})
+    with pytest.raises(SystemExit, match="arms differ"):
+        builder.main([*argv, "--expected-paths", "8"])
+    assert not (tmp_path / "audit").exists() and not (tmp_path / "report.json").exists()
+
+
+def test_builder_commits_the_staged_set_whole_or_not_at_all(tmp_path):
+    builder = script()
+    first, second = tmp_path / "a" / "x.json", tmp_path / "b" / "y.json"
+    first.parent.mkdir()
+    first.write_text("committed\n")
+    (tmp_path / "b").write_text("a file where the second directory should be")
+    staged = {first: {"new": 1}, second: {"new": 2}}
+    with pytest.raises(OSError):
+        builder.commit(staged)
+    # Nothing renamed and no temporary file left: the committed file is as it was.
+    assert first.read_text() == "committed\n"
+    assert sorted(p.name for p in first.parent.iterdir()) == ["x.json"]
+    (tmp_path / "b").unlink()
+    builder.commit(staged)
+    assert first.read_text() == '{\n "new": 1\n}\n' and second.read_text() == '{\n "new": 2\n}\n'
+    assert sorted(p.name for p in first.parent.iterdir()) == ["x.json"]
 
 
 def test_staged_sha_is_the_written_files_sha(tmp_path):
@@ -352,5 +398,6 @@ def test_staged_sha_is_the_written_files_sha(tmp_path):
     staged, path = {}, tmp_path / "x.json"
     digest = builder.staged_sha(staged, path, {"b": 1, "a": [2]})
     assert not path.exists() and staged == {path: {"b": 1, "a": [2]}}
-    assert builder.write(path, staged[path]) == digest
+    builder.commit(staged)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
     assert path.read_text() == '{\n "a": [\n  2\n ],\n "b": 1\n}\n'  # indent 1, sorted

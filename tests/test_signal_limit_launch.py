@@ -191,7 +191,7 @@ def scenario():
             str(g): {"acceptance": 1.0, "mean_u": 1 - 2 * 0.5**g,
                      "mean_u_accepted": 1 - 2 * 0.5**g} for g in (4, 8, 16)}),
         "Stage-0": {"payload": {
-            "checks": dict.fromkeys(signal_limit.STAGE0_CHECKS, True),
+            "checks": {g: dict.fromkeys(signal_limit.STAGE0_CHECKS, True) for g in ("8", "16")},
             "sampler_teacher_max_abs_logprob_difference": 0.0005, "e0_groups": [8, 16],
             "c_accepted_steps": {"8": 8, "16": 8},
             "c_seconds_per_accepted_update": {"8": 10.0, "16": 20.0}}},
@@ -538,8 +538,17 @@ def fault(name):
     return None
 
 
+def known(name):
+    if (ROOT / name / "meta.json").is_file():
+        return True
+    print(f"uwrun: no run {{name}}", file=sys.stderr)  # real uwrun: die, exit 2
+    return False
+
+
 def main(argv):
     command = argv[0]
+    if command in ("fetch", "stop", "rm") and not known(argv[1]):
+        return 2
     if command == "ssh":
         host = argv[1]
         if HOSTS.get(host) is None:
@@ -582,6 +591,8 @@ def main(argv):
         while (sum(1 for d in ROOT.iterdir() if (d / "meta.json").is_file()) < 2
                and time.monotonic() < deadline):
             time.sleep(0.05)
+        if info["fault"] == "slow":
+            time.sleep(2.5)
         env = {{**os.environ, "UWRUN_THREADS": info["threads"], "UWRUN_NAME": name}}
         with (run / "run.log").open("w") as out:
             child = subprocess.Popen(json.loads((run / "cmd.json").read_text()),
@@ -598,6 +609,12 @@ def main(argv):
             return 0  # the session vanished without an rc
         if info["fault"] == "timedout":
             (run / "timedout").write_text("")
+        if info["fault"] == "stopped":
+            (run / "stopped").write_text("")  # someone else ran uwrun stop on it
+        if info["fault"] == "no_fragment":
+            (run / "work" / "out" / "stage" / "fragment.json").unlink()
+        if info["fault"] == "no_hardware":
+            (run / "work" / "out" / "hardware.json").unlink()
         (run / "rc").write_text(str(rc))
         return 0
     if command == "status":
@@ -617,6 +634,10 @@ def main(argv):
         return 0
     if command == "fetch":
         name, sub, destination = argv[1], argv[2], Path(argv[3])
+        marker = ROOT / name / "fetch-failed-once"
+        if meta(name)["fault"] == "fetch_fail" and not marker.exists():
+            marker.write_text("")
+            return 2
         if destination.exists() and any(destination.iterdir()):
             return 2
         source = ROOT / name / sub.rstrip("/")
@@ -707,8 +728,9 @@ class Fixture:
                    "images_sha256": sha_text(listing)}
         base = self.tmp / "evidence-base.json"
         base.write_text(json.dumps({"labels": LABELS, "rows": {
-            split: [{"id": i, "label": label} for i, label in items]
-            for split, items in H_ROWS.items()}}))
+            **{split: [{"id": i, "label": label} for i, label in items]
+               for split, items in H_ROWS.items()},
+            **self.overrides.get("base_extra_rows", {})}}))
         self.base = {"path": str(base), "sha256": sha_file(base)}
         for role, text in (("i", "I adapter"), ("w", "W adapter")):
             (self.tmp / f"init-{role}").mkdir()
@@ -812,8 +834,10 @@ class Fixture:
         for name in ("phase_worker.py", "launch.py", "stage_table.py", "signal_limit_launch.py",
                      "uw_stage_a.py"):
             pins[str(PACKAGE / name)] = sha_file(PACKAGE / name)
+        if self.uw:
+            pins[str(self.uwrun)] = sha_file(self.uwrun)
         for name in o.get("unpin", ()):
-            pins.pop(str(PACKAGE / name))
+            pins.pop(str(self.uwrun) if name == "uwrun" else str(PACKAGE / name))
         templates = self.templates()
         for name, patch in o.get("template_patch", {}).items():
             templates[name] = {**templates[name], **patch}
@@ -838,7 +862,9 @@ class Fixture:
                 "I": {"adapter_sha256": o.get("i_sha", I_SHA),
                       "adapter_path": str(self.tmp / "init-i")},
                 "W": {"adapter_sha256": W_SHA, "adapter_path": str(self.tmp / "init-w")}},
-            "label_trie": self.trie, **self.resources, "evidence_base": self.base,
+            "label_trie": self.trie, "evidence_base": self.base,
+            **{name: {**entry, "sha256": o.get("resource_sha", {}).get(name, entry["sha256"])}
+               for name, entry in self.resources.items()},
             "data_spec": "data/fgvc-aircraft-2013b/spec.json",
             "model_directory": str(self.tmp / "model"),
             "owner_patterns": [self.sentinel], "g0": self.g0,
@@ -984,13 +1010,20 @@ def test_lim_t_with_the_other_objective_stops(make):
      "stage_a_a2_not_the_screened_no_std_limit"),
     ("stage-a-a2-1e-05-s42", {"egsft_band_group": 16},
      "stage_a_a2_not_the_screened_no_std_limit"),
+    # Group-std scale at the right band: the scale half of the check fires alone.
+    ("stage-a-a2-5e-05-s42", {"egsft_scale": "group"},
+     "stage_a_a2_not_the_screened_no_std_limit"),
+    # A4 trained against another taxonomy.
+    ("stage-a-a4-5e-05-s42", {"taxonomy_sha256": "f" * 64},
+     "stage_a_label_resource_differs_from_plan_pin"),
     # A5 trained against another trie, A3 against another map.
     ("stage-a-a5-5e-05-s42", {"label_trie_sha256": "f" * 64},
      "stage_a_label_resource_differs_from_plan_pin"),
     ("stage-a-a3-1e-05-s42", {"confusion_map_sha256": None},
      "stage_a_label_resource_differs_from_plan_pin"),
-    # LIM-T at B_16 although GB0 chose G8.
+    # LIM-T at B_16 although GB0 chose G8; LIM-T with group-std scale at the chosen band.
     ("lim-t-5e-05-s42", {"egsft_band_group": 16}, "lim_t_not_the_limit_at_the_chosen_band"),
+    ("lim-t-5e-05-s42", {"egsft_scale": "group"}, "lim_t_not_the_limit_at_the_chosen_band"),
 ])
 def test_objective_and_resource_identity_is_checked_on_the_fragment(make, stage, change, reason):
     fixture = make()
@@ -998,6 +1031,57 @@ def test_objective_and_resource_identity_is_checked_on_the_fragment(make, stage,
     fixture.write()
     assert signal_limit.main(fixture.argv) == 2
     assert fixture.state()["stop_reason"] == reason
+
+
+def choose_g16(fixture, lim_t_band):
+    """GB0 picks G16 (P0' predicts acceptance 0 at G8, 1 at G16; its rollouts are G16):
+    every RL fragment records G16 and LIM-T records the band ``lim_t_band``."""
+    i_star_sha = sha_text(I_STAR)
+    fixture.scenario["P0-prime"] = p0_document(i_star_sha, 16, predicted={
+        "8": {"acceptance": 0.0, "mean_u": 0.0, "mean_u_accepted": None},
+        "16": {"acceptance": 1.0, "mean_u": 1 - 2 * 0.5**16,
+               "mean_u_accepted": 1 - 2 * 0.5**16}},
+        chosen_group=16, choose_groups=[8, 16], a_floor=A_FLOOR)
+    for stage, entry in fixture.scenario.items():
+        if stage.startswith("rl-") and "group" in entry["payload"]:
+            entry["payload"]["group"] = 16
+    fixture.scenario["lim-t-5e-05-s42"]["payload"]["egsft_band_group"] = lim_t_band
+    fixture.write()
+
+
+def test_g16_branch_runs_rl_and_lim_t_at_the_chosen_g(make):
+    # The G16 branch amendment 1 added: GB0's G, not A2's fixed B_8, is LIM-T's band.
+    fixture = make()
+    choose_g16(fixture, 16)
+    assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-1]
+    state = fixture.state()
+    assert state["status"] == "completed"
+    assert state["selections"] == {**EXPECTED_SELECTIONS, "group": 16}
+    by_stage = {c["stage"]: c["argv"] for c in fixture.stages_called()}
+    assert argv_value(by_stage["rl-1e-05-s42-u100"], "--num-generations") == "16"
+    assert argv_value(by_stage["lim-t-5e-05-s42"], "--egsft-band-group") == "16"
+    # c(G16) x 300 = 6000 s, cap 1.25 x = 7500.
+    assert argv_value(by_stage["rl-1e-05-s42-u100"], "--cap") == "7500.0"
+
+
+def test_g16_branch_refuses_lim_t_at_a2s_band(make):
+    fixture = make()
+    choose_g16(fixture, 8)  # A2's Stage-A band, not GB0's G16
+    assert signal_limit.main(fixture.argv) == 2
+    assert fixture.state()["stop_reason"] == "lim_t_not_the_limit_at_the_chosen_band"
+
+
+def test_a_stopped_batch_keeps_the_looks_it_already_took(make):
+    # The 4th H-select assay of the first Stage A batch stops the study: the three that
+    # completed before it (A1 at each LR) are on the look ledger all the same.
+    fixture = make()
+    del fixture.scenario["stage-a-a2-1e-05-s42-h_select"]["payload"]["constrained_greedy"]
+    fixture.write()
+    assert signal_limit.main(fixture.argv) == 2
+    state = fixture.state()
+    assert state["stop_reason"] == "assay_constrained_greedy_missing_or_other_trie"
+    assert [look["stage"] for look in state["looks"]] == [
+        f"stage-a-a1-{tag}-s42-h_select" for tag in ("1e-05", "5e-05", "1e-04")]
 
 
 def test_rl_profile_must_be_dr_grpo_beta_0_at_the_chosen_g(make):
@@ -1022,6 +1106,12 @@ FEW_C_STEPS = "stage0_c_g_not_measured_over_enough_steps"
 
 @pytest.mark.parametrize(("change", "reason"), [
     (lambda p: p.update(e0_groups=[8]), "stage0_e0_not_at_every_g"),
+    # One flat checks dict claimed for both G: nothing ties it to either.
+    (lambda p: p.update(checks=dict.fromkeys(signal_limit.STAGE0_CHECKS, True)),
+     "stage0_e0_checks_not_keyed_by_g"),
+    (lambda p: p["checks"].pop("16"), "stage0_e0_checks_not_keyed_by_g"),
+    (lambda p: p["checks"]["16"].update(resume_1_plus_3_identical=False), "e0_failed"),
+    (lambda p: p["checks"]["8"].pop("no_reference_forward_at_beta_0"), "e0_failed"),
     (lambda p: p["c_accepted_steps"].update({"16": 7}), FEW_C_STEPS),  # 7 < 8
     (lambda p: p.pop("c_accepted_steps"), FEW_C_STEPS),
 ])
@@ -1083,6 +1173,13 @@ def test_local_sequence_passes_the_real_gates_evaluator(make):
      "taxonomy_missing_or_changed"),
     ({"plan_patch": {"confusion_map": {"path": "/nonexistent", "sha256": MAP_SHA}}},
      "confusion_map_missing_or_changed"),
+    # The file exists, its bytes differ from the pin.
+    ({"resource_sha": {"taxonomy": "0" * 64}}, "taxonomy_missing_or_changed"),
+    ({"resource_sha": {"confusion_map": "0" * 64}}, "confusion_map_missing_or_changed"),
+    # An evidence base carrying VAL or sealed TEST rows never reaches the evidence.
+    ({"base_extra_rows": {"test": [{"id": "t0", "label": "A"}]}},
+     "evidence_base_rows_not_h_splits_only"),
+    ({"base_extra_rows": {"val": []}}, "evidence_base_rows_not_h_splits_only"),
 ])
 def test_plan_refusals_before_any_state(make, capsys, options, reason):
     fixture = make(**options)
@@ -1132,7 +1229,11 @@ def test_uw_stage_a_runs_on_the_hosts_and_the_rest_locally(make):
     for entry in hardware.values():
         assert entry["host"] in ("hosta", "hostb")
         assert entry["hardware"]["pins_failed"] == [] and entry["hardware"]["threads"] == "6"
-        assert entry["hardware"]["pins_checked"] == 5  # the pinned repository files
+        # The 5 pinned repository files plus every bundled input file (counted on disk).
+        inputs = fixture.tmp / "state" / "uw" / "bundles" / entry["uw_name"] / "inputs"
+        assert entry["hardware"]["pins_checked"] == 5 + sum(
+            1 for path in inputs.rglob("*") if path.is_file())
+        assert entry["hardware"]["pins_checked"] > 5
     started = {e["stage"]: e for e in journal if e["event"] == "stage_started"}
     assert started["stage-a-a1-1e-05-s42"]["executor"] == "uwaterloo"
     assert "executor" not in started["P0-prime"]
@@ -1184,6 +1285,11 @@ def test_uw_fetched_adapter_that_differs_stops(make):
     fixture.write()
     assert signal_limit.main(fixture.argv) == 2
     assert fixture.state()["stop_reason"] == "uw_fetched_adapter_differs"
+    # A stage that stops still has its remote directory removed.
+    started = [e for e in fixture.journal() if e["event"] == "stage_started"
+               and e["stage"] == "stage-a-a2-1e-05-s42"]
+    assert started and started[-1]["uw_name"] in {
+        e["name"] for e in fixture.uw_log() if e["event"] == "rm"}
 
 
 def test_uw_launch_failure_pauses_resumably(make):
@@ -1192,6 +1298,90 @@ def test_uw_launch_failure_pauses_resumably(make):
     state = fixture.state()
     assert state["status"] == "running"
     assert "uw_launch_failed" in state["next_action"]
+    (name,) = state["uw_running"]
+    # uwrun never recorded the run: the resume finds nothing to stop and is not wedged.
+    assert signal_limit.main([*fixture.argv, "--resume"]) == 0
+    state = fixture.state()
+    assert state["status"] == "completed" and state["uw_running"] == {}
+    assert [e["uw_name"] for e in fixture.journal() if e["event"] == "uw_orphan_absent"] == [
+        name]
+    assert ("stage-a-a1-1e-05-s42", 1) in [
+        (v["stage"], v["instance"]) for v in state["void_instances"]]
+
+
+def test_uw_fetch_failure_interrupts_and_the_resume_reaps_and_reruns(make):
+    fixture = make(uw=True, faults={"stage-a-a5-1e-04": "fetch_fail"})
+    assert signal_limit.main(fixture.argv) == 3
+    state = fixture.state()
+    assert state["status"] == "running"
+    (name,) = [n for n, e in state["uw_running"].items() if e["stage"] == "stage-a-a5-1e-04-s42"]
+    assert [e["uw_name"] for e in fixture.journal() if e["event"] == "uw_fetch_failed"] == [
+        name]
+    assert signal_limit.main([*fixture.argv, "--resume"]) == 0
+    state = fixture.state()
+    assert state["status"] == "completed" and state["uw_running"] == {}
+    journal = fixture.journal()
+    assert name in {e["uw_name"] for e in journal if e["event"] == "uw_orphan_stopped"}
+    assert name in {e["name"] for e in fixture.uw_log() if e["event"] == "rm"}
+    assert ("stage-a-a5-1e-04-s42", 1) in [
+        (v["stage"], v["instance"]) for v in state["void_instances"]]
+
+
+@pytest.mark.parametrize(("faults", "patch", "reason"), [
+    ({"stage-a-a1-5e-05": "stopped"}, {}, "uw_run_stopped_externally"),
+    ({"stage-a-a1-5e-05": "no_fragment"}, {}, "stage_fragment_missing"),
+    ({"stage-a-a1-5e-05": "no_hardware"}, {}, "uw_hardware_record_missing_or_pins_failed"),
+    ({}, {"setup": "exit 1"}, "stage_failed"),  # setup fails: rc 96
+    ({}, {"setup": "echo {} > pins.json"}, "stage_failed"),  # setup rewrites the pins: rc 95
+])
+def test_uw_remote_failures_stop_and_clean_up(make, faults, patch, reason):
+    fixture = make(uw=True, faults=faults, uw_patch=patch)
+    assert signal_limit.main(fixture.argv) == 2
+    state = fixture.state()
+    assert state["stop_reason"] == reason
+    finished = [e for e in fixture.journal()
+                if e["event"] == "stage_finished" and e.get("executor") == "uwaterloo"]
+    assert finished
+    if "setup" in patch:
+        expected = 96 if patch["setup"] == "exit 1" else 95
+        assert finished[0]["exit_code"] == expected
+        if expected == 95:
+            hardware = [e for e in fixture.journal() if e["event"] == "uw_stage_hardware"]
+            assert hardware[0]["hardware"]["pins_failed"] == ["pins.json"]
+    removed = {e["name"] for e in fixture.uw_log() if e["event"] == "rm"}
+    assert {e["uw_name"] for e in finished} <= removed
+
+
+def test_uw_arm_wall_time_reaches_state_while_a_stage_runs(make, monkeypatch):
+    # The Mac launcher may die mid-stage: the arm clock must already be on disk, or a
+    # resume would void the instance at 0 s and refill the arm cap.
+    import threading
+
+    uw_stage_a = importlib.import_module("uw_stage_a")
+    monkeypatch.setattr(uw_stage_a, "SAVE_SECONDS", 0.2)
+    fixture = make(uw=True, faults={"stage-a-a1-1e-05": "slow"})
+    seen, done = [], threading.Event()
+
+    def watch():
+        path = fixture.tmp / "state" / "state.json"
+        while not done.is_set():
+            try:
+                state = json.loads(path.read_text())
+            except (OSError, ValueError):
+                state = {}
+            running = {e["stage"] for e in (state.get("uw_running") or {}).values()}
+            if "stage-a-a1-1e-05-s42" in running:
+                seen.append(state["arm_wall_seconds"].get("stage-a-a1-1e-05-s42", 0.0))
+            done.wait(0.05)
+
+    watcher = threading.Thread(target=watch)
+    watcher.start()
+    try:
+        assert signal_limit.main(fixture.argv) == 0
+    finally:
+        done.set()
+        watcher.join()
+    assert seen and max(seen) >= 1.0  # saved mid-run, not only at launch and finish
 
 
 @pytest.mark.parametrize("hosts", [
@@ -1218,6 +1408,7 @@ def test_uw_no_qualifying_host_pauses_without_running_anything(make, hosts):
     ({"per_host": 0}, "uw_limit_invalid"),
     ({"forecast_seconds": {}}, "uw_forecast_missing_or_invalid"),
     ({"uwrun": "/nonexistent/uwrun"}, "uwrun_missing"),
+    ({"uwrun": "uwrun"}, "uwrun_not_absolute"),
     ({"extra": 1}, "uw_block_invalid"),
 ])
 def test_uw_block_refusals(make, capsys, patch, reason):
@@ -1227,7 +1418,16 @@ def test_uw_block_refusals(make, capsys, patch, reason):
     assert not (fixture.tmp / "state").exists()
 
 
-def test_uw_path_requires_the_runner_pinned(make, capsys):
-    fixture = make(uw=True, unpin=("uw_stage_a.py",))
+@pytest.mark.parametrize("unpin", ["uw_stage_a.py", "uwrun"])
+def test_uw_path_requires_the_runner_and_uwrun_pinned(make, capsys, unpin):
+    fixture = make(uw=True, unpin=(unpin,))
     assert signal_limit.main(fixture.argv) == 2
     assert json.loads(capsys.readouterr().out)["reason"] == "plan_does_not_pin"
+    assert not (fixture.tmp / "state").exists()
+
+
+def test_uw_execution_refuses_a_dry_run_plan(make, capsys):
+    fixture = make(uw=True, plan_patch={"dry_run": True})
+    assert signal_limit.main(fixture.argv) == 2
+    assert json.loads(capsys.readouterr().out)["reason"] == "uw_execution_with_dry_run"
+    assert not (fixture.tmp / "state").exists()

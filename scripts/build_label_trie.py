@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -65,10 +66,27 @@ def render(document) -> bytes:
     return (json.dumps(document, indent=1, sort_keys=True) + "\n").encode()
 
 
-def write(path: Path, document) -> str:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(render(document))
-    return sha(path)
+def commit(staged: dict) -> None:
+    """Write every staged document as one set: each to a sibling ``.staged`` file, each read
+    back from disk against the sha256 of its rendered bytes, and only when all of them hold,
+    renamed into place (os.replace, atomic per file). A failure before the renames removes
+    every temporary file and leaves the committed set as it was."""
+    temps = {}
+    try:
+        for path, document in staged.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_name(path.name + ".staged")
+            temp.write_bytes(render(document))
+            temps[path] = temp
+        for path, temp in temps.items():
+            if sha(temp) != hashlib.sha256(render(staged[path])).hexdigest():
+                raise SystemExit(f"{path} did not read back as its staged bytes")
+    except BaseException:
+        for temp in temps.values():
+            temp.unlink(missing_ok=True)
+        raise
+    for path, temp in temps.items():
+        os.replace(temp, path)
 
 
 def staged_sha(staged: dict, path: Path, document) -> str:
@@ -271,11 +289,10 @@ def main(argv=None):
                         "gold": {"path": rel(args.gold), "sha256": sha(args.gold)},
                         "per_arm": table},
     }
-    # Every check above passed (each refuses with SystemExit/ValueError); only now write.
-    for path, document in staged.items():
-        if write(path, document) != hashlib.sha256(render(document)).hexdigest():
-            raise SystemExit(f"{path} did not hash to its staged sha256 after writing")
-    write(args.report, report)
+    # Every check above passed (each refuses with SystemExit/ValueError); only now write,
+    # the three artifacts and the report as one set.
+    staged[args.report] = report
+    commit(staged)
     print(json.dumps({"files": report["files_sha256"], "trie": report["trie"],
                       "coverage": cover,
                       "upper_bound": {a: round(t["upper_bound_macro"], 4)

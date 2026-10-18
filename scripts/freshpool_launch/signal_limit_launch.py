@@ -16,7 +16,7 @@ Order (study.json stages and gates):
     (advisory since design-review amendment 1: the evaluator reports its forecast and
     always passes it, so it never stops the study)
   Stage 0 at W: cost probe c(G8), c(G16), each measured over >= 8 screened accepted steps
-    at that G, and the beta=0 dr_grpo resume proof at G8 and at G16
+    at that G, and the beta=0 dr_grpo resume proof at G8 and at G16 (checks keyed by G)
     (its validator is the E0 check; c(G) is written to the state before any RL forecast)
   Stage A at W: A1, A2, A3, A5 at every grid LR, H-select each (with constrained greedy);
     A1* (evaluator selection), A4 at A1*'s LR, H-select                              -> GA
@@ -130,6 +130,10 @@ def verify_signal_limit_plan(plan_path, expected):
     plan = json.loads(Path(plan_path).read_text())
     if plan.get("schema") != SCHEMA:
         raise Stop("plan_schema_unknown")
+    if plan.get("stage_a_execution") == "uwaterloo" and plan.get("dry_run") is True:
+        # The UW worker never takes --dry-run: Stage A would run for real while every other
+        # stage is a dry run, and dry_run also relaxes the I/W and count checks.
+        raise Stop("uw_execution_with_dry_run")
     pinned = plan.get("file_sha256") or {}
     for required in (plan.get("evaluator"), str(HERE / "phase_worker.py"), str(HERE / "launch.py"),
                      str(HERE / "stage_table.py"), str(Path(__file__).resolve())):
@@ -286,6 +290,11 @@ def verify_signal_limit_g0(plan, evaluator):
     if len(ids["s_b_scan_seed42.jsonl"]) < L.G1_CANDIDATES:
         raise Stop("g0_s_b_shorter_than_p0", s_b=len(ids["s_b_scan_seed42.jsonl"]))
     base = read_json(L.resolve(plan["evidence_base"]["path"])) or {}
+    if not isinstance(base.get("rows"), dict) or set(base["rows"]) != set(L.SPLITS):
+        # Allowlist: the development evidence carries the H splits' rows and nothing else,
+        # so VAL or sealed TEST labels in an evidence base never reach it.
+        raise Stop("evidence_base_rows_not_h_splits_only",
+                   splits=sorted(base["rows"]) if isinstance(base.get("rows"), dict) else None)
     for split in L.SPLITS:
         rows = (base.get("rows") or {}).get(split)
         if not isinstance(rows, list) or {r.get("id"): r.get("label") for r in rows} != labels[
@@ -404,15 +413,20 @@ class SignalLimitLauncher(L.Launcher):
 
     @staticmethod
     def stage0_validator(f, cap):
-        """Stage 0: every resume / beta-0 check true at G8 and G16 (``e0_groups``), sampler-
-        teacher agreement <= 0.001 (as E0), and c(G) > 0 for G8 and G16, each measured over
-        at least STAGE0_MIN_C_STEPS accepted steps (study.json Stage 0 writes)."""
-        checks = f.get("checks")
-        if (not isinstance(checks, dict) or not set(STAGE0_CHECKS) <= set(checks)
-                or any(v is not True for v in checks.values())):
-            return "e0_failed"
+        """Stage 0: every resume / beta-0 check true at G8 and at G16, keyed by G
+        (``checks["8"]``, ``checks["16"]``, so a run that proved E0 at one G cannot report
+        it for both) and listed in ``e0_groups``, sampler-teacher agreement <= 0.001 (as E0),
+        and c(G) > 0 for G8 and G16, each measured over at least STAGE0_MIN_C_STEPS accepted
+        steps (study.json Stage 0 writes)."""
         if f.get("e0_groups") != list(T.STAGE_B_GROUPS):
             return "stage0_e0_not_at_every_g"
+        checks = f.get("checks")
+        if not isinstance(checks, dict) or set(checks) != {str(g) for g in T.STAGE_B_GROUPS}:
+            return "stage0_e0_checks_not_keyed_by_g"
+        for per_group in checks.values():
+            if (not isinstance(per_group, dict) or not set(STAGE0_CHECKS) <= set(per_group)
+                    or any(v is not True for v in per_group.values())):
+                return "e0_failed"
         steps = f.get("c_accepted_steps")
         if not isinstance(steps, dict) or any(
                 type(steps.get(str(g))) is not int or steps[str(g)] < STAGE0_MIN_C_STEPS
@@ -568,7 +582,10 @@ class SignalLimitLauncher(L.Launcher):
         return jobs
 
     def run_jobs(self, jobs):
-        """Independent stages: serially here, or concurrently on UWaterloo hosts."""
+        """Independent stages: serially here, or concurrently on UWaterloo hosts. Each H
+        look is recorded as soon as its assay completes (uw_stage_a records its own), so a
+        later job that stops the study cannot keep a completed look off the ledger; the
+        closing pass covers assays completed before a resume."""
         if self.plan.get("stage_a_execution", "local") == "uwaterloo":
             import uw_stage_a
 
@@ -577,6 +594,8 @@ class SignalLimitLauncher(L.Launcher):
             for job in jobs:
                 self.run(job["stage_id"], job["template"], job["arm"], job["forecast"],
                          job["values"], job["validate"])
+                if "look" in job:
+                    self.record_look(*job["look"])
         for job in jobs:
             if "look" in job:
                 self.record_look(*job["look"])
@@ -841,7 +860,8 @@ class SignalLimitLauncher(L.Launcher):
 
     def evidence(self):
         base = json.loads(L.resolve(self.plan["evidence_base"]["path"]).read_text())
-        document = {k: base[k] for k in ("labels", "rows")}
+        document = {"labels": base["labels"],
+                    "rows": {split: base["rows"][split] for split in L.SPLITS}}
         document.update(
             s_b_ids=list(self.g0["scan_ids"]), a_floor=self.g0["a_floor"],
             updates=self.counts, endpoints=list(self.endpoints().values()),

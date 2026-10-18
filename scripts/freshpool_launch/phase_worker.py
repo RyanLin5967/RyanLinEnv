@@ -125,7 +125,9 @@ def main(argv=None):
     if args.remote_cpu and threads != str(remote_threads()):
         raise RuntimeError("--remote-cpu needs VISION_RL_TORCH_THREADS equal to UWRUN_THREADS")
     if not args.remote_cpu and threads is not None:
-        # The trainer reads it; outside the UW path a stage keeps its 2 threads.
+        # The trainer reads it; outside the UW path a stage keeps its 2 threads. A deliberate
+        # legacy refusal (study .md section 13): a freshpool stage launched from a shell that
+        # happens to export it would otherwise train with other threads, silently.
         raise RuntimeError("VISION_RL_TORCH_THREADS is set only by the UW path (--remote-cpu)")
     if args.kind in MODEL_KINDS and set(forwarded_devices(forwarded)) != {device}:
         raise RuntimeError(f"forwarded --device {forwarded_devices(forwarded)} differs from "

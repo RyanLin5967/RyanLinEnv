@@ -98,7 +98,7 @@ The study first tests the A2 limit at SFT prices (Stage A). It spends RL compute
 ### Stage 0: cost probe and E0, about 3.0 h (estimate)
 - **Cost probe** (amended). At W, on train400 images, run screened β = 0 dr_grpo at G8 and at G16, each until it has at least 8 accepted updates. This gives c(G8) and c(G16), scorer time included. Both are **measured**, not extrapolated from one step. They are written to the state file before any RL forecast reads them.
 - **E0** (amended). 4 uninterrupted updates must be byte-identical to 2+2 and 1+3 resumed, for β = 0 / dr_grpo / `scale_rewards` none, **at G8 and at G16**.
-- **Launcher check.** The launcher refuses a Stage 0 fragment unless it has `e0_groups` [8, 16] and at least 8 `c_accepted_steps` per G.
+- **Launcher check.** The launcher refuses a Stage 0 fragment unless it has `e0_groups` [8, 16], every E0 check true under each G's own key (`checks["8"]`, `checks["16"]`), and at least 8 `c_accepted_steps` per G.
 
 ### Stage A: limit screen
 All arms start from W and run 600 updates in the same S_a order. LRs come from {1e-5, 5e-5, 1e-4}. Selection is by H-select sampled macro, using the unconstrained evaluator.
@@ -140,7 +140,7 @@ That is 13 arms in total.
 ### Budget matching and caps
 - **Stage A.** Every arm gets the same 600 presentations, in the same order, on the same grid. A2's out-of-band presentations take no optimizer step, so A2 is matched on data, not on optimizer steps.
 - **SFT-E.** Equal exposure.
-- **SFT-T and LIM-T.** Equal active seconds T_RL, which includes scorer forwards for every scanned candidate, plus equal label access.
+- **SFT-T and LIM-T.** Equal active seconds T_RL, which includes scorer forwards for every scanned candidate, plus equal label access. A LIM-T presentation outside the band pays only its p-scoring forward (no CE forward or backward, no optimizer step), as the RL screen pays only the scorer forward for a rejected candidate.
 - **Caps.** Each arm is capped at **1.25 × its forecast active seconds**, where forecast = measured unit cost × planned units, using c(G) from Stage 0 for RL. The cap does not reset on resume. A capped or interrupted arm is re-run from scratch and never quoted.
 
 ## 6. Gates (in order; every failure is kept and published)
@@ -284,4 +284,10 @@ The reviewer confirmed these as sound: the Dr-GRPO (G−1)p claim, no VAL or TES
 | M8 | G4 "vs init W" while Stage B starts from I\* | **accepted** (wording) | §6 G4 |
 | M9 | VAL journals feed the trie; the P0 map saw S_b images | disclosed | §4 |
 | M10 | Stage B's success depends on the algebra being wrong | **accepted** | §2, "What a Gate A pass means" |
+
+**Integration review (PR #32), recorded here because it changes what runs:**
+- An out-of-band A2 / LIM-T presentation now skips TRL's CE forward and backward as well as the optimizer step, so LIM-T's T_RL buys the in-band updates §1 assumes.
+- hn_sft scores its candidate confusers in eval mode (no LoRA dropout), so the confuser is a deterministic argmax of π and the journalled `confuser_probability` is that score.
+- GB0 chooses G with the same exact `>=` rule P0' samples by (`p0_screen.choose_group`).
+- Two deliberate legacy refusals, each with every new option at its default: `train_local(mode="grpo", beta=0)` without an explicit `loss_type` refuses (it used to run TRL's default aggregation silently; no committed plan or template passes β = 0), and a legacy freshpool stage refuses while `VISION_RL_TORCH_THREADS` is set (only the UW path may set the trainer's thread count).
 

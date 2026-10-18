@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -459,6 +460,13 @@ def test_signal_limit_profile_carries_the_objective_and_resource_identity():
     ("../outside", True),
     ("inputs/../../escape", True),
     ("1e-05", False),
+    # Whitespace or a quote before an absolute path inside one argv element.
+    ("cat /Users/x/a", True),
+    ("--opt 'a /Users/x'", True),
+    ("'/Users/x'", True),
+    ('"/etc/passwd"', True),
+    ("run /var/tmp/model/sub", False),
+    ("cd ../x", True),
 ])
 def test_uw_argv_guard_is_an_allowlist_on_path_components(argument, local):
     roots = ("/var/tmp/model", "/var/tmp/py/bin/python")
@@ -553,7 +561,67 @@ def test_remote_check_refuses_a_changed_or_missing_pin_and_an_empty_list(tmp_pat
     (tmp_path / "a.py").write_text("x = 1\n")
     good = {"a.py": hashlib.sha256(b"x = 1\n").hexdigest()}
     for pins, code in ((good, 0), ({"a.py": "0" * 64}, 1), ({"b.py": "0" * 64}, 1), ({}, 1)):
-        (tmp_path / "pins.json").write_text(json.dumps(pins))
-        assert uw_stage_a.remote_check("pins.json", "hardware.json") == code
+        text = json.dumps(pins)
+        (tmp_path / "pins.json").write_text(text)
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        assert uw_stage_a.remote_check("pins.json", "hardware.json", digest) == code
         hardware = json.loads((tmp_path / "hardware.json").read_text())
         assert hardware["pins_checked"] == len(pins)
+    # pins.json rewritten on the host (by uw.setup, say): its own hash is from the command
+    # line, so the check fails although every listed pin holds.
+    (tmp_path / "pins.json").write_text(json.dumps(good))
+    assert uw_stage_a.remote_check("pins.json", "hardware.json", "0" * 64) == 1
+    assert json.loads((tmp_path / "hardware.json").read_text())["pins_failed"] == ["pins.json"]
+
+
+class _Launcher:
+    """The attributes UWRunner reads, for the shipping helpers only."""
+
+    def __init__(self, tmp_path, plan):
+        self.plan, self.ledger, self.state = plan, SimpleNamespace(directory=tmp_path), {}
+
+
+def _runner(tmp_path, monkeypatch, root, **plan):
+    monkeypatch.setattr(launch, "ROOT", root)
+    runner = object.__new__(uw_stage_a.UWRunner)
+    runner.launcher = _Launcher(tmp_path, {"file_sha256": {}, **plan})
+    runner.plan, runner.launch = runner.launcher.plan, launch
+    return runner
+
+
+@pytest.mark.parametrize("import_root", [".", "data", "src/vision_rl"])
+def test_uw_ship_refuses_an_import_root_other_than_src(tmp_path, monkeypatch, import_root):
+    root = tmp_path / "repo"
+    (root / "src" / "vision_rl").mkdir(parents=True)
+    (root / "data").mkdir()
+    runner = _runner(tmp_path, monkeypatch, root, import_root=str(root / import_root))
+    with pytest.raises(launch.Stop) as stopped:
+        runner.ship_repository(tmp_path / "bundle")
+    assert stopped.value.reason == "uw_import_root_not_src"
+    assert not (tmp_path / "bundle").exists()
+
+
+def test_uw_ship_takes_only_modules_and_package_data_from_src(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    package = root / "src" / "pkg"
+    (package / "__pycache__").mkdir(parents=True)
+    for name, text in (("m.py", "x = 1\n"), ("assets.json", "{}"), ("image.jpg", "jpg"),
+                       ("weights.safetensors", "w"), ("__pycache__/m.cpython-312.pyc", "c")):
+        (package / name).write_text(text)
+    runner = _runner(tmp_path, monkeypatch, root, import_root=str(root / "src"))
+    pins = runner.ship_repository(tmp_path / "bundle")
+    assert sorted(pins) == ["repo/src/pkg/assets.json", "repo/src/pkg/m.py"]
+    assert sorted(str(p.relative_to(tmp_path / "bundle")) for p in
+                  (tmp_path / "bundle").rglob("*") if p.is_file()) == sorted(pins)
+
+
+def test_uw_remote_pythonpath_ships_only_src_and_journals_the_rest(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    site = root / "runs" / "vlm-local-libs" / "site-packages"
+    site.mkdir(parents=True)
+    path = os.pathsep.join([str(root / "src"), str(site), "/opt/elsewhere"])
+    runner = _runner(tmp_path, monkeypatch, root, environment={"PYTHONPATH": path})
+    shipped, dropped = runner.remote_pythonpath()
+    assert shipped == ["$PWD/repo/src"]
+    assert dropped == [str(site), "/opt/elsewhere"]

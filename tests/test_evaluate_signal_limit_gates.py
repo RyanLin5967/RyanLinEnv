@@ -662,6 +662,62 @@ def test_small_n_correction_rescales_about_the_mean_and_flips_a_marginal_bound()
     assert [k for k, v in ga["checks"].items() if not v] == ["bonferroni_paired_lb_positive"]
 
 
+def g3a_after(change):
+    document = evidence()
+    change(document)
+    return evaluate(document)
+
+
+def failing(gate):
+    return [name for name, ok in gate["checks"].items() if not ok]
+
+
+def test_g3a_small_n_correction_flips_a_marginal_bound():
+    # H-gate, 9 completions per image; classes C0..C9, two images each.
+    # I*:  C0 (0, 9), every other image 4.       RL*: C0 (9, 0), C1-C4 7 each, C5-C9 4 each.
+    # Per-image deltas: C0 (+1, -1), C1-C4 +3/9 each, C5-C9 0. Class means: C0 0, C1-C4 1/3.
+    # Mean (4/3) / 10 = 2/15. C0's resampled mean is -1 with probability 1/4 > .10, so the
+    # plain 90% bound is (4/3 - 1) / 10 = 1/30 > 0; corrected: 2/15 + sqrt 2 (1/30 - 2/15)
+    # = (4/3 - sqrt 2) / 10 = -.00809 < 0. RL* macro 105/180 vs SFT-E* (set to 4 per image,
+    # 80/180): +25/180 = .139 >= .05, so only the bound fails.
+    i_star = [0, 9] + [4] * 18
+    rl = [9, 0] + [7] * 8 + [4] * 10
+
+    def change(d):
+        find(d, I_STAR)["splits"]["h_gate"]["predictions"] = repeated(H_GATE, i_star, 9)
+        find(d, "rl300-1e-5")["splits"]["h_gate"]["predictions"] = repeated(H_GATE, rl, 9)
+        find(d, "sfte-5e-5")["splits"]["h_gate"]["predictions"] = repeated(
+            H_GATE, [4] * 20, 9)
+    report = g3a_after(change)
+    g3a = report["gates"]["G3a"]
+    assert g3a["values"]["rl_minus_i_star"] == pytest.approx(2 / 15)
+    assert g3a["values"]["rl_minus_i_star_lb90_uncorrected"] == pytest.approx(1 / 30)
+    assert g3a["values"]["rl_minus_i_star_lb90"] == pytest.approx((4 / 3 - math.sqrt(2)) / 10)
+    assert g3a["values"]["rl_minus_sft_e"] == pytest.approx(25 / 180)
+    assert failing(g3a) == ["rl_minus_i_star_one_sided_90_lb_positive"]
+    assert report["failed_at"] == "G3a"
+
+
+@pytest.mark.parametrize(("invalid_images", "ok"), [(9, True), (10, False)])
+def test_g3a_valid_held_fires_below_95_percent(invalid_images, ok):
+    # RL* H-gate: 7 of 9 right on every image (unchanged accuracy); one None on the first
+    # `invalid_images` images: valid 171/180 = .95 holds, 170/180 = .944 fails.
+    def change(d):
+        find(d, "rl300-1e-5")["splits"]["h_gate"]["predictions"] = repeated(
+            H_GATE, spread(140), 9, invalid=range(invalid_images))
+    g3a = g3a_after(change)["gates"]["G3a"]
+    assert g3a["values"]["rl_valid"] == pytest.approx((180 - invalid_images) / 180)
+    assert failing(g3a) == ([] if ok else ["valid_held"])
+
+
+@pytest.mark.parametrize(("eos", "ok"), [(0.95, True), (0.94, False)])
+def test_g3a_eos_held_fires_below_95_percent(eos, ok):
+    def change(d):
+        find(d, "rl300-1e-5")["splits"]["h_gate"]["eos_fraction"] = eos
+    g3a = g3a_after(change)["gates"]["G3a"]
+    assert failing(g3a) == ([] if ok else ["eos_held"])
+
+
 def test_c_star_may_be_a3_and_a3_never_wins_gate_a():
     # A3* at .70 beats A2* (.60): A3 is a comparator, so it becomes C* and Gate A fails;
     # the winner is still A2*, and A3* becomes I* (H-select best of A1*/A2*/A3*).

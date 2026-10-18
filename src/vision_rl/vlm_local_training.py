@@ -2146,6 +2146,10 @@ def _trainer_with_egsft(
     zero loss and takes NO optimizer step (no AdamW momentum step either; design review
     of the signal-limit study, finding 4), while its presentation still counts toward
     max_steps. Both are recorded per row only when used (`in_band`, `optimizer_step`).
+    An out-of-band training step also skips TRL's CE forward and backward (its loss is a
+    gradient-free zero leaf): like the screened sampler, which pays only the scorer forward
+    for a rejected candidate, it costs only the p scoring, so LIM-T's T_RL budget is not
+    spent on a pass whose gradient is multiplied by zero.
 
     Rows carry an invocation_id. The physical `journal` is append-only and keeps rows
     of steps a resume later discarded and re-ran; the canonical weights are the
@@ -2206,11 +2210,21 @@ def _trainer_with_egsft(
             if band_group is not None:
                 in_band = egsft_in_band(probability, band_group)
                 weight = weight if in_band else 0.0
-            # Pass return_outputs through: TRL recomputes full logits with an extra
-            # forward whenever outputs are requested.
-            result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
-            loss, outputs = result if return_outputs else (result, None)
-            loss = loss * torch.tensor(weight, dtype=loss.dtype, device=loss.device)
+            if in_band is False and torch.is_grad_enabled() and not return_outputs:
+                # Out of band: no CE pass at all (its gradient would be x 0 and the band guard
+                # skips the step anyway). A zero leaf keeps backward() valid; every parameter
+                # gradient stays None, which the gradient audit reads as norm 0.
+                loss = torch.zeros(
+                    (), dtype=torch.float32, device=inputs["input_ids"].device,
+                    requires_grad=True,
+                )
+                outputs = None
+            else:
+                # Pass return_outputs through: TRL recomputes full logits with an extra
+                # forward whenever outputs are requested.
+                result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+                loss, outputs = result if return_outputs else (result, None)
+                loss = loss * torch.tensor(weight, dtype=loss.dtype, device=loss.device)
             if loss.requires_grad is False and torch.is_grad_enabled():
                 raise LocalVLMError("EG-SFT loss lost its gradient path")
             row = {
@@ -2315,12 +2329,20 @@ def _trainer_with_label_loss(
                     if gold in candidates:
                         raise LocalVLMError("hn_sft confuser equals the gold label")
                     if candidates:
-                        with torch.no_grad():
-                            scored = [
-                                _completion_logprob(model, prompt, sequence(c), **score)
-                                for c in candidates
-                            ]
-                        confuser = candidates[max(range(len(scored)), key=scored.__getitem__)]
+                        # The pick is a deterministic argmax of pi: scored in eval mode (no
+                        # LoRA dropout), then back to train mode for the gradient pass.
+                        was_training = model.training
+                        model.eval()
+                        try:
+                            with torch.no_grad():
+                                scored = [
+                                    _completion_logprob(model, prompt, sequence(c), **score)
+                                    for c in candidates
+                                ]
+                        finally:
+                            model.train(was_training)
+                        best = max(range(len(scored)), key=scored.__getitem__)
+                        confuser = candidates[best]
                         logp = _completion_token_logps(
                             model, prompt, sequence(confuser), **score
                         ).sum()
@@ -2328,7 +2350,7 @@ def _trainer_with_label_loss(
                         loss = loss + HN_SFT_COEFFICIENT * term
                         row.update(
                             confuser=confuser,
-                            confuser_probability=math.exp(float(logp.detach())),
+                            confuser_probability=math.exp(scored[best]),
                             unlikelihood=float(term.detach()),
                         )
                     else:
@@ -3298,8 +3320,11 @@ def train_local(
     Signal-limit options (each enters settings only when it differs from its default):
     `loss_type`/`scale_rewards` select TRL's GRPO aggregation and advantage scaling
     ("dr_grpo"/"none" is Dr-GRPO); beta=0 GRPO refuses unless loss_type is passed
-    explicitly. `reward="exact_hn"` with a frozen `confusion_map` adds -0.5 for a
-    confuser answer. `egsft_scale="none"` makes EG-SFT the Dr-GRPO limit stopgrad[2p] and
+    explicitly. That refusal is a deliberate legacy change: before these options a beta=0
+    GRPO call silently ran TRL's default aggregation; no committed plan or template passes
+    beta 0, and a caller that wants the old behaviour passes loss_type="grpo".
+    `reward="exact_hn"` with a frozen `confusion_map` adds -0.5 for a confuser answer.
+    `egsft_scale="none"` makes EG-SFT the Dr-GRPO limit stopgrad[2p] and
     `egsft_band_group` masks it to the G-sample screen's band. Modes hn_sft (needs
     `confusion_map`), hls_sft (`taxonomy`) and cce_sft (`label_trie`) are the answer-only
     supervised limits of `_trainer_with_label_loss`.

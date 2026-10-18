@@ -19,14 +19,21 @@ finish as a local stage, so the guards and refusals are the MPS launcher's:
 
 Remote side (one uwrun run per stage instance, its own name, uwrun's host-local
 /var/tmp/r226lin-runs/NAME run directory, never the NFS home): the bundle holds the plan's
-pinned repository files and the whole import tree (``repo/``), the stage's inputs (manifests
-rewritten to bundled images, init adapter, label trie) and ``pins.json`` (the SHA256 of every
-bundled file). The command checks every pin (``remote-check``, stdlib only) and writes
-``out/hardware.json`` (hostname, CPU model, cores, memory, Python, threads) before
-``phase_worker.py --remote-cpu`` runs the stage entry with ACCELERATE_TORCH_DEVICE=cpu, the
-plan's frozen environment, the bundled import tree on PYTHONPATH and VISION_RL_TORCH_THREADS =
-uwrun --threads. Only ``work/out/`` is fetched back. Every stage is journalled with its uwrun
-name, host and that hardware record; a finished run's remote directory is removed (uwrun rm).
+pinned repository files and the import tree (``repo/``; an allowlist: ``import_root`` must be
+the repository's ``src`` and only its .py and .json files ship, so nothing under ``data/``,
+sealed TEST images included, can leave this machine through it), the stage's inputs
+(``inputs/``: manifests rewritten to bundled images, init adapter, label resources) and
+``pins.json`` (the SHA256 of every bundled file, repo/ and inputs/ alike). The command checks
+every pin and the SHA256 of pins.json itself, which the command line carries, so ``uw.setup``
+cannot rewrite either unseen (``remote-check``, stdlib only), and writes ``out/hardware.json``
+(hostname, CPU model, cores, memory, Python, threads) before ``phase_worker.py --remote-cpu``
+runs the stage entry with ACCELERATE_TORCH_DEVICE=cpu, the plan's frozen environment, the
+bundled ``src`` on PYTHONPATH and VISION_RL_TORCH_THREADS = uwrun --threads. Only
+``work/out/`` is fetched back. Every stage is journalled with its uwrun name, host and that
+hardware record (an rc-0 stage without one, or with a failed pin, is refused); every run this
+launcher stops or finishes has its remote directory removed (uwrun rm, journalled). The uwrun
+executable must be an absolute path the plan pins: its rsync excludes, remote timeout and
+status words are what every guard here relies on.
 
 Host choice is an allowlist: only the plan's ``uw.hosts``, each probed directly (``uwrun ssh``,
 so hosts outside uwrun's pools, ecetesla0/1, work), at most ``uw.per_host`` uwrun runs per
@@ -41,9 +48,10 @@ Blind spots, stated: the remote stage's RSS and the remote disk are checked only
 uwrun run is not seen; the remote environment (venv, model files) is the plan's ``uw.python``
 and ``uw.model_directory`` as provisioned on each host, verified by the trainer's own model
 directory and package checks, not by this file; PYTHONPATH entries outside the repository are
-not shipped (journalled); CPU FP32 numerics differ from MPS FP32, which is why every Stage A
-arm runs on the same executor (the plan picks one for all of Stage A) and the hardware of each
-is journalled.
+not shipped (journalled), and neither is any in-repository PYTHONPATH entry other than
+``src`` (journalled the same way); CPU FP32 numerics differ from MPS FP32, which is why every
+Stage A arm runs on the same executor (the plan picks one for all of Stage A) and the hardware
+of each is journalled.
 """
 
 import hashlib
@@ -84,6 +92,10 @@ PROBE = (r'l=$(cut -d" " -f1 /proc/loadavg); n=$(nproc); '
          r'v=0; grep -q -w avx2 /proc/cpuinfo && v=1; '
          r'echo "uwprobe $l $n $m $r $d $p $v"')
 IMPORTABLE_SKIP = ("__pycache__",)
+# The import tree ships only these (modules and the package data next to them): an allowlist,
+# so a stray dataset, image or checkpoint under the tree never leaves the machine.
+SHIPPED_SUFFIXES = (".py", ".json")
+SAVE_SECONDS = 5  # as launch.supervise: the arm wall clock reaches state.json this often
 
 
 def _launch():
@@ -125,8 +137,14 @@ def verify_uw_block(plan):
             # ~/uwaterloo-access/FINDINGS.md 2026-10-18: the NFS home quota is ~16 GB for
             # every session combined, so venvs and weights live on the host's /var/tmp.
             raise Stop("uw_path_not_host_local", field=key, value=value)
+    if not isinstance(uw["uwrun"], str) or not Path(uw["uwrun"]).is_absolute():
+        raise Stop("uwrun_not_absolute", uwrun=uw["uwrun"])
     if not Path(uw["uwrun"]).is_file():
         raise Stop("uwrun_missing", uwrun=uw["uwrun"])
+    if not any(launch.resolve(p) == Path(uw["uwrun"]).resolve() for p in plan["file_sha256"]):
+        # Its rsync excludes, remote timeout and status words decide what every guard here
+        # sees, so its bytes are pinned like the launcher's own.
+        raise Stop("plan_does_not_pin", file=uw["uwrun"])
     if "setup" in uw and not isinstance(uw["setup"], str):
         raise Stop("uw_setup_not_a_string")
     forecasts = uw["forecast_seconds"]
@@ -147,7 +165,7 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-ABSOLUTE_PATH = re.compile(r"(?:^|[=:,])(/[^=:,\s]*)")
+ABSOLUTE_PATH = re.compile(r"(?:^|[=:,\s'\"])(/[^=:,\s'\"]*)")
 
 
 def names_local_path(argument, allowed_roots):
@@ -156,15 +174,16 @@ def names_local_path(argument, allowed_roots):
     climbs out of the bundle with a ``..`` component.
 
     Allowlist: a remote command may name only bundle-relative paths and those two roots.
-    Absolute paths are found anywhere in the element, also after ``=``, ``:`` or ``,``
-    (``--flag=/x``, ``a:/x``). Blind spot, stated: a path glued to other text without one of
-    those separators (``x/abs``) is read as relative and resolves inside the bundle.
+    Absolute paths are found anywhere in the element, also after ``=``, ``:``, ``,``,
+    whitespace or a quote (``--flag=/x``, ``a:/x``, ``bash -c 'cat /x'``). Blind spot,
+    stated: a path glued to other text without one of those separators (``x/abs``) is read
+    as relative and resolves inside the bundle.
     """
     roots = [root.rstrip("/") for root in allowed_roots]
     for path in ABSOLUTE_PATH.findall(argument):
         if not any(path == root or path.startswith(root + "/") for root in roots):
             return True
-    return ".." in re.split(r"[/=:,\s]", argument)
+    return ".." in re.split(r"[/=:,\s'\"]", argument)
 
 
 def link_or_copy(source, target):
@@ -182,6 +201,7 @@ class UWRunner:
         self.uw = verify_uw_block(self.plan)
         self.ledger, self.state = launcher.ledger, launcher.state
         self.state.setdefault("uw_running", {})
+        self.last_save = time.monotonic()
 
     # -- uwrun
     def uwrun(self, *args, timeout=600):
@@ -251,8 +271,10 @@ class UWRunner:
         return None if best is None else best[1]
 
     def ship_repository(self, directory):
-        """repo/: every pinned file under the repository and the whole import tree (the
-        trainer reads package data next to its modules). pins.json: every shipped file."""
+        """repo/: every pinned file under the repository and the import tree's modules and
+        package data (the trainer reads package data next to its modules). The tree is an
+        allowlist: ``import_root`` must be the repository's ``src``, and only its
+        SHIPPED_SUFFIXES files go. pins.json: every shipped file."""
         launch = self.launch
         root = launch.ROOT.resolve()
         files = {}
@@ -262,10 +284,11 @@ class UWRunner:
                 files[path] = path.relative_to(root)
         if self.plan.get("import_root") is not None:
             tree = launch.resolve(self.plan["import_root"]).resolve()
-            if not tree.is_relative_to(root):
-                raise launch.Stop("uw_import_root_outside_repository", import_root=str(tree))
+            if tree != root / "src":
+                raise launch.Stop("uw_import_root_not_src", import_root=str(tree))
             for path in tree.rglob("*"):
-                if path.is_file() and not any(p in IMPORTABLE_SKIP for p in path.parts):
+                if (path.is_file() and path.suffix in SHIPPED_SUFFIXES
+                        and not any(p in IMPORTABLE_SKIP for p in path.parts)):
                     files[path] = path.relative_to(root)
         pins = {}
         for path, relative in sorted(files.items()):
@@ -322,6 +345,11 @@ class UWRunner:
             # host-local python and model directory.
             raise launch.Stop("uw_argv_names_local_path", stage=context["stage_id"],
                               paths=local[:5])
+        inputs = directory / "inputs"
+        if inputs.is_dir():
+            for path in sorted(inputs.rglob("*")):
+                if path.is_file():
+                    pins[str(path.relative_to(directory))] = file_sha256(path)
         (directory / "pins.json").write_text(json.dumps(pins, indent=2, sort_keys=True) + "\n")
         return argv
 
@@ -344,21 +372,15 @@ class UWRunner:
         return f"inputs/{key}/{path.name}"
 
     def remote_pythonpath(self):
-        """The plan's PYTHONPATH entries that lie in the repository, as bundle paths; others
-        are not shipped (returned second, for the journal)."""
-        root = self.launch.ROOT.resolve()
-        shipped, dropped = [], []
-        for entry in self.launch.pythonpath(self.plan):
-            path = Path(entry).resolve()
-            if path.is_relative_to(root):
-                shipped.append(f"$PWD/repo/{path.relative_to(root)}".rstrip("/."))
-            else:
-                dropped.append(entry)
-        if "$PWD/repo/src" not in shipped:
-            shipped.append("$PWD/repo/src")
-        return shipped, dropped
+        """(["$PWD/repo/src"], every plan PYTHONPATH entry that is not the repository's
+        ``src``): only ``src`` is shipped (ship_repository), so any other entry, inside the
+        repository or not, is absent remotely and is returned for the journal."""
+        src = self.launch.ROOT.resolve() / "src"
+        dropped = [entry for entry in self.launch.pythonpath(self.plan)
+                   if Path(entry).resolve() != src]
+        return ["$PWD/repo/src"], dropped
 
-    def script(self, context, argv):
+    def script(self, context, argv, pins_sha256):
         environment = dict(self.plan.get("environment") or {})
         environment.pop("PYTHONPATH", None)
         environment.update(ACCELERATE_TORCH_DEVICE="cpu")
@@ -384,8 +406,10 @@ class UWRunner:
         if self.uw.get("setup"):
             lines.append(f"( {self.uw['setup']} ) || exit 96")
         lines += [
+            # After setup, with pins.json's own hash from this command line: whatever setup
+            # did to repo/, inputs/ or pins.json is seen here.
             f"{python} -I -B repo/scripts/freshpool_launch/uw_stage_a.py remote-check "
-            "pins.json out/hardware.json || exit 95",
+            f"pins.json out/hardware.json {pins_sha256} || exit 95",
             "exec " + " ".join(shlex.quote(part) for part in worker),
         ]
         return "\n".join(lines) + "\n"
@@ -405,28 +429,41 @@ class UWRunner:
         command = ["run", "--host", host, "--sync", str(directory), "--name", name,
                    "--threads", str(self.uw["threads"]), "--timeout", str(remaining),
                    "--min-local", str(self.uw["min_local_gb"]), "--", "bash", "-c",
-                   self.script(context, argv)]
+                   self.script(context, argv, file_sha256(directory / "pins.json"))]
         launcher.start_instance(context, command=[self.uw["uwrun"], *command[:-1], "<script>"],
                                 executor="uwaterloo", uw_name=name, host=host,
                                 remote_argv=argv, pythonpath_not_shipped=dropped)
         self.state["uw_running"][name] = {"stage": job["stage_id"], "host": host,
                                           "instance": context["instance"]}
         self.ledger.save()
+        # The arm clock starts before ``uwrun run`` (its rsync and launch are charged), and
+        # is saved at once after it, so an interrupt at any later point voids that time.
+        started = time.monotonic()
         code, out, err = self.uwrun(*command, timeout=4000)
+        self.charge(context, started, save=True)
         if code != 0 or (out.strip().splitlines() or [""])[-1] != name:
             self.ledger.append("uw_launch_failed", stage=job["stage_id"], uw_name=name,
                                host=host, exit_code=code, stderr=err[-2000:])
             raise launch.Pause("uw_launch_failed", stage=job["stage_id"], uw_name=name)
         shutil.rmtree(directory / "repo", ignore_errors=True)  # synced; keep inputs + pins
         running[name] = {"job": job, "context": context, "host": host,
-                         "started": time.monotonic(), "unreachable_since": None}
+                         "started": started, "unreachable_since": None}
+
+    def charge(self, context, started, save=False):
+        """The instance's wall time so far onto its arm (state), saved at least every
+        SAVE_SECONDS (as launch.supervise): an interrupted launcher's resume voids it."""
+        elapsed = time.monotonic() - started
+        self.state["arm_wall_seconds"][context["stage_id"]] = context["used"] + elapsed
+        if save or time.monotonic() - self.last_save >= SAVE_SECONDS:
+            self.ledger.save()
+            self.last_save = time.monotonic()
+        return elapsed
 
     def finish_stage(self, name, entry, rc, flags, host):
         launcher, launch = self.launcher, self.launch
         context = entry["context"]
-        elapsed = time.monotonic() - entry["started"]
+        elapsed = self.charge(context, entry["started"], save=True)
         stage_id = context["stage_id"]
-        self.state["arm_wall_seconds"][stage_id] = context["used"] + elapsed
         destination = context["stage_dir"] / "remote"
         # Trailing slash: rsync copies the CONTENT of work/out into the destination.
         code, _, err = self.uwrun("fetch", name, "work/out/", str(destination), timeout=4000)
@@ -442,14 +479,27 @@ class UWRunner:
         reason = ("arm_cap" if "timedout" in flags
                   else "uw_run_stopped_externally" if "stopped" in flags else None)
         if reason is None and rc == 0:
-            reason = self.import_fragment(destination, context["fragment"])
+            if (not isinstance(hardware, dict) or not isinstance(hardware.get("hostname"), str)
+                    or hardware.get("pins_failed") != []):
+                # Every UW stage is journalled with its hardware, and its pins all held.
+                reason = "uw_hardware_record_missing_or_pins_failed"
+            else:
+                reason = self.import_fragment(destination, context["fragment"])
         self.state["uw_running"].pop(name, None)
         self.ledger.save()
         outcome = {"exit_code": rc, "reason": reason, "elapsed_seconds": elapsed,
                    "arm_wall_seconds": context["used"] + elapsed,
                    "peak_group_rss_bytes": peak, "demoted": None, "executor": "uwaterloo",
                    "uw_name": name, "host": host}
-        launcher.finish(context, outcome, entry["job"]["validate"])
+        try:
+            launcher.finish(context, outcome, entry["job"]["validate"])
+        finally:
+            # Whatever finish decided, the results are here: free the host's disk.
+            self.remove(name)
+        if "look" in entry["job"]:
+            launcher.record_look(*entry["job"]["look"])
+
+    def remove(self, name):
         code, out, err = self.uwrun("rm", name, timeout=600)
         self.ledger.append("uw_run_removed", uw_name=name, exit_code=code,
                            output=(out + err)[-300:])
@@ -489,13 +539,21 @@ class UWRunner:
 
     def reap(self):
         """Stop what a previous launcher left running before anything is relaunched: their
-        instances are voided by prepare() and re-run from scratch, never resumed or quoted."""
+        instances are voided by prepare() and re-run from scratch, never resumed or quoted.
+        A name uwrun has no run for (``uwrun status`` UNKNOWN: its launch died before uwrun
+        recorded it) has nothing to stop."""
         for name in list(self.state["uw_running"]):
-            if not self.stop(name):
+            if self.stop(name):
+                self.ledger.append("uw_orphan_stopped", uw_name=name,
+                                   **self.state["uw_running"].pop(name))
+                self.ledger.save()
+                self.remove(name)
+            elif self.status(name)[0] == "UNKNOWN":
+                self.ledger.append("uw_orphan_absent", uw_name=name,
+                                   **self.state["uw_running"].pop(name))
+                self.ledger.save()
+            else:
                 raise self.launch.Pause("uw_orphan_run_not_stopped", uw_name=name)
-            self.ledger.append("uw_orphan_stopped", uw_name=name,
-                               **self.state["uw_running"].pop(name))
-            self.ledger.save()
 
     # -- a batch
     def run_batch(self, jobs):
@@ -522,6 +580,8 @@ class UWRunner:
             for name in list(running):
                 if self.stop(name):
                     self.state["uw_running"].pop(name, None)
+                    self.ledger.save()
+                    self.remove(name)  # void on resume: nothing of it is ever read
             self.ledger.save()
             raise
 
@@ -530,8 +590,7 @@ class UWRunner:
             entry = running[name]
             word, rc, flags, host = self.status(name)
             context = entry["context"]
-            elapsed = time.monotonic() - entry["started"]
-            self.state["arm_wall_seconds"][context["stage_id"]] = context["used"] + elapsed
+            elapsed = self.charge(context, entry["started"])
             if word == "DONE":
                 del running[name]
                 self.finish_stage(name, entry, rc, flags, host or entry["host"])
@@ -549,8 +608,10 @@ class UWRunner:
                 raise UWInterrupted()
             if context["used"] + elapsed >= context["cap"]:
                 del running[name]
-                self.stop(name)
-                self.state["uw_running"].pop(name, None)
+                if self.stop(name):
+                    self.state["uw_running"].pop(name, None)
+                    self.remove(name)
+                # else it stays in uw_running: a later reap() stops it, never forgotten.
                 self.ledger.save()
                 self.launcher.finish(context, {
                     "exit_code": None, "reason": "arm_cap", "elapsed_seconds": elapsed,
@@ -562,11 +623,13 @@ class UWRunner:
 # ---------------------------------------------------------------- remote side (stdlib only)
 
 
-def remote_check(pins_path, hardware_path):
-    """On the host: every pinned file's bytes, then the hardware record. Exit 1 on a pin."""
+def remote_check(pins_path, hardware_path, pins_sha256):
+    """On the host: pins.json's own bytes, every pinned file's bytes, then the hardware
+    record. Exit 1 on any pin."""
+    bad = [] if file_sha256(pins_path) == pins_sha256 else [str(pins_path)]
     pins = json.loads(Path(pins_path).read_text())
-    bad = [name for name, expected in pins.items()
-           if not Path(name).is_file() or file_sha256(name) != expected]
+    bad += [name for name, expected in pins.items()
+            if not Path(name).is_file() or file_sha256(name) != expected]
     hardware = {"hostname": socket.gethostname(), "cpu_count": os.cpu_count(),
                 "python": sys.version.split()[0], "threads": os.environ.get("UWRUN_THREADS"),
                 "pins_checked": len(pins), "pins_failed": bad[:10]}
@@ -586,7 +649,7 @@ def remote_check(pins_path, hardware_path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "remote-check":
-        sys.exit(remote_check(sys.argv[2], sys.argv[3]))
-    sys.exit("usage: uw_stage_a.py remote-check PINS.json HARDWARE.json "
+    if len(sys.argv) == 5 and sys.argv[1] == "remote-check":
+        sys.exit(remote_check(sys.argv[2], sys.argv[3], sys.argv[4]))
+    sys.exit("usage: uw_stage_a.py remote-check PINS.json HARDWARE.json PINS_SHA256 "
              "(the runner itself is used through signal_limit_launch.py)")

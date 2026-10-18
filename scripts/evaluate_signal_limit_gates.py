@@ -273,8 +273,10 @@ def gate_b0(doc, s_b_ids, i_star_adapter, pi_journal_ids):
     if values["journal_ids"] != pi_journal_ids:
         raise ValueError("P0' must score the same 400 S_b candidates as P0-I")
     floor = a_floor(len(s_b_ids))
-    chosen = next((g for g in G_CHOICES if at_least(
-        values["by_group"][str(g)]["predicted_acceptance"], floor)), None)
+    # The same rule P0' sampled by (scripts/freshpool_launch/p0_screen.py choose_group: exact
+    # >=, no tolerance), so the gate and the launch can never name different G.
+    chosen = next((g for g in G_CHOICES
+                   if values["by_group"][str(g)]["predicted_acceptance"] >= floor), None)
     checks = {"g_qualifies": chosen is not None}
     if chosen is not None and values["rollout_group"] is None:
         raise ValueError(f"P0' chose no rollouts although G{chosen} qualifies")

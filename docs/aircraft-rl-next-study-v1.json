@@ -209,7 +209,7 @@
   {
    "id": "Stage 0",
    "work": "cost probe at W on train400 images: screened beta=0 dr_grpo at G8 and at G16, each until at least 8 accepted updates, with the screened sampler -> c(G8), c(G16) per accepted update (scorer included), both MEASURED (amendment 1: no extrapolation from one step); then E0 (4 vs 2+2 vs 1+3 byte-identical) for beta=0, dr_grpo, scale_rewards none at G8 AND at G16 (GB0 may choose either)",
-   "writes": "c(G) to the study state before any RL forecast or cap reads it; the fragment records e0_groups [8, 16] and c_accepted_steps per G (scripts/freshpool_launch/signal_limit_launch.py stage0_validator refuses fewer than 8)",
+   "writes": "c(G) to the study state before any RL forecast or cap reads it; the fragment records e0_groups [8, 16], the E0 checks keyed per G (checks['8'], checks['16']) and c_accepted_steps per G (scripts/freshpool_launch/signal_limit_launch.py stage0_validator refuses fewer than 8)",
    "cost_h_estimate": 3.0,
    "cost_basis": "estimate: E0 2165.8 s at G4 scaled ~2x for G8 and ~4x for G16 on the generation part, plus 2 x 8 probe steps"
   },
@@ -575,7 +575,8 @@
    {"id": "M8", "finding": "G4 says 'vs init W' but Stage B starts from I*", "verdict": "ACCEPTED (wording)", "resolution": "G4 pass text states the protocol's init is W and I* sits in both pools"},
    {"id": "M9", "finding": "VAL journals touch trie construction; the P0 confusion map saw S images now in S_b", "verdict": "ACCEPTED AS DISCLOSURE", "resolution": "label_trie.disclosures"},
    {"id": "M10", "finding": "Stage B's success depends on the algebra being wrong; Gate A raises the bar rather than predicting success", "verdict": "ACCEPTED", "resolution": "hypotheses.decision_rule_note and gates GA pass_claim"}
-  ]
+  ],
+  "integration_review_pr32": {"source": "PR #32 integration code review (three fresh-context reviewers); changes that alter what runs", "changes": ["A2 / LIM-T out-of-band presentation: no TRL CE forward or backward and no optimizer step; it pays only the p-scoring forward, as the RL screen pays only the scorer forward for a rejected candidate", "hn_sft scores candidate confusers in eval mode (deterministic argmax of pi); confuser_probability is that score", "GB0 chooses G with p0_screen.choose_group's exact >= rule", "Stage 0 fragment: E0 checks keyed per G (checks['8'], checks['16'])", "UW Stage A: shipped files are an allowlist (pinned files, src .py/.json, the stage inputs) all pinned in pins.json, itself pinned on the command line; arm clock saved every 5 s from before uwrun run; uwrun absolute and plan-pinned; a dry-run plan refuses UW execution; evidence base rows must be exactly h_select and h_gate"], "legacy_refusals": ["train_local(mode='grpo', beta=0) without an explicit loss_type refuses (it used to run TRL's default aggregation silently; no committed plan or template passes beta 0)", "a legacy freshpool stage refuses while VISION_RL_TORCH_THREADS is set (only the UW path sets the trainer's thread count)"]}
  },
  "not_used": [
   "exact_hn reward in Stage B (amendment 1: A3 is not its Dr-GRPO limit; the trainer keeps the named reward, unused here)",
