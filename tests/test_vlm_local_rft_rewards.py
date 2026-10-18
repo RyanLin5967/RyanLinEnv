@@ -506,3 +506,108 @@ def test_cli_routes_rft_and_keeps_legacy_max_steps_default(monkeypatch, capsys, 
                         "--rft-prompts-per-round", "1", "--label-hierarchy", "h.json"]):
         with pytest.raises(SystemExit):
             local.main(bad)
+
+
+# --- wave-2 integration: staged step boundary, CUDA device rules, threads fallback ----
+
+
+def test_rft_step_boundary_publishes_an_endpoint_and_continues_the_same_trajectory(
+    diagnostic, tmp_path, monkeypatch
+):
+    policies, calls, seen = [], [], []
+    fake_stack(monkeypatch, policies)
+    output = tmp_path / "rft"
+    staged = run_rft(diagnostic, output, policies, calls, seen, stop_after_steps=1)
+    assert staged["status"] == "completed" and staged["stop_reason"] == "stop_after_steps"
+    assert staged["boundary"] == {"stop_after_steps": 1}
+    assert staged["optimizer_steps"] >= 1 and len(staged["rounds"]) < 3
+    adapter = output / "final_adapter" / "adapter_model.safetensors"
+    assert staged["final_adapter_sha256"] == local._file_sha256(adapter)
+    assert "stop_after_steps" not in staged["settings"]  # a boundary, not the identity
+    resumed = run_rft(diagnostic, output, policies, calls, seen)
+    assert resumed["status"] == "completed" and resumed["stop_reason"] == "rounds"
+    assert "boundary" not in resumed and len(resumed["rounds"]) == 3
+    others, straight_calls, straight_seen = [], [], []
+    fake_stack(monkeypatch, others)
+    straight = run_rft(diagnostic, tmp_path / "straight", others, straight_calls, straight_seen)
+    assert calls == straight_calls
+    assert [s["seed"] for s in seen] == [s["seed"] for s in straight_seen]
+    assert resumed["optimizer_steps"] == straight["optimizer_steps"]
+    assert resumed["final_adapter_sha256"] == straight["final_adapter_sha256"]
+    with pytest.raises(local.LocalVLMError, match="already completed"):
+        run_rft(diagnostic, output, policies, calls, seen)
+    with pytest.raises(ValueError, match="stop_after_steps"):
+        run_rft(diagnostic, tmp_path / "bad", [], [], [], stop_after_steps=0)
+
+
+def _cuda_stack(monkeypatch, policies, bf16_native):
+    fake_stack(monkeypatch, policies)
+    inner = local.import_module
+
+    def modules(name):
+        module = inner(name)
+        if name == "torch":
+            module.float16, module.bfloat16 = "f16", "bf16"
+        return module
+
+    monkeypatch.setattr(local, "import_module", modules)
+    monkeypatch.setattr(local, "preflight", lambda *_: {
+        "adapter_source_sha256": local._file_sha256(Path(local.__file__)),
+        "cuda": {"bf16_native": bf16_native}})
+
+
+def test_rft_runs_on_cuda_under_the_train_local_device_rules(diagnostic, tmp_path,
+                                                             monkeypatch):
+    policies = []
+    profile = replace(local.Profile(), response_format="answer_only")
+    _cuda_stack(monkeypatch, policies, bf16_native=False)
+    with pytest.raises(ValueError, match="capability >= 8.0"):
+        run_rft(diagnostic, tmp_path / "bf16", policies, [], [], device="cuda",
+                profile=replace(profile, dtype="bfloat16"))
+    record = run_rft(diagnostic, tmp_path / "fp16", policies, [], [], device="cuda",
+                     profile=replace(profile, dtype="float16"))
+    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
+    assert record["settings"]["loss_scaling"]["init_scale"] == local.DEFAULT_LOSS_SCALE_INIT
+    _cuda_stack(monkeypatch, policies, bf16_native=True)
+    record = run_rft(diagnostic, tmp_path / "ampere", policies, [], [], device="cuda",
+                     profile=replace(profile, dtype="bfloat16"))
+    assert record["status"] == "completed" and "loss_scaling" not in record["settings"]
+    with pytest.raises(ValueError, match="only on --device cuda"):
+        run_rft(diagnostic, tmp_path / "cpu16", policies, [], [], device="cpu",
+                profile=replace(profile, dtype="float16"))
+
+
+def test_rft_default_threads_fall_back_to_the_env_without_entering_the_record(
+    diagnostic, tmp_path, monkeypatch
+):
+    policies = []
+    fake_stack(monkeypatch, policies)
+    monkeypatch.setenv("VLM_TORCH_THREADS", "12")
+    record = run_rft(diagnostic, tmp_path / "rft", policies, [], [])
+    assert THREADS == [12] and "torch_threads" not in record
+
+
+def test_rft_refuses_tagged_response_formats_before_any_output(diagnostic, tmp_path):
+    with pytest.raises(ValueError, match="legacy response formats"):
+        run_rft(diagnostic, tmp_path / "out", [], [], [],
+                profile=replace(local.Profile(), response_format="think_answer"))
+    assert not (tmp_path / "out").exists()
+
+
+def test_cli_forwards_the_rft_step_boundary_only_when_given(monkeypatch, capsys):
+    captured = []
+    monkeypatch.setattr(local, "rft_local", lambda *a, **k: captured.append(k) or {"ok": 1})
+    monkeypatch.setattr(local, "train_local", lambda **k: pytest.fail("not a legacy run"))
+    argv = ["--mode", "rft", "--train", "t.jsonl", "--data-spec", "s.json", "--output", "o",
+            "--model-directory", "m", "--device", "cuda", "--rft-rounds", "40",
+            "--rft-prompts-per-round", "16"]
+    assert local.main(argv) == 0 and "stop_after_steps" not in captured[-1]
+    assert local.main(argv + ["--rft-stop-after-steps", "150"]) == 0
+    assert captured[-1]["stop_after_steps"] == 150 and captured[-1]["device"] == "cuda"
+    legacy = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
+    for bad in (legacy + ["--rft-stop-after-steps", "150"],
+                argv + ["--epsilon-high", "0.28"],
+                argv + ["--dynamic-sampling-max-draws", "4"]):
+        with pytest.raises(SystemExit):
+            local.main(bad)
+    capsys.readouterr()

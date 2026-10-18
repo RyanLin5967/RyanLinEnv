@@ -4414,7 +4414,11 @@ def _rft_sft_round(
                 Budget.stopped_by_budget = True
                 control.should_training_stop = True
 
-    trainer = trl.SFTTrainer(
+    constructor = trl.SFTTrainer
+    if profile.dtype == "float16":
+        # CUDA float16: accelerate fp16 autocast + GradScaler, as train_local does.
+        constructor = _trainer_with_loss_scaling(constructor, DEFAULT_LOSS_SCALE_INIT)
+    trainer = constructor(
         model=policy,
         args=args,
         processing_class=processing_class,
@@ -4474,6 +4478,7 @@ def rft_local(
     max_steps: int | None = None,
     max_active_seconds: float | None = None,
     stop_after_rounds: int | None = None,
+    stop_after_steps: int | None = None,
     threads: int = DEFAULT_THREADS,
     _sample=None,
     _train_round=None,
@@ -4496,6 +4501,14 @@ def rft_local(
     redone from its seeded start. The endpoint is output/final_adapter, bound by
     output/local_training.json like a train_local endpoint, so the TRAIN assay and a
     later GRPO warm start accept it.
+
+    `stop_after_steps` (default off; not part of the settings identity) is a staged
+    boundary: before starting a round, stop once the cumulative optimizer updates reach
+    it, and publish that endpoint (status "completed", stop_reason "stop_after_steps").
+    Rounds are never cut, so the trajectory does not depend on where it was stopped; a
+    later call with the same settings and a larger (or no) boundary continues it.
+    `device="cuda"` runs on one GPU under the same device/dtype rules as train_local
+    (bfloat16 training needs compute capability >= 8.0; float16 uses GradScaler).
     """
     profile.validate()
     if type(threads) is not int or threads < 1:
@@ -4528,6 +4541,8 @@ def rft_local(
         type(stop_after_rounds) is not int or not 1 <= stop_after_rounds <= rounds
     ):
         raise ValueError("stop_after_rounds must be within rounds")
+    if stop_after_steps is not None and (type(stop_after_steps) is not int or stop_after_steps < 1):
+        raise ValueError("stop_after_steps must be a positive integer when given")
     if not math.isfinite(learning_rate) or not 0 < learning_rate <= 1e-2:
         raise ValueError("learning_rate must be finite and in (0, 0.01]")
     if initial_adapter_precision_transfer is not None and not init_adapter:
@@ -4594,16 +4609,26 @@ def rft_local(
         "prompt_order": "rft-order-v1 seeded permutation per pass over the TRAIN pool",
         "sampler": "released-TRL settings, num_return_sequences=K per prompt",
     }
+    if profile.dtype == "float16":
+        settings["loss_scaling"] = {
+            "scaler": "torch.amp.GradScaler via accelerate mixed_precision=fp16",
+            "autocast": "float16",
+            "init_scale": DEFAULT_LOSS_SCALE_INIT,
+            "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
+        }
     previous = None
     if (output / "local_training.json").is_file():
         previous = json.loads((output / "local_training.json").read_text())
         if previous.get("settings") != settings or previous.get("control_identity") != identity:
             raise ValueError("RFT resume must preserve exact model/data/profile/settings")
-        if previous.get("status") == "completed":
+        if previous.get("status") == "completed" and previous.get("stop_reason") != (
+            "stop_after_steps"
+        ):
             raise LocalVLMError("RFT run already completed")
     elif output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory or resume the same RFT run")
     environment = preflight(device)
+    check_device_dtype(device, profile.dtype, environment, training=True)
     if previous and previous["environment"] != environment:
         raise ValueError("RFT resume requires the original environment and adapter source")
     output.mkdir(parents=True, exist_ok=True)
@@ -4653,7 +4678,8 @@ def rft_local(
     total_steps = sum(entry["optimizer_steps"] for entry in committed)
     try:
         torch = import_module("torch")
-        _set_threads(torch, threads)
+        # An explicit threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
+        _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
         transformers, peft = (import_module(x) for x in ("transformers", "peft"))
         record["model_source"] = _verified_model_directory(model_directory, model)
         processor = _processor(model_directory, profile)
@@ -4719,6 +4745,9 @@ def rft_local(
         for index in range(len(committed), rounds):
             if stop_after_rounds is not None and index >= stop_after_rounds:
                 stop_reason = "stop_after_rounds"
+                break
+            if stop_after_steps is not None and total_steps >= stop_after_steps:
+                stop_reason = "stop_after_steps"
                 break
             if max_steps is not None and total_steps >= max_steps:
                 stop_reason = "max_steps"
@@ -4812,6 +4841,8 @@ def rft_local(
         adapter = output / "final_adapter"
         policy.save_pretrained(str(adapter))
         processor.save_pretrained(str(adapter))
+        if stop_reason == "stop_after_steps":
+            record["boundary"] = {"stop_after_steps": stop_after_steps}
         record.update(
             status="completed",
             stop_reason=stop_reason,
@@ -4937,6 +4968,11 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             max_steps=args["max_steps"],
             max_active_seconds=args["max_active_seconds"],
             stop_after_rounds=rft_args["rft_stop_after_rounds"],
+            **(
+                {"stop_after_steps": rft_args["rft_stop_after_steps"]}
+                if rft_args["rft_stop_after_steps"] is not None
+                else {}
+            ),
             threads=args.pop("threads"),
         )
     except (LocalVLMError, ValueError, OSError) as exc:
@@ -5054,6 +5090,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("rounds", "prompts-per-round", "epochs-per-round", "max-keep-per-prompt"):
         parser.add_argument(f"--rft-{name}", type=int)
     parser.add_argument("--rft-stop-after-rounds", type=int)
+    parser.add_argument("--rft-stop-after-steps", type=int)
     parser.add_argument("--rft-skip-all-correct", action="store_true")
     for name, value in asdict(Profile()).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
@@ -5066,6 +5103,7 @@ def main(argv: list[str] | None = None) -> int:
             "rft_epochs_per_round",
             "rft_max_keep_per_prompt",
             "rft_stop_after_rounds",
+            "rft_stop_after_steps",
             "rft_skip_all_correct",
         )
     }
