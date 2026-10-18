@@ -394,3 +394,26 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
 ## D34 — Qwen2.5-VL-3B CI discovery receipt (run 39133341093)
 - Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
 - Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
+
+## D35 — RL-from-I corrections adopted; confirmatory pre-registration written, unactivated (2026-10-18)
+- Adopted as binding for every RL-from-I lane: `docs/aircraft-rl-lessons-audit-2026-10-18/CORRECTIONS.md` (sha256 cc392fa0…1dcf), a byte copy of the gitignored `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`. Its evidence, `audit.md` bfc3dd1b… (C1–C19) and `critic.md` ed9c3845… (M1–M12), is copied beside it. It has two parts:
+  - **GATE 0.** No new GRPO-I arm launches until four things are measured: P0-I, the SFT-from-I curve on the same labels, the dev800 calibration against native VAL, and the placebo pairs. P0-I is a no-go below about 5% pass@8 headroom.
+  - **Arm design rules.** These cover:
+    - fp32 GRPO unless a bf16 waiver is earned, and one device class per trajectory;
+    - the LR grid, β, dynamic sampling, the screened target and multi-image updates;
+    - controls with the same LR count and best-of-k, full label access, and time matching at each checkpoint;
+    - dropped families;
+    - pool rules that exclude the 477 near-duplicates and train400, and a rebuilt confusion map;
+    - the RL-from-sftall\* family;
+    - co-tenancy, the CUDA resume E0, a fixed rung schedule, and one shared look ledger.
+- Pre-registered before any dev800 winner exists, status UNACTIVATED: `docs/aircraft-rl-from-I-confirmatory-v1.{json,md}`. It fixes:
+  - **Intake.** At most K = 3 dev800-screened arms. Each must have passed GATE 0 and the arm rules, beaten a placebo-adjusted bar B = max(0.03, placebo max), and passed an h_gate sign check. Each is frozen by adapter sha256 before replicates or VAL.
+  - **Comparator pool.** One global pool: I re-scored, every SFT-from-I control LR with E and T endpoints, and sftall\* with its LR siblings, all scored in one look.
+  - **VAL gates.** Inherited from `substantial_rl`: ≥ 0.80, +0.05 over I, +0.05 over the strongest SFT, RER ≥ 0.20, and a lower bound > 0 on a Bonferroni 98.33% interval across K.
+  - **Replicates.** Seeds 314 and 2718, run from the same frozen I. I is never retrained.
+  - **One native-VAL scoring event**, with an append-only look ledger that discloses that VAL already selected I.
+  - **Evaluator.** The frozen 85f0865 evaluator on MPS fp32, or one validated fp32 equivalent.
+  - **Disclosures.** The 477 near-duplicates; the relabel from 4-shot to about 23 labelled images per class; the confusion-map/dev600 overlap.
+  - **Prerequisite.** A full-VAL named baseline: 3B CI run 39144098450 or 27B v2.
+  - **TEST.** A once-only sealed TEST for an allowlist of roles, opened only after a VAL pass.
+- Not activated. Activation needs, among other things, a committed GATE 0 go, `splits.json` on main, a completed full-VAL named baseline, and a reviewed validator with fire tests for every refusal id.
