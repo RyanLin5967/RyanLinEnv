@@ -552,7 +552,7 @@ def test_wave2_table_follows_the_root_rl_corrections():
         assert c["response_format"] == rl["response_format"]
     # every scored row is replayed (C4) where RL scores more rows than it commits
     replay = {by_id[c["control_of"]]["family"] for c in arms
-              if c.get("control_replays") == "scanned"}
+              if c["track"] == "control" and c.get("control_replays") == "scanned"}
     assert replay == {"wave2-dapo", "wave2-rft"}
 
 
@@ -617,7 +617,8 @@ def _rft_out(tmp_path, rounds, stop_reason="stop_after_steps", epochs=1):
     for i, (kept, steps) in enumerate(rounds):
         (out / f"round-{i:02d}").mkdir()
         (out / f"round-{i:02d}" / "kept.json").write_text(json.dumps({"kept": kept}))
-        entries.append({"round": i, "optimizer_steps": steps})
+        # every real round record lists all the prompts it sampled (kept or not)
+        entries.append({"round": i, "optimizer_steps": steps, "prompt_ids": list(kept)})
     total = sum(s for _, s in rounds)
     (out / "local_training.json").write_text(json.dumps({
         "status": "completed", "stop_reason": stop_reason, "optimizer_steps": total,
@@ -1014,7 +1015,7 @@ def test_wave2_launch_refuses_until_gate0_passed(tmp_path, monkeypatch):
         (tmp_path / f"g{n}").mkdir()
         path = setup(tmp_path / f"g{n}", monkeypatch, state)
         runner.cmd_launch(A, path)
-        if gate == {"passed": True}:
+        if n == 5:  # {"passed": True}; not `gate == ...`: {"passed": 1} == {"passed": True}
             # the gate, not the allowlist, was the only thing holding them: CPU arms launch
             assert any(i.startswith("wave2-") and "cpu-float32" in i and "~ctl" not in i
                        for i in calls), calls
