@@ -337,3 +337,47 @@ The GPU became free when the freshpool study stopped. `runs/aircraft-named-basel
 (copy of chain.sh: discovery skipped, full invocations 2..32) relaunched against the unchanged root checkout
 (main da4e401, clean), so run 2 stays under one code identity (D23). The pause after full-inv-1 was for Ryan's
 machine lag, not a run defect. Root checkout must not move until chain_end.
+
+## D27 — Freshpool confirmatory phase pre-registered, then withdrawn not run (PR #21; 2026-10-18)
+- docs/aircraft-freshpool-confirmatory-v1.json/.md pre-register G5 (seeds 314 and 2718; RL at RL*'s frozen LR; SFT-E and SFT-T at every LR in Q) and a once-only sealed native TEST (G6) for exactly four allowlisted roles: RL* seed 42, the protocol-pool strongest SFT, W, and Qwen3.8-27B-8bit @815b83c0 (native-instruct profile).
+- There is one primary endpoint: RL* minus the strongest SFT under the unchanged substantial_rl gates, with the class-stratified bootstrap (20,000 draws, seed 2718). Multiplicity is a fixed sequence of conjunctive (intersection-union) families, G4 -> G5 -> G6a -> G6b. Secondary measures are descriptive only. The plan names 17 refusal conditions.
+- scripts/validate_freshpool_confirmatory.py works as follows. validate refuses a malformed plan, drift in any pin or inherited block, and an envelope receipt that exists now or ever existed in git history. authorize derives the contenders from the pinned evaluator on committed pre-TEST evidence, then writes and commits the receipt by exclusive create. claim allows one committed look per role. The 55 tests use hand-coded expected values.
+- Status: the parent study stopped at G1 (D25), so under the plan's own development_stop_before_G4 outcome it is never activated and is to be marked WITHDRAWN_NOT_RUN.
+Withdrawn in the same breath: the freshpool study stopped at G1 (D25), so per the plan's own development_stop_before_G4 rule it is never activated; status set to UNACTIVATED_WITHDRAWN_NOT_RUN. TEST stays sealed.
+
+## D28 — Freshpool results report tool (PR #22)
+gate results for aircraft-freshpool-screened-grpo-v1 are reported with scripts/freshpool_report.py. Every gate and every journal selection is recomputed by the pinned evaluator (scripts/evaluate_freshpool_gates.py, run via runpy after its bytes, launch.py's and classification_comparison.py's are hashed against the plan's pins) from journal-admitted fragments only, and must agree with the launcher's own evidence, report and selection records; any disagreement, missing fragment, or unreproducible selection is a refusal (exit 2, one JSON line), never a warning. Only H-select / H-gate assays are admitted, so VAL and TEST are never scored; H uncertainty is the protocol's paired within-class bootstrap (20,000 draws, seed 2718). The VAL target 0.8039 = a* 0.7539 + D_req 0.05 is a lower bound (G4 also needs +0.05 over the strongest SFT on VAL). Live run aircraft-freshpool-v1 stopped at G1 gate_failed (acceptance 0.2975 < 0.30, valid 0.8926 < 0.90, per gates/G1-report-1.json). Known launcher window (state.json saved before stage_completed is appended) fails closed with gate_evidence_differs_from_fragments; launch.py is unchanged because the live plan pins it.
+## D29 — Pretrained Harbor dogfood reproduction on a GitHub-hosted runner (PR #25)
+We add a manual workflow, `aircraft-harbor-dogfood.yml`, that re-runs the passing local plan `62fe9ff1…` byte-for-byte on a free `ubuntu-24.04` runner. Plan files come from the tracked archive checked against `plan-SHA256SUMS`. Host and build files come from source commit `1323eb1`. Inputs come from `setup_runtime`. The trial is `local_run.execute`, with only its Mac/Colima launch gate swapped for a first-attempt GitHub-runner gate. Pass means C1–C4 from `local_run` hold **and** the driver's `dogfood-local-result.json` exists with `pass: true` and `driver_error: null`. There are three deviations from the plan, all disclosed in `docs/aircraft-harbor-dogfood-ci.md`:
+- The outer timeout is `timeout -s INT -k 120 15300` instead of the plan's 14600 s with TERM.
+- The README step 3 cgroup read runs in the runtime image.
+- The runner recreates `/Users/idide/RyanLinEnv` rather than editing pinned plan bytes.
+
+The scope stays integration-only (TRAIN fixtures, not held-out, not RL-vs-SFT). Known risks, all unmeasured on x86:
+- About 0.2 GiB of headroom over the 14 GiB preflight.
+- SFT tree RSS has never been measured on x86.
+- C2 can fail through a uniform-reward GRPO group.
+
+A failure is reported as a result and is never retried. The status is not yet dispatched.
+
+Review check at head 9e31db3 (read-only, nothing run locally): both blocking findings are resolved and every CI check passes.
+1. The PR body now describes this PR. It lists the same four files as the diff (`.github/workflows/aircraft-harbor-dogfood.yml`, `scripts/harbor_dogfood_ci.py`, `docs/aircraft-harbor-dogfood-ci.md`, `tests/test_harbor_dogfood_ci.py`). The named-baseline plan text is gone.
+2. `criteria()` now calls `driver_record_error(root/output/local_run.RESULT_NAME)`, and `RESULT_NAME` is `dogfood-local-result.json` in the v4 `local_run.py`. That function returns an error if the file is missing or unreadable, if `driver_error` is non-null, or if `pass` is not true. The error is passed into `local_run.evaluate`, which sets pass to `driver_error is None and all(criteria)`. A new parametrized planted test, `test_driver_failure_fails_although_evidence_passes`, covers a CalledProcessError, the wall guard, `pass: false` and a missing file. In each case C1–C4 still pass, but the receipt fails and the exit code is 1.
+
+CI (`gh pr checks 25`): cpu, detection, harbor and local-vlm passed in both runs.
+## D30 — Named open-weight baseline Qwen2.5-VL-3B on free CI, pre-registered unactivated (PR #27)
+named open-weight baseline on free CI, pre-registered and UNACTIVATED. Adds plan aircraft-named-baseline-ci-qwen2.5-vl-3b-v1 (docs/aircraft-named-baseline-ci-plan-v1.json): Qwen/Qwen2.5-VL-3B-Instruct@66285546d2b821cf421d4f5eb2576359d3770cd3, all 13 files pinned by SHA256. It runs zero-shot in bf16 on free ubuntu-24.04 CPU runners as a sharded workflow_dispatch matrix. Prompt, greedy predict, the EOS-terminated parse_label(allow_reasoning=True) and the metrics/bootstrap (20,000 draws, seed 2718) come from the frozen evaluator at 85f0865. All 41 sources are materialised and hash-checked against reports/2026-10-17-controlled400-native-val/plan.json (cf871cfb...).
+
+Disclosed deviations: bf16 on CPU, repetition_penalty 1.0, 4 threads, and ATen AVX2 with oneDNN off on every host. The pinned kernel path was added because an AVX-512 bf16 host changed one greedy TRAIN answer. The PR plumbing canary requires the pre-registered answers.
+
+Stages: plumbing (3 TRAIN images, never scored), discovery (the D13 100-ID sample, exactly 4 shards) and full VAL (3,333 images). Full VAL is gated on a committed discovery receipt from one first-attempt run on main, made by the same runner and workflow SHA256, with at least 90% valid answers. Its shard count must satisfy N >= ceil(3333 / floor((19800-900-max fixed setup) / max(330, 3.0 x (slowest discovery shard mean latency + mean fetch)))).
+
+VAL is dispatched only from refs/heads/main. The merge refuses any missing, duplicate or misplaced image, any non-completed outcome, any re-run shard, any foreign run and any identity mismatch. No TEST data is touched.
+
+Activation requires root to commit an activated copy, which may differ only in activated, activation and status, and to pass its SHA256.
+
+Review (2026-10-18), against head fca62ef with read-only checks: all three blocking findings are resolved. (1) Merge gaps and duplicates: verify_shards and read_shard_records refuse every case. (2) Prompt and parse drift: the frozen Backend.predict, _deadline, the run_chunk output checks and the terminated-only parse were reused unchanged, and the merge re-parses every response. (3) Pinning: the model revision is the full hash and equals the frozen MODEL_REVISIONS, with per-file SHA256 and hashed torch locks. CI is green on fca62ef: runs 39124910292, 39124907507 and 39124910205.
+## D31 — Housekeeping and compute (2026-10-18)
+- Closed unmerged (branches kept): #20 and #23 (duplicates from agents that died; superseded by reviewed #25 and #27); #19 contingency draft (fresh verification found unresolved blocking issues; superseded by PR #26 and the exploratory sweep PR #29).
+- 27B MLX baseline run 2 paused permanently on the Mac after full invocations 1-3 (37.5 GB wired memory lagged Ryan's Mac). Replacement: v2 plan on UWaterloo big-RAM CPU hosts (PR #28), a different engine identity; v1 run-2 partial results are not merged with v2.
+- Heavy compute moved to UWaterloo Engineering hosts via uwrun (Ryan's order). Exploratory sweeps there use TRAIN-derived holdouts only; native VAL and sealed TEST are untouched until a recipe is pre-registered.

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plan_id": "aircraft-freshpool-confirmatory-v1",
-  "status": "UNACTIVATED_DRAFT_ROOT_REVIEW_REQUIRED",
+  "status": "UNACTIVATED_WITHDRAWN_NOT_RUN",
   "activated": false,
   "activation": null,
   "created_date": "2026-10-18",
