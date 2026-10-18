@@ -126,7 +126,7 @@ def trust(tmp_path, monkeypatch):
 
 def make_endpoint(trust, output, *, mode="sft", steps=2, max_steps=2, max_active_seconds=None,
                   committed=10.0, learning_rate=1e-4, seed=42, ids=None, train=None,
-                  delta=0.01):
+                  delta=0.01, metadata=None):
     """Model-free native trajectory written through the real native receipt functions."""
     output = Path(output)
     ids = list(ids or PROMPT_IDS[:steps])
@@ -136,7 +136,7 @@ def make_endpoint(trust, output, *, mode="sft", steps=2, max_steps=2, max_active
     values = {name: value.copy() for name, value in trust.values.items()}
     name = sorted(key for key in values if ".k_proj.lora_B." in key)[0]
     values[name] += np.float32(delta)
-    raw = numeric(values)
+    raw = numeric(values) if metadata is None else save(values, metadata=metadata)
     config = (trust.initial / "adapter_config.json").read_bytes()
     for directory in (checkpoint, output / "final_adapter"):
         directory.mkdir(exist_ok=True)
@@ -597,6 +597,24 @@ def test_endpoint_whose_weights_equal_init_is_refused(trust):
         assert not (trust.root / f"zero-{mode}" / "expanded_endpoint.json").exists()
     pin = make_endpoint(trust, trust.root / "real", delta=0.01)
     assert e.validate_endpoint(trust.root / "real", expected_receipt_sha256=pin)
+
+
+def test_endpoint_with_init_tensors_but_other_file_bytes_is_refused(trust):
+    # Same tensors as INIT, different safetensors metadata: the file SHA differs from INIT's,
+    # so only the tensor fingerprint can catch this zero-update endpoint.
+    output = trust.root / "zero-rewritten"
+    with pytest.raises(ValueError, match="equal the approved INIT"):
+        make_endpoint(trust, output, delta=0.0,
+                      metadata={"format": "pt", "rewritten": "same tensors, other bytes"})
+    final = output / "final_adapter/adapter_model.safetensors"
+    init = trust.initial / "adapter_model.safetensors"
+    assert sha(final) != sha(init)
+    final_values, init_values = load_file(str(final)), load_file(str(init))
+    assert sorted(final_values) == sorted(init_values)
+    assert all(np.array_equal(final_values[name], init_values[name]) for name in init_values)
+    with pytest.raises(ValueError, match="equal the approved INIT"):
+        e.endpoint_payload(output)
+    assert not (output / "expanded_endpoint.json").exists()
 
 
 # Legacy source identity: what merging this changes, and what it does not.
