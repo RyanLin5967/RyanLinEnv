@@ -225,6 +225,9 @@ def test_state_rules(tmp_path):
     with pytest.raises(start.Refused, match="state_is_terminal"):
         start.check_state(state, resume=True)
     (state / "state.json").write_text(json.dumps({"status": "running"}))
+    (state / "lock").write_text("")  # created, pid not yet written: ask, never allow
+    with pytest.raises(start.Refused, match="lock_unreadable"):
+        start.check_state(state, resume=True)
     (state / "lock").write_text(str(os.getpid()))
     with pytest.raises(start.Refused, match="launcher_still_running"):
         start.check_state(state, resume=True)
@@ -362,6 +365,25 @@ def test_chain_bounds_the_run(tmp_path):
     result = subprocess.run(command, capture_output=True, text=True, timeout=120)
     assert result.returncode == 3, result.stderr
     assert json.loads(record.read_text())["max_seconds_reached"] is True
+
+
+IGNORES_TERM = """
+import signal, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(120)
+"""
+
+
+def test_chain_kills_a_launcher_that_ignores_the_bound(tmp_path):
+    command, record = run_chain(tmp_path, "hang", "--max-seconds", "1",
+                                "--kill-after-seconds", "2")
+    (tmp_path / "scripts" / "freshpool_launch" / "launch.py").write_text(IGNORES_TERM)
+    started = time.monotonic()
+    result = subprocess.run(command, capture_output=True, text=True, timeout=60)
+    assert result.returncode == -signal.SIGKILL, result.stderr
+    assert time.monotonic() - started < 30
+    finished = json.loads(record.read_text())
+    assert finished["max_seconds_reached"] is True and finished["killed_after_bound"] is True
 
 
 def test_status_reads_a_running_stage(tmp_path):

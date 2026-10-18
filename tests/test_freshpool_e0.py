@@ -246,6 +246,7 @@ def test_identical_trajectories_pass_every_check(tmp_path, monkeypatch):
     invocation = fragment["measurements"]["invocations"][0]
     assert invocation["peak_mps_driver_allocated_bytes"] == 3 * 1024**3
     assert invocation["peak_mps_tensor_allocated_bytes"] == 2 * 1024**3
+    assert invocation["peak_rss_bytes"] > 0
     assert fragment["measurements"]["update_seconds"] == [10.0, 10.0, 10.0, 10.0]
     assert fragment["measurements"]["generated_tokens"] == 4 * 8
     assert sorted(fragment["measurements"]["checkpoint_bytes"]) == [

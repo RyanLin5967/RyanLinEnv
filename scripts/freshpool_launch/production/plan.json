@@ -18,12 +18,12 @@
   "TOKENIZERS_PARALLELISM": "false"
  },
  "file_sha256": {
-  "scripts/freshpool_launch/launch.py": "eb043fd77a6491defa805d628eae744dd66b9aa8de03f4eae600e349aed05cab",
-  "scripts/freshpool_launch/phase_worker.py": "6d628bde891f97a1546ef0dc4bb284c68aa6845a5b0bc18feefb8f648f4f09e7",
-  "scripts/freshpool_launch/e0_gate.py": "a4e4471347c235e181d167e97c4790475474a3592e42cedd284500edf0808049",
+  "scripts/freshpool_launch/launch.py": "6d1edfb69817fc75e4ddc0e1c1695aa90fa4150c6e52852095abff5ccba17313",
+  "scripts/freshpool_launch/phase_worker.py": "d9fa40f189be3578c416714a27bc8213e79daad73c87d732b7c1a2b94c5acf05",
+  "scripts/freshpool_launch/e0_gate.py": "b4789bb8038fe272939eb9b680465fe2e8970155487b54031ea2d3ceabb5c517",
   "scripts/freshpool_launch/trainer_fragment.py": "4ebec1414125c58476ff4cfa357f65e4ecd05b9338518fe76319be0fbd370724",
   "scripts/freshpool_launch/h_assay.py": "2cd176e7dae039b9e9a77618139e6fed5392374d4a6fb10d2b4185fba10a091a",
-  "scripts/freshpool_launch/p0_screen.py": "81ab40a9eb1ababee1e43639dc27ff72efd271b2a81d5cdc7a43144ba6d4d806",
+  "scripts/freshpool_launch/p0_screen.py": "cf2388a3ec75d8a7536cab2b6b2f42625b549dabc33b9283567e502494004e74",
   "scripts/evaluate_freshpool_gates.py": "5aec7fce12512aca66ba3d81999fb0ebe0cb9aeb07b284d684c5691a070e01f0",
   "src/vision_rl/__init__.py": "261e995154354af0e788443081926e244aec3fad71df5ea043d172013a9bc2b6",
   "src/vision_rl/aircraft_data.py": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
@@ -143,7 +143,7 @@
   "e0": {
    "kind": "train",
    "entry": "e0_gate:main",
-   "entry_sha256": "a4e4471347c235e181d167e97c4790475474a3592e42cedd284500edf0808049",
+   "entry_sha256": "b4789bb8038fe272939eb9b680465fe2e8970155487b54031ea2d3ceabb5c517",
    "argv": [
     "--fragment",
     "{fragment}",
@@ -239,7 +239,7 @@
   "p0": {
    "kind": "assay",
    "entry": "p0_screen:main",
-   "entry_sha256": "81ab40a9eb1ababee1e43639dc27ff72efd271b2a81d5cdc7a43144ba6d4d806",
+   "entry_sha256": "cf2388a3ec75d8a7536cab2b6b2f42625b549dabc33b9283567e502494004e74",
    "argv": [
     "--scan-manifest",
     "{manifest_s_scan_seed42}",

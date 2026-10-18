@@ -190,6 +190,10 @@ def main(argv=None):
         if thread is not None:
             thread.join(timeout=2)
         stats["elapsed_seconds"] = time.monotonic() - started
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS, KiB Linux
+        stats["peak_rss_bytes"] = peak if sys.platform == "darwin" else peak * 1024
         write(summary, stats)
 
 

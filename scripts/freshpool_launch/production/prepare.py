@@ -394,7 +394,7 @@ def runtime_pins():
     return pins, plan["environment"]
 
 
-def launch_plan(receipt_paths, evidence_path):
+def launch_plan(receipt_paths, evidence_path, b4):
     pins, environment = runtime_pins()
     environment = {**environment,
                    "PYTHONPATH": f"{FROZEN / 'src'}:{DATA_ROOT}/runs/vlm-local-libs/site-packages"}
@@ -422,7 +422,7 @@ def launch_plan(receipt_paths, evidence_path):
             "assay_slowest_chunk_seconds": {"greedy": GREEDY_CHUNK_MAX, "g4_seed": G4_CHUNK_MAX},
             "rule": "cap = 1.25 x forecast per arm (launch.py CAP_FACTOR); see prepare.py"},
         "templates": templates(),
-        "b4_edge_extension": False,
+        "b4_edge_extension": b4,
         "w_endpoint": {"adapter_sha256": W_SHA, "adapter_path": str(W_ADAPTER)},
         "owner_patterns": OWNER_PATTERNS,
         "g0": {"manifest_dir": str(MANIFESTS), "manifest_sha256": sha(manifest),
@@ -457,7 +457,8 @@ def main(argv=None):
             print(json.dumps({"status": "stale", "files": stale}))
             return 1
     receipts = {"protocol_revision": ACTIVATED, "decision_record": DECISION, "branch": BRANCH}
-    plan = dumps(launch_plan(receipts, EVIDENCE))
+    b4 = json.loads(outputs[BRANCH])["b4_edge_extension"]
+    plan = dumps(launch_plan(receipts, EVIDENCE, b4))
     plan_sha = hashlib.sha256(plan.encode()).hexdigest()
     if args.write:
         (REPO / PLAN).write_text(plan)

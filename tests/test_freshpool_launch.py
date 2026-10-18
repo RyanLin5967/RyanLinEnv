@@ -200,7 +200,7 @@ def g1_document(p, mixed_groups, non_canonical=0):
                 odd = c and seen < non_canonical
                 seen += int(odd)
                 completions.append({"correct": c, "valid": True, "eos": True,
-                                    "canonical_tokenization": not odd,
+                                    "canonical_tokenization": not odd, "label_only": True,
                                     "completion_ids": [7, 7, 2] if odd else
                                     [5, 2] if c else [3, 2]})
             rollouts.append({"id": image, "seed": seed, "completions": completions})
@@ -1266,6 +1266,36 @@ def test_python_program_reads_argv0_only():
     assert not launch.python_program("rg vision_rl.vlm_local_training src")
     assert not launch.python_program("/bin/zsh -c python -m vision_rl.vlm_local_training")
     assert not launch.python_program("")
+    # argv[0] with a space in its path is still the interpreter.
+    assert launch.python_program("/Users/x/Application Support/bin/python3 -m vision_rl.x")
+    assert launch.python_program("/usr/local/bin/python3.12-intel64 x.py")
+    assert launch.python_program("/usr/bin/pythonw x.py")
+
+
+def test_switch_ignores_correct_completions_that_are_not_the_bare_label(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    document = g1_document(0.5, 112, non_canonical=5)
+    for group in document["rollouts"]:
+        for completion in group["completions"]:
+            if completion["completion_ids"] == [7, 7, 2]:
+                completion["label_only"] = False  # e.g. a think block before the label
+    fixture.scenario["p0"]["payload"] = document
+    state = run_to_g2_stop(launch, fixture)
+    document = json.loads(Path(state["screen_tokenizations"]["path"]).read_text())
+    assert document["switch"] is True
+    assert document["sequences"] == {label: [[5, 2]] for label in LABELS}
+
+
+def test_undefined_non_canonical_share_stops(tmp_path, monkeypatch):
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    launcher = launch.Launcher.__new__(launch.Launcher)
+    launcher.state = {}
+    with pytest.raises(launch.Stop) as caught:
+        launcher.freeze_screen_tokenizations({"values": {"non_canonical_share_of_correct": None}})
+    assert caught.value.reason == "g1_non_canonical_share_undefined"
+    del fixture
 
 
 def run_to_g2_stop(launch, fixture):

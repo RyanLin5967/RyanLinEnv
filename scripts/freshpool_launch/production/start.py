@@ -3,8 +3,8 @@
   python3 scripts/freshpool_launch/production/start.py            # new launch
   python3 scripts/freshpool_launch/production/start.py --resume   # continue a running state
 
-Run it from the main checkout after the launch PR is merged and pulled. It returns within
-about a minute; the study then runs detached (chain.py) for about a day. Steps, each a refusal
+Run it from the main checkout after the launch PR is merged and pulled. It returns once G0
+is verified and chain.py is started; the study then runs detached. Steps, each a refusal
 (exit 2, one JSON line naming the reason) rather than a warning:
 
  1. quiet mode off (``~/.claude/QUIET`` absent): the fan guard demotes busy Python to
@@ -99,8 +99,12 @@ def check_state(state_directory, resume):
     if lock.exists():
         try:
             holder = int(lock.read_text().strip())
+        except ValueError:
+            # Empty (the launcher is between creating and writing it) or corrupt: ask.
+            raise Refused("lock_unreadable", lock=str(lock)) from None
+        try:
             os.kill(holder, 0)
-        except (ValueError, ProcessLookupError):
+        except ProcessLookupError:
             pass
         except PermissionError:
             raise Refused("launcher_still_running", lock=str(lock)) from None

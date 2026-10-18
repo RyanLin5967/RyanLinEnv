@@ -72,7 +72,6 @@ import hashlib
 import json
 import math
 import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -154,14 +153,11 @@ class Runner:
         completed = subprocess.run(command, timeout=CHILD_TIMEOUT_SECONDS)
         guards = sorted(set(self.guard_dir.glob("*.json")) - before)
         guard = json.loads(guards[-1].read_text()) if guards else {}
-        # ru_maxrss is bytes on macOS and KiB on Linux; it is the largest child so far.
-        maxrss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         record = {"label": label, "exit_code": completed.returncode,
                   "elapsed_seconds": guard.get("elapsed_seconds"),
+                  "peak_rss_bytes": guard.get("peak_rss_bytes"),  # this child's own peak
                   "peak_mps_driver_allocated_bytes": guard.get("peak_driver_allocated_bytes"),
-                  "peak_mps_tensor_allocated_bytes": guard.get("peak_tensor_allocated_bytes"),
-                  "children_peak_rss_bytes": maxrss if sys.platform == "darwin"
-                  else maxrss * 1024}
+                  "peak_mps_tensor_allocated_bytes": guard.get("peak_tensor_allocated_bytes")}
         self.invocations.append(record)
         return completed.returncode
 
@@ -259,6 +255,16 @@ def ledger_cumulative(run):
 
 
 def evaluate(runs, tamper, w_sha, scan_ids):
+    """Every check is computed under its own guard: a malformed trainer output makes that
+    check false (with the error in ``detail``), never a crash."""
+    try:
+        return _evaluate(runs, tamper, w_sha, scan_ids)
+    except Exception as exc:  # a field the checks need is missing: every check false
+        return dict.fromkeys(CHECKS, False), None, {
+            "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _evaluate(runs, tamper, w_sha, scan_ids):
     base = runs["uninterrupted"]
     every = list(runs.values())
     records = [r["record"] for r in every] + [p for r in every for p in r["part_records"]]
@@ -340,7 +346,13 @@ def main(argv=None):
 
     def tamper_after_split(directory, step):
         target = stage / "altered_reference"
-        tamper.update(corrupt_reference(directory, target, step))
+        try:
+            tamper.update(corrupt_reference(directory, target, step))
+        except (E0Error, OSError, ValueError, KeyError) as exc:
+            # Not corruptible as designed: the forced fire did not happen, so its check is false.
+            tamper.update(exit_code=None, record_status=None,
+                          error=f"not corrupted: {type(exc).__name__}: {exc}")
+            return
         code = run("altered_reference", trainer_argv(common, target, STEPS, step))
         record = json.loads((target / "local_training.json").read_text())
         tamper.update(exit_code=code, record_status=record.get("status"),
@@ -353,7 +365,7 @@ def main(argv=None):
     checks, agreement, detail = evaluate(runs, tamper, w_sha, scan_ids)
     base = runs["uninterrupted"]
     rows = base["audit_rows"]
-    seconds = [row["completed_state_active_seconds"] for row in rows]
+    seconds = [row.get("completed_state_active_seconds") for row in rows]
     fragment = {
         "scope": "protocol real_learning_and_resume_gate (study E0), engineering compute",
         "steps": STEPS,
@@ -365,7 +377,8 @@ def main(argv=None):
             "invocations": run.invocations,
             "update_committed_active_seconds": dict(zip(
                 [str(r["step"]) for r in rows], seconds)),
-            "update_seconds": [b - a for a, b in zip([0.0, *seconds], seconds)],
+            "update_seconds": [b - a if type(a) in (int, float) and type(b) in (int, float)
+                               else None for a, b in zip([0.0, *seconds], seconds)],
             "generated_tokens": sum(sum(g.get("completion_tokens", [])) for g in base["groups"]),
             "checkpoint_bytes": base["checkpoint_bytes"],
         },

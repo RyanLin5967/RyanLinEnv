@@ -264,8 +264,17 @@ def python_program(command):
     or the framework binary Python. A shell, grep or editor whose arguments merely name an
     owner pattern is not an accelerator owner (a substring match on every command line would
     let `rg vision_rl.vlm_local_training` stop a 30-hour study)."""
-    program = command.split(None, 1)[0] if command.strip() else ""
-    return re.fullmatch(r"python[0-9.]*", Path(program).name, re.I) is not None
+    # argv[0] may contain spaces (".../Application Support/.../python3"), so try every
+    # prefix that ends at whitespace and holds no option (" -"); prefer refusing a non-owner
+    # whose arguments end in a python path over missing an owner.
+    words = command.split(" ")
+    for end in range(1, len(words) + 1):
+        prefix = " ".join(words[:end])
+        if " -" in prefix:
+            break
+        if re.fullmatch(r"pythonw?[0-9.]*(?:-[A-Za-z0-9_]+)?", Path(prefix).name, re.I):
+            return True
+    return False
 
 
 def git_committed(path):
@@ -1370,9 +1379,12 @@ class Launcher:
         if "screen_tokenizations" in self.state:
             return self.state["screen_tokenizations"]
         share = (g1.get("values") or {}).get("non_canonical_share_of_correct")
-        if share is not None and (not is_number(share) or not 0 <= share <= 1):
+        if share is None:
+            # No correct P0 sample: the switch's input is undefined, so it cannot be decided.
+            raise Stop("g1_non_canonical_share_undefined")
+        if not is_number(share) or not 0 <= share <= 1:
             raise Stop("g1_non_canonical_share_invalid", share=share)
-        switch = share is not None and share > ALT_TOKENIZATION_SHARE
+        switch = share > ALT_TOKENIZATION_SHARE
         sequences = {}
         if switch:
             labels = {}
@@ -1380,7 +1392,10 @@ class Launcher:
                 labels[row["id"]] = row["label"]
             for group in self.state["completed"]["p0"]["fragment"]["rollouts"]:
                 for completion in group["completions"]:
-                    if completion.get("correct") is not True:
+                    # Only a bare label is a tokenization of it; a correct completion that
+                    # carried a think block or tags is not summed into p.
+                    if completion.get("correct") is not True or completion.get(
+                            "label_only") is not True:
                         continue
                     ids = completion.get("completion_ids")
                     if (not isinstance(ids, list) or not ids

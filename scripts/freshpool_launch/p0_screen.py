@@ -144,6 +144,8 @@ def g1_document(rows, scores, samples, adapter_sha, labels):
                 completions.append({
                     "correct": value == row["label"], "valid": value is not None,
                     "eos": ended, "canonical_tokenization": ids == canonical[row["id"]],
+                    # The response is the label alone (no think block, tags or other text).
+                    "label_only": completion.get("response", "").strip() == row["label"],
                     # The launcher builds the alt-tokenization file from the correct ones.
                     "completion_ids": ids})
             rollouts.append({"id": row["id"], "seed": seed, "completions": completions})

@@ -10,7 +10,8 @@ every stage and gate. This file only:
   * forwards SIGTERM/SIGINT/SIGHUP to the launcher, which journals ``launch_interrupted``
     and exits 3 (resumable: the interrupted stage re-runs from scratch on --resume);
   * bounds the whole run at MAX_SECONDS, then sends the launcher SIGTERM (the same
-    resumable interrupt), so nothing runs unbounded;
+    resumable interrupt) and, if it is still alive KILL_AFTER_SECONDS later, SIGKILL (the
+    state stays running with a stale lock: also resumable);
   * writes ``chain.json`` (running, then finished with the launcher's exit code and final
     state) next to its log.
 It never restarts the launcher by itself: an interrupted or stopped study waits for a person
@@ -27,7 +28,8 @@ import sys
 import time
 from pathlib import Path
 
-MAX_SECONDS = 72 * 3600  # the seed-42 development forecast is ~25 h (README); 72 h bounds it
+MAX_SECONDS = 72 * 3600  # about 3x the README's development estimate (an estimate, not a fact)
+KILL_AFTER_SECONDS = 600  # after the bound's SIGTERM, SIGKILL the launcher's process group
 
 
 def write(path, value):
@@ -45,6 +47,7 @@ def main(argv=None):
     parser.add_argument("--chain-file", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=MAX_SECONDS)
+    parser.add_argument("--kill-after-seconds", type=float, default=KILL_AFTER_SECONDS)
     args = parser.parse_args(argv)
     command = [sys.executable, "-B", str(args.launcher), "--plan", str(args.plan),
                "--expected-plan-sha256", args.expected_plan_sha256,
@@ -66,13 +69,16 @@ def main(argv=None):
 
     for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(signum, forward)
-    bounded = False
+    bounded = None
     while launcher.poll() is None:
-        if not bounded and time.time() - started > args.max_seconds:
-            bounded = True
+        if bounded is None and time.time() - started > args.max_seconds:
+            bounded = time.time()
             record["max_seconds_reached"] = True
             launcher.send_signal(signal.SIGTERM)
-        time.sleep(5)
+        elif bounded is not None and time.time() - bounded > args.kill_after_seconds:
+            record["killed_after_bound"] = True
+            launcher.kill()
+        time.sleep(1)
     code = launcher.wait()
     if keeper is not None:
         try:
