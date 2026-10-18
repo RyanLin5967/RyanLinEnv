@@ -2579,15 +2579,70 @@ def test_egsft_nostd_band_scales_loss_by_2p_and_zeroes_outside(tmp_path):
     loss = four.compute_loss(policy, _gold_batch(4))
     assert float(loss.detach()) == 0.0
     loss.backward()
-    assert theta.grad.tolist() == [0.0, 0.0]  # zero loss, the update still happens
+    assert theta.grad.tolist() == [0.0, 0.0]  # zero loss, and the optimizer step is skipped
+    assert four._vision_rl_skip_step is True
     rows = [json.loads(x) for x in (tmp_path / "egsft-4.jsonl").read_text().splitlines()]
     assert [row["in_band"] for row in rows] == [True, False]
+    assert [row["optimizer_step"] for row in rows] == [True, False]
     assert rows[1]["weight"] == 0.0 and rows[1]["p"] == pytest.approx(0.099, rel=1e-6)
     # u_8(0.099) = 1 - 0.901^8 - 0.099^8 = 0.566: a larger G widens the band.
     eight = trainer(8)
     eight._vision_rl_prompt_id = "hard"
     loss = eight.compute_loss(policy, _gold_batch(4))
     assert float(loss.detach()) == pytest.approx(2 * 0.099 * base_loss, rel=1e-6)
+
+
+def test_egsft_band_skips_the_optimizer_step_and_leaves_adamw_state_untouched(tmp_path):
+    torch = pytest.importorskip("torch")
+    theta = torch.nn.Parameter(torch.tensor([0.5, -1.0]))
+
+    class Base:
+        state = SimpleNamespace(global_step=0)
+        optimizer = None
+
+        def create_optimizer(self):
+            self.optimizer = torch.optim.AdamW([theta], lr=0.1, weight_decay=0.0)
+            return self.optimizer
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            return (theta * torch.tensor([2.0, 3.0])).sum()
+
+    def build(band_group):
+        trainer = local._trainer_with_egsft(
+            Base, eos_token_ids=[_EOS], suppress_tokens=[_IMAGE], temperature=1.0,
+            group_size=8, journal=tmp_path / f"guard-{band_group}.jsonl",
+            scale_rewards="none", band_group=band_group)()
+        optimizer = trainer.create_optimizer()
+        # torch's LR scheduler rebinds optimizer.step.__func__; the guard must survive it.
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+        return trainer, optimizer, scheduler
+
+    def update(trainer, optimizer, scheduler, marker, identifier):
+        trainer._vision_rl_prompt_id = identifier
+        optimizer.zero_grad()
+        trainer.compute_loss(_BigramPolicy(_PLANTED, 8), _gold_batch(marker)).backward()
+        optimizer.step()
+        scheduler.step()
+
+    trainer, optimizer, scheduler = build(4)
+    # Marker 5: p = .495, in B_4 -> a real AdamW step moves theta and creates its state.
+    update(trainer, optimizer, scheduler, 5, "mixed")
+    after_first = theta.detach().clone()
+    assert not torch.equal(after_first, torch.tensor([0.5, -1.0]))
+    state = {k: v.clone() for k, v in optimizer.state[theta].items()}
+    assert int(state["step"]) == 1
+    # Marker 4: p = .099, outside B_4: AdamW would still move theta on its first moment
+    # (m = .9 m_prev, nonzero) if it stepped; the guard must leave theta and state as they are.
+    update(trainer, optimizer, scheduler, 4, "hard")
+    assert torch.equal(theta.detach(), after_first)
+    assert all(torch.equal(optimizer.state[theta][k], v) for k, v in state.items())
+    # Back in band: the step happens again and AdamW's count resumes at 2.
+    update(trainer, optimizer, scheduler, 5, "mixed")
+    assert not torch.equal(theta.detach(), after_first)
+    assert int(optimizer.state[theta]["step"]) == 2
+    # Without a band nothing is wrapped: the legacy EG-SFT optimizer is the plain one.
+    plain, plain_optimizer, _ = build(None)
+    assert not getattr(plain_optimizer.step, "_vision_rl_band_guard", False)
 
 
 def test_grpo_loss_type_and_scale_rewards_reach_trainer_kwargs(tmp_path):
@@ -2699,25 +2754,42 @@ def _write_json(path, value):
     return path
 
 
+def _confusion_doc(confusers):
+    # scripts/build_label_trie.py's map format; only "confusers" is read by the trainer.
+    return {"schema_version": 1, "map": {
+        gold: {"confusers": options, "family": [], "observed": options}
+        for gold, options in confusers.items()}}
+
+
+def _taxonomy_doc(variants):
+    # scripts/build_label_trie.py's taxonomy format; only "variants" is read by the trainer.
+    return {"schema_version": 1, "variants": variants, "families": {}, "manufacturers": {}}
+
+
+def _trie_doc(paths, eos_ids):
+    # scripts/build_label_trie.py's trie format: EOS-free paths per label plus the EOS IDs,
+    # with its content hash written out from the builder's stated rule (compact, sorted,
+    # ASCII JSON without sha256/provenance).
+    document = {"schema_version": 1, "eos_ids": eos_ids, "labels": list(paths),
+                "entries": {label: {"paths": options} for label, options in paths.items()}}
+    body = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return {**document, "sha256": hashlib.sha256(body.encode()).hexdigest(),
+            "provenance": {"note": "fixture"}}
+
+
 def test_label_loss_modes_bind_their_frozen_resources(diagnostic, tmp_path, monkeypatch):
     pytest.importorskip("torch")
-    confusion = _write_json(
-        tmp_path / "confusion.json", {"schema_version": 1, "confusers": {"blue": ["red"]}}
-    )
+    confusion = _write_json(tmp_path / "confusion.json", _confusion_doc({"blue": ["red"]}))
     taxonomy = _write_json(
         tmp_path / "taxonomy.json",
-        {
-            "schema_version": 1,
-            "labels": {
+        _taxonomy_doc(
+            {
                 "blue": {"family": "F", "manufacturer": "M"},
                 "red": {"family": "F", "manufacturer": "M"},
-            },
-        },
+            }
+        ),
     )
-    trie = _write_json(
-        tmp_path / "trie.json",
-        {"schema_version": 1, "sequences": {"blue": [[5, 1]], "red": [[6, 1]]}},
-    )
+    trie = _write_json(tmp_path / "trie.json", _trie_doc({"blue": [[5]], "red": [[6]]}, [1]))
     expected = {
         "hn_sft": ("confusion_map", confusion, "completion-only-SFT-plus-confuser-unlikelihood"),
         "hls_sft": ("taxonomy", taxonomy, "hierarchical-label-smoothed-completion-only-SFT"),
@@ -2753,9 +2825,7 @@ def test_signal_limit_options_refuse_before_model_access(diagnostic, tmp_path, m
         max_steps=4,
         train_only=True,
     )
-    self_map = _write_json(
-        tmp_path / "self.json", {"schema_version": 1, "confusers": {"blue": ["blue"]}}
-    )
+    self_map = _write_json(tmp_path / "self.json", _confusion_doc({"blue": ["blue"]}))
     for kwargs, match in (
         ({"mode": "sft", "loss_type": "dr_grpo"}, "only to GRPO"),
         ({"mode": "sft", "scale_rewards": "none"}, "only to GRPO"),
@@ -2891,7 +2961,7 @@ def test_hn_sft_without_confuser_is_plain_ce_and_refuses_bad_resources(tmp_path)
         trainer.compute_loss(policy, _label_batch())
     with pytest.raises(ValueError, match="own confuser"):
         local.load_confusion_map(
-            _write_json(tmp_path / "m.json", {"schema_version": 1, "confusers": {"g": ["g"]}}),
+            _write_json(tmp_path / "m.json", _confusion_doc({"g": ["g"]})),
             ["g", "a"],
         )
     mismatched = _label_trainer(
@@ -2915,7 +2985,7 @@ def test_hls_targets_and_loss_follow_the_taxonomy(tmp_path):
     assert local.hls_targets("C1", taxonomy) == {"C1": 1.0}
     with pytest.raises(ValueError, match="every declared label"):
         local.load_taxonomy(
-            _write_json(tmp_path / "t.json", {"schema_version": 1, "labels": taxonomy}),
+            _write_json(tmp_path / "t.json", _taxonomy_doc(taxonomy)),
             ["A1", "A2", "B1", "C1", "D1"],
         )
     policy = _BigramPolicy(_LABELS, 9)

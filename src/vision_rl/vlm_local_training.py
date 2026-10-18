@@ -23,6 +23,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from importlib import import_module, metadata
 from pathlib import Path
+from types import MethodType
 from typing import Any
 
 from . import expanded_contract as _expanded
@@ -1198,6 +1199,29 @@ def egsft_in_band(p: float, band_group: int, threshold: float = EGSFT_BAND_THRES
     return group_useful_probability(p, band_group) >= threshold
 
 
+def _skip_flagged_optimizer_steps(trainer, optimizer) -> None:
+    """Make `optimizer.step` a no-op while `trainer._vision_rl_skip_step` is true.
+
+    The EG-SFT band (signal-limit A2/LIM-T): an image outside B_G must not move the adapter.
+    A zero loss alone is not enough, because constant AdamW still steps on its momentum,
+    and the screened RL sampler it stands in for takes no optimizer step on a rejected
+    candidate. Skipping `step` leaves parameters and AdamW state (moments and step count)
+    untouched; the presentation still counts toward `max_steps`. The wrapper is a bound
+    method so torch's LR-scheduler step tracking (which rebinds `step.__func__`) still works.
+    """
+    if getattr(optimizer.step, "_vision_rl_band_guard", False):
+        return
+    original = optimizer.step
+
+    def step(_optimizer, *args, **kwargs):
+        if getattr(trainer, "_vision_rl_skip_step", False):
+            return None
+        return original(*args, **kwargs)
+
+    step._vision_rl_band_guard = True
+    optimizer.step = MethodType(step, optimizer)
+
+
 def _restrict_logits(logits, allowed_tokens):
     """Set every token outside `allowed_tokens[i]` to -inf at completion position i.
 
@@ -1468,9 +1492,51 @@ def trie_position_mask(trie: dict, completion_ids, *, require_on_trie: bool = Tr
     return mask
 
 
+def _label_trie_content_sha256(document: dict) -> str:
+    """The builder's content hash (scripts/label_trie.py trie_sha256): SHA256 of the compact,
+    key-sorted, ASCII JSON of the document without its ``sha256`` and ``provenance``."""
+    body = {key: value for key, value in document.items() if key not in ("sha256", "provenance")}
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+
+
 def load_label_trie(path: Path) -> tuple[dict, dict, str]:
-    """(sequences, trie, sha256 of the file) from a label-trie tokenisations file."""
-    sequences = _load_tokenizations(Path(path))
+    """(sequences, trie, sha256 of the file) from the label-trie file that
+    scripts/build_label_trie.py writes (data/fgvc-aircraft-2013b/audit/label-trie-*.json).
+
+    Format: {"schema_version": 1, "eos_ids": [...], "labels": [...], "entries": {label:
+    {"paths": [[token ids, EOS excluded], ...], ...}}, "sha256": content hash, ...}. Every
+    path is expanded with each EOS ID, so a sequence ends at its only EOS. Refuses a file
+    whose content no longer hashes to its own ``sha256`` or whose labels and entries differ.
+    """
+    document = json.loads(Path(path).read_text())
+    entries = document.get("entries") if isinstance(document, dict) else None
+    eos_ids = document.get("eos_ids") if isinstance(document, dict) else None
+    if (
+        not isinstance(entries, dict)
+        or document.get("schema_version") != 1
+        or not isinstance(eos_ids, list)
+        or not eos_ids
+        or any(type(token) is not int or token < 0 for token in eos_ids)
+        or document.get("labels") != list(entries)
+        or any(
+            not isinstance(entry, dict) or not isinstance(entry.get("paths"), list)
+            for entry in entries.values()
+        )
+    ):
+        raise ValueError(
+            "label trie requires schema_version 1, eos_ids, and labels matching entries"
+        )
+    if document.get("sha256") != _label_trie_content_sha256(document):
+        raise ValueError("label trie content does not hash to its recorded sha256")
+    sequences = {}
+    for label, entry in entries.items():
+        if any(
+            not isinstance(option, list) or set(option) & set(eos_ids) for option in entry["paths"]
+        ):
+            raise ValueError(f"label trie paths of {label!r} must be EOS-free token-id lists")
+        sequences[label] = [[*option, eos] for option in entry["paths"] for eos in eos_ids]
     if not sequences:
         raise ValueError("label trie file holds no sequences")
     return sequences, label_trie(sequences), _file_sha256(Path(path))
@@ -1512,14 +1578,23 @@ def label_trie_logits_processor(trie: dict, prompt_length: int) -> LabelTrieLogi
 
 
 def load_confusion_map(path: Path, labels: list[str]) -> dict[str, list[str]]:
-    """Frozen confuser map {"schema_version": 1, "confusers": {gold: [confuser, ...]}}.
+    """Frozen confuser map as scripts/build_label_trie.py writes it
+    (data/fgvc-aircraft-2013b/audit/p0-confusion-map.json): {"schema_version": 1, "map":
+    {gold: {"confusers": [...], "family": [...], "observed": [...]}}}; returns
+    {gold: confusers}.
 
     Every key and confuser is a declared label; a gold label never confuses itself.
     """
     value = json.loads(Path(path).read_text())
-    confusers = value.get("confusers") if isinstance(value, dict) else None
-    if value.get("schema_version") != 1 or not isinstance(confusers, dict):
+    entries = value.get("map") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or not isinstance(entries, dict)
+        or any(not isinstance(entry, dict) for entry in entries.values())
+    ):
         raise ValueError("confusion map requires schema_version 1 and gold -> confuser lists")
+    confusers = {gold: entry.get("confusers") for gold, entry in entries.items()}
     for gold, options in confusers.items():
         if (
             gold not in labels
@@ -1534,14 +1609,17 @@ def load_confusion_map(path: Path, labels: list[str]) -> dict[str, list[str]]:
 
 
 def load_taxonomy(path: Path, labels: list[str]) -> dict[str, dict[str, str]]:
-    """TRAIN-annotation taxonomy file.
+    """TRAIN-annotation taxonomy file as scripts/build_label_trie.py writes it
+    (data/fgvc-aircraft-2013b/audit/taxonomy-train-only.json).
 
-    Format: {"schema_version": 1, "labels": {label: {"family": f, "manufacturer": m}}}.
+    Format: {"schema_version": 1, "variants": {label: {"family": f, "manufacturer": m}},
+    ...}; the builder's "families"/"manufacturers" groupings are derived and not read.
     """
     value = json.loads(Path(path).read_text())
-    entries = value.get("labels") if isinstance(value, dict) else None
+    entries = value.get("variants") if isinstance(value, dict) else None
     if (
-        value.get("schema_version") != 1
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
         or not isinstance(entries, dict)
         or set(entries) != set(labels)
         or any(
@@ -2057,7 +2135,9 @@ def _trainer_with_egsft(
 
     `scale_rewards="none"` is the Dr-GRPO limit, stopgrad[2p]; `band_group` G_B multiplies
     by 1[u_{G_B}(p) >= 0.5], the screened sampler's band: an image outside it contributes
-    zero loss but still takes its optimizer update. Both are recorded per row only when used.
+    zero loss and takes NO optimizer step (no AdamW momentum step either; design review
+    of the signal-limit study, finding 4), while its presentation still counts toward
+    max_steps. Both are recorded per row only when used (`in_band`, `optimizer_step`).
 
     Rows carry an invocation_id. The physical `journal` is append-only and keeps rows
     of steps a resume later discarded and re-ran; the canonical weights are the
@@ -2079,6 +2159,13 @@ def _trainer_with_egsft(
 
     class ExpectedGradientTrainer(base):
         _vision_rl_egsft_entries = committed
+        _vision_rl_skip_step = False
+
+        def create_optimizer(self, *args, **kwargs):
+            optimizer = super().create_optimizer(*args, **kwargs)
+            if band_group is not None:
+                _skip_flagged_optimizer_steps(self, self.optimizer)
+            return optimizer
 
         def _save_checkpoint(self, model, trial):
             super()._save_checkpoint(model, trial)
@@ -2127,7 +2214,11 @@ def _trainer_with_egsft(
             }
             if in_band is not None:
                 row["in_band"] = in_band
+                row["optimizer_step"] = in_band
             if torch.is_grad_enabled():
+                # Read by the band guard on this update's optimizer.step (one prompt per
+                # update, no gradient accumulation).
+                self._vision_rl_skip_step = in_band is False
                 # Checkpoint save refuses anything but one row per committed step.
                 self._vision_rl_egsft_entries.append(row)
             with journal_io_context() if journal_io_context else nullcontext():
@@ -3442,7 +3533,8 @@ def train_local(
             settings["egsft"]["band"] = {
                 "group_size": egsft_band_group,
                 "threshold": EGSFT_BAND_THRESHOLD,
-                "mask": "1[u_G(p) >= threshold]; outside: zero loss, update still counted",
+                "mask": "1[u_G(p) >= threshold]; outside: zero loss and no optimizer step "
+                "(AdamW state untouched), presentation still counted toward max_steps",
             }
     if loss_type not in (None, "grpo"):
         settings["loss_type"] = loss_type

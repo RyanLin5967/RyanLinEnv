@@ -231,3 +231,89 @@ def test_script_upper_bound_table_by_hand():
     lying = {"x": {"n": 2, "correct": 1, "invalid": 0}, "y": per_class["y"]}
     with pytest.raises(SystemExit, match="upper bound"):
         builder.upper_bound_table(_comparison(lying, 0.25, 1), completions, gold, ["x", "y"])
+
+
+# ---------------------------------------------------------------- trainer loaders agree
+# The trainer (src/vision_rl/vlm_local_training.py) reads the builder's committed files; these
+# tests pin that the two sides read one format and one trie, so the cce_sft mask and the
+# constrained-greedy processor see exactly the T the coverage check certified.
+
+AUDIT = Path(__file__).resolve().parents[1] / "data" / "fgvc-aircraft-2013b" / "audit"
+
+
+def _local():
+    return pytest.importorskip("vision_rl.vlm_local_training")
+
+
+def test_trainer_reads_the_builders_fixture_trie_as_the_same_tree(tmp_path):
+    local = _local()
+    path = tmp_path / "trie.json"
+    path.write_text(json.dumps(fixture_trie(slack=3)))
+    sequences, trie, file_sha = local.load_label_trie(path)
+    # Hand-written: "A" -> [1]; "AB-1" -> [7], [3,4,5], [1,2,4,5] (slack 3 keeps all), + EOS.
+    assert sequences == {"AB-1": [[1, 2, 4, 5, EOS], [3, 4, 5, EOS], [7, EOS]],
+                         "A": [[1, EOS]]}
+    assert local.trie_allowed(trie, []) == [1, 3, 7]
+    assert local.trie_allowed(trie, [1]) == [2, EOS]
+    assert local.trie_allowed(trie, [1, EOS]) is None  # complete
+    assert file_sha == hashlib.sha256(path.read_bytes()).hexdigest()
+    reader = lt.LabelTrie(fixture_trie(slack=3))
+    for prefix in ([], [1], [1, 2], [1, 2, 4], [3], [3, 4], [7]):
+        assert set(local.trie_allowed(trie, prefix)) == set(reader.allowed(prefix))
+
+
+@pytest.mark.parametrize(("mutate", "match"), [
+    (lambda d: d["entries"]["A"]["paths"].append([6]), "hash"),  # content changed, sha kept
+    (lambda d: d.update(labels=["A", "AB-1"]), "labels matching"),
+    (lambda d: d.pop("eos_ids"), "eos_ids"),
+    (lambda d: d.update(schema_version=2), "schema_version"),
+])
+def test_trainer_refuses_a_changed_or_malformed_trie(tmp_path, mutate, match):
+    local = _local()
+    document = fixture_trie()
+    mutate(document)
+    path = tmp_path / "trie.json"
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match=match):
+        local.load_label_trie(path)
+
+
+def test_trainer_refuses_an_eos_inside_a_path_and_the_old_sequences_format(tmp_path):
+    local = _local()
+    document = fixture_trie()
+    document["entries"]["A"]["paths"] = [[1, EOS]]
+    document["sha256"] = lt.trie_sha256(document)  # consistent hash, invalid content
+    path = tmp_path / "trie.json"
+    path.write_text(json.dumps(document))
+    with pytest.raises(ValueError, match="EOS-free"):
+        local.load_label_trie(path)
+    path.write_text(json.dumps({"schema_version": 1, "sequences": {"A": [[1, EOS]]}}))
+    with pytest.raises(ValueError, match="eos_ids"):
+        local.load_label_trie(path)
+
+
+def test_committed_artifacts_load_in_the_trainer_with_one_trie():
+    local = _local()
+    path = AUDIT / "label-trie-qwen2vl2b.json"
+    document = json.loads(path.read_text())
+    labels = document["labels"]
+    assert len(labels) == 100
+    sequences, trie, _ = local.load_label_trie(path)
+    # g0-preview.json: 1,092 label paths, 2,184 with the two EOS IDs.
+    assert sum(len(v) for v in sequences.values()) == 2184 == document["path_count"]
+    assert local._label_trie_content_sha256(document) == lt.trie_sha256(document)
+    reader = lt.LabelTrie(document)
+    for options in sequences.values():
+        for full in options:
+            # Every certified path is on the trainer's trie, end to end, and both readers
+            # allow the same next tokens at every prefix.
+            assert local.trie_position_mask(trie, full)[-1] == sorted(reader.allowed(full[:-1]))
+            for cut in range(len(full)):
+                assert set(local.trie_allowed(trie, full[:cut])) == set(
+                    reader.allowed(full[:cut]))
+    confusers = local.load_confusion_map(AUDIT / "p0-confusion-map.json", labels)
+    assert set(confusers) == set(labels)
+    # Hand-checked in the committed map: 707-320's only confuser is DC-8 (observed).
+    assert confusers["707-320"] == ["DC-8"]
+    taxonomy = local.load_taxonomy(AUDIT / "taxonomy-train-only.json", labels)
+    assert taxonomy["737-300"] == {"family": "Boeing 737", "manufacturer": "Boeing"}
