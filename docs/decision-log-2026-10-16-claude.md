@@ -188,7 +188,32 @@ diagnostics, never held-out results.
 - `run.py` `judge_strict` reports a gate_failed stop with no `gate_finished` event, or an unreadable report, as a problem instead of raising TypeError.
 - Not handled, stated in the launch README: SFT-T refuses if RL* accepted every scanned candidate (scanned == accepted manifest); the dry-run E0 entry is not the production E0 entry.
 
-## D19 — Freshpool production launch package; protocol activated; branch and D_req published (2026-10-17)
+## D19 — Expanded-LoRA v2 integrated into tracked code; review defects fixed (unactivated)
+- Source: `runs/aircraft-expanded-lora-v2-integration` and its review `claude-review-v1` (D1-D7). Branch `expanded-lora-v2`.
+- Kept: `expanded_converter.py` byte-identical (sha 32fb2927..., pinned by `approval.json`; ruff E501/I001 ignored for that one file). The 112-tensor legacy grader (`vlm_local_task_builder.py`) is untouched. The expanded profile is a separate class `ExpandedProfile` (`adapter_profile = qwen2vl2b-language-seven-r8-v1`), so every legacy `asdict(Profile())` identity is byte-identical. v2 instead added the field to `Profile` itself, which would have changed every legacy control identity and broken legacy resumes.
+- The transform hooks (v2 `build_native.py`) are applied by hand to the current tracked trainer. Tracked `vlm_local_training.py` (78bb91dc...) has moved past v2's base 5d608416, so v2's hash-gated transform and its AST-equality test cannot apply to it. Expanded training also refuses EG-SFT and SFT-T continuation.
+- D1/D1b: an endpoint loads only from `<run>/final_adapter`, and its bytes must match the pinned endpoint. `attach_numeric` takes the validated weights SHA and refuses if the deserialized bytes differ from it.
+- D3: the endpoint records the SHA of every `vision_rl/*.py` (`environment.expanded_source_closure`, written in `train_local`), and verification needs the verifier's closure to be identical. `base-source.json` is superseded: tracked siblings differ from the controlled400 snapshot by design.
+- D5: INIT is compared by hashes, not by path. The verifier passes `initial_path`.
+- D6: `validate_endpoint` needs a 64-hex pin. Implicit use (TRAIN assay, attach) needs the pin listed in the data file `expanded_assets/endpoint-pins.json`, which is empty, so nothing is accepted until a reviewed change lists a pin. The registry is not a .py file, so registering a pin leaves the bound source closure unchanged. The first draft kept it in the module, and the review showed that registering a pin would then have invalidated the endpoint itself.
+- Endpoints verify only against the exact `vision_rl` source that produced them: a verifier checks out that commit. `publish_endpoint` runs after `train_local`'s try block, so a refusal there cannot rewrite a completed native record as failed.
+- D2: `check_matched_controls` now needs: pins; distinct endpoints; declared exposure or time arms with distinct (arm, LR); exhausted budgets; and an explicit `accepted_subset` whose prompts RL committed.
+- D4: `tests/test_expanded_lora.py` trains a tiny random Llama with released TRL (SFT and GRPO, 2 steps) on a tiny trust root, then publishes and verifies the endpoint and runs tamper negatives. It runs in the CI local-vlm job, which also lists it. `train_local` itself is still not exercised end to end, because it requires the pinned Qwen directory.
+- Not committed: the 4.3 MB warm `adapter_model.safetensors` (gitignored). Production expanded paths refuse until an operator places it.
+- Legacy source identity does change. `asdict(Profile())` is unchanged, but tracked `vlm_local_training.py` moves from 78bb91dc... to this branch's hash, and a native run binds that file's SHA (`environment.adapter_source_sha256`). So after merge: any legacy run started from the tracked tree at 78bb91dc refuses to resume (`resume requires the original environment and adapter source`), and any plan or recipe context that pins the tracked file (aircraft_recipe `source_hashes`, a freshpool plan's `file_sha256`, a task_builder `SOURCE_FILES` snapshot) stops matching and must be re-cut. Measured 2026-10-17 by grep of `runs/`, `recipes/`, `tasks/`, `scripts/`, `jobs/` and every local and origin branch: nothing pins 78bb91dc (the same grep finds the older trainer hashes 5d608416, 61abbc79, 8d77d31a and others, so it reads those records). Runs that cannot resume: none recorded. Studies that run from a frozen copy (native-VAL `runs/aircraft-native-val-activation-v1/frozen/src`) hash their own copy and are unaffected; `test_frozen_copy_studies_keep_their_own_source_identity` checks that.
+- Review fixes (review of b79218c): an endpoint whose final weights equal INIT (by file SHA or tensor fingerprint) is refused even with `global_step >= 1`; the tiny GRPO test forces within-group reward variance and asserts changed tensors, a final SHA unlike INIT and changed logits; `predict_train_subset(expanded_initial_path=...)` passes this machine's INIT path to both the identity check and `attach_numeric`; lineage and GRPO-reference expected values are computed from the files and the native audit's convention, not from the contract.
+- After merging origin/main (PR #12, D18): main's tracked `vlm_local_training.py` is already 6497cf3a, not 78bb91dc (PR #12's SFT-T KeyError fix moved it), so the legacy-identity break above applies from 6497cf3a; measured by `git show origin/main:src/vision_rl/vlm_local_training.py | shasum -a 256`. Added `test_endpoint_with_init_tensors_but_other_file_bytes_is_refused`: INIT tensors re-saved with other safetensors metadata (file SHA differs) are refused by `endpoint_payload` via the tensor fingerprint; fire-checked by disabling that branch, which the existing equal-INIT test does not catch.
+
+## D20 — Named open-weight baseline plan pre-registered, unactivated (waits for the GPU)
+- `docs/aircraft-named-baseline-plan-v1.{json,md}` + `scripts/aircraft_named_baseline.py`: Qwen3.8-27B-8bit native-instruct on native VAL, discovery (100 IDs pinned, sha c8d73a4c…, D13 salt) then full 3,333 behind a gate recomputed from the discovery journal (no unknown/hard-stop, valid >= 0.90, projected active <= 172,800 s; full cap = min(172,800, 2 x projection), a hard ceiling: an invocation starts only if charged + its wall cap fits). Projection overhead per invocation = max(mean load, charged seconds not spent generating / invocations); full refuses a discovery ledger from another plan sha or source set.
+- Same prompt (sha 859dd366…, equal to the evaluator bundle's), same parser (parse_label source sha f75d20ee…, equal in the evaluator frozen copy and main) and same equal-class scorer as the eight-endpoint evaluator. Decoding differs (one seeded native sample vs greedy) and is disclosed.
+- Only the direct-answer profile is planned; xhigh stays unmeasured, so the claim label is "native-instruct", not "strongest". Any unknown/hard-stop outcome halts the stage for review. Runner refuses the committed plan; activation needs a root-approved copy and its sha on every invocation. Not run: the native-VAL evaluation owns the GPU.
+- Gate made consistent with the hard ceiling (review fix): full VAL proceeds only if projection + one full 18,060 s invocation wall cap <= the full cap. Without it, an accurate projection within 172,800 s (e.g. 160,000 s) passed the gate yet the ceiling would refuse the last chunk; with the 2x term binding, a projection below 18,060 s (e.g. a zero-latency discovery) passed and then every full invocation was refused. Chosen over sizing the last wall cap by its chunk because the shortfall is not confined to the last chunk when 2x binds.
+
+## D21 — Named Qwen3.8-27B-8bit baseline activated (discovery first)
+- Activated copy docs/aircraft-named-baseline-plan-v1-activated.json, sha256 4c9845f0faac78a5e526f1ac3aa81e6fb764894510af69ddf76738299180132b, committed before any baseline call. Discovery (100 protocol-salted VAL images) runs first under supervise_local_vlm; its gate result is committed before full VAL. Single accelerator owner; TEST untouched.
+
+## D22 — Freshpool production launch package; protocol activated; branch and D_req published (2026-10-17)
 - Activation: `docs/aircraft-rl-protocol-freshpool-v1-activated.json`, protocol id
   `fgvc-aircraft-freshpool-screened-grpo-v1-activated-2026-10-17`, is a separately identified copy of
   the unactivated revision `docs/aircraft-rl-protocol-freshpool-v1.json` (pinned by sha256 in its
@@ -197,10 +222,12 @@ diagnostics, never held-out results.
   `fgvc-aircraft-freshpool-screened-grpo-v1`, equal to the G0 manifests' `hash_protocol_id`, so H and the
   VAL discovery sample cannot reshuffle. `launch.py` now requires exactly this form. Frozen in the copy:
   actor model revision and manifest, W (`f05840be…`), data spec, answer-only prompt text sha256, parser
-  grammar, trainer source sha256, processor file hashes, 27B baseline revision and manifest. The 27B
-  native profile is not frozen; it is selected on the VAL discovery sample before any full comparison and
-  is needed only at G6. Scope: seed-42 development through G3b and EG-SFT; VAL/TEST only via the
-  native-VAL package.
+  grammar, trainer source sha256, processor file hashes, 27B baseline revision and manifest, and the
+  activated named-baseline plan (D21, sha256 pinned; native-instruct profile, D20), which only G6 uses.
+  Scope: seed-42 development through G3b and EG-SFT; VAL/TEST only via the native-VAL package.
+- GPU ownership: the named-baseline runner (D21) does not detect other accelerator processes, so it must
+  not be started while this study runs; this launcher refuses to start or continue a stage while it runs
+  (owner patterns include `aircraft_named_baseline.py` and `supervise_local_vlm.py`).
 - Branch (`docs/aircraft-freshpool-branch-receipt-v1.json`, from `reports/2026-10-17-controlled400-native-val/comparison.json`):
   B0 pass (W valid+EOS 0.9727 ≥ 0.95, 0 evaluator failures); B1 pass (W 0.6784 in [0.15, 0.85]);
   B2 a* = 0.7539 (sft-1e5-time), **D_req = 0.05, full mode** (G3a/G3b margin +0.02); an RL arm needs VAL
