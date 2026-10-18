@@ -2573,6 +2573,22 @@ def _continuation_identity(parent_checkpoint: Path, identity: dict, settings: di
     }
 
 
+def gold_nll_improved(record: dict, after_nll: float) -> bool | None:
+    """Whether the TRAIN-diagnostic gold NLL fell, or None when there is no pre-score.
+
+    A continuation (SFT-T) records no ``before_train_gold_nll``, so for it this is None:
+    nothing scores a pre-training gold NLL, and nothing compares it with the parent. The
+    parent's own ``probe.after_train_gold_nll`` is not a substitute, because the 8
+    diagnostic rows are drawn from each run's own TRAIN (the parent's accepted manifest,
+    SFT-T's scanned one), so the two NLLs are over different rows. Indexing the key raised
+    KeyError in every train-only continuation after it had trained and saved its adapter,
+    before the endpoint receipt, so SFT-T could never finish; found by the freshpool CPU
+    dry run (scripts/freshpool_dryrun).
+    """
+    before = record.get("before_train_gold_nll")
+    return None if before is None else after_nll < before
+
+
 def _trainer_with_continuation(base, parent_global_step: int):
     """Replay the new TRAIN from row 0 at the parent's next step, across resumes.
 
@@ -3195,7 +3211,8 @@ def train_local(
         }
         # Trainer owns restoration. Avoid labeling fresh initialization as a resumed pre-score.
         if continuation is not None and not checkpoint:
-            # The policy is still the fresh LoRA here; the parent endpoint is scored there.
+            # The policy is still the fresh LoRA here, so no pre-score is taken; the probe's
+            # gold_nll_improved is None for a continuation (see gold_nll_improved).
             record["before_note"] = "continuation: pre-score is the parent run's endpoint"
         elif not checkpoint:
             before, predictions = _evaluate(
@@ -3280,7 +3297,7 @@ def train_local(
                 "reload_nll_agrees": math.isclose(
                     after_nll, reload_nll, rel_tol=1e-5, abs_tol=1e-5
                 ),
-                "gold_nll_improved": after_nll < record["before_train_gold_nll"],
+                "gold_nll_improved": gold_nll_improved(record, after_nll),
                 "gradient_and_weight_change": audit.summary["nonzero_gradient_steps"] > 0
                 and audit.summary["changed_tensors"] > 0,
                 "mixed_reward_groups": reward.stats["mixed_groups"] if mode == "grpo" else None,

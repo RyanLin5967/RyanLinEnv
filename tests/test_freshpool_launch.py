@@ -308,8 +308,9 @@ RETIRED_RECORD = (
 COMMON = ["--stage-id", "{stage_id}", "--fragment", "{fragment}", "--arm-dir", "{arm_dir}"]
 TRAIN_TAIL = ["--lr", "{lr}", "--cap", "{active_cap}"]
 RL_WRAPPER = ["--output", "{arm_dir}/trainer"]
-SFT_E_TAIL = TRAIN_TAIL + ["--train", "{accepted_manifest}", "--stop-after-steps", "600",
-                           "--max-steps", "1200"]
+SEQUENTIAL_CYCLE = ["--order", "sequential", "--cycle"]
+SFT_E_TAIL = TRAIN_TAIL + SEQUENTIAL_CYCLE + [
+    "--train", "{accepted_manifest}", "--stop-after-steps", "600", "--max-steps", "1200"]
 
 
 def git(directory, *args):
@@ -627,6 +628,20 @@ def test_plan_declaring_a_resume_command_is_refused(tmp_path, monkeypatch, capsy
     ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--stop-after-steps", "600",
                          "--max-steps", "1200", "--"] + TRAIN_TAIL},
      "sft_e_template_stop_after_steps_not_600"),
+    # sft_e: max_steps above the 600-row accepted manifest needs sequential replay that
+    # cycles, or the trainer refuses the arm; again only after the --.
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200", "--order", "sequential"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
+      + ["--stop-after-steps", "600", "--max-steps", "1200", "--cycle"]},
+     "sft_e_template_not_sequential_cycle"),
+    ({"sft_e": COMMON + ["--output", "{arm_dir}/t", "--order", "sequential", "--cycle", "--"]
+      + TRAIN_TAIL + ["--stop-after-steps", "600", "--max-steps", "1200"]},
+     "sft_e_template_not_sequential_cycle"),
 ])
 def test_bad_stage_template_is_refused_at_plan_load(tmp_path, monkeypatch, capsys, patch,
                                                     reason):
@@ -646,7 +661,8 @@ def test_stage_template_equals_form_is_accepted(tmp_path, monkeypatch, capsys):
     fixture = Fixture(tmp_path, monkeypatch, template_patch={
         "rl150": {"argv": COMMON + ["--output={arm_dir}/trainer", "--"] + TRAIN_TAIL},
         "sft_e": {"argv": COMMON + ["--output", "{arm_dir}/t", "--"] + TRAIN_TAIL
-                  + ["--stop-after-steps=600", "--max-steps=601"]}})
+                  + ["--stop-after-steps=600", "--max-steps=601", "--order=sequential",
+                     "--cycle"]}})
     assert launch.main([*fixture.argv, "--verify-only"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "verified"
 
@@ -915,6 +931,114 @@ def test_mps_driver_guard_fails_the_stage(tmp_path, monkeypatch):
     summaries = list((tmp_path / "state" / "guards").glob("e0-*.json"))
     assert summaries
     assert "exceeded 24 GiB" in json.loads(summaries[0].read_text())["stop_reason"]
+
+
+PHASE_ENTRY = '''
+def main(argv):
+    return 0 if argv[:1] == ["forwarded"] else 9
+'''
+REFUSED_DEVICE = "ACCELERATE_TORCH_DEVICE must be"
+REFUSED_FORWARDED = "differs from ACCELERATE_TORCH_DEVICE"
+
+
+@pytest.mark.parametrize("device, dry_run, kind, extra, code, guard", [
+    # A real launch: mps, with the entries' default --device (mps) or an explicit mps.
+    ("mps", False, "train", [], 0, "armed"),
+    ("mps", False, "assay", ["--device", "mps"], 0, "armed"),
+    # The dry run: cpu only under --dry-run, and only with every forwarded --device cpu.
+    ("cpu", True, "assay", ["--device", "cpu"], 0, "not armed: device cpu"),
+    ("cpu", True, "train", ["--", "--device=cpu"], 0, "not armed: device cpu"),
+    # cpu without the dry-run marker is a production cpu run: refused.
+    ("cpu", False, "assay", ["--device", "cpu"], 1, REFUSED_DEVICE),
+    ("mps", True, "assay", ["--device", "mps"], 1, REFUSED_DEVICE),
+    ("cuda", False, "train", [], 1, REFUSED_DEVICE),
+    (None, False, "train", [], 1, REFUSED_DEVICE),
+    # The reviewer's case: env cpu, an assay leaving out --device (h_assay defaults to mps).
+    ("cpu", True, "assay", [], 1, REFUSED_FORWARDED),
+    ("cpu", True, "assay", ["--device=mps"], 1, REFUSED_FORWARDED),
+    ("cpu", True, "train", ["--device", "cpu", "--", "--device", "mps"], 1, REFUSED_FORWARDED),
+    ("mps", False, "assay", ["--device", "cpu"], 1, REFUSED_FORWARDED),
+])
+def test_phase_worker_device_is_mps_unless_dry_run(tmp_path, device, dry_run, kind, extra,
+                                                    code, guard):
+    """ACCELERATE_TORCH_DEVICE must be mps; cpu only under --dry-run (which then requires it),
+    and every forwarded --device, or the entries' mps default, must equal it, so an inference
+    entry that does not go through Accelerate cannot load on an unguarded MPS. Refusals happen
+    before any import. The fake torch reports MPS available in every case."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "phase_entry.py").write_text(PHASE_ENTRY)
+    (pkg / "torch.py").write_text(FAKE_TORCH)
+    env = {**os.environ, "PYTHONPATH": str(pkg), "PYTORCH_ENABLE_MPS_FALLBACK": "0",
+           "HF_HUB_OFFLINE": "1"}
+    env.pop("ACCELERATE_TORCH_DEVICE", None)
+    env.pop("FAKE_DRIVER_BYTES", None)
+    if device is not None:
+        env["ACCELERATE_TORCH_DEVICE"] = device
+    guards = tmp_path / "guards"
+    result = subprocess.run(
+        [sys.executable, "-B", str(PACKAGE / "phase_worker.py"), "--guard-dir", str(guards),
+         "--stage", "s", "--kind", kind, "--entry", "phase_entry:main",
+         "--entry-sha256", sha_file(pkg / "phase_entry.py"),
+         *(["--dry-run"] if dry_run else []), "--", "forwarded", *extra],
+        env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == code, result.stderr
+    if code:
+        assert guard in result.stderr
+        assert not guards.exists()
+        return
+    (summary,) = guards.glob("s-*.json")
+    stats = json.loads(summary.read_text())
+    assert (stats["status"], stats["device"], stats["dry_run"]) == (
+        "completed", device, dry_run)
+    if guard == "armed":
+        assert stats["recommended_max_memory_bytes"] == 48 * GiB
+        assert "mps_driver_guard" not in stats
+    else:
+        assert stats["mps_driver_guard"] == guard
+        assert "recommended_max_memory_bytes" not in stats
+
+
+@pytest.mark.parametrize("device, marker, reason", [
+    ("cpu", None, "plan_device_not_allowed"),
+    ("cpu", False, "plan_device_not_allowed"),
+    ("mps", True, "plan_device_not_allowed"),
+    ("cpu", "true", "dry_run_marker_not_bool"),
+    ("mps", 1, "dry_run_marker_not_bool"),
+])
+def test_plan_device_is_mps_unless_explicit_dry_run(tmp_path, monkeypatch, capsys, device,
+                                                    marker, reason):
+    """cpu in a plan without the literal ``"dry_run": true`` marker is refused at plan load,
+    before any stage; the environment matches the plan, so only the device rule can fire."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.environment["ACCELERATE_TORCH_DEVICE"] = device
+    monkeypatch.setenv("ACCELERATE_TORCH_DEVICE", device)
+    fixture.write()
+    plan = json.loads(fixture.plan_path.read_text())
+    if marker is not None:
+        plan["dry_run"] = marker
+    fixture.plan_path.write_text(json.dumps(plan, indent=1))
+    fixture.plan_sha = sha_file(fixture.plan_path)
+    assert launch.main([*fixture.argv, "--verify-only"]) == 2
+    printed = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (printed["status"], printed["reason"]) == ("refused", reason)
+    assert fixture.stages_called() == []
+
+
+def test_explicit_dry_run_plan_on_cpu_passes_plan_load(tmp_path, monkeypatch, capsys):
+    """Control for the refusals above: the marked cpu plan verifies."""
+    launch = load_launch()
+    fixture = Fixture(tmp_path, monkeypatch)
+    fixture.environment["ACCELERATE_TORCH_DEVICE"] = "cpu"
+    monkeypatch.setenv("ACCELERATE_TORCH_DEVICE", "cpu")
+    fixture.write()
+    plan = json.loads(fixture.plan_path.read_text())
+    plan["dry_run"] = True
+    fixture.plan_path.write_text(json.dumps(plan, indent=1))
+    fixture.plan_sha = sha_file(fixture.plan_path)
+    assert launch.main([*fixture.argv, "--verify-only"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "verified"
 
 
 def test_changed_pinned_entry_is_refused(tmp_path, monkeypatch):

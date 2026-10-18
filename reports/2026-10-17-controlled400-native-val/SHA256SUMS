@@ -1,0 +1,5 @@
+a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5  reports/2026-10-17-controlled400-native-val/comparison.json
+4345f20efb3dc1d61228ac9a106bf1247685fb78b8ed49a7df5b6a743ff2fdd6  reports/2026-10-17-controlled400-native-val/execution.json
+cf871cfb5d5bb5d0b4aa475ed05ae859d08afed2a15105a9b561385af9bc5896  reports/2026-10-17-controlled400-native-val/plan.json
+34eb477a11e686ee9d38876672474186a5536a6a4c6bbe700f53161d66486acb  reports/2026-10-17-controlled400-native-val/supervision-envelope-2-journal.jsonl
+6d813ff2969bcb88c25c6110512a913d17e86e3aacfe357b9bd2b09377d6a949  reports/2026-10-17-controlled400-native-val/supervision-envelope-3-journal.jsonl
