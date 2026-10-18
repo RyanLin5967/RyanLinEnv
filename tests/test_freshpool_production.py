@@ -380,9 +380,10 @@ def test_chain_kills_a_launcher_that_ignores_the_bound(tmp_path):
     (tmp_path / "scripts" / "freshpool_launch" / "launch.py").write_text(IGNORES_TERM)
     started = time.monotonic()
     result = subprocess.run(command, capture_output=True, text=True, timeout=60)
-    assert result.returncode == -signal.SIGKILL, result.stderr
+    assert result.returncode != 0, result.stderr
     assert time.monotonic() - started < 30
     finished = json.loads(record.read_text())
+    assert finished["launcher_exit_code"] == -signal.SIGKILL
     assert finished["max_seconds_reached"] is True and finished["killed_after_bound"] is True
 
 
