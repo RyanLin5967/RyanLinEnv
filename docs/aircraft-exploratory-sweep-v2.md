@@ -404,7 +404,11 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   `--prompts-per-update P` (1..32, default 1) and `--skip-zero-advantage-steps true`
   (beta 0 only), plus the arm keys `prompts_per_update` and `skip_zero_advantage_steps` in
   `arm_exec`. A host receipt lists `prompts_per_update` once its payload carries this
-  trainer. Every GRPO `optimizer_audit.jsonl` row now logs `param_delta_l2`.
+  trainer. Every GRPO `optimizer_audit.jsonl` row now logs `param_delta_l2`. `arm_exec`
+  requires the `prompts_per_update` feature and a P > 1 to come together. So the rung-1
+  table's two `w2-ppu4-grpo-W-*` arms, which name the feature but set no P, refuse rather
+  than train P = 1. Making them run needs `prompts_per_update` set in `design.py`; this
+  table does not set it.
 - **M3 budget accounting (decided 2026-10-18).** An update whose whole batch has zero
   advantage takes no optimizer step under the skip, so parameters, AdamW moments and the
   AdamW step count do not move. It still advances `global_step`. So it counts toward
