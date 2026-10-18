@@ -208,6 +208,50 @@ class Arm:
         args += [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
         return args
 
+    def scanned_ids(self, receipt: dict) -> dict | None:
+        """Every prompt the RL arm scored against its gold label, in scan order, for a
+        control that must replay ALL of them (CORRECTIONS C4), not just the committed ones.
+
+        - RFT: every prompt sampled in each committed round (local_training.json
+          rounds[].prompt_ids, the trainer's own bound record); K samples of each were
+          scored against gold, kept or not.
+        - Dynamic sampling (DAPO): every drawn group, in draw order (the trainer's
+          dynamic_sampling.jsonl). A resumed update is journaled again, so the LAST block
+          per update counts; each block's kept draw must be that update's committed id.
+        None for any other arm (its committed ids are already everything it scored).
+        """
+        if self.spec["mode"] == "rft":
+            rec = json.loads((self.out / "local_training.json").read_text())
+            ids = [pid for entry in rec["rounds"] for pid in entry["prompt_ids"]]
+            source = "local_training.json rounds[].prompt_ids"
+        elif (self.out / "dynamic_sampling.jsonl").is_file():
+            steps, committed = int(receipt["global_step"]), receipt["committed_prompt_ids"]
+            if len(committed) != steps:
+                raise SystemExit("REFUSE: dynamic sampling with reused updates is not replayable")
+            blocks, block = {}, []
+            for line in (self.out / "dynamic_sampling.jsonl").read_text().splitlines():
+                entry = json.loads(line)
+                block.append(entry)
+                if entry.get("kept"):
+                    blocks[int(entry["global_step"])] = block
+                    block = []
+            ids = []
+            for step in range(1, steps + 1):
+                got = blocks.get(step)
+                if (not got or [e["global_step"] for e in got] != [step] * len(got)
+                        or [e["draw"] for e in got] != list(range(len(got)))
+                        or got[-1]["id"] != committed[step - 1]):
+                    raise SystemExit(f"REFUSE: dynamic_sampling.jsonl does not account for "
+                                     f"update {step}")
+                ids += [e["id"] for e in got]
+            source = "dynamic_sampling.jsonl, every draw, last block per update"
+        else:
+            return None
+        doc = {"schema": "arm_exec-scanned-ids-v1", "global_step": receipt["global_step"],
+               "scanned_prompt_ids": ids, "source": source}
+        write_json(self.out / "scanned_ids.json", doc)
+        return doc
+
     def rft_endpoint_done(self, stop: int | None) -> bool:
         """An RFT run whose bound endpoint already covers this stage (e.g. the arm died in
         the assay after training): the trainer refuses to re-enter a completed run, so the
@@ -228,6 +272,7 @@ class Arm:
             self.log.append({"stage": label, "rc": 0, "reused_completed_endpoint": True,
                              "argv": args})
             receipt = self.rft_receipt()
+            self.scanned_ids(receipt)
             self.log[-1].update(receipt_status=receipt["status"],
                                 global_step=receipt["global_step"],
                                 adapter_sha256=receipt["final_adapter"]["weights_sha256"])
@@ -252,6 +297,7 @@ class Arm:
         weights = receipt["final_adapter"]["weights_sha256"]
         if sha_file(adapter / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
+        self.scanned_ids(receipt)
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
         return receipt
@@ -334,7 +380,8 @@ class Arm:
         for name in ("local_training.json", "endpoint_receipt.json", "optimizer_audit.jsonl",
                      "physical_prompt_events.jsonl", "reward_groups.jsonl",
                      "screen_journal.jsonl", "egsft_weights.jsonl", "trainer_state.json",
-                     "dynamic_sampling.jsonl", "rft_endpoint_receipt.json"):
+                     "dynamic_sampling.jsonl", "rft_endpoint_receipt.json",
+                     "scanned_ids.json"):
             src = self.out / name
             if src.is_file() and src.stat().st_size < 64 * 1024**2:
                 shutil.copy2(src, self.results / name)
@@ -363,11 +410,13 @@ class Arm:
         return doc["metrics"]
 
     def assay_profile(self, vlt):
-        """A key the spec lacks takes the Profile default (a matched control has no
-        `temperature`: design.controls_for drops it, and s[k] raised KeyError at the
-        control's first assay). A key the spec has is passed exactly as before."""
+        """A key the spec lacks, or sets to None, takes the Profile default. Table controls
+        have no `temperature` (s[k] raised KeyError), and SFT arms and promoted controls
+        (runner.control_for) set it to None, which Profile.validate() refuses with a
+        TypeError inside predict_train_subset. Either way the arm crashed at its first assay,
+        after its training. The assay is greedy, so temperature never changes a prediction."""
         s = self.spec
-        return vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if k in s},
+        return vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
                            dtype=s.get("dtype", "float32"))
 
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:

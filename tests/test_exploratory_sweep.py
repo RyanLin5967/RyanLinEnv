@@ -527,12 +527,33 @@ def test_wave2_table_follows_the_root_rl_corrections():
     assert all(a["extra_trainer_args"][-2:] == ["--dynamic-sampling-max-draws", "8"]
                for a in dapo)
     by_id = {a["id"]: a for a in arms}
-    want = {3e-6: 5e-6, 1e-5: 5e-6, 2e-5: 1e-5, 3e-5: 2e-5, 5e-5: 2e-5}  # same LR count
+    # per family, rank for rank and all DISTINCT: same LR count as the RL arms (C4)
+    three = {1e-5: 5e-6, 2e-5: 1e-5, 5e-5: 2e-5}
+    want = {f: three for f in ("wave2-fmtpen", "wave2-closedset", "wave2-mu2", "wave2-dapo",
+                               "wave2-rft")}
+    want["wave2-drgrpo"] = {1e-5: 5e-6, 2e-5: 1e-5, 3e-5: 2e-5, 5e-5: 3e-5}
+    want["wave2-guard"] = {3e-6: 5e-6}
+    per_family = {}
     for c in (a for a in arms if a["track"] == "control"):
         rl = by_id[c["control_of"]]
-        assert c["init"] == "I" and c["mode"] == "sft" and c["lr"] == want[rl["lr"]]
-        # a promoted control (runner.control_for) keeps the same LR
-        assert runner.control_for(rl, {"W": 1e-5, "I": 5e-6})["lr"] == want[rl["lr"]]
+        expected = want[rl["family"]][rl["lr"]]
+        assert c["init"] == "I" and c["mode"] == "sft" and c["lr"] == expected
+        per_family.setdefault(rl["family"], []).append(c["lr"])
+        promoted = runner.control_for(rl, {"W": 1e-5, "I": 5e-6})  # rung 2/3 control
+        assert promoted["lr"] == expected
+        for key in ("response_format", "max_steps_total"):
+            assert promoted[key] == c[key], key
+        assert promoted.get("control_replays") == c.get("control_replays")
+    assert all(len(set(v)) == len(v) for v in per_family.values())  # distinct per family
+    assert len(per_family["wave2-drgrpo"]) == 4
+    # the closed-set pair isolates RL: its control trains and assays on the closed-set prompt
+    for c in (a for a in arms if a["track"] == "control"):
+        rl = by_id[c["control_of"]]
+        assert c["response_format"] == rl["response_format"]
+    # every scored row is replayed (C4) where RL scores more rows than it commits
+    replay = {by_id[c["control_of"]]["family"] for c in arms
+              if c.get("control_replays") == "scanned"}
+    assert replay == {"wave2-dapo", "wave2-rft"}
 
 
 def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch):
@@ -665,17 +686,33 @@ def test_rft_continuation_accepts_a_round_boundary_past_its_stop_never_short():
         runner.continuation_spec(sft, {"endpoints": [past]})
 
 
-def test_every_table_arm_builds_its_assay_profile_and_present_keys_pass_unchanged(tmp_path):
+def _assay_specs():
+    """Every arm the runner can hand to arm_exec: both tables, plus every rung-2 arm and
+    promoted control (runner.promoted_arms -> control_for) built from their RL units."""
+    tables = [json.loads((ROOT / "docs/aircraft-exploratory-sweep-v2/arms-rung1.json")
+                         .read_text()), json.loads(wave2.OUT.read_text())]
+    specs = []
+    for table in tables:
+        specs += table["arms"]
+        for a in table["arms"]:
+            if a["track"] in ("rl", "sft") and a["mode"] != "eval":
+                specs += runner.promoted_arms(a["id"], [a], a["track"], 1, table)
+    return specs
+
+
+def test_every_arm_and_promoted_control_builds_a_valid_assay_profile(tmp_path):
     from vision_rl import vlm_local_training as local
 
-    tables = [ROOT / "docs/aircraft-exploratory-sweep-v2/arms-rung1.json", wave2.OUT]
-    controls = 0
-    for path in tables:
-        for a in json.loads(path.read_text())["arms"]:
-            profile = arm_exec.Arm(tmp_path, a, tmp_path / "r").assay_profile(local)
-            for k in arm_exec.PROFILE_KEYS:  # the spec's own value, or the default if absent
-                assert getattr(profile, k) == a.get(k, getattr(local.Profile(), k))
-            controls += a["track"] == "control"
+    specs = _assay_specs()
+    promoted_controls = [a for a in specs if "@r2" in a["id"] and a["track"] == "control"]
+    assert promoted_controls and all(a["temperature"] is None for a in promoted_controls)
+    for a in specs:
+        profile = arm_exec.Arm(tmp_path, a, tmp_path / "r").assay_profile(local)
+        profile.validate()  # predict_train_subset runs this first; None raised TypeError
+        for k in arm_exec.PROFILE_KEYS:  # the spec's value, or the default if absent/None
+            want = a.get(k)
+            assert getattr(profile, k) == (getattr(local.Profile(), k) if want is None else want)
+    controls = sum(a["track"] == "control" and "@r" not in a["id"] for a in specs)
     assert controls == 40 + 29 + 20  # wave-1 and pre-registered wave-2 controls, and ours
 
 
@@ -884,3 +921,104 @@ def test_amendment3_refresh_targets_only_continuable_hosts_while_gate0_open(tmp_
         "g": {"status": "FAILED", "host": "iccad8", "spec_path": str(tmp_path / "b.json"),
               "results_dir": str(res)}}}
     assert runner.continuable_hosts(state) == {"iccad13"}
+
+
+# ---- review fixes (PR #36 at f6b95d6): each test fails on that code -------------------
+def _dapo_out(tmp_path, lines, committed):
+    arm = arm_exec.Arm(tmp_path / "root", {"id": "d", "mode": "grpo"}, tmp_path / "r")
+    arm.out.mkdir(parents=True)
+    (arm.out / "dynamic_sampling.jsonl").write_text(
+        "".join(json.dumps(x) + "\n" for x in lines))
+    return arm, {"global_step": len(committed), "committed_prompt_ids": committed}
+
+
+def _draws(step, ids):
+    return [{"global_step": step, "draw": k, "informative": k == len(ids) - 1, "id": i,
+             "kept": k == len(ids) - 1} for k, i in enumerate(ids)]
+
+
+def test_dynamic_sampling_control_replays_every_scored_group_in_scan_order(tmp_path):
+    # update 2 ran twice (a resume): its LAST block counts; update 3 was never committed
+    lines = (_draws(1, ["a", "b", "c"]) + _draws(2, ["d", "e"]) + _draws(2, ["d", "f", "g"])
+             + _draws(3, ["h"]))
+    arm, receipt = _dapo_out(tmp_path, lines, ["c", "g"])
+    doc = arm.scanned_ids(receipt)
+    assert doc["scanned_prompt_ids"] == ["a", "b", "c", "d", "f", "g"]
+    assert json.loads((arm.out / "scanned_ids.json").read_text()) == doc
+    for committed in (["c", "e"], ["c", "g", "h", "i"]):  # kept id differs / update 4 missing
+        bad, receipt = _dapo_out(tmp_path / str(len(committed)) / committed[-1], lines,
+                                 committed)
+        with pytest.raises(SystemExit, match="does not account"):
+            bad.scanned_ids(receipt)
+
+
+def test_rft_control_replays_every_sampled_prompt_not_only_kept_completions(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1), ({"p3": ["y"]}, 1)])
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    rec["rounds"][0]["prompt_ids"] = ["p1", "p2"]
+    rec["rounds"][1]["prompt_ids"] = ["p3", "p4"]
+    (arm.out / "local_training.json").write_text(json.dumps(rec))
+    receipt = arm.rft_receipt()
+    assert receipt["committed_prompt_ids"] == ["p1", "p3"]  # kept examples only
+    assert arm.scanned_ids(receipt)["scanned_prompt_ids"] == ["p1", "p2", "p3", "p4"]
+    plain = arm_exec.Arm(tmp_path / "x", {"id": "g", "mode": "grpo"}, tmp_path / "r")
+    assert plain.scanned_ids({"global_step": 1, "committed_prompt_ids": ["a"]}) is None
+
+
+def test_scanned_replay_control_uses_scanned_ids_and_refuses_without_them(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step2", "steps": 2, "active_seconds": 9.0}]}))
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": 2, "committed_prompt_ids": ["c", "g"]}))
+    state = {"arms": {"d": {"status": "DONE", "results_dir": str(res)}}}
+    ctl = {"id": "d~ctl", "control_of": "d", "max_steps_total": 100,
+           "control_replays": "scanned"}
+    with pytest.raises(SystemExit, match="no scanned_ids.json"):
+        runner.control_spec(state, ctl)
+    (res / "scanned_ids.json").write_text(json.dumps(
+        {"global_step": 1, "scanned_prompt_ids": ["a", "c"]}))
+    with pytest.raises(SystemExit, match="another step"):
+        runner.control_spec(state, ctl)
+    (res / "scanned_ids.json").write_text(json.dumps(
+        {"global_step": 2, "scanned_prompt_ids": ["a", "b", "c", "d", "f", "g"]}))
+    spec = runner.control_spec(state, ctl)
+    assert spec["train_ids"] == ["a", "b", "c", "d", "f", "g"] and spec["stops"] == [6]
+    plain = runner.control_spec(state, {"id": "d~ctl", "control_of": "d", "max_steps_total": 100})
+    assert plain["train_ids"] == ["c", "g"]  # every other control: unchanged
+
+
+def test_wave2_launch_refuses_until_gate0_passed(tmp_path, monkeypatch):
+    receipt = {"valid": True, "payload_sha256": "P", "root": "/r", "device": {"kind": "cpu"},
+               "features": sorted(set(f for a in json.loads(wave2.OUT.read_text())["arms"]
+                                      for f in a["features"]) | {"exploratory_sweep"})}
+    rows = runner.host_table(
+        "host load1 nproc cores availGB ourThr localGB\nh 0 72 36 500 0 50\n")
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+
+    class A:
+        table, ids, wave, rung, hosts = str(wave2.OUT), None, None, None, None
+        max_launch, timeout, dry_run = 100, 60, False
+
+    for n, gate in enumerate((None, {}, {"passed": False}, {"passed": "true"}, {"passed": 1},
+                              {"passed": True})):
+        calls = []
+        monkeypatch.setattr(runner, "launch_one",
+                            lambda path, spec, *a, **k: calls.append(spec["id"]) or "run")
+        state = {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": receipt}},
+                 "arms": {}, "uwrun_runs": []}
+        if gate is not None:
+            state["gate0"] = gate
+        (tmp_path / f"g{n}").mkdir()
+        path = setup(tmp_path / f"g{n}", monkeypatch, state)
+        runner.cmd_launch(A, path)
+        if gate == {"passed": True}:
+            # the gate, not the allowlist, was the only thing holding them: CPU arms launch
+            assert any(i.startswith("wave2-") and "cpu-float32" in i and "~ctl" not in i
+                       for i in calls), calls
+        else:
+            assert calls == [], (gate, calls)
+    held = runner.launch_hold({}, {"id": "x", "family": "wave2-rft", "track": "rl"}, {})
+    assert "GATE 0" in held

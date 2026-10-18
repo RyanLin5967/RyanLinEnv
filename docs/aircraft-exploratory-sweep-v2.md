@@ -358,14 +358,28 @@ total 1,500. Each arm declares its device (`device`, `dtype`, `gpu`, `device_cla
 The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control evals.
 
 - **Matched controls.** Each RL arm has a matched SFT-from-I control on its own host and
-  device. The control LRs give each family the same number of LRs as its RL arms (C4): the
-  RL arm at the k-th LR of {1e-5, 2e-5, 5e-5} gets its control at the k-th of
-  {5e-6, 1e-5, 2e-5}, so a family's best-of-k compares with its controls' best-of-k at the
-  same k. Dr-GRPO's 3e-5 maps to 2e-5, and the guard's 3e-6 to 5e-6. Promotion keeps each
-  arm's control LR (`matched_control_lr`).
-- **RFT controls.** An RFT arm's examples-matched control replays the prompt of each kept SFT
-  example, one per update, in round order. Within a round the trainer shuffles its examples,
-  so the per-round multiset is exact but the order is canonical.
+  device. Each family's controls use as many distinct LRs as its RL arms (C4). The family's
+  k-th smallest RL LR gets the k-th control LR:
+  - three LRs: {5e-6, 1e-5, 2e-5};
+  - Dr-GRPO's four: {5e-6, 1e-5, 2e-5, 3e-5};
+  - the guard's single 3e-6: 5e-6.
+
+  A family's best-of-k is therefore compared with its controls' best-of-k at the same k.
+  Each closed-set control trains and is assayed on the closed-set prompt, so the pair
+  isolates the RL effect. Promotion keeps each pairing (`matched_control_lr`,
+  `control_response_format`, `control_replays`).
+- **Every scored row is replayed (C4).** Two families score more rows than they commit
+  updates. A DAPO update draws up to 8 groups and keeps one; an RFT round scores all 32 of
+  its prompts against gold and trains only on the correct samples. Their controls
+  (`control_replays: "scanned"`) replay every scored row, in scan order. The rows are
+  taken from the trainer's own logs:
+  - DAPO: `dynamic_sampling.jsonl`, every draw. The last block per update counts, and its
+    kept draw must equal the committed id.
+  - RFT: `rounds[].prompt_ids` in `local_training.json`.
+
+  `arm_exec` writes them to `scanned_ids.json`. A missing or mismatched file refuses the
+  control and never falls back. The step caps of these controls are 12,000 (DAPO) and
+  12,800 (RFT).
 - **Device controls.** W and I are each assayed on every device class
   (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against I measured under its own
   numerics, and each GPU eval against the CPU fp32 eval.
@@ -375,9 +389,12 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
 - **Launch gate.** The runner launches an arm only on a host whose receipt reports the
   arm's device kind and GPU model, with at most one GPU arm per host at a time.
   `host_verify.FEATURE_FLAGS` now uses the built features' real flags.
-- **Gate 0.** The corrections forbid launching any new GRPO-I arm until all four Gate-0
-  measurements exist: P0-I headroom, the SFT-from-I curve, dev800 calibration, and the
-  placebo. This table defines the arms; it launches nothing.
+- **Gate 0 is enforced, not only stated.** Every wave-2 family (`WAVE2_FAMILIES`: the
+  seven RL families and the device-control evals) joins Amendment 3's launch allowlist
+  behind the same check. `runner.py launch` holds the family's arms, its controls and the
+  device-control evals until `state.json` `gate0.passed` is exactly `true`. That needs all
+  four Gate-0 measurements: P0-I headroom, the SFT-from-I curve, dev800 calibration and the
+  placebo.
 - **Promotion.** Wave-2 arms rank at rung 1 in the `rl` track together with wave 1, under
   the plan's late-entrant rule. That ranking mixes device classes, so it is read against
   the device-control offsets. A paired comparison (arm against its matched control, or

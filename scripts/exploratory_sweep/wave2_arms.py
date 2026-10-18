@@ -67,11 +67,19 @@ INIT = "I"
 # forgetting guard for the whole table (C3).
 GRPO_LRS = (1e-5, 2e-5, 5e-5)
 BETA = 0.0
-# Matched SFT-from-I controls cover the same LR count as RL (C4): the RL arm at the k-th
-# LR of {1e-5, 2e-5, 5e-5} gets its control at the k-th of {5e-6, 1e-5, 2e-5}, so a family's
-# best-of-k compares with its controls' best-of-k at the same k. 3e-5 (Dr-GRPO's fourth)
-# maps to 2e-5 and the 3e-6 guard to 5e-6.
-CONTROL_LR = {3e-6: 5e-6, 1e-5: 5e-6, 2e-5: 1e-5, 3e-5: 2e-5, 5e-5: 2e-5}
+# Matched SFT-from-I controls cover the same number of DISTINCT LRs as their family's RL
+# arms (C4): the family's k-th smallest RL LR gets the k-th of the SFT grid below, so a
+# family's best-of-k compares with its controls' best-of-k at the same k. Three LRs use
+# {5e-6, 1e-5, 2e-5}; Dr-GRPO's four extend it with 3e-5 (an SFT LR wave 1 already runs);
+# the single 3e-6 guard gets 5e-6.
+CONTROL_GRID = {1: (5e-6,), 3: (5e-6, 1e-5, 2e-5), 4: (5e-6, 1e-5, 2e-5, 3e-5)}
+
+
+def control_lrs(lrs) -> dict:
+    """{RL LR: matched SFT-from-I control LR}, rank for rank, all distinct."""
+    ordered = sorted(lrs)
+    return dict(zip(ordered, CONTROL_GRID[len(ordered)]))
+
 
 # (tag, device class, overrides, features, extra trainer args, LRs). Dropped as refuted
 # (C7): hierarchical partial credit (contrast in 1 of 30-50 groups) and both CoT formats
@@ -97,6 +105,10 @@ GRPO_FAMILIES = [
 ]
 RFT = {"rounds": 400, "prompts_per_round": 32, "epochs_per_round": 1, "max_keep_per_prompt": 1,
        "skip_all_correct": False}
+# Controls that must replay EVERY row their RL arm scored (C4), not only its updates: a
+# dynamic-sampling arm scores up to 8 groups per update, an RFT round scores all its 32
+# prompts. Their control step cap is the most rows the RL run can score at its total.
+DYNAMIC_DRAWS = 8
 RFT_DEVICE = "rtx3070-bfloat16"
 RFT_LRS = GRPO_LRS
 
@@ -119,17 +131,28 @@ def wave2_arms() -> list:
                 "track": "baseline", "family": "device-control", "init": init,
                 "mode": "eval", "seed": 42, **D.BASE}, cls))
     for tag, cls, overrides, features, extra, lrs in GRPO_FAMILIES:
+        ctl_lr = control_lrs(lrs)
         for lr in lrs:
+            pairing = {}
+            if "dynamic_sampling" in features:
+                pairing = {"control_replays": "scanned",
+                           "control_max_steps_total": D.RUNG_UPDATES[3] * DYNAMIC_DRAWS}
+            if overrides.get("response_format", "answer_only") != "answer_only":
+                # the control trains and assays on the same prompt, so the pair isolates RL
+                pairing["control_response_format"] = overrides["response_format"]
             a = D.arm(f"wave2-{tag}-grpo-{INIT}-{D.lr_tag(lr)}-g8-b0-{cls}", wave=2,
                       track="rl", family=f"wave2-{tag}", init=INIT, mode="grpo", lr=lr,
                       num_generations=8, beta=BETA, features=features,
-                      extra_trainer_args=extra, matched_control_lr=CONTROL_LR[lr], **overrides)
+                      extra_trainer_args=extra, matched_control_lr=ctl_lr[lr], **pairing,
+                      **overrides)
             arms.append(on_device(a, cls))
+    ctl_lr = control_lrs(RFT_LRS)
     for lr in RFT_LRS:
         a = D.arm(f"wave2-rft-{INIT}-{D.lr_tag(lr)}-k8-{RFT_DEVICE}", wave=2, track="rl",
                   family="wave2-rft", init=INIT, mode="rft", lr=lr, num_generations=8,
                   features=["rejection_sampling_ft", "rft_step_boundary"], rft=dict(RFT),
-                  matched_control_lr=CONTROL_LR[lr])
+                  matched_control_lr=ctl_lr[lr], control_replays="scanned",
+                  control_max_steps_total=RFT["rounds"] * RFT["prompts_per_round"])
         a["temperature"] = 1.0  # RFT samples K = 8 per prompt at T 1.0, like GRPO
         arms.append(on_device(a, RFT_DEVICE))
     for a in arms:
@@ -144,7 +167,11 @@ def wave2_arms() -> list:
         if c["control_of"] != rl["id"]:
             raise ValueError("control order differs from its RL arms")
         c.update(lr=rl["matched_control_lr"],
-                 features=list(DEVICES[rl["device_class"]]["features"]))
+                 features=list(DEVICES[rl["device_class"]]["features"]),
+                 response_format=rl.get("control_response_format", c["response_format"]),
+                 max_steps_total=rl.get("control_max_steps_total", c["max_steps_total"]))
+        if rl.get("control_replays"):
+            c["control_replays"] = rl["control_replays"]
         controls.append(on_device(c, rl["device_class"]))
     out = arms + controls
     ids = [a["id"] for a in out]
@@ -158,8 +185,8 @@ def table() -> dict:
     return {"study_id": D.STUDY_ID, "schema_version": 1, "rung": 1, "wave": 2,
             "amendment": 4, "inits": D.INITS, "rung_updates": D.RUNG_UPDATES,
             "rung_seeds": {str(k): list(v) for k, v in D.RUNG_SEEDS.items()},
-            "control_lr": D.CONTROL_LR, "matched_control_lr": {repr(k): v for k, v in
-                                                              CONTROL_LR.items()},
+            "control_lr": D.CONTROL_LR,
+            "control_grid": {str(k): list(v) for k, v in CONTROL_GRID.items()},
             "device_classes": DEVICES, "rft": RFT, "arms": arms}
 
 

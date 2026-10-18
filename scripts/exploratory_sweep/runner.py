@@ -366,10 +366,22 @@ def control_spec(state: dict, ctl: dict) -> dict:
     receipt = json.loads(receipt_path.read_text())
     last = [e for e in summary["endpoints"] if e["label"].startswith("step")][-1]
     ids = receipt["committed_prompt_ids"]
+    if ctl.get("control_replays") == "scanned":
+        # CORRECTIONS C4: replay EVERY row the RL arm scored, in scan order (arm_exec's
+        # scanned_ids.json). Missing is a refusal, never a fall back to the committed ids.
+        scanned_path = summary_path.with_name("scanned_ids.json")
+        if not scanned_path.is_file():
+            raise SystemExit(f"REFUSE: control {ctl['id']} replays every scanned id; "
+                             f"{ctl['control_of']} has no scanned_ids.json")
+        scanned = json.loads(scanned_path.read_text())
+        if scanned.get("global_step") != receipt["global_step"]:
+            raise SystemExit(f"REFUSE: {ctl['control_of']} scanned ids are for another step")
+        ids = scanned["scanned_prompt_ids"]
     if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
-    # examples-matched: one SFT update per prompt the RL arm committed, in its order
+    # examples-matched: one SFT update per prompt the RL arm committed (or, for a
+    # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
                 time_budget_seconds=float(last["active_seconds"]))
     return spec
@@ -424,7 +436,11 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
 # (state["gate0"]["passed"] is True, written by whoever records GATE 0). `continue` is
 # allowed only for the sftall families. No W-init unit is promoted. Freed cores stay idle
 # for the GATE 0 SFT lane, so `refresh` bootstraps only hosts holding a continuable arm.
-LAUNCH_FAMILIES = {"grpo-I"}
+# Plan amendment 4 (arms-wave2-rung1.json): every wave-2 family starts from I and goes
+# through the same GATE 0 check as grpo-I, matched controls and device evals included.
+WAVE2_FAMILIES = {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo", "wave2-mu2",
+                  "wave2-dapo", "wave2-guard", "wave2-rft", "device-control"}
+LAUNCH_FAMILIES = {"grpo-I"} | WAVE2_FAMILIES
 CONTINUE_FAMILIES = {"sftall-I", "sftall-W"}
 
 
@@ -713,13 +729,20 @@ def control_for(rl: dict, control_lr: dict) -> dict:
     lr = control_lr.get(rl["init"], 5e-6) if isinstance(rl["init"], str) else 5e-6
     if rl.get("matched_control_lr"):  # wave 2: each family's controls span its LR count
         lr = float(rl["matched_control_lr"])
+    extra = {k: rl[k] for k in ("control_replays", "control_response_format") if rl.get(k)}
     ctl.update(id=f"{rl['id']}~ctl", track="control", family="control", mode="sft", lr=lr,
                control_of=rl["id"], depends_on=[rl["id"]], same_host_as=rl["id"],
                order="sequential", cycle=True, train_manifest=f"@consumed:{rl['id']}",
-               response_format="answer_only", beta=None, temperature=None,
+               # wave 2: a closed-set RL arm's control trains and assays on the same prompt
+               response_format=extra.get("control_response_format", "answer_only"),
+               beta=None, temperature=None,
                screen_threshold=None, features=[f for f in rl.get("features", [])
                                                 if f == "cuda"],
-               max_active_seconds=SFT_ACTIVE_CAP_SECONDS)
+               max_active_seconds=SFT_ACTIVE_CAP_SECONDS,
+               # a scanned-replay control trains on every scored row, more than RL updates
+               max_steps_total=int(rl.get("control_max_steps_total", rl["max_steps_total"])))
+    if "control_replays" in extra:
+        ctl["control_replays"] = extra["control_replays"]
     return ctl
 
 
