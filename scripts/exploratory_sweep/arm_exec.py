@@ -70,6 +70,87 @@ def save_steps_for(spec: dict, max_steps: int) -> int:
     return math.gcd(*marks) if marks else int(max_steps)
 
 
+COTENANCY_PERIOD = 15  # seconds between co-tenancy samples during a stage
+MIN_DYNAMIC_DRAWS = 8  # root correction C5: fewer draws leave most G8 groups uninformative
+
+
+def refuse_spec(spec: dict) -> None:
+    """Binding RL rules (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md) checked before any
+    stage runs. RL (grpo, rft) trains only in float32: bf16 GRPO failed the sampler-teacher
+    parity gate on every RTX 3070 arm (0.028 > 0.02, C2). bf16/fp16 stay allowed for SFT and
+    eval. Dynamic sampling needs at least MIN_DYNAMIC_DRAWS draws per update (C5)."""
+    if spec["mode"] in ("grpo", "rft") and spec.get("dtype", "float32") != "float32":
+        raise SystemExit(f"REFUSE: {spec['mode']} runs only in float32 (C2), not "
+                         f"{spec.get('dtype')}")
+    extra = [str(x) for x in spec.get("extra_trainer_args", [])]
+    if "--dynamic-sampling-max-draws" in extra:
+        draws = int(extra[extra.index("--dynamic-sampling-max-draws") + 1])
+        if draws < MIN_DYNAMIC_DRAWS:
+            raise SystemExit(f"REFUSE: --dynamic-sampling-max-draws {draws} < "
+                             f"{MIN_DYNAMIC_DRAWS} (C5)")
+
+
+def check_parity(record_path: Path) -> dict:
+    """A GRPO stage must record a sampler-teacher log-prob parity inside tolerance (C2)."""
+    parity = json.loads(Path(record_path).read_text()).get("sampler_teacher_logprob_parity")
+    if not isinstance(parity, dict) or parity.get("within_tolerance") is not True:
+        raise SystemExit(f"REFUSE: sampler-teacher parity not within tolerance: {parity}")
+    return {k: parity.get(k) for k in ("within_tolerance", "tolerance",
+                                        "max_abs_raw_teacher_vs_sampler_logprob_error")}
+
+
+class CoTenancy:
+    """Who else used this machine while a stage ran (root correction C16).
+
+    CUDA: every `nvidia-smi --query-compute-apps` sample; a process not in the stage's own
+    process tree is a co-tenant. CPU: load1 samples (another user's work shows only as load).
+    `shared` is True when any sample saw a co-tenant GPU process; the campaign report refuses
+    a time comparison between an RL arm and a control whose `shared` values differ.
+    Blind spot: a co-tenant that starts and ends between two samples is not seen."""
+
+    def __init__(self, cuda: bool):
+        self.cuda, self.samples, self.foreign, self.hits, self.load = cuda, 0, {}, 0, []
+
+    @staticmethod
+    def tree(root: int) -> set:
+        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True,
+                             text=True).stdout.split()
+        parent = dict(zip(map(int, out[0::2]), map(int, out[1::2])))
+        mine = {root}
+        for pid in parent:
+            p = pid
+            while p and p != 1:
+                if p == root:
+                    mine.add(pid)
+                    break
+                p = parent.get(p, 0)
+        return mine
+
+    def sample(self, root: int) -> None:
+        self.samples += 1
+        self.load.append(os.getloadavg()[0])
+        if not self.cuda:
+            return
+        q = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,process_name",
+                            "--format=csv,noheader,nounits"], capture_output=True, text=True)
+        mine, hit = self.tree(root), False
+        for line in q.stdout.splitlines():
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) not in mine:
+                hit = True
+                self.foreign[parts[0]] = {"used_mib": parts[1],
+                                          "name": parts[2] if len(parts) > 2 else ""}
+        self.hits += hit
+
+    def summary(self) -> dict:
+        load = sorted(self.load)
+        return {"device": "cuda" if self.cuda else "cpu", "samples": self.samples,
+                "period_seconds": COTENANCY_PERIOD, "samples_with_cotenant": self.hits,
+                "cotenant_gpu_processes": self.foreign, "shared": self.hits > 0,
+                "load1_median": load[len(load) // 2] if load else None,
+                "load1_max": load[-1] if load else None}
+
+
 class Arm:
     def __init__(self, root: Path, spec: dict, results: Path):
         self.root, self.spec, self.results = root, spec, results
@@ -212,13 +293,22 @@ class Arm:
     def run_stage(self, label: str, args: list[str]) -> dict:
         started = time.time()
         log = self.work / f"{label}.log"
+        cuda = self.spec.get("device", "cpu") == "cuda"
+        watch = CoTenancy(cuda)
         with log.open("w") as handle:
-            rc = subprocess.run([str(self.python), "-s", "-P", *args], env=self.env, stdout=handle,
-                                stderr=subprocess.STDOUT).returncode
+            proc = subprocess.Popen([str(self.python), "-s", "-P", *args], env=self.env,
+                                    stdout=handle, stderr=subprocess.STDOUT)
+            while proc.poll() is None:
+                watch.sample(proc.pid)
+                try:
+                    proc.wait(timeout=COTENANCY_PERIOD)
+                except subprocess.TimeoutExpired:
+                    pass
+            rc = proc.returncode
         tail = log.read_text().splitlines()[-25:]
         shutil.copy2(log, self.results / f"{label}.log.txt")
         entry = {"stage": label, "rc": rc, "wall_seconds": round(time.time() - started, 1),
-                 "argv": args}
+                 "argv": args, "cotenancy": watch.summary()}
         self.log.append(entry)
         if rc != 0:
             write_json(self.results / "stages.json", self.log)
@@ -232,7 +322,37 @@ class Arm:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+        if self.spec["mode"] == "grpo":
+            entry["sampler_parity"] = check_parity(self.out / "local_training.json")
+        write_json(self.results / "stages.json", self.log)
         return receipt
+
+    def scanned_ids(self, receipt: dict) -> list:
+        """Every TRAIN row whose label the RL arm read up to this endpoint, in scan order: the
+        rows a matched SFT control may train on (root correction C4/C10).
+
+        Screened GRPO: every candidate the screen SCORED (accepted or not), from the
+        checkpoint's committed screen.json. Dynamic sampling: every drawn group, kept or
+        dropped, in (step, draw) order. Otherwise: the committed prompt ids."""
+        step = int(receipt.get("global_step") or 0)
+        ckpt = self.out / f"checkpoint-{step}"
+        if self.spec.get("screen_threshold") and self.spec["mode"] == "grpo":
+            sys.path.insert(0, str(self.payload / "code" / "src"))
+            from vision_rl import vlm_local_training as vlt
+
+            entries = vlt.committed_screen_entries(ckpt)
+            return [e["id"] for e in sorted(entries, key=lambda e: e["scan_position"])]
+        journal = self.out / "dynamic_sampling.jsonl"
+        if journal.is_file():
+            draws = {}
+            for line in journal.read_text().splitlines():
+                e = json.loads(line)
+                if e["global_step"] <= step:
+                    draws[(e["global_step"], e["draw"])] = e["id"]  # a resumed redo wins
+            if {s for s, _ in draws} != set(range(1, step + 1)):
+                raise SystemExit("REFUSE: dynamic_sampling.jsonl does not cover every step")
+            return [draws[k] for k in sorted(draws)]
+        return list(receipt.get("committed_prompt_ids") or [])
 
     def rft_receipt(self) -> dict:
         """The runner-facing endpoint of an RFT stage, derived from the trainer's own bound
@@ -411,6 +531,69 @@ def score(pred: dict, gold: dict) -> dict:
             "classes": len(by)}
 
 
+def endpoint_assay(arm: Arm, label: str, holdout: str):
+    """dev800 assay of the stage's adapter; `assay: false` (E0 and timing arms) keeps the
+    adapter and records no metrics."""
+    if arm.spec.get("assay", True) is False:
+        return None
+    return arm.assay_isolated(arm.out / "final_adapter", label, holdout)
+
+
+def record_scanned(arm: Arm, receipt: dict, label: str) -> None:
+    if arm.spec["mode"] in ("grpo", "rft"):
+        write_json(arm.results / "scanned" / f"{label}.json",
+                   {"label": label, "global_step": receipt.get("global_step"),
+                    "ids": arm.scanned_ids(receipt) if arm.spec["mode"] == "grpo"
+                    else list(receipt.get("committed_prompt_ids") or [])})
+
+
+def adapter_max_abs_diff(a: Path, b: Path) -> float:
+    from safetensors.torch import load_file
+
+    x, y = load_file(str(a / "adapter_model.safetensors")), load_file(
+        str(b / "adapter_model.safetensors"))
+    if set(x) != set(y):
+        raise SystemExit("REFUSE: E0 adapters have different tensors")
+    return max(float((x[k].double() - y[k].double()).abs().max()) for k in x)
+
+
+def run_e0(arm: Arm, manifest: Path, summary: dict) -> dict:
+    """E0 resume check (root correction C19): N updates uninterrupted, twice (A, A2: the
+    device's own run-to-run floor), and N/2 + N/2 with a checkpoint resume (B), same seed.
+    Passes when |B - A| <= 2 |A2 - A| + 1e-7 elementwise-max over the LoRA tensors (on a
+    deterministic device all three are bit-identical). No assay."""
+    n = int(arm.spec.get("e0_updates", 4))
+    if n < 2 or n % 2:
+        raise SystemExit("REFUSE: e0_updates must be an even number >= 2")
+    finals = {}
+    for tag, stops in (("A", [n]), ("A2", [n]), ("B", [n // 2, n])):
+        spec = dict(arm.spec, kind="train", stops=stops, max_steps_total=n, save_steps=n // 2,
+                    assay=False, work_id=f"{arm.spec['id']}-{tag}")
+        sub = Arm(arm.root, spec, arm.results / tag)
+        sub.results.mkdir(parents=True, exist_ok=True)
+        sub.work.mkdir(parents=True, exist_ok=True)
+        previous = None
+        for stop in stops:
+            resume = sub.out / f"checkpoint-{previous}" if previous else None
+            sub.run_stage(f"train-{stop}", sub.trainer_args(manifest, n, stop, resume))
+            previous = stop
+        sub.copy_small()
+        arm.log += [dict(e, trajectory=tag) for e in sub.log]
+        finals[tag] = sub.out / "final_adapter"
+    floor = adapter_max_abs_diff(finals["A"], finals["A2"])
+    resumed = adapter_max_abs_diff(finals["A"], finals["B"])
+    sha = {t: sha_file(p / "adapter_model.safetensors") for t, p in finals.items()}
+    summary["e0"] = {"updates": n, "adapter_sha256": sha,
+                     "max_abs_diff_A_A2": floor, "max_abs_diff_A_B": resumed,
+                     "passed": resumed <= 2 * floor + 1e-7,
+                     "device": arm.spec.get("device", "cpu"), "dtype": arm.spec.get("dtype")}
+    write_json(arm.results / "stages.json", arm.log)
+    write_json(arm.results / "summary.json", summary)
+    if not summary["e0"]["passed"]:
+        raise SystemExit(f"REFUSE: E0 resume mismatch {resumed:.3g} > floor {floor:.3g}")
+    return summary
+
+
 def time_endpoints(spec: dict) -> list:
     """[(label, active seconds)] to stop, keep and assay at after the step stops.
 
@@ -433,6 +616,8 @@ def run(arm: Arm, final_check: bool) -> dict:
     arm.results.mkdir(parents=True, exist_ok=True)
     arm.work.mkdir(parents=True, exist_ok=True)
     write_json(arm.results / "arm.json", s)
+    if s["mode"] != "eval":
+        refuse_spec(s)
     holdout = "h_gate_final.jsonl" if final_check else "dev800.jsonl"
     summary = {"arm": s["id"], "host": os.uname().nodename, "root": str(arm.root),
                "receipt_sha256": sha_file(arm.root / "RECEIPT.json"),
@@ -446,6 +631,8 @@ def run(arm: Arm, final_check: bool) -> dict:
         return summary
     manifest = arm.manifest()
     kind = s.get("kind", "train")
+    if kind == "e0":
+        return run_e0(arm, manifest, summary)
     if kind == "bench":
         load_start = os.getloadavg()[0]
         arm.run_stage("bench", arm.trainer_args(manifest, s["bench_steps"], None, None))
@@ -476,7 +663,8 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay_isolated(arm.out / "final_adapter", f"step{stop}", holdout)})
+            "metrics": endpoint_assay(arm, f"step{stop}", holdout)})
+        record_scanned(arm, receipt, f"step{stop}")
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
         previous = stop
@@ -497,7 +685,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": label, "steps": receipt.get("global_step"),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay_isolated(arm.out / "final_adapter", label, holdout)})
+            "metrics": endpoint_assay(arm, label, holdout)})
         arm.copy_small()
         write_json(arm.results / "summary.json", summary)
         # every stop (step or active-time) saves its own boundary checkpoint
@@ -535,7 +723,7 @@ def main(argv=None) -> int:
         return 0
     summary = run(Arm(a.root, spec, a.results), a.final_check)
     print(json.dumps({"arm": spec["id"], "endpoints": [
-        {k: e[k] for k in ("label", "steps")} | {"accuracy": e["metrics"]["accuracy"]}
+        {k: e[k] for k in ("label", "steps")} | {"accuracy": (e["metrics"] or {}).get("accuracy")}
         for e in summary.get("endpoints", [])], "bench": summary.get("bench")}))
     return 0
 
