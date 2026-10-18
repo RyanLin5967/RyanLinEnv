@@ -182,14 +182,16 @@ def world(tmp_path):
         "chunk_images": 20, "image_seconds": 120, "load_allowance_seconds": 600,
         "long_generation_allowance_seconds": 2100, "max_invocations": 3,
         "max_active_seconds": 26100, "max_calendar_seconds": 604800,
-        "max_output_bytes": 1 << 30}
+        "max_output_bytes": 1 << 30, "stall_seconds": 3600}
     plan["stages"]["full"]["budget"] = {
         "chunk_images": 50, "image_seconds": 10, "load_allowance_seconds": 10,
         "long_generation_allowance_seconds": 10, "max_invocations": 4,
-        "max_calendar_seconds": 604800, "max_output_bytes": 1 << 30}
+        "max_calendar_seconds": 604800, "max_output_bytes": 1 << 30,
+        "stall_seconds": 500}
     plan["stages"]["full"]["gate"]["max_projected_shard_active_seconds"] = 172800
     plan["stages"]["full"]["gate"]["max_shard_active_seconds"] = 345600
     plan["sharding"]["shards"] = {"discovery": 3, "full": 3}
+    plan["engine"]["kernel_fingerprint_sha256"] = "FIXTURE-FP"
     plan["sharding"]["hosts"] = {host["hostname"]: host["cpu_model"] for host in HOSTS}
     freeze = repo / plan["model"]["runtime_lock"]["freeze"]
     freeze.write_text("fixture-package==1.0\n")
@@ -778,37 +780,51 @@ def test_a_shard_never_changes_host(runner, world, clock):
     assert ledger.read_text() == before  # and no invocation was charged
 
 
-def test_resume_under_other_kernels_is_refused_before_charging(runner, world, clock,
-                                                                monkeypatch):
+def test_resume_under_another_runtime_is_refused_before_charging(runner, world, clock,
+                                                                  monkeypatch):
     path, digest = write_plan(world)
     answers, calls = answers_for(world), []
     runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                      world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
     ledger = world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl"
     before = ledger.read_text()
-    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "OTHER-FP")
-    with pytest.raises(ValueError, match=r"recorded run identity in \['kernel_fingerprint'\]"):
+    monkeypatch.setattr(runner.local_hf, "runtime_versions",
+                        lambda pins, lock=None: {**pins, "torch": "other"})
+    with pytest.raises(ValueError, match=r"recorded run identity in \['runtime_versions'\]"):
         runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
                          world["weights"], backend_factory=fake_backend(answers, calls))
     assert len(calls) == 20 and ledger.read_text() == before
 
 
-def test_merge_refuses_a_shard_whose_kernels_computed_differently(runner, world, clock,
-                                                                   monkeypatch):
+def test_host_with_another_kernel_fingerprint_is_refused_before_any_image(runner, world,
+                                                                          monkeypatch):
+    path, digest = write_plan(world)
+    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "OTHER-FP")
+    calls = []
+    with pytest.raises(ValueError, match="kernel fingerprint OTHER-FP... is not the plan's"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend({}, calls))
+    assert calls == []
+    assert not (world["out"] / "stage-discovery/shard-0-of-3/ledger.jsonl").exists()
+
+
+def test_merge_refuses_a_shard_whose_kernels_computed_differently(runner, world, clock):
+    # Defence in depth behind the preflight pin: a shard directory whose identity records
+    # another fingerprint, rewritten consistently (identity hash and journal included).
     path, digest = write_plan(world)
     answers, calls = answers_for(world), []
-    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[0, 1])
-    monkeypatch.setattr(runner.local_hf, "kernel_fingerprint", lambda threads: "OTHER-FP")
-    # The shard runs (its own identity is consistent), but its post-run summary already
-    # reads the stage's other shards and refuses; so does the merge.
-    with pytest.raises(ValueError, match="Shard 2 ran under a different run identity"):
-        runner.run_shard(path, digest, "discovery", 2, world["repo"], world["out"],
-                         world["weights"],
-                         backend_factory=fake_backend(answers, calls, clock=clock))
-    assert '"completed"' in (world["out"] / "stage-discovery/shard-2-of-3/run/attempts.jsonl"
-                             ).read_text()
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    run = world["out"] / "stage-discovery/shard-2-of-3/run"
+    record = json.loads((run / "run.json").read_text())
+    old = record["identity_sha256"]
+    record["identity"]["config"]["kernel_fingerprint"] = "OTHER-FP"
+    record["identity_sha256"] = runner.local_hf._digest(record["identity"])
+    (run / "run.json").write_text(json.dumps(record))
+    journal = run / "attempts.jsonl"
+    journal.write_text(journal.read_text().replace(old, record["identity_sha256"]))
     with pytest.raises(ValueError, match="Shard 2 ran under a different run identity"):
         runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
 
 
 def test_merge_refuses_a_shard_without_its_ledger_or_identity(runner, world, clock):
@@ -1137,3 +1153,157 @@ def test_engine_refuses_a_preflight_made_for_another_runtime(world, tmp_path):
                               task_contract={"task": "classification"},
                               preprocessing_id=None)
     assert not (tmp_path / "x").exists()
+
+
+def lose_process(world, shard=0):
+    """What a kill (timeout, oom-guard, reboot) leaves: a started invocation with no finish
+    and a reservation with no completion. Written by hand from the ledger/journal format."""
+    directory = world["out"] / f"stage-discovery/shard-{shard}-of-3"
+    ledger = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines()]
+    started = [e for e in ledger if e["event"] == "started"]
+    killed = dict(started[-1], invocation=len(started) + 1)
+    with (directory / "ledger.jsonl").open("a") as handle:
+        handle.write(json.dumps(killed) + "\n")
+    journal = directory / "run/attempts.jsonl"
+    events = [json.loads(line) for line in journal.read_text().splitlines()]
+    done = {e["id"] for e in events if e["event"] == "reserved"}
+    next_id = next(i for i in world["discovery"][shard::3] if i not in done)
+    reserved = dict(next(e for e in events if e["event"] == "reserved"), id=next_id)
+    with journal.open("a") as handle:
+        handle.write(json.dumps(reserved) + "\n")
+    return directory, next_id
+
+
+def test_lost_shard_is_rerun_once_elsewhere_and_scored_only_from_the_rerun(runner, world,
+                                                                             clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest, shards=[1, 2])
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
+    original, unknown = lose_process(world)
+    with pytest.raises(ValueError, match="previous invocation never recorded its finish"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    with pytest.raises(ValueError, match="re-run on another host"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend(answers, calls))
+    assert not (original / "lost.json").exists()
+    # The rerun answers every shard-0 image wrongly, so its answers are distinguishable.
+    rerun_answers = answers_for(world, wrong=set(world["discovery"][0::3]))
+    runner.fixture_host = dict(HOSTS[1])
+    runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"],
+                         backend_factory=fake_backend(rerun_answers, calls, clock=clock))
+    lost = json.loads((original / "lost.json").read_text())
+    assert lost["lost_host"] == HOSTS[0] and lost["unknown_images"] == [unknown]
+    assert lost["discarded_completed_images"] == 20
+    for _ in range(2):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], rerun=True,
+                         backend_factory=fake_backend(rerun_answers, calls, clock=clock))
+    with pytest.raises(ValueError, match="already recovered once"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend(answers, calls))
+    with pytest.raises(ValueError, match="declared lost"):
+        runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                         world["weights"], backend_factory=fake_backend(answers, calls))
+    merged = runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    assert merged["status"] == "completed" and merged["unknown_after_interruption"] == []
+    assert merged["per_shard"][0]["recovered_after_lost_process"] is True
+    assert merged["per_shard"][0]["host"] == HOSTS[1]
+    assert merged["lost_process_charged_active_seconds"] > 0
+    shard0 = world["discovery"][0::3]
+    assert all(merged["predictions"][i] != world["gold"][i] for i in shard0)
+    assert merged["metric"]["correct"] == 100 - len(shard0)
+
+
+def test_recovery_is_refused_without_a_lost_process(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=fake_backend(answers, calls, clock=clock))
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match="did not lose its process"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend(answers, calls))
+    victim = world["discovery"][1::3][0]
+    runner.fixture_host = dict(HOSTS[0])
+    runner.run_shard(path, digest, "discovery", 1, world["repo"], world["out"],
+                     world["weights"],
+                     backend_factory=fake_backend(answers, calls, clock=clock,
+                                                  fail=(victim, RuntimeError("boom"))))
+    lose_process(world, shard=1)
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match="hard-stop outcome, which is not a lost process"):
+        runner.recover_shard(path, digest, "discovery", 1, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend(answers, calls))
+    with pytest.raises(ValueError, match="needs a recorded loss"):
+        runner.run_shard(path, digest, "discovery", 2, world["repo"], world["out"],
+                         world["weights"], rerun=True, backend_factory=fake_backend(answers, calls))
+    assert not list((world["out"] / "stage-discovery").glob("*/lost.json"))
+
+
+def test_merge_refuses_a_rerun_without_a_loss_record_or_a_misnamed_directory(runner, world,
+                                                                           clock):
+    import shutil
+
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    stage = world["out"] / "stage-discovery"
+    shutil.copytree(stage / "shard-0-of-3", stage / "shard-0-of-3-rerun")
+    with pytest.raises(ValueError, match="rerun directory but no recorded loss"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+    shutil.rmtree(stage / "shard-0-of-3-rerun")
+    (stage / "shard-01-of-3").mkdir()
+    with pytest.raises(ValueError, match="Unexpected shard directory shard-01-of-3"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_merge_refuses_a_journal_event_from_another_run_identity(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    journal = world["out"] / "stage-discovery/shard-1-of-3/run/attempts.jsonl"
+    events = [json.loads(line) for line in journal.read_text().splitlines()]
+    events[-1]["identity_sha256"] = "0" * 64
+    journal.write_text("".join(json.dumps(e) + "\n" for e in events))
+    with pytest.raises(ValueError, match="journaled under another run identity"):
+        runner.merge(world["plan"], "discovery", world["repo"], world["out"], digest)
+
+
+def test_stall_watchdog_ends_an_invocation_without_progress(runner, world, clock):
+    plan = json.loads(json.dumps(world["plan"]))
+    plan["stages"]["discovery"]["budget"]["stall_seconds"] = 1
+    path, digest = write_plan(world, plan)
+    answers, calls, fired = answers_for(world), [], []
+    Backend = fake_backend(answers, calls, clock=clock)
+
+    class Stuck(Backend):
+        def infer(self, row, seed):
+            if not calls:
+                time.sleep(2.5)  # real time: nothing is written while it hangs
+            return super().infer(row, seed)
+
+    runner.run_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                     world["weights"], backend_factory=Stuck, on_stall=lambda: fired.append(1))
+    shard = world["out"] / "stage-discovery/shard-0-of-3"
+    assert fired == [1] and (shard / "stalled-1.json").exists()
+    assert json.loads((shard / "stalled-1.json").read_text())["stall_seconds"] == 1
+
+
+def test_plan_must_pin_the_fingerprint_and_a_stall_timeout(runner, world):
+    for edit, message in (
+            (lambda p: p["engine"].pop("kernel_fingerprint_sha256"), "pin the expected kernel"),
+            (lambda p: p["stages"]["full"]["budget"].pop("stall_seconds"), "stall_seconds"),
+            (lambda p: p["stages"]["discovery"]["budget"].update(stall_seconds=10 ** 9),
+             "stall_seconds")):
+        plan = json.loads(json.dumps(world["plan"]))
+        edit(plan)
+        path, digest = write_plan(world, plan)
+        with pytest.raises(ValueError, match=message):
+            runner.load_plan(path, digest)
+    committed = json.loads(PLAN.read_text())
+    assert committed["engine"]["kernel_fingerprint_sha256"] == (
+        "9d149dab64c57b7aa064767439b4f96d775c5a744d4c5d37857d4fb24f368d61")

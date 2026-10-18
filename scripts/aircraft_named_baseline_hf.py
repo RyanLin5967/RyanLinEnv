@@ -525,11 +525,20 @@ def machine_preflight(model_directory, integrity, engine, runtime_pins, runtime_
     Rehashes and checks the snapshot (no unlisted file), the runtime lock, the kernel pin,
     and computes the kernel fingerprint and host. Raises on any refusal.
     """
+    expected = engine.get("kernel_fingerprint_sha256")
+    if not expected:
+        raise ValueError("Engine identity needs the plan's pinned kernel fingerprint")
     model = verify_snapshot(model_directory, integrity)
     versions = runtime_versions(runtime_pins, runtime_lock)
     observed = pin_cpu_numerics(engine["cpu_numerics"])
+    fingerprint = kernel_fingerprint(engine["threads"])
+    if fingerprint != expected:
+        # Refused before any image: such a host would run to the end and only then make
+        # its stage unmergeable.
+        raise ValueError(f"This host's kernel fingerprint {fingerprint[:12]}... is not the "
+                         f"plan's {expected[:12]}...")
     return {"model": model, "observed_cpu_numerics": observed,
-            "kernel_fingerprint": kernel_fingerprint(engine["threads"]),
+            "kernel_fingerprint": fingerprint,
             "host": host_identity(), "runtime_versions": versions,
             "runtime_lock_sha256": _digest(runtime_lock), "python": platform.python_version()}
 

@@ -78,7 +78,10 @@ matches.
 
 ## Fingerprint (`fingerprint/`)
 
-| config | iccad3 (DEFAULT) | iccad5, iccad6 (AVX2) | iccad9, iccad12 (AVX-512) |
+Measured on iccad3, iccad5, iccad6, iccad9 and iccad12 (`nbv2-fp-*`), and later, with the same
+function, on iccad1, iccad10 and iccad13 (`nbv2-fp2-*`, engine file SHA256 `1320a1cb…`):
+
+| config | iccad1, iccad3 (DEFAULT) | iccad5, iccad6 (AVX2) | iccad9, iccad10, iccad12, iccad13 (AVX-512) |
 | --- | --- | --- | --- |
 | pinned | f39d5c3c | f39d5c3c | f39d5c3c |
 | dnnavx | 9d149dab | 9d149dab | 9d149dab |

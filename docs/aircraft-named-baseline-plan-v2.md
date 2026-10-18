@@ -128,7 +128,28 @@ make it refuse to resume. A test asserts that they still match v1's pins.
   directory (never only `run/`) to one collector. Before a host's first full-VAL invocation, copy
   the collector's whole `stage-discovery/` into that host's `--output`. Until then the full stage
   refuses ("discovery shard k never ran").
+- **Kernel fingerprint pinned.** The plan pins `kernel_fingerprint_sha256` = `9d149dab…`, which
+  was measured with the committed function on iccad1, 3, 5, 6, 9, 10, 12 and 13. The preflight
+  refuses any other value before any image is run and before an invocation is charged.
+- **Stall watchdog.** If nothing under a shard's run directory changes for 3 h (`stall_seconds`),
+  the process ends with exit 75 and writes `stalled-<n>.json`. A live run writes at least at every
+  reservation, completion and 32 generated tokens.
+- **Lost shards (pre-registered, bounded recovery).** A shard whose process was lost (an
+  invocation with no finish record, from a timeout, `oom-guard`, the stall watchdog or a reboot)
+  and that has no hard stop may be recovered once, on another allowlisted host.
+  - `recover` records the loss in `lost.json` beside the original ledger, then re-runs the shard
+    from scratch in `shard-k-of-N-rerun/` with a fresh ledger and budget; `run --rerun`
+    continues it.
+  - The merge scores that shard only from the rerun, and reports the lost attempt's charged
+    seconds separately.
+  - The original shard is refused once it is lost, and a rerun is never recovered again.
+  - A second loss, a hard stop or an exhausted budget still stops the stage.
 - **Merge refusals.** `merge` unions the shard journals. It refuses:
+  - a `run.json` whose identity does not hash to its `identity_sha256`, or any journal event
+    written under another identity;
+  - any non-hidden entry in the stage directory that is not exactly `shard-k-of-N` or
+    `shard-k-of-N-rerun` (so `shard-01-of-10` is refused, not ignored), and a rerun directory
+    without a loss record;
   - an image journaled outside its shard, or reserved or completed twice within one;
   - a shard directory that is not `shard-k-of-N`;
   - a shard with journaled images but no budget ledger or `run.json`;
