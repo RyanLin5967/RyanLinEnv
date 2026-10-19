@@ -431,3 +431,11 @@ def test_s_per_update_uses_cumulative_endpoint_seconds_across_resumed_stages(tmp
     (tmp_path / "arm.json").write_text(json.dumps({"resume_stop": 1}))
     m = camp.arm_measurements(tmp_path)
     assert m["s_per_update_by_checkpoint"] == [15.0] and m["s_per_update_mean"] == 15.0
+
+
+def test_time_stops_accept_increasing_positive_lists_and_refuse_the_rest():
+    # cases from the GPU lane's fix (6205487); the old `not 0 < a < b` refused all of them
+    assert arm_exec.time_endpoints({"time_stops": [5, 7.5]}) == [("time1", 5.0), ("time2", 7.5)]
+    for bad in ([0, 10], [10, 10], [20, 10], [-1]):
+        with pytest.raises(SystemExit):
+            arm_exec.time_endpoints({"time_stops": bad})

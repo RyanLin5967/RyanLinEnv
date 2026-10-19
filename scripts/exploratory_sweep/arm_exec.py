@@ -610,7 +610,9 @@ def time_endpoints(spec: dict) -> list:
     if one:
         return [("time", float(one))]
     stops = [float(x) for x in many or []]
-    if any(not a < b for a, b in zip([0.0] + stops, stops)):
+    # (0, s1), (s1, s2), ...: each stop must exceed the one before it, the first exceed 0.
+    # It read `not 0 < a < b`, which refuses EVERY list (the first pair has a == 0).
+    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
         raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
     return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
 
