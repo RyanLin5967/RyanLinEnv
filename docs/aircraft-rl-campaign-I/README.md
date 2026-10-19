@@ -75,3 +75,11 @@ The rules come from `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`.
   row that runs 4 updates uninterrupted twice and 2+2 resumed. It passes when |B−A| ≤ 2·|A2−A| + 1e-7.
 - **M3:** multi-image updates (`--prompts-per-update`) are a trainer option, passed through
   `extra_trainer_args`.
+- **Trainer extras (PR #38 review):**
+  - `extra_trainer_args` is an allowlist: `arm_exec.EXTRA_FLAGS`, each flag with a value validator (the same design as the CPU sweep's 4a4dc5f).
+  - Refused: any flag arm_exec sets itself, `--train`/`--validation`, `--flag=value` forms, argparse abbreviations, and repeats. The argv that actually runs is checked again for repeated flags.
+  - `check_parity` reads the dtype the trainer recorded (`control_identity.profile.dtype`) and refuses anything but float32 for GRPO.
+- **Controls and promotion (same review):**
+  - An RL arm's control refuses if there is no `scanned/` file; it never falls back to the committed prompts.
+  - The report compares co-tenancy stage by stage (the RL stage `train-<stop>` against the control stage `train-time<i>`). It refuses a pair where the control saw fewer rows than the RL arm read.
+  - Promotion's placebo bar uses only placebo groups from the same rung with the same k.

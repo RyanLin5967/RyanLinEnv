@@ -508,6 +508,13 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         if a["mode"] == "eval":
             continue
         arm = arm_exec.Arm(root, a, tmp_path / "r")
+        if a["family"] == "wave2-dapo":
+            # the wave-2 DAPO row asks for 4 dynamic-sampling draws; root correction C5
+            # (>= 8) now refuses it before the trainer is reached (checked_extras)
+            with pytest.raises(SystemExit, match="integer >= 8"):
+                arm.trainer_args(tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
+            checked += 1
+            continue
         argv = arm.trainer_args(tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
         kind, kw = _trainer_call(local, monkeypatch, argv)
         assert kw["device"] == a["device"] and kw["profile"].dtype == a["dtype"]
@@ -528,9 +535,6 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
             assert (kw["family_credit"], kw["manufacturer_credit"]) == (0.5, 0.25)
         if fam == "wave2-fmtpen":
             assert (kw["family_credit"], kw["invalid_reward"]) == (0.0, -0.5)
-        if fam == "wave2-dapo":
-            assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
-            assert kw["dynamic_sampling_max_draws"] == 4
         if fam == "wave2-drgrpo":
             # merged trainer: the same --loss-type/--scale-rewards flags also serve the
             # signal-limit options (main), whose dr_grpo/none values route to loss_type and

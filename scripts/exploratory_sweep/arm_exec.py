@@ -74,25 +74,114 @@ COTENANCY_PERIOD = 15  # seconds between co-tenancy samples during a stage
 MIN_DYNAMIC_DRAWS = 8  # root correction C5: fewer draws leave most G8 groups uninformative
 
 
+def _int_at_least(n: int):
+    def check(v: str):
+        if not v.lstrip("-").isdigit() or int(v) < n:
+            raise SystemExit(f"REFUSE: expected an integer >= {n}, got {v!r}")
+    return check
+
+
+def _number(v: str):
+    try:
+        float(v)
+    except ValueError:
+        raise SystemExit(f"REFUSE: expected a number, got {v!r}") from None
+
+
+def _one_of(*choices):
+    def check(v: str):
+        if v not in choices:
+            raise SystemExit(f"REFUSE: expected one of {choices}, got {v!r}")
+    return check
+
+
+def _payload_json(v: str):
+    if not (v.startswith("@payload/code/") and v.endswith(".json")) or "manifests" in v:
+        raise SystemExit(f"REFUSE: expected an @payload/code/...json asset, got {v!r}")
+
+
+# Table-supplied trainer flags, an ALLOWLIST (exact names; each value checked by its
+# validator; None = a flag with no value). argparse keeps the LAST value of a repeated flag
+# and accepts unique abbreviations and `--flag=value`, so an extra appended after
+# arm_exec's own flags could silently override --dtype, --learning-rate, --train, ... while
+# the spec-field guards pass (PR #38 review). Same design as the CPU sweep (4a4dc5f).
+# Extend only with a validator; never add a flag arm_exec sets itself. Blind spot: a
+# validator checks the value's form, not the trainer's semantics.
+EXTRA_FLAGS = {
+    "--dynamic-sampling-max-draws": _int_at_least(MIN_DYNAMIC_DRAWS),  # C5: >= 8 draws
+    "--prompts-per-update": _int_at_least(1),
+    "--num-iterations": _int_at_least(1),
+    "--skip-zero-advantage-steps": None,
+    "--loss-type": _one_of("grpo", "dr_grpo", "dapo", "bnpo"),
+    "--scale-rewards": _one_of("group", "batch", "none"),
+    "--epsilon-high": _number,
+    "--family-credit": _number,
+    "--manufacturer-credit": _number,
+    "--invalid-reward": _number,
+    "--label-hierarchy": _payload_json,
+}
+NEVER_EXTRA = {"--train", "--validation"}
+
+
+def checked_extras(extras, base_args) -> list[str]:
+    """`extras` as trainer argv, or refuse: only EXTRA_FLAGS, each once, as `--flag value`,
+    never a flag arm_exec already passes, never --train/--validation."""
+    own = {a for a in base_args if isinstance(a, str) and a.startswith("--")}
+    out, seen, i = [], set(), 0
+    extras = [str(x) for x in extras or []]
+    while i < len(extras):
+        flag = extras[i]
+        if flag in NEVER_EXTRA or flag.split("=")[0] in NEVER_EXTRA:
+            raise SystemExit(f"REFUSE: extra_trainer_args may not pass {flag}")
+        if "=" in flag or flag not in EXTRA_FLAGS:
+            raise SystemExit(f"REFUSE: extra trainer flag {flag!r} is not allowlisted "
+                             f"(exact `--flag value` from {sorted(EXTRA_FLAGS)})")
+        if flag in own:
+            raise SystemExit(f"REFUSE: extra {flag} would override arm_exec's own value")
+        if flag in seen:
+            raise SystemExit(f"REFUSE: extra {flag} given twice")
+        seen.add(flag)
+        if EXTRA_FLAGS[flag] is None:
+            out.append(flag)
+            i += 1
+            continue
+        if i + 1 >= len(extras):
+            raise SystemExit(f"REFUSE: extra {flag} has no value")
+        EXTRA_FLAGS[flag](extras[i + 1])
+        out += [flag, extras[i + 1]]
+        i += 2
+    return out
+
+
 def refuse_spec(spec: dict) -> None:
     """Binding RL rules (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md) checked before any
     stage runs. RL (grpo, rft) trains only in float32: bf16 GRPO failed the sampler-teacher
     parity gate on every RTX 3070 arm (0.028 > 0.02, C2). bf16/fp16 stay allowed for SFT and
-    eval. Dynamic sampling needs at least MIN_DYNAMIC_DRAWS draws per update (C5)."""
+    eval. Dynamic sampling needs at least MIN_DYNAMIC_DRAWS draws per update (C5).
+    `extra_trainer_args` must pass the allowlist (checked_extras)."""
     if spec["mode"] in ("grpo", "rft") and spec.get("dtype", "float32") != "float32":
         raise SystemExit(f"REFUSE: {spec['mode']} runs only in float32 (C2), not "
                          f"{spec.get('dtype')}")
-    extra = [str(x) for x in spec.get("extra_trainer_args", [])]
-    if "--dynamic-sampling-max-draws" in extra:
-        draws = int(extra[extra.index("--dynamic-sampling-max-draws") + 1])
-        if draws < MIN_DYNAMIC_DRAWS:
-            raise SystemExit(f"REFUSE: --dynamic-sampling-max-draws {draws} < "
-                             f"{MIN_DYNAMIC_DRAWS} (C5)")
+    checked_extras(spec.get("extra_trainer_args"), [])  # fails before any stage runs
+
+
+def refuse_repeated_flags(argv: list) -> None:
+    """Outcome guard on the argv that actually runs: no flag may appear twice (argparse keeps
+    the last value, so a repeat overrides what the launcher set or checked)."""
+    flags = [x for x in argv if str(x).startswith("--")]
+    seen = {f for f in flags if flags.count(f) > 1}
+    if seen:
+        raise SystemExit(f"REFUSE: trainer argv repeats {sorted(seen)}")
 
 
 def check_parity(record_path: Path) -> dict:
-    """A GRPO stage must record a sampler-teacher log-prob parity inside tolerance (C2)."""
-    parity = json.loads(Path(record_path).read_text()).get("sampler_teacher_logprob_parity")
+    """A GRPO stage must have run in float32 (the dtype the trainer RECORDED, not the spec's)
+    and record a sampler-teacher log-prob parity inside tolerance (C2)."""
+    record = json.loads(Path(record_path).read_text())
+    dtype = ((record.get("control_identity") or {}).get("profile") or {}).get("dtype")
+    if dtype != "float32":
+        raise SystemExit(f"REFUSE: the GRPO stage recorded dtype {dtype!r}, not float32 (C2)")
+    parity = record.get("sampler_teacher_logprob_parity")
     if not isinstance(parity, dict) or parity.get("within_tolerance") is not True:
         raise SystemExit(f"REFUSE: sampler-teacher parity not within tolerance: {parity}")
     return {k: parity.get(k) for k in ("within_tolerance", "tolerance",
@@ -246,7 +335,10 @@ class Arm:
             args += ["--rft-stop-after-steps", str(stop)]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
-        return args + [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
+        args = args + [self.payload_arg(x) for x in
+                       checked_extras(s.get("extra_trainer_args"), args)]
+        refuse_repeated_flags(args)
+        return args
 
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
@@ -291,7 +383,9 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        args += [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
+        args = args + [self.payload_arg(x) for x in
+                       checked_extras(s.get("extra_trainer_args"), args)]
+        refuse_repeated_flags(args)
         return args
 
     def run_stage(self, label: str, args: list[str]) -> dict:

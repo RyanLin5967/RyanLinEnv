@@ -545,7 +545,13 @@ def control_spec(rl: dict, summary: dict, receipt: dict, lr: float | None = None
     holds every row read by the LAST checkpoint, so an early time stop can see later rows
     (favours the control: conservative for an RL win)."""
     steps = step_endpoints(summary)
-    ids = list(scanned) if scanned else list(receipt.get("committed_prompt_ids") or [])
+    if rl.get("mode") in ("grpo", "rft"):
+        if not scanned:
+            raise SystemExit(f"REFUSE: {rl['id']}: no scanned/ rows for its last checkpoint; a "
+                             "control on committed prompts alone would see fewer labels")
+        ids = list(scanned)
+    else:  # an SFT arm (placebo) reads exactly its committed rows
+        ids = list(receipt.get("committed_prompt_ids") or [])
     if not steps or not ids or receipt["global_step"] != steps[-1]["steps"]:
         raise SystemExit(f"REFUSE: {rl['id']} receipt does not match its last step endpoint")
     lr = float(lr if lr is not None else rl.get("control_lr", CONTROL_LR))
@@ -643,7 +649,7 @@ def collect(results_dirs) -> dict:
         summary = json.loads((d / "summary.json").read_text())
         rec = out.setdefault(arm_id, {"host": summary["host"].split(".")[0].lower(),
                                       "assays": {}, "endpoints": {}, "cotenancy_shared": False,
-                                      "continued": False})
+                                      "continued": False, "stage_shared": {}, "rows_read": {}})
         rec["spec"] = json.loads((d / "arm.json").read_text())
         rec["continued"] = rec["continued"] or bool(rec["spec"].get("resume_stop"))
         for e in summary["endpoints"]:
@@ -651,9 +657,15 @@ def collect(results_dirs) -> dict:
         for f in sorted((d / "assays").glob("*.json")):
             rec["assays"][f.stem] = json.loads(f.read_text())
         if (d / "stages.json").is_file():
-            rec["cotenancy_shared"] = rec["cotenancy_shared"] or any(
-                (s.get("cotenancy") or {}).get("shared")
-                for s in json.loads((d / "stages.json").read_text()))
+            for st in json.loads((d / "stages.json").read_text()):
+                shared = bool((st.get("cotenancy") or {}).get("shared"))
+                rec["cotenancy_shared"] = rec["cotenancy_shared"] or shared
+                stage = str(st.get("stage", ""))
+                if stage.startswith("train-"):  # train-50 -> step50, train-time2 -> time2
+                    x = stage[len("train-"):]
+                    rec["stage_shared"][x if x.startswith("time") else f"step{x}"] = shared
+        for f in sorted((d / "scanned").glob("*.json")):
+            rec["rows_read"][f.stem] = len(json.loads(f.read_text())["ids"])
     return out
 
 
@@ -728,11 +740,24 @@ def build_report(arms: dict, gold: dict, resamples: int, e0_passed=()) -> dict:
                                     "steps": cep.get("steps"),
                                     "active_seconds": cep.get("active_seconds"),
                                     "cotenancy_shared": ctl["cotenancy_shared"]}
-                if ctl["cotenancy_shared"] != rec["cotenancy_shared"]:
-                    # C16: a time match is void when one side shared its GPU and the other not
+                rl_sh = rec["stage_shared"].get(e["label"], rec["cotenancy_shared"])
+                ctl_sh = ctl["stage_shared"].get(label, ctl["cotenancy_shared"])
+                # rows the RL arm read by this checkpoint (scanned/), else its committed steps
+                if spec.get("mode") in ("grpo", "rft"):
+                    read = rec["rows_read"].get(e["label"], -1)  # arm_exec writes scanned/
+                else:  # an SFT (placebo) arm reads one row per step
+                    read = int(e["steps"])
+                if rl_sh != ctl_sh:
+                    # C16, stage by stage: the RL stage that made this checkpoint and the
+                    # control stage that made its time match must share co-tenancy
                     out["refused"].append(f"{arm_id} {e['label']}: co-tenancy differs from "
-                                          f"its control (rl {rec['cotenancy_shared']}, ctl "
-                                          f"{ctl['cotenancy_shared']})")
+                                          f"its control (rl {rl_sh}, ctl {ctl_sh})")
+                elif read < 0:
+                    out["refused"].append(f"{arm_id} {e['label']}: no scanned/ rows recorded")
+                elif int(cep.get("steps") or 0) < read:
+                    # the control must have seen at least as many rows as the RL arm read
+                    out["refused"].append(f"{arm_id} {e['label']}: control saw "
+                                          f"{cep.get('steps')} rows < {read} the RL arm read")
                 else:
                     entry["vs_control"] = stratified_bootstrap(
                         doc["predictions"], cdoc["predictions"], gold, resamples)
@@ -812,16 +837,22 @@ def promotion(groups: list, rung: int) -> dict:
     placebo pair, promotion refuses. Kept: the top third (ceil) of units by score, and of
     those only the ones strictly above the placebo maximum. The rung schedule is the table's
     (fixed before any result); nothing here stops early on success."""
-    placebo = [g["best_vs_best"]["delta"] for g in groups if g["track"] == "placebo"]
-    if not placebo:
-        raise SystemExit("REFUSE: no finished placebo pair; the promotion bar is the placebo "
-                         "maximum (M5)")
-    bar = max(placebo)
     units = sorted((g for g in groups if g["track"] == "rl" and g["rung"] == rung),
                    key=lambda g: (g["best_vs_best"]["delta"], g["best_rl"]["accuracy"]),
                    reverse=True)
     if not units:
         raise SystemExit(f"REFUSE: no scored rung-{rung} RL group")
+    ks = {g["k"] for g in units}
+    if len(ks) != 1:
+        raise SystemExit(f"REFUSE: rung-{rung} RL groups have different k {sorted(ks)}")
+    k = ks.pop()
+    # same rung (same training length) and same k (best-of-k inflates with k)
+    placebo = [g["best_vs_best"]["delta"] for g in groups
+               if g["track"] == "placebo" and g["rung"] == rung and g["k"] == k]
+    if not placebo:
+        raise SystemExit(f"REFUSE: no finished rung-{rung} placebo with k = {k}; the "
+                         "promotion bar is the placebo maximum (M5)")
+    bar = max(placebo)
     top = units[:math.ceil(len(units) / 3)]
     return {"bar_placebo_max": bar, "placebo_deltas": sorted(placebo),
             "ranked": [[g["group"], g["best_vs_best"]["delta"]] for g in units],

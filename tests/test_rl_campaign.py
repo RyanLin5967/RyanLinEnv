@@ -107,7 +107,9 @@ def test_control_is_sft_from_I_time_matched_at_every_rl_checkpoint():
     summary = {"endpoints": [{"label": "step50", "steps": 50, "active_seconds": 900.5},
                              {"label": "step100", "steps": 100, "active_seconds": 1850.0}]}
     receipt = {"global_step": 100, "committed_prompt_ids": [f"p{i}" for i in range(100)]}
-    ctl = camp.control_spec(rl, summary, receipt)
+    with pytest.raises(SystemExit, match="scanned"):  # an RL arm must name the rows it read
+        camp.control_spec(rl, summary, receipt)
+    ctl = camp.control_spec(rl, summary, receipt, scanned=[f"p{i}" for i in range(100)])
     assert ctl["id"] == "a~ctl" and ctl["mode"] == "sft" and ctl["init"] == "I"
     assert ctl["lr"] == 5e-6 and ctl["order"] == "sequential" and ctl["cycle"] is True
     assert ctl["time_stops"] == [900.5, 1850.0] and ctl["stops"] == []
@@ -116,7 +118,7 @@ def test_control_is_sft_from_I_time_matched_at_every_rl_checkpoint():
     assert "same_host_as" not in ctl and ctl["control_of"] == "a"
     assert arm_exec.time_endpoints(ctl) == [("time1", 900.5), ("time2", 1850.0)]
     with pytest.raises(SystemExit):
-        camp.control_spec(rl, summary, dict(receipt, global_step=99))
+        camp.control_spec(rl, summary, dict(receipt, global_step=99), scanned=["p0"])
 
 
 def test_time_endpoints_keep_the_legacy_single_label_and_refuse_bad_lists():
@@ -135,7 +137,7 @@ def test_time_only_control_argv_has_no_resume_and_carries_save_steps(tmp_path):
     rl = camp.build_spec(table(), grpo_row())
     ctl = camp.control_spec(rl, {"endpoints": [{"label": "step50", "steps": 50,
                                                 "active_seconds": 10.0}]},
-                            {"global_step": 50, "committed_prompt_ids": ["x"]})
+                            {"global_step": 50, "committed_prompt_ids": ["x"]}, scanned=["x"])
     arm = arm_exec.Arm(tmp_path, ctl, tmp_path / "r")
     argv = arm.trainer_args(tmp_path / "m.jsonl", 100000, None, None, stop_seconds=10.0)
     assert argv[argv.index("--save-steps") + 1] == "100000"
@@ -170,9 +172,14 @@ def test_stratification_keeps_class_counts():
     assert 0.15 < r["p_le_0"] < 0.35  # P(class A draws no win) = 1/4
 
 
-def _arm_dir(base, arm_id, spec, host, endpoints, assays):
+def _arm_dir(base, arm_id, spec, host, endpoints, assays, scanned=None):
     d = base / arm_id
     (d / "assays").mkdir(parents=True)
+    if scanned is not None:  # {label: number of rows the RL arm read}
+        (d / "scanned").mkdir()
+        for label, n in scanned.items():
+            (d / "scanned" / f"{label}.json").write_text(json.dumps(
+                {"label": label, "ids": [f"r{i}" for i in range(n)]}))
     (d / "arm.json").write_text(json.dumps(dict(spec, id=arm_id)))
     (d / "summary.json").write_text(json.dumps({"host": host, "endpoints": endpoints}))
     for label, pred in assays.items():
@@ -194,7 +201,7 @@ def test_report_per_checkpoint_vs_same_host_I_and_matched_control(tmp_path):
         _arm_dir(tmp_path, "rl", dict(cls, mode="grpo"), "h1",
                  [{"label": "step1", "steps": 1, "active_seconds": 5.0},
                   {"label": "step2", "steps": 2, "active_seconds": 9.0}],
-                 {"step1": half, "step2": right}),
+                 {"step1": half, "step2": right}, scanned={"step1": 1, "step2": 2}),
         _arm_dir(tmp_path, "rl~ctl", dict(cls, mode="sft", track="control", matched_steps=[1, 2]),
                  "h1",
                  [{"label": "time1", "steps": 7, "active_seconds": 5.1},
@@ -258,7 +265,8 @@ def test_control_trains_on_scanned_rows_charges_pool_seconds_and_takes_the_paire
     ctl = camp.control_spec(rl, summary, receipt, scanned=["s1", "s2", "s3"])
     assert ctl["train_ids"] == ["s1", "s2", "s3"] and ctl["lr"] == 2e-5
     assert ctl["time_stops"] == [1000.0, 1900.0] and ctl["pool_scoring_seconds_charged"] == 100
-    placebo = camp.control_spec(dict(rl, control_seed=314, track="placebo"), summary, receipt)
+    placebo = camp.control_spec(dict(rl, control_seed=314, track="placebo", mode="sft"),
+                                summary, receipt)
     assert placebo["seed"] == 314 and placebo["placebo"] is True
     assert placebo["train_ids"] == ["c1", "c2"]
 
@@ -312,9 +320,9 @@ def test_best_of_k_takes_the_best_on_each_side_with_equal_k():
     assert g["best_vs_best"]["delta"] == 0.5
 
 
-def _group(track, group, delta, rung=1, acc=0.8):
+def _group(track, group, delta, rung=1, acc=0.8, k=3):
     return {"track": track, "group": group, "rung": rung, "best_vs_best": {"delta": delta},
-            "best_rl": {"accuracy": acc}}
+            "best_rl": {"accuracy": acc}, "k": k}
 
 
 def test_promotion_bar_is_the_placebo_maximum_and_refuses_without_one():
@@ -327,6 +335,12 @@ def test_promotion_bar_is_the_placebo_maximum_and_refuses_without_one():
     # 6 units -> top third = 2 (g0 0.04, g1 0.03); bar = 0.035 -> only g0 clears it
     assert out["bar_placebo_max"] == 0.035 and out["kept"] == ["g0"]
     assert out["top_third_below_bar"] == ["g1"]
+    # a placebo from another rung or with another k never sets the bar
+    with pytest.raises(SystemExit, match="placebo"):
+        camp.promotion(groups + [_group("placebo", "p", 0.0, rung=2),
+                                 _group("placebo", "q", 0.0, k=2)], 1)
+    other = camp.promotion(groups + placebo + [_group("placebo", "big", 0.5, rung=2)], 1)
+    assert other["bar_placebo_max"] == 0.035
 
 
 def test_arm_exec_refuses_bf16_rl_and_few_dynamic_draws_but_allows_bf16_sft():
@@ -342,19 +356,28 @@ def test_arm_exec_refuses_bf16_rl_and_few_dynamic_draws_but_allows_bf16_sft():
 
 def test_arm_exec_refuses_parity_outside_tolerance(tmp_path):
     rec = tmp_path / "local_training.json"
+    fp32 = {"control_identity": {"profile": {"dtype": "float32"}}}
+    rec.write_text(json.dumps({}))  # no recorded dtype: refuses before parity
+    with pytest.raises(SystemExit, match="dtype"):
+        arm_exec.check_parity(rec)
+    rec.write_text(json.dumps(fp32))  # fp32 but no parity record
+    with pytest.raises(SystemExit, match="parity"):
+        arm_exec.check_parity(rec)
     # the measured bf16 3070 value (C2): 0.02814 against 0.02
-    rec.write_text(json.dumps({"sampler_teacher_logprob_parity": {
+    rec.write_text(json.dumps(dict(fp32, sampler_teacher_logprob_parity={
         "within_tolerance": False, "tolerance": 0.02,
-        "max_abs_raw_teacher_vs_sampler_logprob_error": 0.02814}}))
+        "max_abs_raw_teacher_vs_sampler_logprob_error": 0.02814})))
     with pytest.raises(SystemExit, match="parity"):
         arm_exec.check_parity(rec)
-    rec.write_text(json.dumps({}))
-    with pytest.raises(SystemExit, match="parity"):
-        arm_exec.check_parity(rec)
-    rec.write_text(json.dumps({"sampler_teacher_logprob_parity": {
+    ok = dict(fp32, sampler_teacher_logprob_parity={
         "within_tolerance": True, "tolerance": 0.001,
-        "max_abs_raw_teacher_vs_sampler_logprob_error": 9.6e-7}}))
+        "max_abs_raw_teacher_vs_sampler_logprob_error": 9.6e-7})
+    rec.write_text(json.dumps(ok))
     assert arm_exec.check_parity(rec)["within_tolerance"] is True
+    # the RECORDED dtype decides, not the spec: a bf16 run inside bf16's 0.02 tolerance refuses
+    rec.write_text(json.dumps(dict(ok, control_identity={"profile": {"dtype": "bfloat16"}})))
+    with pytest.raises(SystemExit, match="bfloat16"):
+        arm_exec.check_parity(rec)
 
 
 def test_scanned_ids_for_dynamic_sampling_keep_dropped_draws_in_order(tmp_path):
@@ -439,3 +462,91 @@ def test_time_stops_accept_increasing_positive_lists_and_refuse_the_rest():
     for bad in ([0, 10], [10, 10], [20, 10], [-1]):
         with pytest.raises(SystemExit):
             arm_exec.time_endpoints({"time_stops": bad})
+
+
+# ---- PR #38 review: table extras cannot override guarded trainer flags ------------------
+def _fake_payload(tmp_path):
+    (tmp_path / "payload/adapters/I/final_adapter").mkdir(parents=True)
+    (tmp_path / "payload/adapters/I/local_training.json").write_text(
+        json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
+
+
+@pytest.mark.parametrize("extra", [
+    ["--dtype", "bfloat16"],                                   # bf16 GRPO under fp32 guards
+    ["--dynamic-sampling-max-draws", "2"],                     # C5 below 8
+    ["--dynamic-sampling-max-draws", "8", "--dynamic-sampling-max-draws", "2"],  # last wins
+    ["--learning-rate", "1"],                                  # breaks the control LR pairing
+    ["--train", "@payload/data/manifests/dev800.jsonl"],       # selection holdout as TRAIN
+    ["--validation", "@payload/data/manifests/dev800.jsonl"],
+    ["--train=@payload/data/manifests/dev800.jsonl"],          # = form
+    ["--dtype=bfloat16"],
+    ["--dty", "bfloat16"],                                     # argparse abbreviation
+    ["--learning-rat", "1"],
+    ["--seed", "7"],
+    ["--label-hierarchy", "@payload/data/manifests/dev800.jsonl"],
+    ["--loss-type"],                                           # no value
+])
+def test_extras_that_override_or_escape_the_guards_refuse(tmp_path, extra):
+    with pytest.raises(SystemExit):
+        camp.build_spec(table(), grpo_row(extra_trainer_args=extra))
+    _fake_payload(tmp_path)
+    spec = dict(camp.build_spec(table(), grpo_row()), extra_trainer_args=extra)
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
+    with pytest.raises(SystemExit):
+        arm.trainer_args(tmp_path / "m.jsonl", 200, 50, None)
+
+
+def test_allowlisted_extras_reach_the_trainer_once(tmp_path):
+    _fake_payload(tmp_path)
+    extra = ["--dynamic-sampling-max-draws", "8", "--loss-type", "dr_grpo",
+             "--skip-zero-advantage-steps", "--prompts-per-update", "4"]
+    spec = camp.build_spec(table(), grpo_row(extra_trainer_args=extra))
+    argv = arm_exec.Arm(tmp_path, spec, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", 200, 50, None)
+    assert argv[-7:] == extra and argv.count("--dtype") == 1
+    with pytest.raises(SystemExit, match="repeats"):
+        arm_exec.refuse_repeated_flags(["--dtype", "float32", "--x", "--dtype", "bfloat16"])
+
+
+def _pair_dirs(tmp_path, rl_stages, ctl_stages, rl_rows, ctl_steps):
+    cls = {"device_class": "cpu-fp32"}
+    dirs = [
+        _arm_dir(tmp_path, "eval-I", dict(cls, mode="eval"), "h1", [{"label": "init"}],
+                 {"init": dict(GOLD)}),
+        _arm_dir(tmp_path, "rl", dict(cls, mode="grpo"), "h1",
+                 [{"label": "step1", "steps": 1}, {"label": "step2", "steps": 2}],
+                 {"step1": dict(GOLD), "step2": dict(GOLD)}, scanned=rl_rows),
+        _arm_dir(tmp_path, "rl~ctl", dict(cls, mode="sft", track="control",
+                                          matched_steps=[1, 2]), "h1",
+                 [{"label": "time1", "steps": ctl_steps[0]},
+                  {"label": "time2", "steps": ctl_steps[1]}],
+                 {"time1": dict(GOLD), "time2": dict(GOLD)}),
+    ]
+    for name, stages in (("rl", rl_stages), ("rl~ctl", ctl_stages)):
+        (tmp_path / name / "stages.json").write_text(json.dumps(
+            [{"stage": st, "cotenancy": {"shared": sh}} for st, sh in stages]))
+    return camp.build_report(camp.collect(dirs), GOLD, 50)
+
+
+def test_cotenancy_is_compared_stage_by_stage(tmp_path):
+    # both arms were shared SOMEWHERE (the old any-stage flags agree), but checkpoint 1's
+    # RL stage was alone while its control stage was shared
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", True)],
+                     [("train-time1", True), ("train-time2", True)],
+                     {"step1": 8, "step2": 16}, (40, 80))
+    assert out["refused"] == ["rl step1: co-tenancy differs from its control (rl False, ctl True)"]
+    assert [("vs_control" in e) for e in out["checkpoints"]] == [False, True]
+
+
+def test_control_must_have_seen_at_least_the_rows_its_rl_arm_read(tmp_path):
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", False)],
+                     [("train-time1", False), ("train-time2", False)],
+                     {"step1": 8, "step2": 16}, (8, 15))
+    assert out["refused"] == ["rl step2: control saw 15 rows < 16 the RL arm read"]
+
+
+def test_report_refuses_an_rl_checkpoint_without_scanned_rows(tmp_path):
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", False)],
+                     [("train-time1", False), ("train-time2", False)],
+                     {"step1": 8}, (40, 80))
+    assert out["refused"] == ["rl step2: no scanned/ rows recorded"]
