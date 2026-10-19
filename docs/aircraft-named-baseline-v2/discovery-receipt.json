@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-named-baseline-qwen3.8-27b-hf-cpu-v2",
+  "plan_sha256": "96b38f209c015205ee8b594ab452a040c3a0c50bb89486dabd61073a8ae2505a",
+  "plan_path": "docs/aircraft-named-baseline-plan-v2-activated.json",
+  "stage": "discovery",
+  "status": "completed",
+  "metric": {
+    "name": "mean(diag(row_normalized_confusion))",
+    "mean_class_accuracy": 0.32,
+    "image_accuracy": 0.32,
+    "correct": 32,
+    "n": 100,
+    "invalid_answers_including_missing": 0,
+    "hoeffding": {
+      "confidence_level": 0.95,
+      "half_width": 0.13581015157406193,
+      "interval": [
+        0.18418984842593808,
+        0.4558101515740619
+      ]
+    }
+  },
+  "valid_fraction": 1.0,
+  "report": {
+    "plan_id": "aircraft-named-baseline-qwen3.8-27b-hf-cpu-v2",
+    "stage": "discovery",
+    "shards": 10,
+    "per_shard": [
+      {
+        "shard": 0,
+        "host": {
+          "hostname": "ICCAD3",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2464.373326453846,
+        "generation_seconds": 2439.929512267001
+      },
+      {
+        "shard": 1,
+        "host": {
+          "hostname": "ICCAD1",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2583.8344328869134,
+        "generation_seconds": 2565.5741779317614
+      },
+      {
+        "shard": 2,
+        "host": {
+          "hostname": "iccad5",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 5015.841138406016,
+        "generation_seconds": 4996.324982477934
+      },
+      {
+        "shard": 3,
+        "host": {
+          "hostname": "ICCAD3",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2405.639305985067,
+        "generation_seconds": 2391.2475428897887
+      },
+      {
+        "shard": 4,
+        "host": {
+          "hostname": "ICCAD1",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2646.8460102949757,
+        "generation_seconds": 2634.1775784327183
+      },
+      {
+        "shard": 5,
+        "host": {
+          "hostname": "ICCAD3",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2720.95777922892,
+        "generation_seconds": 2706.6071970609482
+      },
+      {
+        "shard": 6,
+        "host": {
+          "hostname": "iccad5",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 5256.2727799949935,
+        "generation_seconds": 5244.536340238934
+      },
+      {
+        "shard": 7,
+        "host": {
+          "hostname": "ICCAD1",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2544.517711892957,
+        "generation_seconds": 2531.9487743955106
+      },
+      {
+        "shard": 8,
+        "host": {
+          "hostname": "ICCAD3",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2844.252727339044,
+        "generation_seconds": 2829.807900229469
+      },
+      {
+        "shard": 9,
+        "host": {
+          "hostname": "ICCAD1",
+          "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+        },
+        "assigned": 10,
+        "recovered_after_lost_process": false,
+        "completed": 10,
+        "unknown": 0,
+        "invocations": 1,
+        "charged_active_seconds": 2622.6268179980107,
+        "generation_seconds": 2610.0416137531865
+      }
+    ],
+    "per_host": {
+      "ICCAD3": {
+        "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+        "images": 40,
+        "generation_seconds": 10367.592152447207,
+        "mean_image_latency_seconds": 259.1898038111802
+      },
+      "ICCAD1": {
+        "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+        "images": 40,
+        "generation_seconds": 10341.742144513177,
+        "mean_image_latency_seconds": 258.54355361282944
+      },
+      "iccad5": {
+        "cpu_model": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz",
+        "images": 20,
+        "generation_seconds": 10240.861322716868,
+        "mean_image_latency_seconds": 512.0430661358434
+      }
+    },
+    "denominator": 100,
+    "completed": 100,
+    "unknown_after_interruption": [],
+    "hard_stop_errors": [],
+    "unattempted": 0,
+    "missing_images": 0,
+    "invalid_or_unterminated_answers": 0,
+    "finish_reasons": {
+      "stop": 100
+    },
+    "native_tokens": {
+      "prompt_tokens": 152543,
+      "generation_tokens": 633
+    },
+    "generation_seconds_total": 30950.19561967725,
+    "mean_image_latency_seconds": 309.50195619677254,
+    "max_image_latency_seconds": 761.7799608699861,
+    "mean_load_seconds": 9.326331558643142,
+    "invocations": 10,
+    "charged_active_seconds": 31105.162030480744,
+    "lost_process_charged_active_seconds": 0.0,
+    "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
+    "status": "completed",
+    "metric": {
+      "name": "mean(diag(row_normalized_confusion))",
+      "mean_class_accuracy": 0.32,
+      "image_accuracy": 0.32,
+      "correct": 32,
+      "n": 100,
+      "invalid_answers_including_missing": 0,
+      "hoeffding": {
+        "confidence_level": 0.95,
+        "half_width": 0.13581015157406193,
+        "interval": [
+          0.18418984842593808,
+          0.4558101515740619
+        ]
+      }
+    },
+    "test_consumed": false
+  },
+  "gate": {
+    "decision": "proceed",
+    "reasons": [],
+    "per_invocation_overhead_seconds": 24.443814186844975,
+    "slowest_host": {
+      "hostname": "iccad5",
+      "cpu_model": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz",
+      "images": 20,
+      "generation_seconds": 10240.861322716868,
+      "mean_image_latency_seconds": 512.0430661358434
+    },
+    "projected_shard_active_seconds": 28698.85551779408,
+    "shard_max_active_seconds": 1536317.711035588,
+    "headroom_gate": "not applied here; recorded for the root decision"
+  },
+  "predictions": {
+    "0067396": "707-320",
+    "0302868": "ATR-72",
+    "0699595": "707-320",
+    "0907752": "A320",
+    "1031522": "ATR-72",
+    "1152495": "ATR-42",
+    "1269238": "DHC-1",
+    "1393629": "DHC-8-300",
+    "1783696": "A310",
+    "2015169": "DHC-6",
+    "0091362": "737-200",
+    "0368821": "Eurofighter Typhoon",
+    "0722894": "Gulfstream V",
+    "0917396": "Dornier 328",
+    "1042843": "Spitfire",
+    "1157334": "ATR-42",
+    "1288661": "707-320",
+    "1510899": "A321",
+    "1795992": "SR-20",
+    "2091953": "Embraer Legacy 600",
+    "0092976": "DC-10",
+    "0388910": "CRJ-200",
+    "0730793": "727-200",
+    "0927430": "Boeing 717",
+    "1047792": "DHC-8-300",
+    "1161864": "Fokker 70",
+    "1294506": "A310",
+    "1555557": "777-300",
+    "1816331": "Fokker 100",
+    "2103000": "A340-500",
+    "0097108": "A310",
+    "0447773": "747-200",
+    "0737639": "A310",
+    "0950326": "A340-300",
+    "1053984": "A340-300",
+    "1164553": "Il-76",
+    "1334472": "A310",
+    "1570201": "A319",
+    "1838250": "SR-20",
+    "2115048": "C-47",
+    "0098072": "Metroliner",
+    "0458784": "A318",
+    "0842400": "An-12",
+    "0962633": "737-500",
+    "1094917": "727-200",
+    "1168016": "Saab 340",
+    "1345202": "Gulfstream IV",
+    "1584007": "777-300",
+    "1839351": "Global Express",
+    "2127863": "Global Express",
+    "0118429": "Dornier 328",
+    "0491938": "747-400",
+    "0851614": "Spitfire",
+    "0973103": "CRJ-200",
+    "1097303": "DC-10",
+    "1168209": "777-200",
+    "1351207": "E-170",
+    "1594799": "Tu-134",
+    "1861128": "Hawk T1",
+    "2137099": "767-300",
+    "0136167": "Fokker 70",
+    "0558247": "767-300",
+    "0858585": "Fokker 70",
+    "0977265": "ATR-42",
+    "1110803": "MD-87",
+    "1170152": "CRJ-200",
+    "1365711": "A340-300",
+    "1602047": "Falcon 900",
+    "1879799": "CRJ-200",
+    "2179973": "Fokker 70",
+    "0182724": "737-200",
+    "0591254": "C-130",
+    "0875351": "C-130",
+    "1018862": "A320",
+    "1119082": "ATR-72",
+    "1193564": "DH-82",
+    "1372373": "Tornado",
+    "1605065": "MD-80",
+    "1895885": "BAE 146-300",
+    "2190106": "A321",
+    "0195002": "747-200",
+    "0598742": "DC-3",
+    "0890355": "F-16A/B",
+    "1026133": "Tu-154",
+    "1131594": "F/A-18",
+    "1231212": "MD-80",
+    "1389713": "A330-300",
+    "1608837": "A340-300",
+    "1898332": "Challenger 600",
+    "2226295": "707-320",
+    "0295861": "Gulfstream V",
+    "0692142": "DC-10",
+    "0903124": "737-400",
+    "1027348": "Gulfstream V",
+    "1149050": "Fokker 70",
+    "1246392": "DHC-1",
+    "1391858": "Gulfstream IV",
+    "1691790": "737-800",
+    "1980084": "A319",
+    "2227920": "A321"
+  },
+  "test_consumed": false,
+  "instrument": "scripts/aircraft_named_baseline_v2.py merge + discovery_decision over the whole shard directories collected from the hosts (~/nbv2-collect)"
+}
