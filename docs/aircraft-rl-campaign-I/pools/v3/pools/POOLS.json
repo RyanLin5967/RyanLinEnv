@@ -1,0 +1,349 @@
+{
+ "adapter_I_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7",
+ "all_train_sha256": "9bed5893ad866fa2b6a5f86c4edc98421699154f435879e9e4867825c64caa9e",
+ "change_from_v2": "v2 pooled 4 rows (0090868, 0447760, 1548951, 2045491) that the original pHash audit never hashed (probe16 outside train400), and pooled pHash near-duplicates of train400. v3 pHashes every scored row against VAL, TEST and train400 and drops flagged rows; scores are unchanged (per-row, from the same 46 units).",
+ "disjointness": {
+  "eligible": {
+   "dev600": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "dev800": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_gate_final": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_select": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "native_val": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "sealed_test": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "train400": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "v3_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "val_test_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   }
+  },
+  "hard": {
+   "dev600": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "dev800": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_gate_final": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_select": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "native_val": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "sealed_test": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "train400": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "v3_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "val_test_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   }
+  },
+  "mid": {
+   "dev600": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "dev800": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_gate_final": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_select": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "native_val": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "sealed_test": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "train400": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "v3_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "val_test_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   }
+  },
+  "mixed": {
+   "dev600": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "dev800": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_gate_final": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_select": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "native_val": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "sealed_test": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "train400": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "v3_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "val_test_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   }
+  },
+  "unreachable": {
+   "dev600": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "dev800": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_gate_final": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "h_select": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "native_val": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "sealed_test": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "train400": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "v3_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   },
+   "val_test_phash_near_duplicates": {
+    "content_overlap": 0,
+    "id_overlap": 0
+   }
+  }
+ },
+ "exclusions": {
+  "exclusions_sha256": "00a433eab22002764d2d91c02888623b2d5a4b37ee90ba3e1bb0eb19b482380b",
+  "phash_audit_sha256": "67863f31d00e442a84eaad048a4f5681f3234917de0d3c70ce11c99ee1ca16f7",
+  "train400_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+  "v3_phash": {
+   "eligible_phash_sha256": "83270d7d8b8315c54e78eedd840ba685d9a204a16e4a28dc28e391e1e4b32c8d",
+   "forced_fire_passed": true,
+   "hamming_max": 6,
+   "parity_with_original_audit": {
+    "audited_rows": 1437,
+    "hash_mismatches": 0,
+    "new_pairs_on_audited_rows": 13,
+    "old_pairs_on_audited_rows": 13,
+    "pairs_identical": true
+   },
+   "reference_counts": {
+    "test": 3333,
+    "train400": 400,
+    "validation": 3333
+   }
+  }
+ },
+ "files": {
+  "coverage.json": {
+   "sha256": "67016aa53f502c2b631769cd41db82c6ea046ba05442af972a1713b3eab5399a"
+  },
+  "coverage.md": {
+   "sha256": "e59675ab17a819d6cea3ce13959624e52c4a1dc613c9d6835b0418e824e02c9c"
+  },
+  "manifests/hard.jsonl": {
+   "id_set_sha256": "7792a884ac25d8c410ce456b48806ce3a5b5907e9a67ffa5191412f96218d28f",
+   "rows": 207,
+   "sha256": "9707f3479eb0de4b019aeddd19118ae4990f30928407438774cd825399713ee7"
+  },
+  "manifests/mid.jsonl": {
+   "id_set_sha256": "41864e9dcbbd28b1466b998611e1d9a49a4de75b40192bd63b117f981a80f279",
+   "rows": 396,
+   "sha256": "639bc25ba395a404341ef59a5e97b15263b9c2c85b84467686f248f60c7bf949"
+  },
+  "manifests/mixed.jsonl": {
+   "id_set_sha256": "487c60f299bac2ebefb3fbcecefe26ae19c895f49ea3cdc2cc0b01fa77d2d3ed",
+   "rows": 454,
+   "sha256": "052a2953d235bbd9f07fdaac729a764d37933e62db2e370ebe2e2d301ba368ea"
+  },
+  "manifests/unreachable.jsonl": {
+   "id_set_sha256": "256c7a36464ea8a9444be6f741f4c5dfc31a0937f4476bd55a663f3f5c7d5957",
+   "rows": 129,
+   "sha256": "953164c76814268b5496d0d6b1ea61a545cea310da7f33c562e63a09798c46f0"
+  },
+  "phash_excluded.jsonl": {
+   "rows": 16,
+   "sha256": "94c4507d95ef5d89ad446810ce5c85727b59a4f4effe6e98ec9fb3fd901b5702"
+  },
+  "scores.jsonl": {
+   "rows": 1436,
+   "sha256": "c0df5d6102821c35eead9443bc27ab3f0eb60a8665d30d2aa48f12a7696ddabf"
+  }
+ },
+ "images_note": "manifests reference images/train/<id>.jpg; place them in the payload's data/manifests directory (same layout as all_train.jsonl) to train",
+ "phash_excluded_ids": [
+  "0181735",
+  "0447760",
+  "0701753",
+  "0905853",
+  "1008426",
+  "1043369",
+  "1063986",
+  "1377655",
+  "1446341",
+  "1557747",
+  "1774585",
+  "1870652",
+  "1921783",
+  "2026755",
+  "2098098",
+  "2171061"
+ ],
+ "pool_scoring": {
+  "greedy_seconds": 21159.6,
+  "host:ICCAD0": 6186.1,
+  "host:ecetesla0": 6851.9,
+  "host:ecetesla1": 7339.8,
+  "host:iccad6": 6440.6,
+  "host:iccad7": 11821.5,
+  "host:iccad8": 5887.2,
+  "p_seconds": 20581.9,
+  "unit_seconds": 44527.1
+ },
+ "references": {
+  "dev600": {
+   "id_set_sha256": "3e537b3e78807f875499a1ba29654a0431864576a12dcf87d8e13fd0b4aef223",
+   "manifest_sha256": "cc81bb8c744d32db5428506b09e3054fb5b73e6137fa09d8cbbc985aa5d89ff7",
+   "n": 600
+  },
+  "dev800": {
+   "id_set_sha256": "b2b98566cf79f5bb2d87ee2e37dee046e42c7828be76a23a69d468982ccae437",
+   "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+   "n": 800
+  },
+  "h_gate_final": {
+   "id_set_sha256": "cbb6e62e70985c04c34ff2a66e48da445870a633a0c3ee430c94588b0bb4e755",
+   "manifest_sha256": "47ba76a97c32bf47e0fe106c4a08289dcaa6607e2bdef4a2829a301785ed7fae",
+   "n": 200
+  },
+  "h_select": {
+   "id_set_sha256": "08acdbf31ad28e6fd23acddeb711c0b95e38da5e2375b476181f48de42428c7e",
+   "manifest_sha256": "7c7f2754c379109a6d5afc42c1e4927535fe0c98b03087193971588387035e16",
+   "n": 200
+  },
+  "native_val": {
+   "audit_file_sha256": "046320db26084151ad73f138f75ce9e655f356257780b130815edd5a83561420",
+   "id_set_sha256": "f8d4d102e35cc95b1c776886fee54bceeb4fcefd90336dd7a1cbc1db127b4565",
+   "n": 3333
+  },
+  "sealed_test": {
+   "audit_file_sha256": "429941a5c736f1768972a861088c7c709e8d9717d0e5d392de6d28c3f11877d1",
+   "id_set_sha256": "1ec00fb5a6d6ff07a685781aa47e0be540b4dc85576b10ff7c9f0793f68b85a3",
+   "n": 3333
+  },
+  "train400": {
+   "id_set_sha256": "a3b4e334bcfa9047218c4257838612ae349afcc27a5aec7f7d03ea75fb85dda9",
+   "n": 400
+  },
+  "v3_phash_near_duplicates": {
+   "id_set_sha256": "2d8c71bcff383ff2a41fcdffd25a017e0f1bab46ab35fc7afa17a6836f781cc0",
+   "n": 16
+  },
+  "val_test_phash_near_duplicates": {
+   "id_set_sha256": "d66b92870ea5b4f2eb44b234e24bf7b3b9109ba2c57a3247c4e5b44afe0ce837",
+   "n": 477
+  }
+ },
+ "rule": {
+  "eligible": "scored - rows flagged by phash_eligible.py against native VAL, sealed TEST or train400 (Hamming <= 6); every scored row must carry a pHash",
+  "hard": "I greedy answer != gold AND p_gold >= 0.02",
+  "mid": "0.1 <= p_gold <= 0.9",
+  "mixed": "hard OR mid",
+  "order": "class-stratified round robin, hashed within class",
+  "p_gold": "P(gold + EOS) at T 1.0 under I, summed over label-trie tokenisations",
+  "scored": "all_train - train400 - VAL/TEST pHash near-duplicates (477) = 1452",
+  "unreachable": "p_gold < 0.02 (never pooled)"
+ },
+ "seed": 20261018,
+ "splits_json_sha256": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed",
+ "study": "aircraft-rl-campaign-I-pools-v3",
+ "trainer_cross_check": {
+  "max_abs_diff": 9.566902126112442e-06,
+  "max_paths_checked": 14,
+  "units_checked": 46
+ },
+ "trainer_sha256": "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0",
+ "trie_sha256": "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0"
+}
