@@ -22,6 +22,8 @@ from vision_rl.data import assert_disjoint, fingerprint, load_manifest, write_js
 
 ENCODER_ID = "torchvision/resnet18/IMAGENET1K_V1"
 REWARD = "1[action == target] - abs(action - target) / (num_actions - 1)"
+CLASSIFICATION_REWARD = "1[action == target]"
+TASKS = ("counting", "classification")
 
 
 def state_fingerprint(state: dict) -> str:
@@ -71,6 +73,27 @@ def _count_schema(rows: list[dict]) -> list[str]:
     return choices
 
 
+def _task_schema(rows: list[dict]) -> tuple[list[str], str]:
+    """(choices, task) for one consistent counting or single-label classification task."""
+    if rows[0]["category"] == "counting":
+        return _count_schema(rows), "counting"
+    if rows[0]["category"] != "classification":
+        raise ValueError("policy supports counting or classification tasks")
+    choices = rows[0]["choices"]
+    if any(r["choices"] != choices or r["category"] != "classification" for r in rows):
+        raise ValueError("classification policy requires one consistent label set")
+    if any(r["prompt"] != rows[0]["prompt"] for r in rows):
+        raise ValueError("classification policy requires one consistent question")
+    return choices, "classification"
+
+
+def exact_reward(actions, targets, num_actions: int):
+    """Classification reward: labels have no order, so only an exact match earns credit."""
+    if num_actions < 2:
+        raise ValueError("at least two label actions are required")
+    return (actions == targets).float()
+
+
 def shaped_reward(actions, targets, num_actions: int):
     """Bounded count reward; labels never enter the policy's observations."""
     if num_actions < 2:
@@ -78,7 +101,9 @@ def shaped_reward(actions, targets, num_actions: int):
     return (actions == targets).float() - (actions - targets).abs().float() / (num_actions - 1)
 
 
-def reinforce_loss(logits, targets, *, samples=8, entropy_weight=0.005, reference=None, kl=0.02):
+def reinforce_loss(
+    logits, targets, *, samples=8, entropy_weight=0.005, reference=None, kl=0.02, reward=None
+):
     """Sampled policy gradient with an unbiased leave-one-out group baseline."""
     torch, _ = _stack()
     if samples < 2:
@@ -86,7 +111,7 @@ def reinforce_loss(logits, targets, *, samples=8, entropy_weight=0.005, referenc
     log_probs = logits.log_softmax(-1)
     probs = log_probs.exp()
     actions = torch.multinomial(probs, samples, replacement=True)
-    rewards = shaped_reward(actions, targets[:, None], logits.shape[-1])
+    rewards = (reward or shaped_reward)(actions, targets[:, None], logits.shape[-1])
     baseline = (rewards.sum(1, keepdim=True) - rewards) / (samples - 1)
     advantage = (rewards - baseline).detach()
     policy_loss = -(advantage * log_probs.gather(1, actions)).mean()
@@ -166,8 +191,10 @@ def _head(inputs: int, actions: int, hidden: int):
     return torch.nn.Linear(inputs, actions)
 
 
-def _metrics(logits, targets):
+def _metrics(logits, targets, task="counting"):
     predictions = logits.argmax(-1)
+    if task == "classification":
+        return {"accuracy": float((predictions == targets).float().mean()), "mae": None}
     nonzero = targets != 0
     return {
         "accuracy": float((predictions == targets).float().mean()),
@@ -179,7 +206,7 @@ def _metrics(logits, targets):
 
 
 def _rank(metrics):
-    return metrics["accuracy"], -metrics["mae"]
+    return metrics["accuracy"], -(metrics["mae"] or 0.0)
 
 
 def _save_policy(path, head, metadata, mean, scale):
@@ -218,7 +245,7 @@ def train_count_policy(
     train_rows = load_manifest(train_manifest, expected_split="train")
     val_rows = load_manifest(validation_manifest, expected_split="validation")
     assert_disjoint(train_rows, val_rows)
-    choices = _count_schema(train_rows + val_rows)
+    choices, task = _task_schema(train_rows + val_rows)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
@@ -245,7 +272,8 @@ def train_count_policy(
         "train_fingerprint": fingerprint(train_rows),
         "validation_fingerprint": fingerprint(val_rows),
         "selection_split": "validation",
-        "reward": REWARD,
+        "task": task,
+        "reward": REWARD if task == "counting" else CLASSIFICATION_REWARD,
         "image_transform": "RGB resize224x224 + ImageNet normalize; mean/std layer4",
         "train_views": 4 if augment else 1,
         "optimizer_device": "cpu",
@@ -265,7 +293,9 @@ def train_count_policy(
         "samples_per_observation": 8,
         "entropy_weight": 0.005,
         "kl_weight": 0.02,
-        "selection": "maximum validation exact accuracy; then minimum validation MAE",
+        "selection": "maximum validation exact accuracy; then minimum validation MAE"
+        if task == "counting"
+        else "maximum validation exact accuracy",
         "test_access": False,
     }
     write_json(output / "plan.json", {**plan, **metadata})
@@ -300,8 +330,8 @@ def train_count_policy(
                 if epoch % 5 == 0 or epoch == sft_epochs:
                     head.eval()
                     with torch.no_grad():
-                        metrics = _metrics(head(v), vy)
-                        train_metrics = _metrics(head(x), y)
+                        metrics = _metrics(head(v), vy, task)
+                        train_metrics = _metrics(head(x), y, task)
                     event = {
                         "candidate": candidate,
                         "phase": "sft",
@@ -334,15 +364,18 @@ def train_count_policy(
                 with torch.no_grad():
                     reference_logits = reference(x[indices])
                 loss, reward_metrics = reinforce_loss(
-                    head(x[indices]), y[indices], reference=reference_logits
+                    head(x[indices]),
+                    y[indices],
+                    reference=reference_logits,
+                    reward=shaped_reward if task == "counting" else exact_reward,
                 )
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
                 optimizer.step()
                 if step % 20 == 0 or step == rl_steps:
                     with torch.no_grad():
-                        metrics = _metrics(head(v), vy)
-                        train_metrics = _metrics(head(x), y)
+                        metrics = _metrics(head(v), vy, task)
+                        train_metrics = _metrics(head(x), y, task)
                     event = {
                         "candidate": candidate,
                         "phase": "rl",
@@ -421,7 +454,9 @@ def _load_head_checkpoint(checkpoint: Path):
         raise ValueError("policy hidden size must be between 0 and 512")
     choices = meta.get("choices")
     if not isinstance(choices, list) or not 2 <= len(choices) <= 26:
-        raise ValueError("policy must have 2 to 26 count choices")
+        raise ValueError("policy must have 2 to 26 choices")
+    if meta.get("task", "counting") not in TASKS:
+        raise ValueError("unsupported policy task")
     for name in ("feature_mean", "feature_scale"):
         value = saved[name]
         if not isinstance(value, torch.Tensor) or value.shape != (1024,):
@@ -448,8 +483,13 @@ def predict_count_policy(
     checkpoint = Path(checkpoint)
     saved = _load_head_checkpoint(checkpoint)
     meta = saved["metadata"]
-    if _count_schema(rows) != meta["choices"] or rows[0]["prompt"] != meta["prompt"]:
-        raise ValueError("evaluation count question/choices differ from the trained task")
+    choices, task = _task_schema(rows)
+    if (
+        choices != meta["choices"]
+        or rows[0]["prompt"] != meta["prompt"]
+        or task != meta.get("task", "counting")
+    ):
+        raise ValueError("evaluation question/choices differ from the trained task")
     if trusted_encoder is not None:
         encoder_path = Path(trusted_encoder)
     else:
@@ -491,19 +531,21 @@ def evaluate_count_policy(
     predictions = predict_count_policy(
         rows, checkpoint, device=device, trusted_encoder=trusted_encoder
     )
+    task = _load_head_checkpoint(Path(checkpoint))["metadata"].get("task", "counting")
     result = score(
         rows,
         predictions,
         {
-            "name": "resnet18-count-policy",
+            "name": f"resnet18-{'count' if task == 'counting' else 'classification'}-policy",
             "backend": "torch",
             "checkpoint_sha256": hashlib.sha256(Path(checkpoint).read_bytes()).hexdigest(),
         },
     )
     result["elapsed_seconds"] = time.monotonic() - started
-    result["mean_absolute_count_error"] = float(
-        np.mean([abs(ord(item["answer"]) - ord(item["expected"])) for item in result["items"]])
-    )
+    if task == "counting":
+        result["mean_absolute_count_error"] = float(
+            np.mean([abs(ord(item["answer"]) - ord(item["expected"])) for item in result["items"]])
+        )
     write_json(output, result)
     return result
 
