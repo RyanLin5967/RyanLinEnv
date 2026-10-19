@@ -331,3 +331,30 @@ oversubscribed hosts (21–54 s per SFT update against the benched 11.3).
   adapter whose endpoint receipt is exactly that stop (checked on the host) instead of
   training it again, then resumes the next stop from that checkpoint. The sftall arms will
   take this path after their step-2329 assay fails.
+
+## Amendment 5 (2026-10-19, before any corrected GRPO-I result, before any VAL use): D37 GRPO-from-I table
+
+Amendment 4 is the wave-2 arm table on PR #36. Root decision D37 (PR #40) records that GATE 0
+passed and releases GRPO-from-I arms under the RL lessons audit's corrections
+(`runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`).
+
+- **Retired, never launched.** The six rung-1 grpo-I arms (G4 and G8 at LR 1e-6, 5e-6 and
+  1e-5) and their six matched controls are retired. They break C3 (LR), C12 (β 0.04) and C5
+  (no dynamic sampling), and they ran only T 1.0 on the 150-update rung schedule. The table's
+  `retires` map records the reason for each id.
+- **Replacement: `arms-d37-grpo-I.json`**, written by `scripts/exploratory_sweep/d37_arms.py`.
+  Each of the following has `--check` to confirm the file matches its generator.
+  - Six GRPO-from-I arms, LR {1e-5, 2e-5, 5e-5} × T {1.0, 1.3}, plus one LR 3e-6 forgetting
+    guard at T 1.0.
+  - β 0, G 8, fp32, on CPU hosts with AVX-512 only. The fp32 MKL kernels die with SIGILL
+    elsewhere. The runner places these arms only on hosts that `uwrun hosts` reports as
+    `avx 512`.
+  - Dynamic sampling with 8 draws (C5).
+  - 600 updates, assayed at 150, 300 and 600 (fixed schedule, C11).
+- **Controls.** Each RL arm has a matched SFT-from-I control on its host, using the LR grid
+  {5e-6, 1e-5, 2e-5} rank for rank (the guard's control uses 5e-6). Each control replays
+  every scanned row and is time-matched at each checkpoint.
+- **What gates the launch.** The launch allowlist becomes these two families, released once
+  `gate0.passed` is set. The arms need the trainer features `dynamic_sampling` and
+  `replay_sequence`, which exist only in PR #36's trainer. Until a payload carries them, the
+  receipt check refuses every host, so none of these arms can launch.

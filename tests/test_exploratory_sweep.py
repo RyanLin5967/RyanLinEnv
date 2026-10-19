@@ -114,7 +114,7 @@ def make_table(arms):
 def base_arm(arm_id, track):
     return {
         "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "I", "mode": "grpo",
-        "family": "grpo-I",
+        "family": "d37-grpo-I",
         "lr": 1e-5, "stops": [150], "max_steps_total": 1500, "wave": 1, "num_generations": 8,
         "train_manifest": "s_train_scan_seed42.jsonl", "features": [],
     }
@@ -305,7 +305,8 @@ iccad4        0.02    24    24     121      0       0    yes     62    2  2.28  
 def test_host_table_reads_uwrun_v5_columns_by_header():
     t = runner.host_table(UWRUN_V5_HOSTS)
     assert t["iccad13"] == {"load1": 46.59, "nproc": 72, "cores": 36, "avail_gb": 235.0,
-                            "local_gb": 8.0}
+                            "local_gb": 8.0, "avx": "512"}
+    assert t["iccad4"]["avx"] == "2"
     assert t["iccad4"]["avail_gb"] == 121.0 and t["iccad4"]["cores"] == 24
     old = "host load1 nproc availGB localGB\niccad4 0.0 24 121 0\n"
     with pytest.raises(SystemExit, match="header lacks"):
@@ -565,15 +566,20 @@ def test_launch_one_omits_mem_for_an_unmeasured_kind(tmp_path, monkeypatch):
 
 
 def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
-    table = {"g": {"id": "g", "family": "grpo-I"}, "w": {"id": "w", "family": "grpo-W"}}
+    # amendment 5: the allowlisted family is the D37 table's; the old grpo-I is retired
+    table = {"g": {"id": "g", "family": "d37-grpo-I"}, "w": {"id": "w", "family": "grpo-W"},
+             "old": {"id": "old", "family": "grpo-I"}}
     closed, opened = {}, {"gate0": {"passed": True}}
     for state in (closed, opened):
         for spec in ({"id": "w", "family": "grpo-W", "track": "rl"},
                      {"id": "w~ctl", "family": "control", "track": "control", "control_of": "w"},
                      {"id": "s", "family": "sft-I", "track": "sft"},
-                     {"id": "x", "family": "sftall-rl", "track": "rl"}):
+                     {"id": "x", "family": "sftall-rl", "track": "rl"},
+                     {"id": "old", "family": "grpo-I", "track": "rl"},
+                     {"id": "old~ctl", "family": "control", "track": "control",
+                      "control_of": "old"}):
             assert "allowlist" in runner.launch_hold(state, spec, table)
-    g = {"id": "g", "family": "grpo-I", "track": "rl"}
+    g = {"id": "g", "family": "d37-grpo-I", "track": "rl"}
     gc = {"id": "g~ctl", "family": "control", "track": "control", "control_of": "g"}
     assert "GATE 0" in runner.launch_hold(closed, g, table)
     assert "GATE 0" in runner.launch_hold({"gate0": {"passed": "yes"}}, gc, table)
@@ -778,3 +784,73 @@ def test_host_oom_in_a_first_assay_is_not_retired(tmp_path):
     state = {"arms": {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
                             "results_dir": str(res), "spec_path": str(tmp_path / "arm.json")}}}
     assert runner.retire_if_host_oom(state, "s") is None
+
+
+def test_launch_places_an_avx512_arm_only_on_an_avx512_host(tmp_path, monkeypatch):
+    arm = dict(base_arm("d", "rl"), need_avx512=True)
+    rec = {"valid": True, "payload_sha256": "P", "root": "/r", "features": ["exploratory_sweep"]}
+    state = {"arms": {}, "uwrun_runs": [], "payload": {"sha256": "P"}, "gate0": {"passed": True},
+             "hosts": {"iccad5": {"receipt": dict(rec)}, "iccad7": {"receipt": dict(rec)},
+                       "iccad9": {"receipt": dict(rec)}}}
+    path = setup(tmp_path, monkeypatch, state)
+    table = tmp_path / "t.json"
+    table.write_text(json.dumps(make_table([arm])))
+    rows = runner.host_table(
+        "host load1 nproc cores availGB ourThr localGB avx\n"
+        "iccad5 0 40 20 400 0 50 2\niccad7 0 72 36 200 0 50 512\n"
+        "iccad9 0 48 24 900 0 50 512\n")
+    rows["iccad9"]["load1"] = 30.0  # busy: iccad7 is the only AVX-512 host with room
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    sent = []
+    monkeypatch.setattr(runner, "launch_one",
+                        lambda sp, spec, host, root, t, dry: sent.append(host))
+
+    class A:
+        ids = wave = rung = hosts = None
+        max_launch, timeout, dry_run = 1000, 60, False
+
+    A.table = str(table)
+    runner.cmd_launch(A, path)
+    assert sent == ["iccad7"]  # iccad5 (AVX2) has the most free memory but never qualifies
+    rows["iccad7"]["avx"] = None  # a host whose AVX width is unknown is refused too
+    sent.clear()
+    runner.cmd_launch(A, path)
+    assert sent == []
+
+
+def test_d37_table_is_corrections_compliant_and_retires_every_old_grpo_i_spec():
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("d37", ROOT / "scripts" / "exploratory_sweep" / "d37_arms.py")
+    d37 = iu.module_from_spec(spec)
+    spec.loader.exec_module(d37)
+    t = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json")
+                   .read_text())
+    assert t == json.loads(d37.render())  # the committed table is the generator's
+    rl = [a for a in t["arms"] if a["track"] == "rl"]
+    ctl = [a for a in t["arms"] if a["track"] == "control"]
+    main = [a for a in rl if a["family"] == "d37-grpo-I"]
+    assert sorted((a["lr"], a["temperature"]) for a in main) == [
+        (1e-5, 1.0), (1e-5, 1.3), (2e-5, 1.0), (2e-5, 1.3), (5e-5, 1.0), (5e-5, 1.3)]
+    assert [(a["lr"], a["temperature"]) for a in rl if a["family"] == "d37-guard"] == [(3e-6, 1.0)]
+    for a in rl:
+        assert (a["init"], a["beta"], a["num_generations"], a["dtype"], a["device"]) == (
+            "I", 0.0, 8, "float32", "cpu")
+        assert a["need_avx512"] is True and a["stops"] == [150, 300, 600]
+        assert a["max_steps_total"] == 600 and "dynamic_sampling" in a["features"]
+        i = a["extra_trainer_args"].index("--dynamic-sampling-max-draws")
+        assert int(a["extra_trainer_args"][i + 1]) >= 8
+    assert sorted({c["lr"] for c in ctl}) == [5e-6, 1e-5, 2e-5]
+    assert {c["control_of"] for c in ctl} == {a["id"] for a in rl}
+    for c in ctl:
+        assert (c["init"], c["mode"], c["dtype"], c["need_avx512"]) == ("I", "sft", "float32", True)
+        assert "replay_sequence" in c["features"] and c["control_replays"] == "scanned"
+    rung1 = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-rung1.json")
+                       .read_text())
+    old = {a["id"] for a in rung1["arms"]
+           if a["family"] == "grpo-I" or str(a.get("control_of", "")).startswith("grpo-I-")}
+    assert len(old) == 12 and set(t["retires"]) == old
+    held = {a["id"]: runner.launch_hold({"gate0": {"passed": True}}, a,
+                                        {x["id"]: x for x in rung1["arms"]})
+            for a in rung1["arms"] if a["id"] in old}
+    assert all("allowlist" in v for v in held.values())

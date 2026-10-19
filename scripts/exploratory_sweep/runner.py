@@ -141,7 +141,9 @@ def host_table(text: str | None = None) -> dict:
                                "nproc": int(parts[col["nproc"]]),
                                "cores": int(parts[col["cores"]]),
                                "avail_gb": float(parts[col["availGB"]]),
-                               "local_gb": float(parts[col["localGB"]])}
+                               "local_gb": float(parts[col["localGB"]]),
+                               # widest AVX uwrun measured (512, 2, 0); None when not listed
+                               "avx": parts[header.index("avx")] if "avx" in header else None}
         except ValueError:
             raise SystemExit(f"REFUSE: unparsable `uwrun hosts` row: {line!r}")
     if not hosts:
@@ -413,7 +415,9 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
 # (state["gate0"]["passed"] is True, written by whoever records GATE 0). `continue` is
 # allowed only for the sftall families. No W-init unit is promoted. Freed cores stay idle
 # for the GATE 0 SFT lane, so `refresh` bootstraps only hosts holding a continuable arm.
-LAUNCH_FAMILIES = {"grpo-I"}
+# Amendment 5 (root D37; amendment 4 is the wave-2 table, PR #36): the corrected GRPO-from-I table arms-d37-grpo-I.json replaces the
+# rung-1 grpo-I arms, which are retired (its `retires` map records why) and never launch.
+LAUNCH_FAMILIES = {"d37-grpo-I", "d37-guard"}
 CONTINUE_FAMILIES = {"sftall-I", "sftall-W"}
 
 
@@ -563,6 +567,10 @@ def cmd_launch(a, state_path: Path) -> int:
                 # a control waits for its RL arm's host (refreshed once drained); skipping
                 # it still refuses that launch without aborting every other arm's
                 skipped.append(str(exc))
+                continue
+            if spec.get("need_avx512") and (hosts.get(host) or {}).get("avx") != "512":
+                # fp32 MKL kernels die with SIGILL without AVX-512 (D37); unknown = refuse
+                skipped.append(f"{spec['id']}: {host} has no AVX-512 (uwrun hosts avx)")
                 continue
             free = capacity(st, hosts, host, spec.get("threads", 16),
                             mem_gb(spec) or ARM_RSS_GB)
