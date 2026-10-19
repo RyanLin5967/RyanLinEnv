@@ -49,8 +49,14 @@ fi
 if [ ! -d "$MODEL" ]; then
   mkdir -p "$MODEL_ROOT"
   rm -rf "$MODEL.tmp"
-  # same filesystem (/var/tmp): a rename, not a second 4 GiB copy
-  mv model/Qwen2-VL-2B-Instruct-895c3a49 "$MODEL.tmp"
+  if [ -n "${MODEL_SRC:-}" ]; then
+    # A copy already on this host (no 4 GiB upload over a slow link): hard links, then the
+    # trainer's own model-directory check below verifies every file against model-source.json.
+    cp -al "$MODEL_SRC" "$MODEL.tmp"
+  else
+    # same filesystem (/var/tmp): a rename, not a second 4 GiB copy
+    mv model/Qwen2-VL-2B-Instruct-895c3a49 "$MODEL.tmp"
+  fi
   mv "$MODEL.tmp" "$MODEL"
 fi
 
