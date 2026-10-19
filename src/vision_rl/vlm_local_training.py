@@ -4156,6 +4156,10 @@ def train_local(
         raise ValueError("replay_sequence is a TRAIN-only sequential SFT control mode")
     if replay_sequence and continue_from_checkpoint is not None:
         raise ValueError("replay_sequence cannot combine with a continuation's rotated order")
+    if replay_sequence and finalize_only:
+        # finalize_only publishes a checkpoint without calling train(), so the end-of-run
+        # exposure-order check (_trainer_with_replay_order) would never run
+        raise ValueError("replay_sequence cannot finalize without training (order unchecked)")
     overrides = validate_grpo_overrides(grpo_overrides)
     if (overrides or dynamic_sampling_max_draws is not None) and mode != "grpo":
         raise ValueError("grpo_overrides and dynamic sampling apply only to GRPO")

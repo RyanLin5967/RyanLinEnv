@@ -1439,7 +1439,8 @@ def test_trainer_args_end_with_the_checked_d37_extras_and_refuse_a_bad_table_row
     rl = next(a for a in t["arms"] if a["track"] == "rl")
     arm = arm_exec.Arm(tmp_path, rl, tmp_path / "r")
     argv = arm.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
-    assert argv[-2:] == ["--dynamic-sampling-max-draws", "8"]
+    # beta 0 names its loss aggregation explicitly (main's trainer refuses it otherwise)
+    assert argv[-4:] == ["--loss-type", "grpo", "--dynamic-sampling-max-draws", "8"]
     assert argv.count("--dtype") == 1 and argv.count("--learning-rate") == 1
     bad = arm_exec.Arm(tmp_path, dict(rl, extra_trainer_args=["--dtype", "bfloat16"]),
                        tmp_path / "r")
@@ -1522,3 +1523,103 @@ def test_wave2_table_dapo_rows_draw_at_least_8_and_check_refuses_fewer(tmp_path,
     for bad in (["--dynamic-sampling-max-draws=4"], ["--dynamic-sampling-max-draws"]):
         with pytest.raises(ValueError, match="CORRECTIONS C5"):
             wave2.check_dynamic_draws([{"id": "x", "extra_trainer_args": bad}])
+
+
+def test_d37_generator_and_check_refuse_fewer_than_8_draws(tmp_path, monkeypatch, capsys):
+    d37 = load("d37_arms")
+    assert d37.main(["--check"]) == 0
+    monkeypatch.setattr(d37, "DYNAMIC_DRAWS", 4)  # a generator below C5 never renders
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        d37.main(["--check"])
+    monkeypatch.undo()
+    table = json.loads(D37_TABLE.read_text())  # a table on disk edited to 4 fails --check
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-d37-grpo-I.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(d37, "OUT", edited)
+    assert d37.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+
+
+def test_label_hierarchy_extra_must_be_a_payload_file(tmp_path):
+    root, asset = _fake_root(tmp_path)
+    outside = tmp_path / "elsewhere" / asset.name  # the right name, outside the payload
+    outside.parent.mkdir()
+    outside.write_bytes(asset.read_bytes())
+    fmtpen = next(a for a in json.loads(wave2.OUT.read_text())["arms"]
+                  if a["family"] == "wave2-fmtpen")
+    for value in (str(outside), str(outside.resolve()), "@payload/../elsewhere/x.json"):
+        extras = list(fmtpen["extra_trainer_args"])
+        extras[extras.index("--label-hierarchy") + 1] = value
+        arm = arm_exec.Arm(root, dict(fmtpen, extra_trainer_args=extras), tmp_path / "r")
+        with pytest.raises(SystemExit, match="REFUSE"):
+            arm.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+    ok = arm_exec.Arm(root, fmtpen, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 1500,
+                                                                 150, None)
+    assert ok[ok.index("--label-hierarchy") + 1] == str(asset.resolve())
+
+
+# ---- every launchable table row passes the trainer's own argument parsing and validation
+D37_TABLE = ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json"
+
+
+def _rows_the_trainer_must_accept():
+    rows = []
+    for path in (D37_TABLE, wave2.OUT):
+        for a in json.loads(path.read_text())["arms"]:
+            if a["mode"] != "eval":
+                rows.append(pytest.param(a, id=a["id"]))
+    return rows
+
+
+@pytest.mark.parametrize("arm", _rows_the_trainer_must_accept())
+def test_every_table_row_passes_the_trainers_argument_validation(arm, tmp_path, monkeypatch,
+                                                                 capsys):
+    """arm_exec's argv for the row, through vlm_local_training.main() and train_local /
+    rft_local, up to the point where the TRAIN manifest would load. Every argument-only and
+    spec-level refusal comes before that point (e.g. beta-0 GRPO without an explicit
+    loss_type, a knob outside its range, the label hierarchy against the 100 labels), and
+    main() turns a refusal into rc 2, so a row the trainer would refuse fails here, in CI,
+    not at launch. Only the data spec (the hierarchy's TRAIN labels) and the manifest load
+    are stubbed."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+
+    def reached(*_, **__):
+        raise RuntimeError("reached the TRAIN manifest")
+
+    monkeypatch.setattr(local, "load_classification", reached)
+    # a control's stops come from control_spec at launch (its RL arm's committed count);
+    # any stop below the declared total exercises the same flags
+    stop = int((arm.get("stops") or [150])[0])
+    argv = arm_exec.Arm(root, arm, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", int(arm["max_steps_total"]), stop, None)
+    assert argv[:2] == ["-m", "vision_rl.vlm_local_training"]
+    with pytest.raises(RuntimeError, match="reached the TRAIN manifest"):
+        local.main(argv[2:])
+    capsys.readouterr()
+
+
+def test_a_beta0_row_without_a_loss_type_is_refused_by_the_trainer(tmp_path, monkeypatch,
+                                                                   capsys):
+    """The forced fire for the test above: the D37 rows as they were at 56c3dce (beta 0,
+    only --dynamic-sampling-max-draws) never reach the manifest; main() refuses with rc 2."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+    monkeypatch.setattr(local, "load_classification",
+                        lambda *_, **__: pytest.fail("refusal must come first"))
+    rl = next(a for a in json.loads(D37_TABLE.read_text())["arms"] if a["track"] == "rl")
+    old = dict(rl, extra_trainer_args=["--dynamic-sampling-max-draws", "8"])
+    argv = arm_exec.Arm(root, old, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 600, 150,
+                                                                 None)
+    assert local.main(argv[2:]) == 2
+    assert "explicit loss_type" in capsys.readouterr().err

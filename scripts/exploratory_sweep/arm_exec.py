@@ -94,7 +94,8 @@ def _payload_file(name: str):
     """A resolved @payload/ path (arm_exec.payload_arg ran first) to exactly this file."""
     def check(v: str):
         path = Path(v)
-        if not path.is_absolute() or path.name != name or not path.is_file():
+        if (not path.is_absolute() or path.resolve() != path or path.name != name
+                or not path.is_file()):
             raise SystemExit(f"REFUSE: expected the payload's {name}, got {v!r}")
     return check
 
@@ -112,6 +113,8 @@ EXTRA_FLAGS = {
     "--invalid-reward": _float_in(-1.0, 0.0),
 }
 NEVER_EXTRA = {"--train", "--validation"}
+# extras whose value is a file: given as @payload/<rel> only (Arm.resolved_extras)
+PAYLOAD_FLAGS = {"--label-hierarchy"}
 
 
 def checked_extras(extras, base_args) -> list[str]:
@@ -211,6 +214,17 @@ class Arm:
             raise SystemExit(f"REFUSE: {text} is not a file in the payload")
         return str(path)
 
+    def resolved_extras(self) -> list[str]:
+        """The table's extras with @payload/ values resolved. A file-valued extra
+        (PAYLOAD_FLAGS) must be given as @payload/<rel>, so payload_arg confines it to this
+        host's payload: an absolute path elsewhere, even with the right file name, refuses."""
+        raw = [str(x) for x in self.spec.get("extra_trainer_args") or []]
+        for i, flag in enumerate(raw):
+            if flag in PAYLOAD_FLAGS and (i + 1 >= len(raw)
+                                          or not raw[i + 1].startswith("@payload/")):
+                raise SystemExit(f"REFUSE: {flag} must name a payload file as @payload/<rel>")
+        return [self.payload_arg(x) for x in raw]
+
     def cuda_args(self) -> list[str]:
         if self.spec.get("device", "cpu") != "cuda":
             return []
@@ -250,7 +264,7 @@ class Arm:
             args += ["--rft-stop-after-steps", str(stop)]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
-        resolved = [self.payload_arg(x) for x in s.get("extra_trainer_args") or []]
+        resolved = self.resolved_extras()
         return args + checked_extras(resolved, args)
 
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
@@ -303,7 +317,7 @@ class Arm:
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
         # @payload/ values resolve first; then every extra must pass the allowlist
-        resolved = [self.payload_arg(x) for x in s.get("extra_trainer_args") or []]
+        resolved = self.resolved_extras()
         return args + checked_extras(resolved, args)
 
     def scanned_ids(self, receipt: dict) -> dict | None:

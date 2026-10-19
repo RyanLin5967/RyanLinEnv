@@ -512,3 +512,15 @@ Checked on 2026-10-19:
   `arm.json` (38) carries extras.
 - The 7 D37 RL rows carry only `--dynamic-sampling-max-draws 8`. It is allowlisted with an
   integer ≥ 8 check (C5) and overrides nothing.
+
+## Engineering fix 3 (2026-10-19, plan-neutral): D37 rows name their loss aggregation
+
+After main was merged into PR #36, its trainer refuses β-0 GRPO unless `loss_type` is given
+explicitly. All 7 D37 RL rows are β 0 and carried only `--dynamic-sampling-max-draws 8`, so
+every one would have been refused at launch (found by the PR #36 review of 56c3dce).
+`d37_arms.py` now adds `--loss-type grpo`. This is the legacy aggregation the arms were
+designed with, and it leaves the trainer's settings identity unchanged; the table is
+regenerated. A test now runs every non-eval row of both tables (D37 and wave-2) through
+`arm_exec`'s argv and the trainer's own `main()` validation, so a row the trainer would refuse
+fails CI. `d37_arms.py` refuses to generate, and `--check` refuses, any row with fewer than 8
+dynamic-sampling draws (C5).

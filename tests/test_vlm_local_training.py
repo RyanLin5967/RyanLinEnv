@@ -3819,7 +3819,20 @@ def test_constrained_greedy_is_refused_for_sampling(diagnostic, tmp_path):
 # ---------------------------------------------------------------- replay-sequence order guard
 
 
-def _replay_trainer(sampler, entries, accumulation=1):
+class _SequentialSampler:  # stands in for torch.utils.data.SequentialSampler
+    pass
+
+
+class _RandomSampler:  # a shuffling sampler (not a SequentialSampler)
+    pass
+
+
+def _replay_trainer(monkeypatch, sampler, entries, accumulation=1):
+    """The order guard against a fake torch, so these tests run (never skip) without torch."""
+    fake = SimpleNamespace(utils=SimpleNamespace(data=SimpleNamespace(
+        SequentialSampler=_SequentialSampler)))
+    monkeypatch.setattr(local, "import_module", lambda name: {"torch": fake}[name])
+
     class Base:
         args = SimpleNamespace(per_device_train_batch_size=1,
                                gradient_accumulation_steps=accumulation)
@@ -3833,24 +3846,28 @@ def _replay_trainer(sampler, entries, accumulation=1):
     return local._trainer_with_replay_order(Base, ["a", "b", "c"], lambda: entries)()
 
 
-def test_replay_sequence_refuses_a_shuffling_sampler():
-    torch = pytest.importorskip("torch")
-    rows = list(range(3))
-    with pytest.raises(local.LocalVLMError, match="SequentialSampler"):
-        _replay_trainer(torch.utils.data.RandomSampler(rows), [])._get_train_sampler()
+def test_replay_sequence_refuses_a_shuffling_sampler(monkeypatch):
+    with pytest.raises(local.LocalVLMError, match="SequentialSampler.*; got _RandomSampler"):
+        _replay_trainer(monkeypatch, _RandomSampler(), [])._get_train_sampler()
     with pytest.raises(local.LocalVLMError, match="one-row updates"):
-        _replay_trainer(torch.utils.data.SequentialSampler(rows), [], 2)._get_train_sampler()
-    sequential = torch.utils.data.SequentialSampler(rows)
-    assert _replay_trainer(sequential, [])._get_train_sampler() is sequential
+        _replay_trainer(monkeypatch, _SequentialSampler(), [], 2)._get_train_sampler()
+    sequential = _SequentialSampler()
+    assert _replay_trainer(monkeypatch, sequential, [])._get_train_sampler() is sequential
 
 
-def test_replay_sequence_refuses_an_exposure_order_that_differs_from_the_manifest():
-    pytest.importorskip("torch")
+def test_replay_sequence_refuses_an_exposure_order_that_differs_from_the_manifest(monkeypatch):
     order = ["a", "b", "c", "a", "b"]  # cycling the 3-row manifest
-    assert _replay_trainer(None, [{"id": i} for i in order]).train() == "trained"
+    assert _replay_trainer(monkeypatch, None, [{"id": i} for i in order]).train() == "trained"
     shuffled = ["a", "c", "b", "a", "b"]
     with pytest.raises(local.LocalVLMError, match="at update 2: trained 'c', manifest 'b'"):
-        _replay_trainer(None, [{"id": i} for i in shuffled]).train()
+        _replay_trainer(monkeypatch, None, [{"id": i} for i in shuffled]).train()
+
+
+def test_replay_sequence_refuses_finalize_only(tmp_path):
+    with pytest.raises(ValueError, match="finalize without training"):
+        local.train_local(tmp_path / "t.jsonl", None, tmp_path / "s.json", tmp_path / "o",
+                          mode="sft", order="sequential", train_only=True, replay_sequence=True,
+                          finalize_only=True)
 
 
 def test_replay_sequence_refuses_a_continuation(tmp_path):
