@@ -104,9 +104,16 @@ def read_state(path: Path) -> dict:
 
 
 # ---- uwrun ---------------------------------------------------------------------------
+# uwrun v5.11 enforces its owner maps at claim time and names the caller by UWRUN_OWNER
+# (unset counts as "ferrodb"); every sweep call claims as this project, whatever the caller's
+# environment says.
+UWRUN_OWNER = "ryanlinenv"
+
+
 def uw(*args: str, timeout: int = 300, check: bool = True) -> str:
+    import os
     proc = subprocess.run([str(UWRUN), *args], capture_output=True, text=True,
-                          timeout=timeout)
+                          timeout=timeout, env=dict(os.environ, UWRUN_OWNER=UWRUN_OWNER))
     if check and proc.returncode != 0:
         raise SystemExit(f"REFUSE: uwrun {' '.join(args[:2])} rc={proc.returncode}: "
                          f"{(proc.stderr or proc.stdout).strip()[-400:]}")

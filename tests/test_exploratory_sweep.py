@@ -1800,3 +1800,16 @@ def test_bootstrap_declares_a_small_disk_for_the_payload_sync(tmp_path, monkeypa
     argv = calls[0]
     assert argv[argv.index("--disk") + 1] == "2" and argv[argv.index("--host") + 1] == "iccad13"
     assert argv[argv.index("--scratch") + 1] == "shm"
+
+
+def test_every_uwrun_call_claims_as_ryanlinenv(monkeypatch):
+    seen = []
+
+    class P:
+        returncode, stdout, stderr = 0, "ok", ""
+
+    monkeypatch.setenv("UWRUN_OWNER", "ferrodb")  # a caller environment must not leak through
+    monkeypatch.setattr(runner.subprocess, "run",
+                        lambda argv, **k: seen.append((argv, k["env"])) or P())
+    assert runner.uw("status", "x") == "ok"
+    assert seen[0][1]["UWRUN_OWNER"] == "ryanlinenv" and seen[0][0][1:] == ["status", "x"]
