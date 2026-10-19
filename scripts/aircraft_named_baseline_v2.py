@@ -586,13 +586,10 @@ def recover_shard(plan_path, expected_sha256, stage, shard, repository, output, 
     """
     repository, output = Path(repository).resolve(), Path(output).resolve()
     plan = load_plan(plan_path, expected_sha256)
-    host = check_host(plan)
+    check_host(plan)
     shards = shard_count(plan, stage)
     base = shard_directory(output, stage, shard, shards)
-    if (base / "lost.json").exists() or shard_directory(output, stage, shard, shards,
-                                                        rerun=True).exists():
-        raise ValueError("Shard was already recovered once; a second loss needs a new plan "
-                         "version")
+    # "Only once" and "on another host" are enforced by run_shard for every rerun.
     ledger = v1.ledger_state(base / "ledger.jsonl")
     if not ledger["unfinished"]:
         raise ValueError("Shard did not lose its process (every invocation recorded its "
@@ -602,8 +599,6 @@ def recover_shard(plan_path, expected_sha256, stage, shard, repository, output, 
     if journal["hard_stop"]:
         raise ValueError("Shard has a hard-stop outcome, which is not a lost process")
     lost_host = ledger["started"][-1]["host"]
-    if lost_host == host:
-        raise ValueError("A lost shard is re-run on another host, not on the one it was lost on")
     labels = stage_inputs(plan, stage, repository)["labels"]
     record = {
         "event": "lost", "time": clock(), "stage": stage, "shard": shard,
@@ -670,7 +665,10 @@ def run_shard(plan_path, expected_sha256, stage, shard, repository, output, weig
     if not rerun and lost_path.exists():
         raise ValueError("This shard's process was declared lost; it continues only as its "
                          "rerun (run --rerun)")
-    if loss_record is not None and (not rerun or lost_path.exists()):
+    # lost.json is written right before the rerun directory is created, so it alone marks
+    # a shard that was already recovered.
+    if loss_record is not None and (
+            not rerun or lost_path.exists()):
         raise ValueError("Shard was already recovered once; a second loss needs a new plan "
                          "version")
     if rerun:
