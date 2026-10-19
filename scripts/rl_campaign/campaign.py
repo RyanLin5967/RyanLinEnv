@@ -295,6 +295,7 @@ def build_spec(table: dict, arm: dict) -> dict:
     if any(x % save for x in stops):
         raise SystemExit(f"REFUSE: {spec['id']}: stops must be multiples of save_steps {save}")
     spec["save_steps"] = save  # carried through every continuation (resume identity)
+    spec["trajectory_stops"] = stops  # every stop so far; promote extends it (C16 report)
     return spec
 
 
@@ -650,8 +651,13 @@ def collect(results_dirs) -> dict:
         rec = out.setdefault(arm_id, {"host": summary["host"].split(".")[0].lower(),
                                       "assays": {}, "endpoints": {}, "cotenancy_shared": False,
                                       "continued": False, "stage_shared": {}, "rows_read": {}})
-        rec["spec"] = json.loads((d / "arm.json").read_text())
-        rec["continued"] = rec["continued"] or bool(rec["spec"].get("resume_stop"))
+        new = json.loads((d / "arm.json").read_text())
+        # keep the spec that knows the most of the trajectory (the latest rung's), whatever
+        # order the dirs arrive in
+        if len(new.get("trajectory_stops") or []) >= len(
+                (rec.get("spec") or {}).get("trajectory_stops") or []):
+            rec["spec"] = new
+        rec["continued"] = rec["continued"] or bool(new.get("resume_stop"))
         for e in summary["endpoints"]:
             rec["endpoints"][e["label"]] = e
         for f in sorted((d / "assays").glob("*.json")):
@@ -669,19 +675,33 @@ def collect(results_dirs) -> dict:
     return out
 
 
-def shared_through(stage_shared: dict, label: str):
+def required_stages(spec: dict, label: str):
+    """Every train stage whose seconds a checkpoint / time stop accumulates: RL `step<n>` needs
+    `step<s>` for each s in the trajectory's stops up to n (`trajectory_stops`, which a
+    promoted continuation carries); a control's `time<i>` needs time1..time<i>. None when the
+    trajectory is not known (a continuation without trajectory_stops)."""
+    if label.startswith("time"):
+        i = int(label[4:]) if label[4:].isdigit() else 0
+        return [f"time{j}" for j in range(1, i + 1)] or [label]
+    n = int(label[4:])
+    stops = spec.get("trajectory_stops")
+    if stops is None:
+        if spec.get("resume_stop") or not spec.get("stops"):
+            return None  # the trajectory's stages cannot be named: refuse, never guess
+        stops = spec["stops"]
+    need = [f"step{int(x)}" for x in stops if int(x) <= n]
+    return need if label in need else need + [label]
+
+
+def shared_through(stage_shared: dict, label: str, spec: dict | None = None):
     """C16 for a time match: the OR of `shared` over EVERY train stage up to and including the
     one that produced `label` (a checkpoint's active seconds, and a control's time stop,
-    accumulate across all earlier stages). None when that stage's record is missing."""
-    if label not in stage_shared:
+    accumulate across all earlier stages). None when any of those stage records is missing
+    (e.g. a promoted continuation whose rung-1 results were never fetched)."""
+    need = required_stages(spec or {}, label)
+    if need is None or any(x not in stage_shared for x in need):
         return None
-    kind = "time" if label.startswith("time") else "step"
-
-    def order(x: str) -> int:
-        rest = x[len(kind):]
-        return int(rest) if rest.isdigit() else 0
-    return any(sh for x, sh in stage_shared.items()
-               if x.startswith(kind) and order(x) <= order(label))
+    return any(stage_shared[x] for x in need)
 
 
 def control_of(arms: dict, arm_id: str):
@@ -755,8 +775,8 @@ def build_report(arms: dict, gold: dict, resamples: int, e0_passed=()) -> dict:
                                     "steps": cep.get("steps"),
                                     "active_seconds": cep.get("active_seconds"),
                                     "cotenancy_shared": ctl["cotenancy_shared"]}
-                rl_sh = shared_through(rec["stage_shared"], e["label"])
-                ctl_sh = shared_through(ctl["stage_shared"], label)
+                rl_sh = shared_through(rec["stage_shared"], e["label"], spec)
+                ctl_sh = shared_through(ctl["stage_shared"], label, ctl["spec"])
                 # rows the RL arm read by this checkpoint (scanned/), else its committed steps
                 if spec.get("mode") in ("grpo", "rft"):
                     read = rec["rows_read"].get(e["label"], -1)  # arm_exec writes scanned/
@@ -919,6 +939,8 @@ def cmd_promote(a, state_path: Path) -> int:
                                   int(x["spec"]["stops"][-1]), stops)
         spec["save_steps"] = first["save_steps"]  # the trajectory's own value
         spec["rung"] = r + 1
+        spec["trajectory_stops"] = [int(v) for v in x["spec"].get(
+            "trajectory_stops", x["spec"]["stops"])] + stops
         rr = valid_host(state, x["host"], x["device_class"])
         push(state_path, x["host"], spec, a.prio, rr["root"], suffix=f"@r{r + 1}", kind="rl")
     print(json.dumps(decision, indent=1))

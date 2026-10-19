@@ -84,3 +84,8 @@ The rules come from `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`.
   - The report compares co-tenancy cumulatively: every train stage up to the RL checkpoint against every control stage up to its time match, because active time accumulates across stages. A missing stage record refuses. It also refuses a pair where the control saw fewer rows than the RL arm read.
   - Extra values must be finite numbers, and `--label-hierarchy` must stay inside payload/code. GRPO and RFT stages refuse a `local_training.json` that is older than the stage, carries another stage_id, or is not float32.
   - Promotion's placebo bar uses only placebo groups from the same rung with the same k.
+- **Stage identity (review 3):**
+  - arm_exec chooses `--stage-id <work dir>-<stage label>` for every non-RFT stage. Both `local_training.json` and `endpoint_receipt.json` must record exactly that id, and the record must be newer than the stage start.
+  - RFT's CLI refuses `--stage-id`. Its fresh record must instead carry this stage's `--stop-after-steps` boundary (none for the final stage), and must be float32.
+  - `@payload/code/...` values are confined to payload/code after resolving symlinks.
+  - C16 needs every stage of the trajectory up to a checkpoint (`trajectory_stops`, which promote extends), so a continuation whose earlier rung was not fetched refuses.

@@ -184,11 +184,11 @@ def refuse_repeated_flags(argv: list) -> None:
 
 
 def stage_record(record_path: Path, started: float | None = None,
-                 stage_id: str | None = None) -> dict:
-    """The trainer's local_training.json for THIS stage, recorded in float32 (C2: the dtype
-    the trainer recorded decides, not the spec's). Refuses a record older than the stage's
-    start (a stage that exited 0 without rewriting it) or one whose stage_id is not the
-    stage's endpoint receipt's."""
+                 stage_id: str | None = None, float32: bool = True) -> dict:
+    """The trainer's local_training.json for THIS stage. Refuses a record older than the
+    stage's start (a stage that exited 0 without rewriting it), one whose stage_id is not
+    `stage_id` (the id arm_exec chose and passed as --stage-id), and, for RL, one whose
+    RECORDED dtype is not float32 (C2: the trainer's record decides, not the spec)."""
     path = Path(record_path)
     if started is not None and path.stat().st_mtime < started:
         raise SystemExit(f"REFUSE: {path} predates this stage (stale record)")
@@ -197,9 +197,14 @@ def stage_record(record_path: Path, started: float | None = None,
         raise SystemExit(f"REFUSE: {path} stage_id {record.get('stage_id')!r} is not this "
                          f"stage's {stage_id!r}")
     dtype = ((record.get("control_identity") or {}).get("profile") or {}).get("dtype")
-    if dtype != "float32":
+    if float32 and dtype != "float32":
         raise SystemExit(f"REFUSE: the RL stage recorded dtype {dtype!r}, not float32 (C2)")
     return record
+
+
+def stage_id_for(work: Path, label: str) -> str:
+    """The id arm_exec chooses for one stage and passes as --stage-id."""
+    return f"{work.name}-{label}"
 
 
 def check_parity(record_path: Path, started: float | None = None,
@@ -320,6 +325,9 @@ class Arm:
         path = (self.payload / text.removeprefix("@payload/")).resolve()
         if not path.is_relative_to(self.payload.resolve()) or not path.is_file():
             raise SystemExit(f"REFUSE: {text} is not a file in the payload")
+        if text.startswith("@payload/code/") and not path.is_relative_to(
+                (self.payload / "code").resolve()):  # symlinks resolved first
+            raise SystemExit(f"REFUSE: {text} resolves outside payload/code")
         return str(path)
 
     def cuda_args(self) -> list[str]:
@@ -416,6 +424,13 @@ class Arm:
 
     def run_stage(self, label: str, args: list[str]) -> dict:
         started = time.time()
+        args = list(args)
+        sid = None
+        if self.spec["mode"] != "rft":  # the RFT CLI refuses --stage-id; see rft_boundary
+            if "--stage-id" in args:
+                raise SystemExit("REFUSE: --stage-id is arm_exec's, not the caller's")
+            sid = stage_id_for(self.work, label)
+            args += ["--stage-id", sid]
         log = self.work / f"{label}.log"
         cuda = self.spec.get("device", "cpu") == "cuda"
         watch = CoTenancy(cuda, int(self.spec.get("threads") or 0))
@@ -446,11 +461,23 @@ class Arm:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
-        if self.spec["mode"] == "grpo":
-            entry["sampler_parity"] = check_parity(self.out / "local_training.json", started,
-                                                   receipt.get("stage_id"))
-        elif self.spec["mode"] == "rft":
-            stage_record(self.out / "local_training.json", started)  # C2 for RFT too
+        record = self.out / "local_training.json"
+        if self.spec["mode"] == "rft":
+            # no stage id in RFT: this stage's record must carry THIS stage's stop boundary
+            rec = stage_record(record, started)  # fresh, float32 (C2)
+            stop = (int(args[args.index("--stop-after-steps") + 1])
+                    if "--stop-after-steps" in args else None)
+            got = (rec.get("boundary") or {}).get("stop_after_steps")
+            if got != stop:
+                raise SystemExit(f"REFUSE: RFT record boundary {got} is not this stage's "
+                                 f"stop {stop} (stale record)")
+        else:
+            if receipt.get("stage_id") != sid:
+                raise SystemExit(f"REFUSE: receipt stage_id {receipt.get('stage_id')!r} is not "
+                                 f"this stage's {sid!r}")
+            stage_record(record, started, sid, float32=self.spec["mode"] == "grpo")
+            if self.spec["mode"] == "grpo":
+                entry["sampler_parity"] = check_parity(record, started, sid)
         write_json(self.results / "stages.json", self.log)
         return receipt
 
