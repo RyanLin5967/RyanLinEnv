@@ -412,3 +412,17 @@ def test_cpu_worker_runs_a_queued_spec_records_peak_rss_and_files_it_done(tmp_pa
     doc = json.loads((res / "01-smoke/worker.json").read_text())
     assert doc["rc"] == 0 and doc["peak_rss_kb"] > 20 * 1024  # holds a 30 MiB buffer
     assert not (res / "01-smoke/gpu-trace.csv").exists()  # no nvidia-smi on a CPU worker
+
+
+def test_s_per_update_uses_cumulative_endpoint_seconds_across_resumed_stages(tmp_path):
+    # the fp16 smoke's shape: audit seconds restart per stage; endpoints are cumulative
+    (tmp_path / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step1", "steps": 1, "active_seconds": 20.0},
+        {"label": "step3", "steps": 3, "active_seconds": 50.0}]}))
+    m = camp.arm_measurements(tmp_path)
+    # by hand: 20 / 1 = 20; (50 - 20) / 2 = 15; mean 50 / 3
+    assert m["s_per_update_by_checkpoint"] == [20.0, 15.0] and m["updates"] == 3
+    assert abs(m["s_per_update_mean"] - 50 / 3) < 1e-12
+    (tmp_path / "arm.json").write_text(json.dumps({"resume_stop": 1}))
+    m = camp.arm_measurements(tmp_path)
+    assert m["s_per_update_by_checkpoint"] == [15.0] and m["s_per_update_mean"] == 15.0

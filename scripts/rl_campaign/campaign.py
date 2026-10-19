@@ -444,17 +444,22 @@ def cmd_queue(a, state_path: Path) -> int:
 
 # ---- fetch: status, s/update, memory peaks ---------------------------------------------
 def arm_measurements(d: Path) -> dict:
-    """s/update (from the optimizer audit's committed active seconds) and memory peaks."""
+    """s/update and memory peaks. Time comes from the summary's step endpoints (each one's
+    committed CUMULATIVE active seconds across resumed stages); the optimizer audit's
+    active_seconds restarts at every resumed stage, so it is not used for time."""
     out = {}
-    audit = d / "optimizer_audit.jsonl"
-    if audit.is_file():
-        rows = [json.loads(x) for x in audit.read_text().splitlines() if x.strip()]
-        cum = [float(r["active_seconds"]) for r in rows if "active_seconds" in r]
-        per = [b - a for a, b in zip([0.0] + cum, cum)]
-        if per:
-            out.update(updates=len(per), active_seconds=cum[-1],
-                       s_per_update_mean=cum[-1] / len(per),
-                       s_per_update=[round(x, 2) for x in per])
+    s = d / "summary.json"
+    steps = step_endpoints(json.loads(s.read_text())) if s.is_file() else []
+    steps = [e for e in steps if e.get("active_seconds") is not None]
+    if steps:
+        pts = [(int(e["steps"]), float(e["active_seconds"])) for e in steps]
+        arm = json.loads((d / "arm.json").read_text()) if (d / "arm.json").is_file() else {}
+        if not arm.get("resume_stop"):  # a continuation's earlier checkpoints are elsewhere
+            pts = [(0, 0.0)] + pts
+        per = [(t1 - t0) / (n1 - n0) for (n0, t0), (n1, t1) in zip(pts, pts[1:]) if n1 > n0]
+        out.update(updates=pts[-1][0], active_seconds=pts[-1][1],
+                   s_per_update_mean=(pts[-1][1] - pts[0][1]) / max(1, pts[-1][0] - pts[0][0]),
+                   s_per_update_by_checkpoint=[round(x, 2) for x in per])
     w = d / "worker.json"
     if w.is_file():
         doc = json.loads(w.read_text())
