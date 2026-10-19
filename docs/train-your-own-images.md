@@ -25,9 +25,14 @@ my-photos/
 - You need 2 to 26 labels, and at least 3 distinct images per label. Tens per label work much
   better.
 - Accepted formats are jpg, png, webp, bmp and tif.
-- Pixel-identical copies are dropped, so no test image is also a training image.
-- If your folder already has `train/`, `valid/` and `test/` (for example a Roboflow
-  classification export), those splits are used exactly as given.
+- Exact copies (identical pixels) are dropped, and the same image filed under two labels is
+  refused. Near-copies such as a resized or re-saved photo, or burst shots, are not detected.
+  Keep those together by hand if you want an honest test score.
+- Hidden files and macOS zip leftovers (`__MACOSX`, `._name.jpg`) are skipped.
+- If your folder already has `train/`, `test/` and `valid/` (or `validation/` or `val/`),
+  for example a Roboflow classification export, those splits are used exactly as given.
+- Every training image is held in memory once, at about 2.4 MB per image (4 views). A few
+  thousand photos therefore needs several GB of memory.
 
 ## 3. Train and test
 
@@ -46,8 +51,8 @@ What happens:
 2. **SFT.** A head is trained on frozen image features with cross-entropy.
 3. **RL.** The head samples answers and is rewarded only for the correct label. A KL penalty
    keeps it near the SFT model.
-4. Whichever stage scores higher on validation is saved as `model/best.pt`. Test images are
-   not read until this choice is made.
+4. Whichever stage scores higher on validation is saved as `model/best.pt`; a tie keeps RL.
+   Test images are not read until this choice is made.
 5. The SFT model, the RL model and a guess-the-most-common-label baseline are each scored
    once on the test images.
 
