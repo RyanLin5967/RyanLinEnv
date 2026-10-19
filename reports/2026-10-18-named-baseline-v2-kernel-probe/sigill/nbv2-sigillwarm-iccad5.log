@@ -1,0 +1,13 @@
+host=iccad5 start=2026-10-19T00:16:11Z model name	: Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz
+EWENGINE_DONE ok=200 crash=0 2026-10-19T00:30:07Z
+MODEL run 1 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 747.2738651799737, "wall_seconds": 773.3587308790302}
+MODEL run 2 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 851.1594303849852, "wall_seconds": 871.2480843599769}
+MODEL run 3 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 887.2265421570046, "wall_seconds": 905.8540492760367}
+MODEL run 4 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 1662.3686152109876, "wall_seconds": 1681.3084727559472}
+MODEL run 5 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 688.1282679779688, "wall_seconds": 707.7502622600296}
+MODEL run 6 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 788.2786240669666, "wall_seconds": 809.2671840560506}
+MODEL run 7 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 834.4084626900149, "wall_seconds": 853.2441704520024}
+MODEL run 8 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 659.2029982520035, "wall_seconds": 674.1593266159762}
+MODEL run 9 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 316.1516739350045, "wall_seconds": 331.3466833550483}
+MODEL run 10 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 413.20865320402663, "wall_seconds": 426.98229195998283}
+MODEL run 11 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 389.9344095280394, "wall_seconds": 404.9529241680284}

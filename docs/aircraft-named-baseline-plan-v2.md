@@ -148,6 +148,11 @@ make it refuse to resume. A test asserts that they still match v1's pins.
 
   - The crash is not seed-determined: a seed that crashed once gave 0/100 on repeat.
   - Any SIGILL that still happens is a lost process under the recovery rule.
+  - **Real-engine forwards with the warm-up**: plan pin, model load, fingerprint check, and one
+    TRAIN image through the vision tower and full prefill. Every one recorded `warmup: true`
+    and a matching fingerprint, with 0 SIGILL. Counts at the latest log snapshot (`sigill/nbv2-sigillwarm-<host>.log`):
+    iccad1 11, iccad3 17, iccad5 11.
+  - The pre-registered admission rule (`sharding.sigill_admission_rule`) needs 15 per host.
 - **Stall watchdog.** If nothing under a shard's run directory changes for 3 h (`stall_seconds`),
   the process ends with exit 75 and writes `stalled-<n>.json`. A live run writes at least at every
   reservation, completion and 32 generated tokens.
@@ -161,6 +166,9 @@ make it refuse to resume. A test asserts that they still match v1's pins.
     seconds separately.
   - The original shard is refused once it is lost, and a rerun is never recovered again.
   - A second loss, a hard stop or an exhausted budget still stops the stage.
+  - The rerun must reproduce every answer the lost attempt completed, or the merge refuses.
+  - Known limit: the one image in flight when the process died has no recorded answer, so only
+    engine determinism protects it. It is listed in `lost.json` as `unknown_images`.
 - **Merge refusals.** `merge` unions the shard journals. It refuses:
   - a `run.json` whose identity does not hash to its `identity_sha256`, or any journal event
     written under another identity;

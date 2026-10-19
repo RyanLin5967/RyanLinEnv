@@ -30,10 +30,23 @@ Cold, before the warm-up existed, with `ew_probe.py` via `run.sh` / `ew2.sh`:
 | iccad6 matrix, MKL_NUM_THREADS=1 | 100 | 2 (no fix) |
 | iccad6 matrix, single-threaded warm-up | 100 | 0 |
 
-With the warm-up inside the engine's own pin (`ew_engine_probe.py` via `run_warm.sh`): see
-`nbv2-sigillwarm-*.log`, which also holds the real-engine forwards (`model_probe.py`: pin,
-load, fingerprint check, one TRAIN image through the vision tower and full prefill to the first
-token).
+With the warm-up inside the engine's own pin (`ew_engine_probe.py` via `run_warm.sh`; logs
+`nbv2-sigillwarm-<host>.log`, which `uwrun logs` re-snapshots while the runs continue):
+
+| host | elementwise runs, SIGILL | real-engine forwards so far | forwards with `warmup: true` and a matching fingerprint | forward SIGILL |
+| --- | --- | --- | --- | --- |
+| iccad1 | 200, 0 | 11 | 11 | 0 |
+| iccad3 | 200, 0 | 17 | 17 | 0 |
+| iccad5 | 200, 0 | 11 | 11 | 0 |
+| iccad6 (matrix, `ew_probe.py warm`) | 100, 0 | none | none | none |
+
+- **What a forward does** (`model_probe.py`): the plan pin with the warm-up, model load, the
+  fingerprint check, then one TRAIN image through the vision tower (including rotary
+  embeddings) and full prefill to the first token.
+- **Counts:** come from the log lines `MODEL run <n> ok {...}`; a crash would print
+  `MODEL run <n> rc=<code>`.
+- **Host load:** the hosts were loaded by other sessions' jobs during these runs, so the
+  forward timings are not rates.
 
 The cold model-path runs (`nbv2-sigill-iccad1/3`) were stopped before their first forward
 finished, when the warm-up superseded them.

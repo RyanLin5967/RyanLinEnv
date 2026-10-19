@@ -1157,10 +1157,12 @@ def test_engine_refuses_a_preflight_made_for_another_runtime(world, tmp_path):
     assert not (tmp_path / "x").exists()
 
 
-def lose_process(world, shard=0):
+def lose_process(world, shard=0, stage="discovery"):
     """What a kill (timeout, oom-guard, reboot) leaves: a started invocation with no finish
     and a reservation with no completion. Written by hand from the ledger/journal format."""
-    directory = world["out"] / f"stage-discovery/shard-{shard}-of-3"
+    directory = world["out"] / f"stage-{stage}/shard-{shard}-of-3"
+    manifest = (world["discovery"] if stage == "discovery"
+                else [row["image_id"] for row in world["author"]])
     ledger = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines()]
     started = [e for e in ledger if e["event"] == "started"]
     killed = dict(started[-1], invocation=len(started) + 1)
@@ -1169,7 +1171,7 @@ def lose_process(world, shard=0):
     journal = directory / "run/attempts.jsonl"
     events = [json.loads(line) for line in journal.read_text().splitlines()]
     done = {e["id"] for e in events if e["event"] == "reserved"}
-    next_id = next(i for i in world["discovery"][shard::3] if i not in done)
+    next_id = next(i for i in manifest[shard::3] if i not in done)
     reserved = dict(next(e for e in events if e["event"] == "reserved"), id=next_id)
     with journal.open("a") as handle:
         handle.write(json.dumps(reserved) + "\n")
@@ -1416,3 +1418,66 @@ def test_plan_fingerprint_pin_must_be_64_lowercase_hex(runner, world):
         path, digest = write_plan(world, plan)
         with pytest.raises(ValueError, match="64 lowercase hex"):
             runner.load_plan(path, digest)
+
+
+def test_engine_refuses_a_preflight_that_recorded_another_fingerprint(world, tmp_path,
+                                                                       monkeypatch):
+    identifier = world["author"][0]["image_id"]
+    root = world["repo"] / "data/fgvc-aircraft-2013b/development/images/validation"
+    rows = [{"id": identifier, "image": str(root / f"{identifier}.jpg"), "split": "validation",
+             "prompt": "x"}]
+    engine = {"name": "transformers-cpu", "dtype": "float32", "threads": 32,
+              "formatted_prompt_sha256": "a" * 64, "cpu_numerics": {},
+              "kernel_fingerprint_sha256": FIXTURE_FP}
+    lock = {"freeze": "a==1\n", "python": "3.12.15"}
+    preflight = {"model": {}, "runtime_versions": {"torch": "1"},
+                 "runtime_lock_sha256": local_hf._digest(lock), "kernel_fingerprint": "0" * 64,
+                 **{key: None for key in ("observed_cpu_numerics", "host", "python")}}
+    monkeypatch.setattr(local_hf, "kernel_fingerprint", lambda threads: FIXTURE_FP)
+    with pytest.raises(ValueError, match="Kernel fingerprint is not the plan's pinned value"):
+        local_hf.run_local_hf(rows, tmp_path / "x", model_directory=world["weights"],
+                              integrity=world["integrity"], engine=engine,
+                              runtime_pins={"torch": "1"}, runtime_lock=lock,
+                              preflight=preflight, phase="validation", image_root=root,
+                              task_contract={"task": "classification"},
+                              preprocessing_id=None)
+    assert not (tmp_path / "x").exists()
+
+
+def test_host_gate_and_rerun_refusals_come_before_the_loss_is_recorded(runner, world, clock):
+    path, digest, original, unknown, done, rest = lose_shard_zero(runner, world, clock)
+    lost = original / "lost.json"
+    rerun = world["out"] / "stage-discovery/shard-0-of-3-rerun"
+    # Off the allowlist, and the host it was lost on: refused, nothing recorded.
+    runner.fixture_host = {"hostname": "fixture-z", "cpu_model": "Fixture CPU A"}
+    with pytest.raises(ValueError, match="not on the plan's shard-host allowlist"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend({}, []))
+    runner.fixture_host = dict(HOSTS[0])
+    with pytest.raises(ValueError, match="re-run on another host"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend({}, []))
+    assert not lost.exists() and not rerun.exists()
+    # A rerun directory without a loss record is refused, not adopted.
+    rerun.mkdir()
+    runner.fixture_host = dict(HOSTS[1])
+    with pytest.raises(ValueError, match="rerun directory but no recorded loss"):
+        runner.recover_shard(path, digest, "discovery", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend({}, []))
+    assert not lost.exists()
+
+
+def test_full_stage_gate_refusal_comes_before_the_loss_is_recorded(runner, world, clock):
+    path, digest = write_plan(world)
+    answers, calls = answers_for(world), []
+    run_all(runner, world, "discovery", answers, calls, clock, path, digest)
+    runner.run_shard(path, digest, "full", 0, world["repo"], world["out"], world["weights"],
+                     backend_factory=fake_backend(answers, calls, clock=clock))
+    original, _ = lose_process(world, shard=0, stage="full")
+    # Host C is allowlisted but ran no discovery image: the gate refuses it before lost.json.
+    runner.fixture_host = dict(HOSTS[2])
+    with pytest.raises(ValueError, match="this host ran no discovery images"):
+        runner.recover_shard(path, digest, "full", 0, world["repo"], world["out"],
+                             world["weights"], backend_factory=fake_backend(answers, calls))
+    assert not (original / "lost.json").exists()
+    assert not (world["out"] / "stage-full/shard-0-of-3-rerun").exists()

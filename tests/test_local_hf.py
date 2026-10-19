@@ -168,7 +168,10 @@ def test_kernel_pin_refuses_a_onednn_isa_other_than_the_plan_once_torch_is_loade
 
 
 def test_vml_warmup_runs_each_op_single_threaded_then_restores(monkeypatch):
+    original = torch.get_num_threads()
+    torch.set_num_threads(3)  # neither 1 nor the default, so "restored" is a real check
     previous = torch.get_num_threads()
+    assert previous == 3
     seen = {}
     for name in local_hf.VML_WARMUP_OPS:
         real = getattr(torch, name)
@@ -178,9 +181,12 @@ def test_vml_warmup_runs_each_op_single_threaded_then_restores(monkeypatch):
             return real(x)
 
         monkeypatch.setattr(torch, name, record)
-    assert local_hf.vml_warmup(torch) is True
-    assert seen == {name: 1 for name in ("cos", "sin", "exp", "tanh", "log")}
-    assert torch.get_num_threads() == previous
+    try:
+        assert local_hf.vml_warmup(torch) is True
+        assert seen == {name: 1 for name in ("cos", "sin", "exp", "tanh", "log")}
+        assert torch.get_num_threads() == 3
+    finally:
+        torch.set_num_threads(original)
 
 
 def test_kernel_pin_applies_and_records_the_vml_warmup(monkeypatch):

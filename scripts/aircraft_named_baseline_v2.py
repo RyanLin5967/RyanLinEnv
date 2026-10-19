@@ -589,7 +589,9 @@ def recover_shard(plan_path, expected_sha256, stage, shard, repository, output, 
     check_host(plan)
     shards = shard_count(plan, stage)
     base = shard_directory(output, stage, shard, shards)
-    # "Only once" and "on another host" are enforced by run_shard for every rerun.
+    # "Only once" and "on another host" are enforced by run_shard for every rerun; a rerun
+    # directory without a loss record is refused here (as the merge would).
+    effective_shard_directory(output, stage, shard, shards)
     ledger = v1.ledger_state(base / "ledger.jsonl")
     if not ledger["unfinished"]:
         raise ValueError("Shard did not lose its process (every invocation recorded its "
