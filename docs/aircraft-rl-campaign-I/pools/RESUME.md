@@ -6,6 +6,17 @@ TEST 1290785 (Hamming 6). Found by a fresh review of PR #41 (2026-10-18): the or
 train400 or the 15 probe16-outside-train400 rows, all 15 of which are scored here; v2's builder only
 removed ids that audit listed, so an unaudited row passed as clean.
 
+Review minors (follow-up to #41, 2026-10-19; runs rlpools3-minors-1/-2 on iccad7, identical output):
+- Self-test plants now use an id and image hash unique to each reference set, and a refusal counts
+  only when it names that set. dev800, dev600 and h_select have no member unique among the
+  reference sets, so each is planted against itself alone ("isolated"). 36/36 refused.
+- check_phash_doc requires 16 lowercase hex per entry (plants: not hex, 15 chars, uppercase).
+- POOLS.json gains transitive_near_duplicate_exposure (REPORT ONLY, nothing dropped): 31 eligible
+  rows within Hamming 6 of an excluded row (493 compared: 477 VAL/TEST near-duplicates + 16 v3),
+  35 pairs, one at Hamming 4 (0732201, not pooled). Pooled: hard 4, mid 12, mixed 13, unreachable 2.
+- Pool manifests, scores.jsonl, phash_excluded.jsonl, coverage.* byte-identical to #41. Only
+  POOLS.json changes: sha256 4b32aed9... -> 13070fc685b0a45e03f5b6fd3336870cdbb0f19293ff7782afc37b80f68b2358.
+
 v3 fix (scripts/rl_campaign_pools/phash_eligible.py, run rlpools3-phash-1 on iccad7):
 - pHash all 1,452 scored rows with the producer's own phash64/near_pairs/HAMMING_MAX (imported from
   scripts/prepare_aircraft_freshpool.py, origin/main sha256 019a57d4...) against native VAL (3,333,
