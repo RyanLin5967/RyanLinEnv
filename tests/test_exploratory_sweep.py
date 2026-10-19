@@ -854,6 +854,7 @@ def test_launch_one_passes_mem_and_a_fresh_work_dir(tmp_path, monkeypatch):
     name = runner.launch_one(path, {"id": "a", "mode": "sft"}, "h", "/r", 60, False)
     argv = calls[0]
     assert argv[argv.index("--mem") + 1] == "16"
+    assert argv[argv.index("--disk") + 1] == "1"  # uwrun v5.4 default 5 GB fails iccad hosts
     spec = json.loads((tmp_path / "sweep" / "launch" / name / "arm.json").read_text())
     assert spec["work_id"] == "a~a2"
     assert json.loads(path.read_text())["arms"]["a"]["mem_gb"] == 16
@@ -1779,3 +1780,21 @@ def test_d37_control_budget_sits_above_its_last_time_stop(tmp_path):
     small = _finished_rl(tmp_path / "s", rl, [("step150", 10.0), ("step300", 20.0),
                                               ("step600", 30.0)])
     assert runner.control_spec(small, ctl)["max_active_seconds"] == ctl["max_active_seconds"]
+
+
+def test_bootstrap_declares_a_small_disk_for_the_payload_sync(tmp_path, monkeypatch):
+    pay = tmp_path / "pay"
+    pay.mkdir()
+    (pay / "PAYLOAD.json").write_text(json.dumps({"code_head": "abc1234", "code_dirty": False}))
+    path = setup(tmp_path, monkeypatch, {"arms": {}, "hosts": {}, "uwrun_runs": []})
+    rows = runner.host_table(UWRUN_V5_HOSTS)
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+
+    class A:
+        payload, host, repin = str(pay), ["iccad13"], False
+
+    runner.cmd_bootstrap(A, path)
+    argv = calls[0]
+    assert argv[argv.index("--disk") + 1] == "2" and argv[argv.index("--host") + 1] == "iccad13"

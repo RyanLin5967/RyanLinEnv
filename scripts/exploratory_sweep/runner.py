@@ -158,6 +158,13 @@ def safe_name(text: str) -> str:
 
 # ---- bootstrap and receipts ------------------------------------------------------------
 # uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+# uwrun v5.4 refuses a run whose host lacks --disk GB of scratch (+3 GB on a shared root fs)
+# and defaults --disk to 5, which every AVX-512 iccad host (0-9 GB local) fails. Declared
+# truthfully: a run dir holds only the synced input and fetched results (an arm's results
+# measured under 1 MB; training state lives in the host root, not the run dir); a bootstrap
+# syncs the ~0.93 GB payload.
+ARM_DISK_GB = 1
+BOOT_DISK_GB = 2
 MIN_LOCAL_GB = 3.0
 
 
@@ -190,7 +197,8 @@ def cmd_bootstrap(a, state_path: Path) -> int:
         state["payload"] = {"sha256": sha, "dir": str(payload), "code_head": doc["code_head"]}
     for host in a.host:
         name = safe_name(f"rlesweep-boot-{host}-{doc['code_head'][:7]}-{int(time.time())}")
-        uw("run", "--host", host, "--threads", "8", "--timeout", "5400", "--sync",
+        uw("run", "--host", host, "--threads", "8", "--timeout", "5400",
+           "--disk", str(BOOT_DISK_GB), "--sync",
            str(payload), "--name", name, "--", "bash",
            "code/scripts/exploratory_sweep/bootstrap_host.sh", timeout=1800)
         with state_lock(state_path) as state:
@@ -474,7 +482,8 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     inner = (f"R={shlex.quote(root)}; exec \"$R/venv/bin/python\" -I \"$R/{ARM_EXEC}\" "
              f"--root \"$R\" --arm-json arm.json --results results")
     argv = ["run", "--host", host, "--threads", str(spec.get("threads", 16)), "--timeout",
-            str(timeout), *(["--mem", str(mem)] if mem else []), "--sync", str(launch_dir),
+            str(timeout), *(["--mem", str(mem)] if mem else []), "--disk", str(ARM_DISK_GB),
+            "--sync", str(launch_dir),
             "--name", name, "--", "bash", "-c", inner]
     if dry:
         print("DRY", host, name, " ".join(shlex.quote(x) for x in argv[-3:]))
