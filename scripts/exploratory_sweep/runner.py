@@ -163,6 +163,9 @@ def safe_name(text: str) -> str:
 # truthfully: a run dir holds only the synced input and fetched results (an arm's results
 # measured under 1 MB; training state lives in the host root, not the run dir); a bootstrap
 # syncs the ~0.93 GB payload.
+# The run dir lives on the RAM disk (--scratch shm; uwrun stops it past --disk and keeps 16 GB
+# of RAM free): /var/tmp on iccad0/9/11 has 0-5 GB, under --disk + 3 GB. Only the run dir
+# moves; the sweep root (venv, model, payload, arms) stays where bootstrap_host.sh put it.
 ARM_DISK_GB = 1
 BOOT_DISK_GB = 2
 MIN_LOCAL_GB = 3.0
@@ -198,7 +201,7 @@ def cmd_bootstrap(a, state_path: Path) -> int:
     for host in a.host:
         name = safe_name(f"rlesweep-boot-{host}-{doc['code_head'][:7]}-{int(time.time())}")
         uw("run", "--host", host, "--threads", "8", "--timeout", "5400",
-           "--disk", str(BOOT_DISK_GB), "--sync",
+           "--scratch", "shm", "--disk", str(BOOT_DISK_GB), "--sync",
            str(payload), "--name", name, "--", "bash",
            "code/scripts/exploratory_sweep/bootstrap_host.sh", timeout=1800)
         with state_lock(state_path) as state:
@@ -482,7 +485,8 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     inner = (f"R={shlex.quote(root)}; exec \"$R/venv/bin/python\" -I \"$R/{ARM_EXEC}\" "
              f"--root \"$R\" --arm-json arm.json --results results")
     argv = ["run", "--host", host, "--threads", str(spec.get("threads", 16)), "--timeout",
-            str(timeout), *(["--mem", str(mem)] if mem else []), "--disk", str(ARM_DISK_GB),
+            str(timeout), *(["--mem", str(mem)] if mem else []), "--scratch", "shm",
+            "--disk", str(ARM_DISK_GB),
             "--sync", str(launch_dir),
             "--name", name, "--", "bash", "-c", inner]
     if dry:

@@ -855,6 +855,7 @@ def test_launch_one_passes_mem_and_a_fresh_work_dir(tmp_path, monkeypatch):
     argv = calls[0]
     assert argv[argv.index("--mem") + 1] == "16"
     assert argv[argv.index("--disk") + 1] == "1"  # uwrun v5.4 default 5 GB fails iccad hosts
+    assert argv[argv.index("--scratch") + 1] == "shm"
     spec = json.loads((tmp_path / "sweep" / "launch" / name / "arm.json").read_text())
     assert spec["work_id"] == "a~a2"
     assert json.loads(path.read_text())["arms"]["a"]["mem_gb"] == 16
@@ -1798,3 +1799,4 @@ def test_bootstrap_declares_a_small_disk_for_the_payload_sync(tmp_path, monkeypa
     runner.cmd_bootstrap(A, path)
     argv = calls[0]
     assert argv[argv.index("--disk") + 1] == "2" and argv[argv.index("--host") + 1] == "iccad13"
+    assert argv[argv.index("--scratch") + 1] == "shm"
