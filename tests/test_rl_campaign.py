@@ -82,7 +82,9 @@ def test_gpu_lane_and_no_avx2_hosts_are_refused():
 
 
 def test_device_classes_from_receipts():
-    assert camp.device_classes_for({"device": {"kind": "cpu"}, "avx2": True}) == ["cpu-fp32"]
+    cpu = {"device": {"kind": "cpu"}, "avx2": True, "avx512f": True}
+    assert camp.device_classes_for(cpu) == ["cpu-fp32"]
+    assert camp.device_classes_for(dict(cpu, avx512f=False)) == []  # MKL SIGILL on AVX2-only
     assert camp.device_classes_for({"device": {"kind": "cpu"}, "avx2": False}) == []
     card = {"device": {"kind": "cuda", "gpu": "NVIDIA GeForce GTX 1070"}}
     assert camp.device_classes_for(card) == ["gtx1070-fp16", "gtx1070-fp32"]

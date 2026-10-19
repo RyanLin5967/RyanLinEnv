@@ -17,7 +17,7 @@ It reuses existing pieces rather than duplicating them:
 ## Device classes
 | class | hosts | notes |
 |---|---|---|
-| cpu-fp32 | AVX2 CPU hosts (not iccad1/2/3/4) | `--threads 16`; the worker waits for `--need-cores` free physical cores |
+| cpu-fp32 | AVX-512F CPU hosts only (AVX2-only hosts die in MKL with SIGILL) | `--threads 16`; the worker waits for `--need-cores` free physical cores |
 | gtx1070-fp32 | ecetesla3, eceubuntu4 | torch cu126 wheels: cu130 has no sm_61 kernels (measured) |
 | gtx1070-fp16 | same | SFT and eval only. GRPO is refused outside fp32 (C2) |
 

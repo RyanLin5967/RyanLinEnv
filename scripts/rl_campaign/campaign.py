@@ -154,10 +154,11 @@ def refuse_hosts(hosts) -> None:
 
 
 def device_classes_for(receipt: dict) -> list:
-    """Device classes a host's receipt supports (a CPU host also needs AVX2)."""
+    """Device classes a host's receipt supports. A CPU host needs AVX-512F: training on an
+    AVX2-only host dies in MKL with SIGILL (root, 2026-10-19), so it supports no class."""
     device = receipt.get("device") or {}
     if device.get("kind") == "cpu":
-        return ["cpu-fp32"] if receipt.get("avx2") else []
+        return ["cpu-fp32"] if receipt.get("avx2") and receipt.get("avx512f") else []
     gpu = device.get("gpu") or ""
     return sorted(c for c, v in DEVICE_CLASSES.items() if v["gpu"] and v["gpu"] in gpu)
 
@@ -219,6 +220,7 @@ def cmd_receipts(a, state_path: Path) -> int:
                        "payload_sha256": receipt["payload"]["payload_sha256"],
                        "features": receipt["features"]["available"], "device": receipt["device"],
                        "cpu_model": receipt["cpu_model"], "avx2": receipt.get("avx2"),
+                       "avx512f": receipt.get("avx512f"),
                        "classes": device_classes_for(receipt), "valid": ok}
         with runner.state_lock(state_path) as st:
             st["hosts"][host].update(boot_status=status, receipt=summary)
