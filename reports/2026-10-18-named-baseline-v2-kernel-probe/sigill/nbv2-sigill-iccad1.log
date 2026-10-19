@@ -1,0 +1,4 @@
+host=ICCAD1 start=2026-10-18T23:59:46Z model name	: Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz
+run.sh: line 12: 53811 Illegal instruction     (core dumped) "$VENV/bin/python" -I ew_probe.py 32 "$i" > ../ew-$i.out 2> ../ew-$i.err
+EW run 46 rc=132
+EW_DONE ok=199 crash=1 2026-10-19T00:08:44Z

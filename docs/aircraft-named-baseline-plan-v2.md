@@ -131,6 +131,23 @@ make it refuse to resume. A test asserts that they still match v1's pins.
 - **Kernel fingerprint pinned.** The plan pins `kernel_fingerprint_sha256` = `9d149dab…`, which
   was measured with the committed function on iccad1, 3, 5, 6, 9, 10, 12 and 13. The preflight
   refuses any other value before any image is run and before an invocation is charged.
+- **MKL VML warm-up (SIGILL workaround).** torch 2.14.1's bundled MKL sometimes runs its
+  AVX-512 cosine kernel (`mkl_vml_kernel_sCos_Z0HAynn`) on CPUs without AVX-512, when several
+  OpenMP workers make the first VML call at once. The process dies with SIGILL (rc 132).
+  - It happens on Ivy Bridge and Broadwell alike, under every environment pin.
+  - The pin's first act is one single-threaded pass of cos, sin, exp, tanh and log, recorded as
+    `vml_single_thread_warmup: true` in the run identity.
+  - Measured with the plan's pin at 32 threads (`reports/2026-10-18-named-baseline-v2-kernel-probe/sigill/`):
+
+    | host | without warm-up | with warm-up |
+    | --- | --- | --- |
+    | iccad3 | 5/200 | 0/200 |
+    | iccad1 | 1/200 | 0/200 |
+    | iccad6 | 3/200 | 0/100 |
+    | iccad5 | not run | 0/200 |
+
+  - The crash is not seed-determined: a seed that crashed once gave 0/100 on repeat.
+  - Any SIGILL that still happens is a lost process under the recovery rule.
 - **Stall watchdog.** If nothing under a shard's run directory changes for 3 h (`stall_seconds`),
   the process ends with exit 75 and writes `stalled-<n>.json`. A live run writes at least at every
   reservation, completion and 32 generated tokens.
