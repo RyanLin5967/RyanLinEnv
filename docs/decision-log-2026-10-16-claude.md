@@ -417,3 +417,13 @@ Review (2026-10-18), against head fca62ef with read-only checks: all three block
   - **Prerequisite.** A full-VAL named baseline: 3B CI run 39144098450 or 27B v2.
   - **TEST.** A once-only sealed TEST for an allowlist of roles, opened only after a VAL pass.
 - Not activated. Activation needs, among other things, a committed GATE 0 go, `splits.json` on main, a completed full-VAL named baseline, and a reviewed validator with fire tests for every refusal id.
+
+## D37 — GATE 0 passed; corrected RL-from-I arms released (2026-10-19, before any corrected GRPO-I result)
+D36 is reserved by open PR #31.
+- **E0 (CUDA resume): PASS.** Resume L2 1.51e-5 is below the run-to-run floor of 1.77e-5. Source: branch exploratory-sweep-v2-gpu.noindex, docs/aircraft-exploratory-sweep-v2-gpu/raw/rlegpu-worker-eceubuntu2-1792360733/00-*/e0.json.
+- **dev800 calibration: PASS.** Spearman with native VAL is +0.929 over 8 endpoints, and the RL400−SFT sign is reproduced (−1.25 pp against −1.27 pp native). Source: calibration-rtx3070-bfloat16.json.
+- **P0-I: GO (pool A, 200 images, fp32 2080 Ti, G8).** Among I-greedy-wrong images, pass@8 is 20/49 at T 1.0 and 22/49 at T 1.3, which is 10.0% and 11.0% of all images against the 5% no-go bar. The mixed-group fraction is 0.33 at T 1.0 and 0.465 at T 1.3. Source: p0-p0_poolA200-T1.0.json and -T1.3.json. Pools B, `mixed` and `hard` keep running as diagnostics. If the pooled pass@8 falls below 5%, new GRPO-I launches go back on hold.
+- **SFT-from-I ceiling (M1): measured.** On s_train (bf16 3070; clean all_train = s_train + 15 rows), every LR in {5e-6, 1e-5, 2e-5} and seeds 42/314 land between 0.7575 and 0.785 on dev800 across 150–4800 updates; I itself scores 0.775. The best tuned SFT-from-I is 0.785, so the comparator is max(I, best SFT-from-I) = 0.785 for now. CPU all_train curves and the I-seed retrains continue as comparator and noise measurements, not as a gate.
+- **Placebo / noise (M5): measured.** Same LR, different seed (lr1e-5 s42 vs s314) differs by up to 1.75 pp at one stop, and best-of-6 differs by 0.25 pp. The promotion bar stays B = max(0.03, placebo max), which is 0.03 now.
+- **Released:** GRPO-I arms under runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md: fp32 only (2080 Ti and AVX-512 CPU hosts), LR {1e-5, 2e-5, 5e-5} plus one 3e-6 guard, β 0, dynamic sampling ≥ 8, T 1.0 and 1.3, with LR-gridded controls trained on all scanned rows and time-matched per checkpoint. bf16 GRPO on the 3070s waits for the M9 replicate.
+- **Not quotable:** the exploratory GRPO-I arm 21 (lr1e-5, no dynamic sampling) scored 0.78125 at step 150. It predates these rules and is not a candidate.
