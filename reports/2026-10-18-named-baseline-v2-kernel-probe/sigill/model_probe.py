@@ -28,11 +28,13 @@ identifier = sys.argv[2]
 image = HERE / f"data/fgvc-aircraft-2013b/development/images/train/{identifier}.jpg"
 seed = int(local_vlm._digest([config["seed"], identifier])[:8], 16)
 native = backend.infer({"id": identifier, "image_path": str(image), "prompt": prompt}, seed)
-print(json.dumps({"ok": True,
-                  "warmup": backend.load_info["device"]["cpu_numerics"].get(
-                      "vml_single_thread_warmup"),
-                  "fingerprint_matches":
-                  fingerprint == plan["engine"]["kernel_fingerprint_sha256"],
+warmup = backend.load_info["device"]["cpu_numerics"].get("vml_single_thread_warmup")
+matches = fingerprint == plan["engine"]["kernel_fingerprint_sha256"]
+print(json.dumps({"ok": warmup is True and matches, "warmup": warmup,
+                  "fingerprint_matches": matches,
                   "tokens": native["native_response"]["token_ids"],
                   "prefill_seconds": native["native_response"]["prefill_seconds"],
                   "wall_seconds": time.monotonic() - start}))
+# A forward without the warm-up or with another fingerprint is not admission evidence:
+# exit non-zero so run_warm.sh counts it as a failure rather than "ok".
+sys.exit(0 if warmup is True and matches else 1)

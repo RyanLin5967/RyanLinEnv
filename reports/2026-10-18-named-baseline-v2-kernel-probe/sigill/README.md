@@ -45,6 +45,10 @@ With the warm-up inside the engine's own pin (`ew_engine_probe.py` via `run_warm
   embeddings) and full prefill to the first token.
 - **Counts:** come from the log lines `MODEL run <n> ok {...}`; a crash would print
   `MODEL run <n> rc=<code>`.
+- **Exit status:** the copy that produced these logs exited 0 even if `warmup` or
+  `fingerprint_matches` was false, so the counts above are taken from those fields in each
+  line, not from the exit status. Every counted line has both fields true. The committed
+  `model_probe.py` now also exits 1 in that case, for any future probe.
 - **Host load:** the hosts were loaded by other sessions' jobs during these runs, so the
   forward timings are not rates.
 
