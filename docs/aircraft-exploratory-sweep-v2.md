@@ -524,3 +524,28 @@ regenerated. A test now runs every non-eval row of both tables (D37 and wave-2) 
 `arm_exec`'s argv and the trainer's own `main()` validation, so a row the trainer would refuse
 fails CI. `d37_arms.py` refuses to generate, and `--check` refuses, any row with fewer than 8
 dynamic-sampling draws (C5).
+
+## Engineering fix 5 (2026-10-19, after the PR #36 merge): per-checkpoint time matching for D37 controls
+
+- **Per-checkpoint time matching.** A D37 control (`control_time_match` per_checkpoint) runs
+  SFT from I on every row its RL arm scanned (`scanned_ids.json`, cycling). It stops at the
+  RL arm's committed active seconds at each of its step checkpoints (150, 300 and 600), which
+  give endpoints `time1`–`time3` on one trajectory. There is no examples-matched step stop.
+  - `runner.control_spec` refuses unless the finished arm's step endpoints are exactly its
+    declared stops, with strictly increasing seconds.
+  - `arm_exec.time_endpoints` is ported from the GPU lane with its fix: the check
+    `not 0 < a < b` refused every list, and it is now `not 0 <= a < b`.
+  - `arm_exec` fails any control that stopped on its update budget before a time stop. Such
+    an endpoint is kept, marked `time_matched: false`, and never reported as matched.
+  - The D37 controls' update cap is 100,000, the GPU lane's value, so the seconds always bind
+    first.
+- **Feature and flag together.** `arm_exec` refuses an arm that declares the
+  `dynamic_sampling` feature without the `--dynamic-sampling-max-draws` extra, or the extra
+  without the feature. Every row of arms-rung1, arms-d37-grpo-I and arms-wave2-rung1 passes
+  this check.
+- **β 0 grpo-W rows without `--loss-type`.** Main's trainer refuses these rows. Three are
+  still running (grpo-W-17, -23 and -29) on the old payload, each with a single stop. They
+  finish there and never resume under the new trainer:
+  - `refresh` never re-bootstraps a host with a live arm;
+  - `continue` admits only sftall;
+  - launch holds every W-init arm.

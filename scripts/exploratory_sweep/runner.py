@@ -411,11 +411,35 @@ def control_spec(state: dict, ctl: dict) -> dict:
     if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
+    if ctl.get("control_time_match") == "per_checkpoint":
+        # D37 (coordinator 2026-10-19): SFT on the replayed rows (cycling), stopped at the RL
+        # arm's committed active seconds at EACH of its step checkpoints, on one trajectory
+        spec.update(train_ids=ids, stops=[], time_stops=checkpoint_seconds(state, ctl))
+        return spec
     # examples-matched: one SFT update per prompt the RL arm committed (or, for a
     # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
                 time_budget_seconds=float(last["active_seconds"]))
     return spec
+
+
+def checkpoint_seconds(state: dict, ctl: dict) -> list:
+    """The RL arm's committed active seconds at every declared step stop, in order. Refuses
+    unless the finished arm's step endpoints are exactly its declared stops (150, 300, 600
+    for D37) with strictly increasing seconds: a control is never time-matched at a subset."""
+    rl = state["arms"][ctl["control_of"]]
+    declared = [int(x) for x in json.loads(Path(rl["spec_path"]).read_text()).get("stops") or []]
+    summary = json.loads((Path(rl["results_dir"]) / "summary.json").read_text())
+    eps = [e for e in summary["endpoints"] if str(e.get("label", "")).startswith("step")]
+    if not declared or [e["label"] for e in eps] != [f"step{x}" for x in declared]:
+        raise SystemExit(f"REFUSE: control {ctl['id']} is time-matched at "
+                         f"{[f'step{x}' for x in declared]}; {ctl['control_of']} has "
+                         f"{[e['label'] for e in eps]}")
+    times = [float(e["active_seconds"]) for e in eps]
+    if any(not 0 <= a < b for a, b in zip([0.0] + times, times)):
+        raise SystemExit(f"REFUSE: {ctl['control_of']} checkpoint seconds {times} are not "
+                         f"positive and strictly increasing")
+    return times
 
 
 def fresh_work_id(state: dict, spec: dict) -> dict:
