@@ -859,3 +859,45 @@ def test_d37_table_is_corrections_compliant_and_retires_every_old_grpo_i_spec():
                                         {x["id"]: x for x in rung1["arms"]})
             for a in rung1["arms"] if a["id"] in old}
     assert all("allowlist" in v for v in held.values())
+
+
+GUARDED_BASE = ["-m", "vision_rl.vlm_local_training", "--train", "m.jsonl", "--dtype", "float32",
+                "--learning-rate", "1e-05", "--max-steps", "600"]
+
+
+@pytest.mark.parametrize("extras,why", [
+    (["--dtype", "bfloat16"], "not allowlisted"),             # override of a guarded flag
+    (["--learning-rate", "1"], "not allowlisted"),
+    (["--learning", "1"], "not allowlisted"),                 # argparse abbreviation
+    (["--train", "x.jsonl"], "may not pass --train"),
+    (["--validation", "v.jsonl"], "may not pass --validation"),
+    (["--train=x.jsonl"], "may not pass"),
+    (["--dynamic-sampling-max-draws=8"], "not allowlisted"),  # `=` form
+    (["--dynamic-sampling-max-draws", "4"], "integer >= 8"),  # C5
+    (["--dynamic-sampling-max-draws", "--dtype"], "integer >= 8"),
+    (["--dynamic-sampling-max-draws"], "no value"),
+    (["--dynamic-sampling-max-draws", "8", "--dynamic-sampling-max-draws", "9"], "twice"),
+])
+def test_extra_trainer_args_refuse_overrides_and_unlisted_flags(extras, why):
+    with pytest.raises(SystemExit, match=why):
+        arm_exec.checked_extras(extras, GUARDED_BASE)
+
+
+def test_extra_trainer_args_refuse_a_flag_arm_exec_already_passes(monkeypatch):
+    monkeypatch.setitem(arm_exec.EXTRA_FLAGS, "--dtype", lambda v: None)  # even if listed
+    with pytest.raises(SystemExit, match="override arm_exec's own value"):
+        arm_exec.checked_extras(["--dtype", "bfloat16"], GUARDED_BASE)
+
+
+def test_trainer_args_end_with_the_checked_d37_extras_and_refuse_a_bad_table_row(tmp_path):
+    t = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json")
+                   .read_text())
+    rl = next(a for a in t["arms"] if a["track"] == "rl")
+    arm = arm_exec.Arm(tmp_path, rl, tmp_path / "r")
+    argv = arm.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
+    assert argv[-2:] == ["--dynamic-sampling-max-draws", "8"]
+    assert argv.count("--dtype") == 1 and argv.count("--learning-rate") == 1
+    bad = arm_exec.Arm(tmp_path, dict(rl, extra_trainer_args=["--dtype", "bfloat16"]),
+                       tmp_path / "r")
+    with pytest.raises(SystemExit, match="not allowlisted"):
+        bad.trainer_args(tmp_path / "m.jsonl", 600, 150, None)

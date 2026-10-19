@@ -50,6 +50,51 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
+def _int_at_least(n: int):
+    def check(v: str):
+        if not v.lstrip("-").isdigit() or int(v) < n:
+            raise SystemExit(f"REFUSE: expected an integer >= {n}, got {v!r}")
+    return check
+
+
+# Table-supplied trainer flags, an ALLOWLIST (exact names; each takes one value checked by
+# its validator). argparse keeps the LAST value of a repeated flag and accepts unique
+# abbreviations and `--flag=value`, so an extra appended after arm_exec's own flags could
+# silently override --dtype, --learning-rate, --train, ... while the spec-field guards
+# pass (PR #38 review). Extend this map only with a validator; never add a flag arm_exec
+# sets itself. Blind spot: a validator checks the value's form, not the trainer's semantics.
+EXTRA_FLAGS = {
+    "--dynamic-sampling-max-draws": _int_at_least(8),  # CORRECTIONS C5: >= 8 draws
+}
+NEVER_EXTRA = {"--train", "--validation"}
+
+
+def checked_extras(extras, base_args) -> list[str]:
+    """`extras` as trainer argv, or refuse: only EXTRA_FLAGS, each once, as `--flag value`,
+    never a flag arm_exec already passes, never --train/--validation."""
+    own = {a for a in base_args if isinstance(a, str) and a.startswith("--")}
+    out, seen, i = [], set(), 0
+    extras = [str(x) for x in extras]
+    while i < len(extras):
+        flag = extras[i]
+        if flag in NEVER_EXTRA or flag.split("=")[0] in NEVER_EXTRA:
+            raise SystemExit(f"REFUSE: extra_trainer_args may not pass {flag}")
+        if "=" in flag or flag not in EXTRA_FLAGS:
+            raise SystemExit(f"REFUSE: extra trainer flag {flag!r} is not allowlisted "
+                             f"(exact `--flag value` from {sorted(EXTRA_FLAGS)})")
+        if flag in own:
+            raise SystemExit(f"REFUSE: extra {flag} would override arm_exec's own value")
+        if flag in seen:
+            raise SystemExit(f"REFUSE: extra {flag} given twice")
+        if i + 1 >= len(extras):
+            raise SystemExit(f"REFUSE: extra {flag} has no value")
+        EXTRA_FLAGS[flag](extras[i + 1])
+        out += [flag, extras[i + 1]]
+        seen.add(flag)
+        i += 2
+    return out
+
+
 def save_steps_for(spec: dict, max_steps: int) -> int:
     """--save-steps for every stage of this arm's trajectory.
 
@@ -148,8 +193,7 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        args += [str(x) for x in s.get("extra_trainer_args", [])]
-        return args
+        return args + checked_extras(s.get("extra_trainer_args") or [], args)
 
     def run_stage(self, label: str, args: list[str]) -> dict:
         started = time.time()

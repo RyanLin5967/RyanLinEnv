@@ -358,3 +358,25 @@ passed and releases GRPO-from-I arms under the RL lessons audit's corrections
   `gate0.passed` is set. The arms need the trainer features `dynamic_sampling` and
   `replay_sequence`, which exist only in PR #36's trainer. Until a payload carries them, the
   receipt check refuses every host, so none of these arms can launch.
+
+## Engineering fix 4 (2026-10-19, plan-neutral): table trainer flags are an allowlist
+
+`arm_exec` appended `extra_trainer_args` after its own flags. argparse keeps the last value
+of a repeated flag and also accepts abbreviations and `--flag=value`, so a table extra could
+silently override `--dtype`, `--learning-rate`, `--train` and similar flags while the
+spec-field guards passed (found by the PR #38 review).
+
+Extras are now an exact-name allowlist (`EXTRA_FLAGS`), and each allowed flag has a value
+validator. `arm_exec` refuses:
+
+- a flag it passes itself;
+- `--train` and `--validation`;
+- `=` forms and abbreviations;
+- duplicates, missing values and unknown flags.
+
+Checked on 2026-10-19:
+
+- No row of `arms-rung1.json` (157 rows), the wave-1 ordered table (96 rows) or any launched
+  `arm.json` (38) carries extras.
+- The 7 D37 RL rows carry only `--dynamic-sampling-max-draws 8`. It is allowlisted with an
+  integer ≥ 8 check (C5) and overrides nothing.
