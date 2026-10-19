@@ -1,4 +1,4 @@
-"""Reduce the I scores into hard / mid / mixed RL pools plus an unreachable list; prove disjointness.
+"""Reduce the I scores into hard/mid/mixed RL pools plus an unreachable list; prove disjointness.
 
   python3 -I build_pools.py --results DIR --payload-data DIR --audit DIR --phash FILE \
       --train400 FILE --exclusions FILE --out DIR
@@ -8,9 +8,10 @@ Standard library only. Inputs:
   --results       score_worker.py unit results (results/score-NNN.json)
   --payload-data  the sweep payload's data/ (manifests/*.jsonl, images under manifests/images/train,
                   splits.json): all_train and every TRAIN-derived holdout
-  --audit         data/fgvc-aircraft-2013b/audit: train-/val-/test-images.json. From the VAL and TEST
-                  files only image_id and encoded_sha256 are read, only to prove disjointness.
-  --phash         runs/aircraft-freshpool-g0-v1/manifests/phash_audit.json (VAL/TEST near-duplicates)
+  --audit         data/fgvc-aircraft-2013b/audit: train-/val-/test-images.json. From the VAL and
+                  TEST files only image_id and encoded_sha256 are read, only to prove disjointness.
+  --phash         runs/aircraft-freshpool-g0-v1/manifests/phash_audit.json
+                  (VAL/TEST near-duplicates)
   --train400      data/fgvc-aircraft-2013b/candidates/fourshot-seed791/train400.jsonl
   --exclusions    the exclusions file score_worker.py pinned; refused unless it equals the sets
                   re-derived here from --train400 and --phash
@@ -91,17 +92,29 @@ def exclusion_sets(a, all_train_ids: set) -> tuple[set, set, dict]:
         raise Refuse("train400.jsonl differs from the pinned sha256")
     t4 = {r["id"] for r in read_jsonl(a.train400)}
     phash = json.loads(a.phash.read_text())
-    near = {x["pool_id"] for x in phash["external_near_duplicates"]
-            if x["reference_split"] in ("test", "validation")} & all_train_ids
+    near = {
+        x["pool_id"]
+        for x in phash["external_near_duplicates"]
+        if x["reference_split"] in ("test", "validation")
+    } & all_train_ids
     if len(t4) != 400 or len(near) != 477 or t4 & near or not t4 <= all_train_ids:
         raise Refuse(f"exclusions re-derived wrong: train400 {len(t4)}, near {len(near)}")
     if sha_file(a.exclusions) != EXCLUSIONS_SHA256:
         raise Refuse("exclusions file differs from the pinned sha256")
     ex = json.loads(a.exclusions.read_text())
     if set(ex["train400"]) != t4 or set(ex["val_test_phash_near_duplicates"]) != near:
-        raise Refuse("the worker's exclusions file disagrees with train400.jsonl / phash_audit.json")
-    return t4, near, {"train400_sha256": TRAIN400_SHA256, "phash_audit_sha256": sha_file(a.phash),
-                      "exclusions_sha256": EXCLUSIONS_SHA256}
+        raise Refuse(
+            "the worker's exclusions file disagrees with train400.jsonl / phash_audit.json"
+        )
+    return (
+        t4,
+        near,
+        {
+            "train400_sha256": TRAIN400_SHA256,
+            "phash_audit_sha256": sha_file(a.phash),
+            "exclusions_sha256": EXCLUSIONS_SHA256,
+        },
+    )
 
 
 def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
@@ -109,13 +122,18 @@ def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
     seen, units, timing, checks = {}, set(), collections.Counter(), []
     for f in sorted(results.glob("score-*.json")):
         doc = json.loads(f.read_text())
-        for key, want in (("adapter_sha256", I_WEIGHTS_SHA256), ("all_train_sha256", ALL_TRAIN_SHA256),
-                          ("trie_sha256", TRIE_SHA256), ("trainer_sha256", TRAINER_SHA256)):
+        for key, want in (
+            ("adapter_sha256", I_WEIGHTS_SHA256),
+            ("all_train_sha256", ALL_TRAIN_SHA256),
+            ("trie_sha256", TRIE_SHA256),
+            ("trainer_sha256", TRAINER_SHA256),
+        ):
             if doc.get(key) != want:
                 raise Refuse(f"{f.name}: {key} {doc.get(key)} is not the pinned value")
         k = int(doc["unit"].split("-")[1])
-        if doc["ids"] != [r["id"] for r in eligible[SHARD * k:SHARD * k + SHARD]] \
-                or doc["ids"] != [r["id"] for r in doc["rows"]]:
+        if doc["ids"] != [r["id"] for r in eligible[SHARD * k : SHARD * k + SHARD]] or doc[
+            "ids"
+        ] != [r["id"] for r in doc["rows"]]:
             raise Refuse(f"{f.name}: does not hold eligible rows {SHARD * k}..")
         v = doc["validation"]
         if v["max_abs_diff"] > 1e-4:
@@ -129,8 +147,10 @@ def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
         for r in doc["rows"]:
             r = dict(r, host=doc["host"], unit=doc["unit"])
             prev = seen.get(r["id"])
-            if prev and (prev["greedy_answer"] != r["greedy_answer"]
-                         or abs(prev["p_gold"] - r["p_gold"]) > 1e-4):
+            if prev and (
+                prev["greedy_answer"] != r["greedy_answer"]
+                or abs(prev["p_gold"] - r["p_gold"]) > 1e-4
+            ):
                 raise Refuse(f"{r['id']}: two unit results disagree")
             seen.setdefault(r["id"], r)
     if units != set(range(expected)):
@@ -141,12 +161,21 @@ def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
     for i, r in seen.items():
         if r["label"] != gold[i] or r["greedy_correct"] != (r["greedy_answer"] == gold[i]):
             raise Refuse(f"{i}: label or correctness inconsistent")
-        if not (isinstance(r["p_gold"], float) and 0.0 <= r["p_gold"] <= 1.0
-                and r["p_canonical"] <= r["p_gold"] + 1e-9):
+        if not (
+            isinstance(r["p_gold"], float)
+            and 0.0 <= r["p_gold"] <= 1.0
+            and r["p_canonical"] <= r["p_gold"] + 1e-9
+        ):
             raise Refuse(f"{i}: p_gold invalid")
-    cross = {"units_checked": len(checks), "max_abs_diff": max(c["max_abs_diff"] for c in checks),
-             "max_paths_checked": max(c["paths"] for c in checks)}
-    return seen, {"timing": {k: round(v, 1) for k, v in sorted(timing.items())}, "cross_check": cross}
+    cross = {
+        "units_checked": len(checks),
+        "max_abs_diff": max(c["max_abs_diff"] for c in checks),
+        "max_paths_checked": max(c["paths"] for c in checks),
+    }
+    return seen, {
+        "timing": {k: round(v, 1) for k, v in sorted(timing.items())},
+        "cross_check": cross,
+    }
 
 
 def references(payload_data: Path, audit: Path, t4: set, near: set) -> dict:
@@ -159,18 +188,25 @@ def references(payload_data: Path, audit: Path, t4: set, near: set) -> dict:
         if sha_file(path) != splits["manifests_sha256"][f"manifests/{name}.jsonl"]:
             raise Refuse(f"{name}.jsonl differs from splits.json")
         rows = read_jsonl(path)
-        refs[name] = {"ids": {r["id"] for r in rows},
-                      "sha": {sha_file(man / r["image"]) for r in rows},
-                      "manifest_sha256": sha_file(path)}
+        refs[name] = {
+            "ids": {r["id"] for r in rows},
+            "sha": {sha_file(man / r["image"]) for r in rows},
+            "manifest_sha256": sha_file(path),
+        }
     for name, file in (("native_val", "val-images.json"), ("sealed_test", "test-images.json")):
         raw = (audit / file).read_bytes()
         entries = json.loads(raw)
-        refs[name] = {"ids": {e["image_id"] for e in entries},
-                      "sha": {e["encoded_sha256"] for e in entries}, "audit_file_sha256": sha(raw)}
+        refs[name] = {
+            "ids": {e["image_id"] for e in entries},
+            "sha": {e["encoded_sha256"] for e in entries},
+            "audit_file_sha256": sha(raw),
+        }
         if len(refs[name]["ids"]) != 3333:
             raise Refuse(f"{name}: expected 3,333 ids, found {len(refs[name]['ids'])}")
-    train_sha = {e["image_id"]: e["encoded_sha256"]
-                 for e in json.loads((audit / "train-images.json").read_text())}
+    train_sha = {
+        e["image_id"]: e["encoded_sha256"]
+        for e in json.loads((audit / "train-images.json").read_text())
+    }
     refs["train400"] = {"ids": set(t4), "sha": {train_sha[i] for i in t4}}
     refs["val_test_phash_near_duplicates"] = {"ids": set(near), "sha": {train_sha[i] for i in near}}
     for name in refs:
@@ -214,7 +250,9 @@ def build(scores: dict, eligible: list[dict], refs: dict, train_audit: dict, lab
     pools = {
         "hard": [r for r in rows if wrong(r) and r["p_gold"] >= P_REACH],
         "mid": [r for r in rows if P_LO <= r["p_gold"] <= P_HI],
-        "mixed": [r for r in rows if (wrong(r) and r["p_gold"] >= P_REACH) or P_LO <= r["p_gold"] <= P_HI],
+        "mixed": [
+            r for r in rows if (wrong(r) and r["p_gold"] >= P_REACH) or P_LO <= r["p_gold"] <= P_HI
+        ],
         "unreachable": [r for r in rows if r["p_gold"] < P_REACH],
     }
     disjoint = {"eligible": check_disjoint("eligible", rows, refs)}
@@ -222,70 +260,116 @@ def build(scores: dict, eligible: list[dict], refs: dict, train_audit: dict, lab
     for name, members in pools.items():
         disjoint[name] = check_disjoint(name, members, refs)
         ordered[name] = stratify(name, members)
-    bands = {"p<0.02": lambda r: r["p_gold"] < P_REACH,
-             "0.02<=p<0.1": lambda r: P_REACH <= r["p_gold"] < P_LO,
-             "0.1<=p<=0.9": lambda r: P_LO <= r["p_gold"] <= P_HI, "p>0.9": lambda r: r["p_gold"] > P_HI}
+    bands = {
+        "p<0.02": lambda r: r["p_gold"] < P_REACH,
+        "0.02<=p<0.1": lambda r: P_REACH <= r["p_gold"] < P_LO,
+        "0.1<=p<=0.9": lambda r: P_LO <= r["p_gold"] <= P_HI,
+        "p>0.9": lambda r: r["p_gold"] > P_HI,
+    }
     cov = {"bands": {}, "per_class": {}}
     for name, f in bands.items():
         sel = [r for r in rows if f(r)]
-        cov["bands"][name] = {"n": len(sel), "greedy_wrong": sum(wrong(r) for r in sel),
-                              "greedy_invalid": sum(r["greedy_answer"] is None for r in sel)}
+        cov["bands"][name] = {
+            "n": len(sel),
+            "greedy_wrong": sum(wrong(r) for r in sel),
+            "greedy_invalid": sum(r["greedy_answer"] is None for r in sel),
+        }
     pc = cov["per_class"]
     for label in labels:
         cls = [r for r in rows if r["label"] == label]
-        pc[label] = {"eligible": len(cls), **{k: sum(r["label"] == label for r in v) for k, v in pools.items()},
-                     "greedy_acc": round(sum(r["greedy_correct"] for r in cls) / len(cls), 4) if cls else None,
-                     "mean_p": round(sum(r["p_gold"] for r in cls) / len(cls), 4) if cls else None}
-    cov["totals"] = {"eligible": len(rows), "greedy_correct": sum(r["greedy_correct"] for r in rows),
-                     "greedy_wrong": sum(wrong(r) for r in rows),
-                     "greedy_invalid": sum(r["greedy_answer"] is None for r in rows),
-                     "greedy_wrong_unreachable": sum(wrong(r) and r["p_gold"] < P_REACH for r in rows),
-                     **{k: len(v) for k, v in pools.items()},
-                     "hard_and_mid": sum(wrong(r) and P_LO <= r["p_gold"] <= P_HI for r in rows),
-                     "mean_noncanonical_share": round(sum(r["p_gold"] - r["p_canonical"] for r in rows)
-                                                      / max(sum(r["p_gold"] for r in rows), 1e-12), 5)}
-    cov["unreachable_classes"] = sorted(l for l in labels if pc[l]["eligible"] and
-                                        pc[l]["unreachable"] == pc[l]["eligible"])
-    cov["classes_majority_unreachable"] = sorted(l for l in labels if pc[l]["eligible"] and
-                                                 pc[l]["unreachable"] * 2 > pc[l]["eligible"])
-    cov["classes_without_eligible_rows"] = sorted(l for l in labels if not pc[l]["eligible"])
-    cov["class_coverage"] = {k: sum(pc[l][k] > 0 for l in labels) for k in pools}
-    cov["class_count_min_max"] = {k: [min(pc[l][k] for l in labels), max(pc[l][k] for l in labels)]
-                                  for k in pools}
+        pc[label] = {
+            "eligible": len(cls),
+            **{k: sum(r["label"] == label for r in v) for k, v in pools.items()},
+            "greedy_acc": round(sum(r["greedy_correct"] for r in cls) / len(cls), 4)
+            if cls
+            else None,
+            "mean_p": round(sum(r["p_gold"] for r in cls) / len(cls), 4) if cls else None,
+        }
+    cov["totals"] = {
+        "eligible": len(rows),
+        "greedy_correct": sum(r["greedy_correct"] for r in rows),
+        "greedy_wrong": sum(wrong(r) for r in rows),
+        "greedy_invalid": sum(r["greedy_answer"] is None for r in rows),
+        "greedy_wrong_unreachable": sum(wrong(r) and r["p_gold"] < P_REACH for r in rows),
+        **{k: len(v) for k, v in pools.items()},
+        "hard_and_mid": sum(wrong(r) and P_LO <= r["p_gold"] <= P_HI for r in rows),
+        "mean_noncanonical_share": round(
+            sum(r["p_gold"] - r["p_canonical"] for r in rows)
+            / max(sum(r["p_gold"] for r in rows), 1e-12),
+            5,
+        ),
+    }
+    cov["unreachable_classes"] = sorted(
+        lab
+        for lab in labels
+        if pc[lab]["eligible"] and pc[lab]["unreachable"] == pc[lab]["eligible"]
+    )
+    cov["classes_majority_unreachable"] = sorted(
+        lab
+        for lab in labels
+        if pc[lab]["eligible"] and pc[lab]["unreachable"] * 2 > pc[lab]["eligible"]
+    )
+    cov["classes_without_eligible_rows"] = sorted(lab for lab in labels if not pc[lab]["eligible"])
+    cov["class_coverage"] = {k: sum(pc[lab][k] > 0 for lab in labels) for k in pools}
+    cov["class_count_min_max"] = {
+        k: [min(pc[lab][k] for lab in labels), max(pc[lab][k] for lab in labels)] for k in pools
+    }
     return rows, ordered, disjoint, cov
 
 
 def trainer_row(r: dict) -> dict:
-    return {"id": r["id"], "image": f"images/train/{r['id']}.jpg", "label": r["label"], "split": "train"}
+    return {
+        "id": r["id"],
+        "image": f"images/train/{r['id']}.jpg",
+        "label": r["label"],
+        "split": "train",
+    }
 
 
 def coverage_md(cov: dict, timing: dict) -> str:
     t = cov["totals"]
-    lines = ["# I on the eligible TRAIN rows: RL pool coverage", "",
-             f"Eligible = all_train (2,329) - train400 (400) - VAL/TEST pHash near-duplicates (477) = "
-             f"{t['eligible']} rows. I greedy correct {t['greedy_correct']} "
-             f"({t['greedy_correct'] / t['eligible']:.4f}); wrong {t['greedy_wrong']} "
-             f"(invalid {t['greedy_invalid']}); wrong and unreachable (p < 0.02) "
-             f"{t['greedy_wrong_unreachable']}.",
-             f"p_gold summed over the label trie; non-canonical share of total p mass "
-             f"{t['mean_noncanonical_share']}.",
-             f"Pool-scoring seconds (charge pro rata to pool arms): {timing['unit_seconds']} "
-             f"(greedy {timing['greedy_seconds']}, p {timing['p_seconds']}), shared CPU hosts.", "",
-             "| set | rows | classes covered | min/max per class |", "|---|---|---|---|"]
+    lines = [
+        "# I on the eligible TRAIN rows: RL pool coverage",
+        "",
+        f"Eligible = all_train (2,329) - train400 (400) - VAL/TEST pHash near-duplicates (477) = "
+        f"{t['eligible']} rows. I greedy correct {t['greedy_correct']} "
+        f"({t['greedy_correct'] / t['eligible']:.4f}); wrong {t['greedy_wrong']} "
+        f"(invalid {t['greedy_invalid']}); wrong and unreachable (p < 0.02) "
+        f"{t['greedy_wrong_unreachable']}.",
+        f"p_gold summed over the label trie; non-canonical share of total p mass "
+        f"{t['mean_noncanonical_share']}.",
+        f"Pool-scoring seconds (charge pro rata to pool arms): {timing['unit_seconds']} "
+        f"(greedy {timing['greedy_seconds']}, p {timing['p_seconds']}), shared CPU hosts.",
+        "",
+        "| set | rows | classes covered | min/max per class |",
+        "|---|---|---|---|",
+    ]
     for k in ("hard", "mid", "mixed", "unreachable"):
         mn, mx = cov["class_count_min_max"][k]
         lines.append(f"| {k} | {t[k]} | {cov['class_coverage'][k]} / 100 | {mn} / {mx} |")
-    lines += ["", f"hard AND mid: {t['hard_and_mid']}",
-              f"Unreachable classes (every eligible image p < 0.02): {cov['unreachable_classes'] or 'none'}",
-              f"Classes with a majority of images unreachable: {cov['classes_majority_unreachable'] or 'none'}",
-              "", "| p_gold band | rows | greedy wrong | greedy invalid |", "|---|---|---|---|"]
+    lines += [
+        "",
+        f"hard AND mid: {t['hard_and_mid']}",
+        "Unreachable classes (every eligible image p < 0.02): "
+        f"{cov['unreachable_classes'] or 'none'}",
+        "Classes with a majority of images unreachable: "
+        f"{cov['classes_majority_unreachable'] or 'none'}",
+        "",
+        "| p_gold band | rows | greedy wrong | greedy invalid |",
+        "|---|---|---|---|",
+    ]
     for b, v in cov["bands"].items():
         lines.append(f"| {b} | {v['n']} | {v['greedy_wrong']} | {v['greedy_invalid']} |")
-    lines += ["", "| class | eligible | hard | mid | mixed | unreachable | I greedy acc | mean p_gold |",
-              "|---|---|---|---|---|---|---|---|"]
+    lines += [
+        "",
+        "| class | eligible | hard | mid | mixed | unreachable | I greedy acc | mean p_gold |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
     for label, v in cov["per_class"].items():
-        lines.append(f"| {label} | {v['eligible']} | {v['hard']} | {v['mid']} | {v['mixed']} | "
-                     f"{v['unreachable']} | {v['greedy_acc']} | {v['mean_p']} |")
+        lines.append(
+            f"| {label} | {v['eligible']} | {v['hard']} | {v['mid']} | {v['mixed']} | "
+            f"{v['unreachable']} | {v['greedy_acc']} | {v['mean_p']} |"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -299,8 +383,10 @@ def prepare(a):
     if len(eligible) != ELIGIBLE_ROWS:
         raise Refuse(f"eligible rows {len(eligible)} != {ELIGIBLE_ROWS}")
     refs = references(a.payload_data, a.audit, t4, near)
-    train_audit = {e["image_id"]: e["encoded_sha256"]
-                   for e in json.loads((a.audit / "train-images.json").read_text())}
+    train_audit = {
+        e["image_id"]: e["encoded_sha256"]
+        for e in json.loads((a.audit / "train-images.json").read_text())
+    }
     labels = json.loads((a.payload_data / "data_spec.json").read_text())["labels"]
     return eligible, refs, train_audit, labels, ex_meta
 
@@ -317,10 +403,27 @@ def run(a) -> dict:
     for name, members in ordered.items():
         raw = jsonl(trainer_row(r) for r in members)
         (out / "manifests" / f"{name}.jsonl").write_bytes(raw)
-        files[f"manifests/{name}.jsonl"] = {"sha256": sha(raw), "rows": len(members),
-                                            "id_set_sha256": id_set_sha(r["id"] for r in members)}
-    keep = ("id", "label", "image_sha256", "p_gold", "p_canonical", "trie_paths", "greedy_answer",
-            "greedy_correct", "terminated", "greedy_response", "p_seconds", "greedy_seconds", "host", "unit")
+        files[f"manifests/{name}.jsonl"] = {
+            "sha256": sha(raw),
+            "rows": len(members),
+            "id_set_sha256": id_set_sha(r["id"] for r in members),
+        }
+    keep = (
+        "id",
+        "label",
+        "image_sha256",
+        "p_gold",
+        "p_canonical",
+        "trie_paths",
+        "greedy_answer",
+        "greedy_correct",
+        "terminated",
+        "greedy_response",
+        "p_seconds",
+        "greedy_seconds",
+        "host",
+        "unit",
+    )
     raw = jsonl({k: r[k] for k in keep} for r in rows)
     (out / "scores.jsonl").write_bytes(raw)
     files["scores.jsonl"] = {"sha256": sha(raw), "rows": len(rows)}
@@ -331,27 +434,40 @@ def run(a) -> dict:
     (out / "coverage.md").write_bytes(raw)
     files["coverage.md"] = {"sha256": sha(raw)}
     receipt = {
-        "study": STUDY, "seed": SEED,
-        "rule": {"eligible": "all_train - train400 - VAL/TEST pHash near-duplicates (477)",
-                 "p_gold": "P(gold + EOS) at T 1.0 under I, summed over label-trie tokenisations",
-                 "hard": f"I greedy answer != gold AND p_gold >= {P_REACH}",
-                 "mid": f"{P_LO} <= p_gold <= {P_HI}", "mixed": "hard OR mid",
-                 "unreachable": f"p_gold < {P_REACH} (never pooled)",
-                 "order": "class-stratified round robin, hashed within class"},
-        "adapter_I_sha256": I_WEIGHTS_SHA256, "all_train_sha256": ALL_TRAIN_SHA256,
-        "trie_sha256": TRIE_SHA256, "trainer_sha256": TRAINER_SHA256,
-        "splits_json_sha256": sha_file(a.payload_data / "splits.json"), "exclusions": ex_meta,
-        "references": {k: {kk: vv for kk, vv in v.items() if kk not in ("ids", "sha")}
-                       for k, v in refs.items()},
-        "disjointness": disjoint, "files": files, "pool_scoring": meta["timing"],
+        "study": STUDY,
+        "seed": SEED,
+        "rule": {
+            "eligible": "all_train - train400 - VAL/TEST pHash near-duplicates (477)",
+            "p_gold": "P(gold + EOS) at T 1.0 under I, summed over label-trie tokenisations",
+            "hard": f"I greedy answer != gold AND p_gold >= {P_REACH}",
+            "mid": f"{P_LO} <= p_gold <= {P_HI}",
+            "mixed": "hard OR mid",
+            "unreachable": f"p_gold < {P_REACH} (never pooled)",
+            "order": "class-stratified round robin, hashed within class",
+        },
+        "adapter_I_sha256": I_WEIGHTS_SHA256,
+        "all_train_sha256": ALL_TRAIN_SHA256,
+        "trie_sha256": TRIE_SHA256,
+        "trainer_sha256": TRAINER_SHA256,
+        "splits_json_sha256": sha_file(a.payload_data / "splits.json"),
+        "exclusions": ex_meta,
+        "references": {
+            k: {kk: vv for kk, vv in v.items() if kk not in ("ids", "sha")} for k, v in refs.items()
+        },
+        "disjointness": disjoint,
+        "files": files,
+        "pool_scoring": meta["timing"],
         "trainer_cross_check": meta["cross_check"],
         "images_note": "manifests reference images/train/<id>.jpg; place them in the payload's "
-                       "data/manifests directory (same layout as all_train.jsonl) to train",
+        "data/manifests directory (same layout as all_train.jsonl) to train",
     }
     raw = (json.dumps(receipt, indent=1, sort_keys=True) + "\n").encode()
     (out / "POOLS.json").write_bytes(raw)
-    return {"POOLS.json": sha(raw), **{k: v["sha256"] for k, v in files.items()},
-            "counts": {k: v.get("rows") for k, v in files.items()}}
+    return {
+        "POOLS.json": sha(raw),
+        **{k: v["sha256"] for k, v in files.items()},
+        "counts": {k: v.get("rows") for k, v in files.items()},
+    }
 
 
 def self_test(scores, eligible, refs, train_audit, labels) -> dict:
@@ -374,7 +490,9 @@ def self_test(scores, eligible, refs, train_audit, labels) -> dict:
         s = copy.deepcopy(scores)
         s[victim] = dict(s[victim], image_sha256=sorted(ref["sha"])[0], greedy_correct=False)
         try:
-            build(s, eligible, refs, dict(train_audit, **{victim: s[victim]["image_sha256"]}), labels)
+            build(
+                s, eligible, refs, dict(train_audit, **{victim: s[victim]["image_sha256"]}), labels
+            )
             outcomes[f"{name}/content"] = "NOT REFUSED"
         except Refuse as exc:
             outcomes[f"{name}/content"] = f"refused: {str(exc)[:110]}"

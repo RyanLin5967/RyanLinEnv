@@ -54,7 +54,9 @@ EXCLUSIONS_SHA256 = "00a433eab22002764d2d91c02888623b2d5a4b37ee90ba3e1bb0eb19b48
 ELIGIBLE_ROWS = 1452
 SCAN_SHA256 = {
     "s_train_scan_seed42.jsonl": "8f078caaa7a20cd27fe8758cc57619d8ac2457f768135cf83ba528d37d38c896",
-    "all_train_scan_seed42.jsonl": "5fcb65887c482b46ce74c71bbe35af6e5d2bbae08fe29bc2edb1204d04200b26",
+    "all_train_scan_seed42.jsonl": (
+        "5fcb65887c482b46ce74c71bbe35af6e5d2bbae08fe29bc2edb1204d04200b26"
+    ),
 }
 ALL_TRAIN_ROWS = 2329
 SHARD = 32
@@ -64,9 +66,15 @@ P0_G = 8
 P0_SEED = 42
 STALE_SECONDS = 3 * 3600
 VALIDATE_MAX_PATHS = 16
-PROFILE = {"response_format": "answer_only", "min_pixels": 50176, "max_pixels": 200704,
-           "max_completion_length": 256, "num_generations": 4, "temperature": 1.0,
-           "dtype": "float32"}
+PROFILE = {
+    "response_format": "answer_only",
+    "min_pixels": 50176,
+    "max_pixels": 200704,
+    "max_completion_length": 256,
+    "num_generations": 4,
+    "temperature": 1.0,
+    "dtype": "float32",
+}
 MODEL_DIR_NAME = "Qwen2-VL-2B-Instruct-895c3a49"
 
 
@@ -105,19 +113,29 @@ def units(payload: Path, exclusions: Path) -> dict[str, dict]:
     eligible = [r for r in rows if r["id"] not in excluded]
     if len(excluded) != 877 or len(eligible) != ELIGIBLE_ROWS:
         raise SystemExit("REFUSE: exclusions must remove 877 rows and leave 1,452")
-    s_scan = read_manifest(payload, "s_train_scan_seed42.jsonl", SCAN_SHA256["s_train_scan_seed42.jsonl"])
-    a_scan = read_manifest(payload, "all_train_scan_seed42.jsonl", SCAN_SHA256["all_train_scan_seed42.jsonl"])
+    s_scan = read_manifest(
+        payload, "s_train_scan_seed42.jsonl", SCAN_SHA256["s_train_scan_seed42.jsonl"]
+    )
+    a_scan = read_manifest(
+        payload, "all_train_scan_seed42.jsonl", SCAN_SHA256["all_train_scan_seed42.jsonl"]
+    )
     s_ids = {r["id"] for r in s_scan[:P0_PER_SOURCE]}
     a_ids = {r["id"] for r in a_scan[:P0_PER_SOURCE]}
     p0 = list(s_scan[:P0_PER_SOURCE]) + [r for r in a_scan[:P0_PER_SOURCE] if r["id"] not in s_ids]
     for r in p0:
-        r["p0_sources"] = [n for n, ids in (("s_train", s_ids), ("all_train", a_ids)) if r["id"] in ids]
+        r["p0_sources"] = [
+            n for n, ids in (("s_train", s_ids), ("all_train", a_ids)) if r["id"] in ids
+        ]
     out = {}
     for t in P0_TEMPS:
         for k in range(0, len(p0), SHARD):
-            out[f"p0-t{t}-{k // SHARD:02d}"] = {"kind": "p0", "temp10": t, "rows": p0[k:k + SHARD]}
+            out[f"p0-t{t}-{k // SHARD:02d}"] = {
+                "kind": "p0",
+                "temp10": t,
+                "rows": p0[k : k + SHARD],
+            }
     for k in range(0, len(eligible), SHARD):
-        out[f"score-{k // SHARD:03d}"] = {"kind": "score", "rows": eligible[k:k + SHARD]}
+        out[f"score-{k // SHARD:03d}"] = {"kind": "score", "rows": eligible[k : k + SHARD]}
     return out
 
 
@@ -161,11 +179,14 @@ class Scorer:
         self.payload_sha256 = receipt["payload"]["payload_sha256"]
         if self.payload_sha256 != sha_file(self.payload / "PAYLOAD.json"):
             raise SystemExit("REFUSE: payload changed since its receipt")
-        os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", VLM_TORCH_THREADS=str(threads))
+        os.environ.update(
+            HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", VLM_TORCH_THREADS=str(threads)
+        )
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
             os.environ[var] = str(threads)
         sys.path.insert(0, str(self.payload / "code" / "src"))
-        from vision_rl import vlm_local_training as vlt
+        # Import order kept exactly as in the run that produced the v2 scores.
+        from vision_rl import vlm_local_training as vlt  # noqa: I001
         import torch
         import transformers
         import peft
@@ -181,14 +202,20 @@ class Scorer:
         vlt._verified_model_directory(self.model, vlt.DEFAULT_MODEL)
         self.processor = vlt._processor(self.model, self.profile)
         policy = transformers.AutoModelForImageTextToText.from_pretrained(
-            str(self.model), trust_remote_code=False, local_files_only=True,
-            use_safetensors=True, dtype=torch.float32, attn_implementation="sdpa")
+            str(self.model),
+            trust_remote_code=False,
+            local_files_only=True,
+            use_safetensors=True,
+            dtype=torch.float32,
+            attn_implementation="sdpa",
+        )
         self.policy = peft.PeftModel.from_pretrained(policy, str(self.adapter), is_trainable=False)
         self.policy.requires_grad_(False).to("cpu").eval()
         config = vlt._task_group_generation_config(self.policy, self.processor, self.profile)
         self.eos, self.suppress = sorted(config.eos_token_id), list(config.suppress_tokens or [])
         self.collator = sft.DataCollatorForVisionLanguageModeling(
-            self.processor, completion_only_loss=True, max_length=None)
+            self.processor, completion_only_loss=True, max_length=None
+        )
         trie = json.loads(Path(trie_path).read_text())
         if sorted(trie["eos_ids"]) != self.eos or sorted(trie["entries"]) != sorted(self.labels):
             raise SystemExit("REFUSE: trie EOS ids or labels differ from the sampler's")
@@ -216,12 +243,15 @@ class Scorer:
         first = supervised[0]
         completion = ids[0, first:].tolist()
         stop = next(i for i, t in enumerate(completion) if t in self.eos)
-        canonical = completion[:stop + 1]
+        canonical = completion[: stop + 1]
         paths = self.paths[row["label"]]
         if canonical[:-1] != self.canonical[row["label"]] or canonical[:-1] not in paths:
             raise SystemExit(f"REFUSE: {row['id']}: collator canonical is not the trie canonical")
-        prompt = {k: (v[:, :first] if k in vlt._TOKEN_ALIGNED_KEYS else v)
-                  for k, v in batch.items() if k not in vlt._NOT_MODEL_INPUT_KEYS}
+        prompt = {
+            k: (v[:, :first] if k in vlt._TOKEN_ALIGNED_KEYS else v)
+            for k, v in batch.items()
+            if k not in vlt._NOT_MODEL_INPUT_KEYS
+        }
         started = time.time()
         with torch.no_grad():
             out = self.policy(**prompt, use_cache=True, logits_to_keep=1)
@@ -229,7 +259,7 @@ class Scorer:
             cache = out.past_key_values
             path_logp = []
             for c in range(0, len(paths), 32):
-                chunk = paths[c:c + 32]
+                chunk = paths[c : c + 32]
                 width = max(len(p) for p in chunk)
                 inp = torch.tensor([p + [p[-1]] * (width - len(p)) for p in chunk], dtype=ids.dtype)
                 past = copy.deepcopy(cache)
@@ -248,8 +278,14 @@ class Scorer:
         canon = math.exp(path_logp[ci][0] + path_logp[ci][1][self.eos.index(canonical[-1])])
         if not (0.0 <= canon <= total <= 1.0 + 1e-6) or math.isnan(total):
             raise SystemExit(f"REFUSE: {row['id']}: invalid trie probability {canon} {total}")
-        return {"p": min(total, 1.0), "p_canonical": canon, "paths": len(paths),
-                "seconds": round(time.time() - started, 3), "_batch": batch, "_canonical": canonical}
+        return {
+            "p": min(total, 1.0),
+            "p_canonical": canon,
+            "paths": len(paths),
+            "seconds": round(time.time() - started, 3),
+            "_batch": batch,
+            "_canonical": canonical,
+        }
 
     def validate(self, row, mine: dict, temperature: float) -> dict:
         """The trainer's own _batch_gold_probability, canonical-only and with every alternative."""
@@ -257,19 +293,36 @@ class Scorer:
         alts = [p + [e] for p in self.paths[row["label"]] for e in self.eos]
         with torch.no_grad():
             canon, _ = vlt._batch_gold_probability(
-                self.policy, mine["_batch"], eos_token_ids=self.eos, suppress_tokens=self.suppress,
-                temperature=temperature)
+                self.policy,
+                mine["_batch"],
+                eos_token_ids=self.eos,
+                suppress_tokens=self.suppress,
+                temperature=temperature,
+            )
             full, _ = vlt._batch_gold_probability(
-                self.policy, mine["_batch"], eos_token_ids=self.eos, suppress_tokens=self.suppress,
-                temperature=temperature, alternatives=alts)
+                self.policy,
+                mine["_batch"],
+                eos_token_ids=self.eos,
+                suppress_tokens=self.suppress,
+                temperature=temperature,
+                alternatives=alts,
+            )
         diff = max(abs(canon - mine["p_canonical"]), abs(full - mine["p"]))
         if diff > 1e-4:
-            raise SystemExit(f"REFUSE: {row['id']}: cached trie p disagrees with the trainer's "
-                             f"_batch_gold_probability: mine {mine['p']}/{mine['p_canonical']} "
-                             f"trainer {full}/{canon}")
-        return {"id": row["id"], "trainer_p_canonical": canon, "trainer_p_trie": full,
-                "mine_p_canonical": mine["p_canonical"], "mine_p_trie": mine["p"],
-                "max_abs_diff": diff, "paths": mine["paths"]}
+            raise SystemExit(
+                f"REFUSE: {row['id']}: cached trie p disagrees with the trainer's "
+                f"_batch_gold_probability: mine {mine['p']}/{mine['p_canonical']} "
+                f"trainer {full}/{canon}"
+            )
+        return {
+            "id": row["id"],
+            "trainer_p_canonical": canon,
+            "trainer_p_trie": full,
+            "mine_p_canonical": mine["p_canonical"],
+            "mine_p_trie": mine["p"],
+            "max_abs_diff": diff,
+            "paths": mine["paths"],
+        }
 
     # ---- units --------------------------------------------------------------------------
     def _chunk_manifest(self, rows, name):
@@ -277,19 +330,32 @@ class Scorer:
         shutil.rmtree(stage, ignore_errors=True)
         cm = stage / "chunk.jsonl"
         cm.parent.mkdir(parents=True, exist_ok=True)
-        cm.write_text("".join(json.dumps({k: r[k] for k in ("id", "image", "label", "split")},
-                                         sort_keys=True) + "\n" for r in rows))
+        cm.write_text(
+            "".join(
+                json.dumps({k: r[k] for k in ("id", "image", "label", "split")}, sort_keys=True)
+                + "\n"
+                for r in rows
+            )
+        )
         return stage, cm
 
     def score_unit(self, name, rows) -> dict:
         vlt = self.vlt
         started = time.time()
         stage, cm = self._chunk_manifest(rows, name)
-        record = vlt.predict_train_subset(cm, data_spec=self.spec_path, output=stage / "greedy",
-                                          model_directory=self.model, device="cpu",
-                                          profile=self.profile, init_adapter=self.adapter)
-        if record.get("status") != "completed" or (record.get("initial_adapter") or {}).get(
-                "weights_sha256") != I_WEIGHTS_SHA256:
+        record = vlt.predict_train_subset(
+            cm,
+            data_spec=self.spec_path,
+            output=stage / "greedy",
+            model_directory=self.model,
+            device="cpu",
+            profile=self.profile,
+            init_adapter=self.adapter,
+        )
+        if (
+            record.get("status") != "completed"
+            or (record.get("initial_adapter") or {}).get("weights_sha256") != I_WEIGHTS_SHA256
+        ):
             raise SystemExit(f"REFUSE: greedy {name} did not complete under I")
         found = json.loads((stage / "greedy" / "predictions.json").read_text())
         greedy_seconds = time.time() - started
@@ -299,24 +365,45 @@ class Scorer:
             if c is None or c.get("error"):
                 raise SystemExit(f"REFUSE: no greedy prediction for {r['id']}")
             ended = bool(c.get("terminated"))
-            answer = vlt.parse_label(c.get("response", ""), self.labels, allow_reasoning=True) \
-                if ended else None
+            answer = (
+                vlt.parse_label(c.get("response", ""), self.labels, allow_reasoning=True)
+                if ended
+                else None
+            )
             mine = self.trie_p(r, 1.0)
             if validation is None and mine["paths"] <= VALIDATE_MAX_PATHS:
                 validation = self.validate(r, mine, 1.0)
-            out.append({"id": r["id"], "label": r["label"], "image_sha256": sha_file(Path(r["image"])),
-                        "p_gold": mine["p"], "p_canonical": mine["p_canonical"],
-                        "trie_paths": mine["paths"], "p_seconds": mine["seconds"],
-                        "greedy_response": c.get("response", ""), "terminated": ended,
-                        "greedy_answer": answer, "greedy_correct": answer == r["label"],
-                        "greedy_seconds": round(float(c.get("latency_seconds", 0.0)), 3),
-                        "greedy_completion_tokens": c.get("completion_tokens")})
+            out.append(
+                {
+                    "id": r["id"],
+                    "label": r["label"],
+                    "image_sha256": sha_file(Path(r["image"])),
+                    "p_gold": mine["p"],
+                    "p_canonical": mine["p_canonical"],
+                    "trie_paths": mine["paths"],
+                    "p_seconds": mine["seconds"],
+                    "greedy_response": c.get("response", ""),
+                    "terminated": ended,
+                    "greedy_answer": answer,
+                    "greedy_correct": answer == r["label"],
+                    "greedy_seconds": round(float(c.get("latency_seconds", 0.0)), 3),
+                    "greedy_completion_tokens": c.get("completion_tokens"),
+                }
+            )
         if validation is None:
-            raise SystemExit(f"REFUSE: {name}: no row with <= {VALIDATE_MAX_PATHS} trie paths to validate")
+            raise SystemExit(
+                f"REFUSE: {name}: no row with <= {VALIDATE_MAX_PATHS} trie paths to validate"
+            )
         shutil.rmtree(stage, ignore_errors=True)
-        return {"unit": name, "kind": "score", "ids": [r["id"] for r in rows], "rows": out,
-                "validation": validation, "greedy_seconds": round(greedy_seconds, 1),
-                "total_seconds": round(time.time() - started, 1)}
+        return {
+            "unit": name,
+            "kind": "score",
+            "ids": [r["id"] for r in rows],
+            "rows": out,
+            "validation": validation,
+            "greedy_seconds": round(greedy_seconds, 1),
+            "total_seconds": round(time.time() - started, 1),
+        }
 
     def p0_unit(self, name, rows, temp10) -> dict:
         vlt = self.vlt
@@ -324,11 +411,20 @@ class Scorer:
         started = time.time()
         profile = vlt.Profile(**dict(PROFILE, num_generations=P0_G, temperature=temperature))
         stage, cm = self._chunk_manifest(rows, name)
-        record = vlt.sample_train_groups(cm, output=stage / "groups", seed=P0_SEED,
-                                         data_spec=self.spec_path, model_directory=self.model,
-                                         device="cpu", profile=profile, init_adapter=self.adapter)
-        if record.get("status") != "completed" or (record.get("initial_adapter") or {}).get(
-                "weights_sha256") != I_WEIGHTS_SHA256:
+        record = vlt.sample_train_groups(
+            cm,
+            output=stage / "groups",
+            seed=P0_SEED,
+            data_spec=self.spec_path,
+            model_directory=self.model,
+            device="cpu",
+            profile=profile,
+            init_adapter=self.adapter,
+        )
+        if (
+            record.get("status") != "completed"
+            or (record.get("initial_adapter") or {}).get("weights_sha256") != I_WEIGHTS_SHA256
+        ):
             raise SystemExit(f"REFUSE: sampling {name} did not complete under I")
         samples = json.loads((stage / "groups" / "sampled_completions.json").read_text())
         sample_seconds = time.time() - started
@@ -340,30 +436,66 @@ class Scorer:
             comps = []
             for c in group:
                 ended = bool(c.get("terminated"))
-                answer = vlt.parse_label(c.get("response", ""), self.labels, allow_reasoning=True) \
-                    if ended else None
-                comps.append({"response": c.get("response", ""), "terminated": ended,
-                              "answer": answer, "reward": int(answer == r["label"]),
-                              "completion_ids": c.get("completion_ids"),
-                              "seconds": round(float(c.get("latency_seconds", 0.0)), 3)})
+                answer = (
+                    vlt.parse_label(c.get("response", ""), self.labels, allow_reasoning=True)
+                    if ended
+                    else None
+                )
+                comps.append(
+                    {
+                        "response": c.get("response", ""),
+                        "terminated": ended,
+                        "answer": answer,
+                        "reward": int(answer == r["label"]),
+                        "completion_ids": c.get("completion_ids"),
+                        "seconds": round(float(c.get("latency_seconds", 0.0)), 3),
+                    }
+                )
             mine = self.trie_p(r, temperature)
-            out.append({"id": r["id"], "label": r["label"], "p0_sources": r["p0_sources"],
-                        "image_sha256": sha_file(Path(r["image"])), "temperature": temperature,
-                        "p_gold_trie": mine["p"], "p_canonical": mine["p_canonical"],
-                        "p_seconds": mine["seconds"], "completions": comps})
+            out.append(
+                {
+                    "id": r["id"],
+                    "label": r["label"],
+                    "p0_sources": r["p0_sources"],
+                    "image_sha256": sha_file(Path(r["image"])),
+                    "temperature": temperature,
+                    "p_gold_trie": mine["p"],
+                    "p_canonical": mine["p_canonical"],
+                    "p_seconds": mine["seconds"],
+                    "completions": comps,
+                }
+            )
         shutil.rmtree(stage, ignore_errors=True)
-        return {"unit": name, "kind": "p0", "temperature": temperature, "G": P0_G, "seed": P0_SEED,
-                "ids": [r["id"] for r in rows], "rows": out, "sample_seconds": round(sample_seconds, 1),
-                "total_seconds": round(time.time() - started, 1),
-                "sampler_record": {k: record.get(k) for k in ("generation", "generation_config",
-                                                              "profile", "reward_audit")}}
+        return {
+            "unit": name,
+            "kind": "p0",
+            "temperature": temperature,
+            "G": P0_G,
+            "seed": P0_SEED,
+            "ids": [r["id"] for r in rows],
+            "rows": out,
+            "sample_seconds": round(sample_seconds, 1),
+            "total_seconds": round(time.time() - started, 1),
+            "sampler_record": {
+                k: record.get(k)
+                for k in ("generation", "generation_config", "profile", "reward_audit")
+            },
+        }
 
     def stamp(self, doc: dict) -> dict:
-        doc.update(host=socket.gethostname(), pid=os.getpid(), threads=self.threads,
-                   root=str(self.root), receipt_sha256=self.receipt_sha256,
-                   payload_sha256=self.payload_sha256, adapter_sha256=I_WEIGHTS_SHA256,
-                   trainer_sha256=TRAINER_SHA256, trie_sha256=TRIE_SHA256,
-                   all_train_sha256=ALL_TRAIN_SHA256, profile=PROFILE)
+        doc.update(
+            host=socket.gethostname(),
+            pid=os.getpid(),
+            threads=self.threads,
+            root=str(self.root),
+            receipt_sha256=self.receipt_sha256,
+            payload_sha256=self.payload_sha256,
+            adapter_sha256=I_WEIGHTS_SHA256,
+            trainer_sha256=TRAINER_SHA256,
+            trie_sha256=TRIE_SHA256,
+            all_train_sha256=ALL_TRAIN_SHA256,
+            profile=PROFILE,
+        )
         return doc
 
 
@@ -374,20 +506,36 @@ def main(argv=None) -> int:
     p.add_argument("--trie", type=Path, required=True)
     p.add_argument("--threads", type=int, required=True)
     p.add_argument("--exclusions", type=Path, required=True)
-    p.add_argument("--only", choices=("p0", "score"), default="score",
-                   help="unit kind to run (default score; P0-I rollouts moved to the GPU lane)")
-    p.add_argument("--smoke", type=int, default=0,
-                   help="validate the cached trie p against the trainer on N rows (T 1.0 and 1.3), then exit")
+    p.add_argument(
+        "--only",
+        choices=("p0", "score"),
+        default="score",
+        help="unit kind to run (default score; P0-I rollouts moved to the GPU lane)",
+    )
+    p.add_argument(
+        "--smoke",
+        type=int,
+        default=0,
+        help="validate the cached trie p against the trainer on N rows (T 1.0 and 1.3), then exit",
+    )
     a = p.parse_args(argv)
     todo = units(a.root / "payload", a.exclusions)
     if a.smoke:
         scorer = Scorer(a.root, a.threads, a.trie)
-        rows = [r for r in todo["score-000"]["rows"] if len(scorer.paths[r["label"]]) > 1][:a.smoke]
+        rows = [r for r in todo["score-000"]["rows"] if len(scorer.paths[r["label"]]) > 1][
+            : a.smoke
+        ]
         for r in rows:
             for t in (1.0, 1.3):
                 mine = scorer.trie_p(r, t)
-                print(json.dumps(dict(scorer.validate(r, mine, t), temperature=t,
-                                      mine_seconds=mine["seconds"])), flush=True)
+                print(
+                    json.dumps(
+                        dict(
+                            scorer.validate(r, mine, t), temperature=t, mine_seconds=mine["seconds"]
+                        )
+                    ),
+                    flush=True,
+                )
         return 0
     a.state.mkdir(parents=True, exist_ok=True)
     scorer, done = None, 0
@@ -405,9 +553,15 @@ def main(argv=None) -> int:
         atomic_json(a.state / "results" / f"{name}.json", scorer.stamp(result))
         done += 1
         print(f"{name} done on {socket.gethostname()} in {result['total_seconds']} s", flush=True)
-    missing = [n for n in todo if todo[n]["kind"] == a.only and not (a.state / "results" / f"{n}.json").exists()]
-    print(f"worker exits: did {done} units; {len(missing)} of {len(todo)} units lack results",
-          flush=True)
+    missing = [
+        n
+        for n in todo
+        if todo[n]["kind"] == a.only and not (a.state / "results" / f"{n}.json").exists()
+    ]
+    print(
+        f"worker exits: did {done} units; {len(missing)} of {len(todo)} units lack results",
+        flush=True,
+    )
     return 0
 
 

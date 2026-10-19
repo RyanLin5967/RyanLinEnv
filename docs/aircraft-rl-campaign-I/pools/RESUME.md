@@ -17,3 +17,8 @@ DONE 2026-10-18: all 46 units scored; built on iccad7 (rlpools2-build-1, rebuilt
 Outputs: v2/pools/{manifests/*.jsonl, POOLS.json, coverage.{json,md}, scores.jsonl}, v2/raw (46 unit results).
 Counts: eligible 1452; hard 208; mid 399; mixed 458; unreachable 130. Pool-scoring seconds 44527.1.
 Next action: none on this branch; the GPU lane consumes the manifests for P0-I.
+
+Lint pass before the PR (2026-10-18): build_pools.py, make_fixture.py and score_worker.py were reformatted for
+`ruff check .` / `ruff format`. Each is AST-identical to the version that produced v2 (only loop-variable renames
+`l`->`lab`/`line` and docstring wrapping differ). score_worker.py as run: sha256 49721fad37dffa7475af4643a804e8808b242795af012e36e8566835d861755f
+(commit 0ae9a30); its local import order is pinned with `# noqa: I001` to match that run.
