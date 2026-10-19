@@ -1,0 +1,49 @@
+{
+  "accepted": 2,
+  "committed_scorer_seconds": 87.92812639568001,
+  "entries": [
+    {
+      "accepted": true,
+      "adapter_hash_seconds": 0.034436989575624466,
+      "adapter_sha256": "1b96d0510a9b7c1ddcef96cc8a78af8f61d6a6462d2a68a6dffdb624932c2a8d",
+      "global_step": 1,
+      "id": "0450014",
+      "invocation_id": "1792381346962578703",
+      "p": 0.11691434956150677,
+      "scan_position": 0,
+      "scorer_seconds": 29.39163679908961,
+      "u": 0.6301525203005135
+    },
+    {
+      "accepted": false,
+      "adapter_hash_seconds": 0.019461797550320625,
+      "adapter_sha256": "8ec6cbed3f8fcb24320c8e3821a01bf36b8b58607e8b6e31472ed493e259e32a",
+      "global_step": 2,
+      "id": "0056337",
+      "invocation_id": "1792383649721365938",
+      "p": 0.9964060268643068,
+      "scan_position": 1,
+      "scorer_seconds": 29.041514516808093,
+      "u": 0.02839270707486996
+    },
+    {
+      "accepted": true,
+      "adapter_hash_seconds": 0.0,
+      "adapter_sha256": "8ec6cbed3f8fcb24320c8e3821a01bf36b8b58607e8b6e31472ed493e259e32a",
+      "global_step": 2,
+      "id": "2115318",
+      "invocation_id": "1792383649721365938",
+      "p": 0.41745175550906094,
+      "scan_position": 2,
+      "scorer_seconds": 29.494975079782307,
+      "u": 0.9858143368199663
+    }
+  ],
+  "group_size": 8,
+  "position": 3,
+  "scan_ids_sha256": "864e63b8ad26806685a0285d1eb238088bf1f61d354e92f4691b8e17449bc18a",
+  "schema_version": 1,
+  "scope": "live-policy gold-probability screen: candidates scored lazily in scan order inside the committed optimizer step that consumes the next accepted candidate",
+  "target_accepted": 2,
+  "threshold": 0.5
+}

@@ -46,3 +46,27 @@ A first v5 attempt on ecetesla1 (`slsmoke-v5-ecetesla1-4`) ended `DONE rc=124 ti
 5,400 s bound with 2 of 4 trajectories done: the host ran at load 38-43 on 24 threads (another
 user plus other sessions of this account). The same contention inside the study would stop an arm
 at its 1.25x cap; `min_idle_threads` (16) refuses such a host only when a stage starts.
+
+## AVX-512 host: ecetesla0 (Xeon Gold 5120), E0 byte identity FAILED
+
+`smoke_stage0.sh` at `1f90f0dcd627c040c20a1702ee8151d0709abd53` (`ecetesla0-avx512/ARCHIVED_HEAD`),
+frozen uwrun v5, ecetesla0, **8 threads** (the host had about 7 idle; it then ran at load 36-42
+of 28 threads), host env provisioned with `MODEL_SRC` (`reports/.../provision/ecetesla0.json`).
+Run `slsmoke-avx512-ecetesla0-7`, phase worker rc 0, wall 13,050 s.
+
+| Field | Value (`ecetesla0-avx512/fragment.json`) |
+|---|---|
+| checks at G8 | 12 of 13 true; **`resume_1_plus_3_identical` false** |
+| sampler-teacher max abs log-prob difference | 3.81e-06 |
+| c(G8), 1 accepted update | 891.58 s |
+
+With `--e0-steps 2`, both resumed trajectories are 1+1, the same procedure. Adapter bytes, reward
+groups (with completion token IDs) and exposure match in all three runs. One run's screen journal
+differs in a rejected candidate's p: 0.9964093471659141 vs 0.9964060268643068 (u 0.02837 vs 0.02839;
+both rejected). Raw: `ecetesla0-avx512/*-checkpoint-2-screen.json`. So the no-grad p forward is not
+reproducible across processes on this host at 8 threads under that load, while the same commit's
+smoke on the Ryzen 5900X hosts was byte-identical twice (16 threads). The study's Stage 0
+validator refuses a fragment with any check false, so Stage 0 would stop on such a host: the
+guard works. **This supports the plan's single Ryzen device class and argues against moving any
+stage to the AVX-512 hosts** without first finding the source (oneDNN/MKL thread-dependent
+kernels are the unverified suspect) and proving E0 there at the study's parameters.

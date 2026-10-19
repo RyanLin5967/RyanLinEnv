@@ -1,0 +1,185 @@
+{
+  "scope": "signal-limit study Stage 0 at W: c(G) cost probe and beta-0 dr_grpo E0",
+  "study_parameters": false,
+  "e0_groups": [
+    8
+  ],
+  "e0_steps": 2,
+  "e0_splits": {
+    "uninterrupted": [
+      2
+    ],
+    "resume_2_plus_2": [
+      1,
+      1
+    ],
+    "resume_1_plus_3": [
+      1,
+      1
+    ]
+  },
+  "probe_accepted": 1,
+  "checks": {
+    "8": {
+      "resume_2_plus_2_identical": true,
+      "resume_1_plus_3_identical": false,
+      "finite_nonzero_task_gradient": true,
+      "no_reference_forward_at_beta_0": true,
+      "loss_type_dr_grpo_recorded": true,
+      "scan_follows_train_manifest": true,
+      "initial_adapter_is_w": true,
+      "useful_mixed_group": true,
+      "lora_parameter_changed": true,
+      "scorer_uses_sampler_transform": true,
+      "active_time_ledger_cumulative": true,
+      "scorer_seconds_within_active_time": true,
+      "group_size_is_g": true
+    }
+  },
+  "c_accepted_steps": {
+    "8": 1
+  },
+  "c_seconds_per_accepted_update": {
+    "8": 891.5789597323164
+  },
+  "sampler_teacher_max_abs_logprob_difference": 3.814697265625e-06,
+  "detail": {
+    "8": {
+      "task_gradient_steps": [
+        1,
+        2
+      ],
+      "gradient_norms": [
+        0.06399046268763228,
+        0.040596499416422405
+      ],
+      "c_refused": null,
+      "trajectories": {
+        "probe": {
+          "directory": "/var/tmp/r226lin-runs/slsmoke-avx512-ecetesla0-7/work/out/stage/g8/probe",
+          "global_step": 1,
+          "adapter_sha256": "4b599e91fb36cfeee8aabffb0f5296ce1c1b41d53a3b3f84f5b354dc62fb94d9",
+          "screen_sha256": "b0a8567ceba07f508e4dfb8401133b71d4c9578d0f59991fcb8832e35bd072be",
+          "reward_groups_sha256": "7ec7005c19d5cb9f0de6e28ddf1b283b32bf5daaa3aa530299a54da46ed37113",
+          "exposure_sha256": "6901dc449ff244edf96b803b1f4f6c47d05f2ef9ebcb445aad3277eb45b359e4"
+        },
+        "uninterrupted": {
+          "directory": "/var/tmp/r226lin-runs/slsmoke-avx512-ecetesla0-7/work/out/stage/g8/uninterrupted",
+          "global_step": 2,
+          "adapter_sha256": "6370e5e15c49129db53f95c84c5d5154bb017692c36c22bf0c615894ba96d530",
+          "screen_sha256": "aa035d1c8bc4dbe66b2d0ba32403fd13e7df305db9165ff7e36dd8bae6829701",
+          "reward_groups_sha256": "516943c8454fc0b75dace6d9012a13c13f4825f5c069dade27f9a0993f265d9a",
+          "exposure_sha256": "1138cdf995ca0a7da795bdc0ee1d7dfd842eb829141f92292cdd1a2ac6842004"
+        },
+        "resume_2_plus_2": {
+          "directory": "/var/tmp/r226lin-runs/slsmoke-avx512-ecetesla0-7/work/out/stage/g8/resume_2_plus_2",
+          "global_step": 2,
+          "adapter_sha256": "6370e5e15c49129db53f95c84c5d5154bb017692c36c22bf0c615894ba96d530",
+          "screen_sha256": "aa035d1c8bc4dbe66b2d0ba32403fd13e7df305db9165ff7e36dd8bae6829701",
+          "reward_groups_sha256": "516943c8454fc0b75dace6d9012a13c13f4825f5c069dade27f9a0993f265d9a",
+          "exposure_sha256": "1138cdf995ca0a7da795bdc0ee1d7dfd842eb829141f92292cdd1a2ac6842004"
+        },
+        "resume_1_plus_3": {
+          "directory": "/var/tmp/r226lin-runs/slsmoke-avx512-ecetesla0-7/work/out/stage/g8/resume_1_plus_3",
+          "global_step": 2,
+          "adapter_sha256": "6370e5e15c49129db53f95c84c5d5154bb017692c36c22bf0c615894ba96d530",
+          "screen_sha256": "7405042735d53f9323170e4807333617becd5757a3502aa04dd3c4f183962bbb",
+          "reward_groups_sha256": "516943c8454fc0b75dace6d9012a13c13f4825f5c069dade27f9a0993f265d9a",
+          "exposure_sha256": "1138cdf995ca0a7da795bdc0ee1d7dfd842eb829141f92292cdd1a2ac6842004"
+        }
+      }
+    }
+  },
+  "measurements": {
+    "8": {
+      "invocations": [
+        {
+          "label": "g8-probe",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 1973.0651736157015,
+          "peak_rss_bytes": 13866803200,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        },
+        {
+          "label": "g8-uninterrupted-part1",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 3073.6464541070163,
+          "peak_rss_bytes": 13861711872,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        },
+        {
+          "label": "g8-resume_2_plus_2-part1",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 2268.072078309953,
+          "peak_rss_bytes": 13860917248,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        },
+        {
+          "label": "g8-resume_2_plus_2-part2",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 1750.683450032957,
+          "peak_rss_bytes": 13860040704,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        },
+        {
+          "label": "g8-resume_1_plus_3-part1",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 2296.7937883166596,
+          "peak_rss_bytes": 13860986880,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        },
+        {
+          "label": "g8-resume_1_plus_3-part2",
+          "exit_code": 0,
+          "execution": "remote-cpu",
+          "timeout_seconds": 3600.0,
+          "elapsed_seconds": 1664.1307543413714,
+          "peak_rss_bytes": 13859885056,
+          "peak_mps_driver_allocated_bytes": null,
+          "peak_mps_tensor_allocated_bytes": null,
+          "peak_cuda_allocated_bytes": null
+        }
+      ],
+      "probe_committed_active_seconds": 891.5789597323164,
+      "probe_committed_scorer_seconds": 23.995890760794282,
+      "probe_global_step": 1,
+      "probe_generated_tokens": 62,
+      "update_committed_active_seconds": {
+        "1": 912.2113479524851,
+        "2": 1911.928691914305
+      },
+      "update_seconds": [
+        912.2113479524851,
+        999.71734396182
+      ],
+      "generated_tokens": 126,
+      "checkpoint_bytes": {
+        "checkpoint-1": 24639656,
+        "checkpoint-2": 24641478
+      },
+      "probe_checkpoint_bytes": {
+        "checkpoint-1": 24639654
+      }
+    }
+  }
+}
