@@ -1739,3 +1739,43 @@ def test_every_table_row_ties_dynamic_sampling_to_its_flag():
     for a in rows:
         arm_exec.check_feature_flags(a)
     assert sum("dynamic_sampling" in (a.get("features") or []) for a in rows) >= 7
+
+
+def test_a_plan_control_keeps_its_budget_cut_time_endpoint_flagged_and_report_skips_it(
+        tmp_path, monkeypatch):
+    (tmp_path / "RECEIPT.json").write_text("{}")
+    spec = {"id": "c", "mode": "sft", "stops": [150], "time_budget_seconds": 20100.0,
+            "max_steps_total": 1500, "features": []}
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "res")
+    receipts = iter([{"status": "stop_after_steps", "global_step": 150,
+                      "committed_active_seconds": 1700.0},
+                     {"status": "total_budget_exhausted", "global_step": 1500,
+                      "committed_active_seconds": 17000.0}])
+    monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
+    monkeypatch.setattr(arm, "trainer_args", lambda *a, **k: [])
+    monkeypatch.setattr(arm, "run_stage", lambda label, args: next(receipts))
+    monkeypatch.setattr(arm, "keep_adapter", lambda label: None)
+    monkeypatch.setattr(arm, "copy_small", lambda: None)
+    monkeypatch.setattr(arm, "assay_isolated", lambda *a: {"accuracy": 0.5})
+    (arm.out / "checkpoint-150").mkdir(parents=True)
+    summary = arm_exec.run(arm, False)  # DONE, not refused
+    assert [(e["label"], e.get("time_matched")) for e in summary["endpoints"]] == [
+        ("step150", None), ("time", False)]
+    assert runner.matched_labels(summary, "time") == []
+    assert runner.matched_labels(summary, "step") == ["step150"]
+
+
+def test_d37_control_budget_sits_above_its_last_time_stop(tmp_path):
+    rl, ctl = _d37()
+    state = _finished_rl(tmp_path, rl, [("step150", 60000.0), ("step300", 150000.0),
+                                        ("step600", 300000.0)])  # past the 72 h SFT cap
+    spec = runner.control_spec(state, ctl)
+    assert spec["max_active_seconds"] == 300000.0 * 1.05 + 60.0
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
+    argv = arm.trainer_args(tmp_path / "m.jsonl", spec["max_steps_total"], None,
+                            tmp_path / "c", stop_seconds=300000.0)  # refused before the fix
+    assert argv[argv.index("--stop-after-active-seconds") + 1] == repr(300000.0)
+    (tmp_path / "s").mkdir()
+    small = _finished_rl(tmp_path / "s", rl, [("step150", 10.0), ("step300", 20.0),
+                                              ("step600", 30.0)])
+    assert runner.control_spec(small, ctl)["max_active_seconds"] == ctl["max_active_seconds"]

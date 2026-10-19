@@ -798,9 +798,11 @@ def run(arm: Arm, final_check: bool) -> dict:
         exhausted = receipt["status"] == "total_budget_exhausted"
     matched = {e["label"] for e in summary["endpoints"] if e.get("time_matched", True)}
     missing = [label for label, _ in wanted if label not in matched]
-    if missing:
-        # a control that stopped on its update cap before an RL checkpoint's seconds is not
-        # time-matched there: fail loudly (summary kept), never report a partial match
+    if missing and s.get("time_stops"):
+        # a per-checkpoint control (D37) that stopped on its update cap before an RL
+        # checkpoint's seconds is not time-matched there: fail loudly (summary kept). A plan
+        # control's single "time" endpoint stays, flagged time_matched false, beside its valid
+        # examples-matched endpoint; report never compares a flagged endpoint.
         write_summary(arm, summary)
         raise SystemExit(f"REFUSE: time-matched endpoints {missing} not reached (update "
                          f"budget {total} exhausted first)")

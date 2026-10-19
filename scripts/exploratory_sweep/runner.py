@@ -414,13 +414,24 @@ def control_spec(state: dict, ctl: dict) -> dict:
     if ctl.get("control_time_match") == "per_checkpoint":
         # D37 (coordinator 2026-10-19): SFT on the replayed rows (cycling), stopped at the RL
         # arm's committed active seconds at EACH of its step checkpoints, on one trajectory
-        spec.update(train_ids=ids, stops=[], time_stops=checkpoint_seconds(state, ctl))
+        times = checkpoint_seconds(state, ctl)
+        # the active-seconds budget must sit above the last stop, or the trainer refuses that
+        # stop (stop > budget) or ends on the budget instead (an unmatched endpoint): 5% + 60 s
+        cap = max(float(ctl.get("max_active_seconds") or 0.0), times[-1] * 1.05 + 60.0)
+        spec.update(train_ids=ids, stops=[], time_stops=times, max_active_seconds=cap)
         return spec
     # examples-matched: one SFT update per prompt the RL arm committed (or, for a
     # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
                 time_budget_seconds=float(last["active_seconds"]))
     return spec
+
+
+def matched_labels(summary: dict, prefix: str) -> list:
+    """A control's endpoint labels starting with `prefix`, without any time endpoint the
+    trainer ended on its update budget (arm_exec flags it time_matched false)."""
+    return [e["label"] for e in summary.get("endpoints", [])
+            if e["label"].startswith(prefix) and e.get("time_matched", True)]
 
 
 def checkpoint_seconds(state: dict, ctl: dict) -> list:
@@ -1110,8 +1121,7 @@ def cmd_report(a, state_path: Path) -> int:
                 cx = state["arms"][ctl_id]
                 if cx.get("status") == "DONE":
                     s = json.loads((Path(cx["results_dir"]) / "summary.json").read_text())
-                    labels = [e["label"] for e in s["endpoints"]]
-                    pick = [x for x in labels if x.startswith(label)]
+                    pick = matched_labels(s, label)
                     ctl = endpoint(ctl_id, pick[-1]) if pick else None
                 if ctl is None:
                     continue
