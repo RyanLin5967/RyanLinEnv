@@ -1,0 +1,1990 @@
+{
+  "after_train_diagnostic": {
+    "accuracy": 0.625,
+    "invalid_answers": 1,
+    "mean_class_accuracy": 0.625,
+    "n": 8,
+    "per_class_accuracy": {
+      "A340-300": 0.0,
+      "DC-3": 1.0,
+      "DHC-6": 1.0,
+      "Dornier 328": 0.0,
+      "E-190": 1.0,
+      "Fokker 70": 0.0,
+      "Gulfstream IV": 1.0,
+      "Tornado": 1.0
+    },
+    "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+  },
+  "algorithm": "TRL-SFT",
+  "audit_scope": "current invocation; append-only journals retain earlier invocations",
+  "before_train_diagnostic": {
+    "accuracy": 0.625,
+    "invalid_answers": 1,
+    "mean_class_accuracy": 0.625,
+    "n": 8,
+    "per_class_accuracy": {
+      "A340-300": 0.0,
+      "DC-3": 1.0,
+      "DHC-6": 1.0,
+      "Dornier 328": 0.0,
+      "E-190": 1.0,
+      "Fokker 70": 0.0,
+      "Gulfstream IV": 1.0,
+      "Tornado": 1.0
+    },
+    "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
+  },
+  "before_train_gold_nll": 0.17611774487251586,
+  "claim_scope": "TRAIN learning diagnostic only; no held-out result",
+  "control_identity": {
+    "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+    "image_transform_source_sha256": "b9cd948d2d117b6022884c4ffe316c1978454be9afd68aea2aca48fc887302b4",
+    "model": "Qwen/Qwen2-VL-2B-Instruct",
+    "model_revision": "895c3a49bc3fa70a340399125c650a463535e71c",
+    "output_grammar": "canonical-label-v2/optional-tags",
+    "processor_model": "Qwen/Qwen2-VL-2B-Instruct",
+    "processor_revision": "895c3a49bc3fa70a340399125c650a463535e71c",
+    "profile": {
+      "dtype": "float32",
+      "lora_rank": 8,
+      "max_completion_length": 256,
+      "max_pixels": 200704,
+      "max_prompt_tokens": 2048,
+      "min_pixels": 50176,
+      "num_generations": 4,
+      "response_format": "answer_only",
+      "temperature": 1.0
+    },
+    "train": {
+      "count": 1452,
+      "image_sha256": "554ad0b882d9dce2598c66f261b5dd8104b6b5eac59ed30d1dfa40f370540c36",
+      "manifest_sha256": "45a157bba5861237252736908a8e26dc8596cd34486f07694d6e047dfcdf7046",
+      "model_visible_pixel_sha256": "846a984ea048a8037c76f6b0f8691174c2c18f0551d874f51c22e6b5bf5a18d8"
+    },
+    "validation": null
+  },
+  "created_at": "2026-10-18T22:43:29.494639+00:00",
+  "environment": {
+    "adapter_source_sha256": "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0",
+    "device": "cpu",
+    "model_downloads": false,
+    "model_execution": "not tested by preflight",
+    "package_versions": {
+      "accelerate": "1.15.0",
+      "datasets": "5.1.0",
+      "fsspec": "2026.7.0",
+      "peft": "0.21.2",
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "transformers": "5.20.0",
+      "trl": "1.16.0"
+    },
+    "python": "3.12.13",
+    "trl_source_sha256": {
+      "GRPOConfig": "fa6d620785f63f6e8c6e42ec41f38faf249198f0eb182bf0808dde8cd76a6819",
+      "GRPOTrainer": "1c3dc2253fb3653269c11dfce4f946f74201a4cb63e0887a37e8e3bb4a3f5503",
+      "SFTConfig": "4a18512fbdc83c9d16be09ee68529cd4cc07e4243c9ad733686fd3cb70984d6b",
+      "SFTTrainer": "a93001470796c6502a4cf8886a13abbd8280e653357b5a95eb1abd53c6868205"
+    }
+  },
+  "final_adapter": "/var/tmp/r226lin-sftceil/arms/sftceil-cont-all-lr3e-6/train/final_adapter",
+  "final_adapter_sha256": "e7068230102f3863217f00b9d0b1ab3d0aa054d37cdc01d2cf27120e8fe54ed1",
+  "finalize_only": false,
+  "held_out_benchmark_improvement": "unmeasured",
+  "initial_adapter_tensor_audit": {
+    "dtype": "float32",
+    "exact_saved_tensors": true,
+    "tensor_count": 112
+  },
+  "model_source": {
+    "file_sha256": {
+      "LICENSE": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "README.md": "74fbe869df708593087ae2ee66a6605d33fc2025937644721dc1360963d037f4",
+      "chat_template.json": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96",
+      "config.json": "422adefa19e62dd175961cec85bc0400344fe5bf9b22bd1182e05aaae78556e0",
+      "generation_config.json": "d2864bf1edea5863d331edfff48106b586a366f5a2c41aa77731fadc53aa25d2",
+      "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+      "model-00001-of-00002.safetensors": "994ac2b03f97de8bc647d0fe5eba2e4b632b3e28dc03574c29bdfc36cf47e1b9",
+      "model-00002-of-00002.safetensors": "92540d8353c8d226a589a3b179bdb33851c970ee2cc2ac7ba035f79425e7b833",
+      "model.safetensors.index.json": "260ab9fa1418d6d6ab79daa1d9da2c47264f3b72edb4630fc799077ac67d27c6",
+      "preprocessor_config.json": "b5eaad0c2815f07631535dcc58f3c462b0d73693638ad21d19f3c50820eae1cc",
+      "tokenizer.json": "cb63a0a23eef3d5b01063a9880a1925a65aaf4d1591d519910ee3527852950a0",
+      "tokenizer_config.json": "ff5c4fd898fe8c39591eb70e5d39d2782802d4204d6ae9ba1223252f354842a0",
+      "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    "manifest_sha256": "2c20d30e3b0c27b2da711fa1b977d7dbb47049f22bef9d5b2af2d47e75e6bfcc",
+    "total_bytes": 4429621382
+  },
+  "optimizer_audit": {
+    "active_seconds": 10631.272120825743,
+    "active_time": {
+      "committed_active_seconds": 10631.272120825743,
+      "committed_global_step": 300,
+      "completed_not_checkpointed_active_seconds": 0.0,
+      "completed_state_active_seconds": 10631.272120825743,
+      "hard_total_physical_compute_cap": false,
+      "invocation_active_seconds": 10631.272120825743,
+      "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+      "observed_physical_active_seconds": 10631.272120825743,
+      "observed_reward_journal_io_seconds": 0.03676057609845884,
+      "resumed_committed_active_seconds": 0.0,
+      "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+      "total_budget_seconds": 172800.0,
+      "unknown_partial_invocations": 0
+    },
+    "changed_tensors": 112,
+    "completed_state_active_seconds": 10631.272120825743,
+    "first_nonzero_update": {
+      "changed_tensors_since_invocation_start": 112,
+      "global_step": 1,
+      "gradient_norm": 1.00000003188461,
+      "parameter_delta_l2_since_invocation_start": 0.0031271773008647486
+    },
+    "latest_gradient_norm": 0.9999999362612451,
+    "max_gradient_norm_observed": 1.0000000923981773,
+    "nonzero_gradient_steps": 300,
+    "optimizer_steps_observed": 300,
+    "parameter_delta_l2": 0.06556507852726996
+  },
+  "parameter_dtypes": {
+    "frozen": {
+      "torch.float32": 729
+    },
+    "trainable": {
+      "torch.float32": 112
+    }
+  },
+  "probe": {
+    "after_train_gold_nll": 0.18113718908280135,
+    "gold_nll_improved": false,
+    "gradient_and_weight_change": true,
+    "held_out_benchmark_gain": "not measured by this diagnostic",
+    "mixed_reward_groups": null,
+    "reload_nll_agrees": true,
+    "reloaded_train_gold_nll": 0.18113718908280135,
+    "sampler_teacher_logprob_parity": null
+  },
+  "processor_audit": {
+    "chat_template_sha256": "4df95d05455c2a6f762616492bba63d0f9bef904ef47daabad35f5715d6d2e4e",
+    "image_processor": {
+      "do_convert_rgb": true,
+      "do_normalize": true,
+      "do_rescale": true,
+      "do_resize": true,
+      "image_mean": [
+        0.48145466,
+        0.4578275,
+        0.40821073
+      ],
+      "image_processor_type": "Qwen2VLImageProcessor",
+      "image_std": [
+        0.26862954,
+        0.26130258,
+        0.27577711
+      ],
+      "merge_size": 2,
+      "patch_size": 14,
+      "resample": 3,
+      "rescale_factor": 0.00392156862745098,
+      "size": {
+        "longest_edge": 200704,
+        "shortest_edge": 50176
+      },
+      "temporal_patch_size": 2
+    },
+    "max_gold_tokens_plus_eos": 17,
+    "max_prompt_tokens_observed": 1001
+  },
+  "reference": null,
+  "regularization_profile": "completion-only-SFT",
+  "requested_boundary": {
+    "stop_after_active_seconds": null,
+    "stop_after_steps": 300
+  },
+  "resumed_from": null,
+  "reward_audit": null,
+  "schema_version": 1,
+  "settings": {
+    "beta": null,
+    "device": "cpu",
+    "exploratory_sweep": "aircraft-exploratory-sweep-v2",
+    "init_adapter": {
+      "config_sha256": "30fc0ca5a8b5fa497c5b2be675d6efe7dbf257886ed843efe67ed94a6186386c",
+      "parent_data_identity": {
+        "data_spec_sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+        "train": {
+          "count": 400,
+          "image_sha256": "044b6a0191d5bd8b955b0e3d5f08c2bc790aac3372ed57b578e44454f3662bcd",
+          "manifest_sha256": "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0",
+          "model_visible_pixel_sha256": "e4dbbf6220ca401a905f14187624937615ac89f38122f0c669f08799a265e08e"
+        },
+        "validation": null
+      },
+      "parent_profile": {
+        "dtype": "float32",
+        "lora_rank": 8,
+        "max_completion_length": 256,
+        "max_pixels": 200704,
+        "max_prompt_tokens": 2048,
+        "min_pixels": 50176,
+        "num_generations": 4,
+        "response_format": "answer_only",
+        "temperature": 1.0
+      },
+      "path": "/var/tmp/r226lin-sftceil/payload/adapters/I/final_adapter",
+      "weights_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
+    },
+    "initial_adapter_precision_transfer": null,
+    "learning_rate": 3e-06,
+    "max_active_seconds": 172800.0,
+    "max_steps": 7200,
+    "mode": "sft",
+    "probe": false,
+    "save_steps": 100,
+    "seed": 42,
+    "train_only": true
+  },
+  "sources": [
+    {
+      "sha256": "50e4419bd330b68a2e85dbcb32339d31120190efe6944682e87c9b431f5f202a",
+      "url": "https://www.robots.ox.ac.uk/~vgg/data/fgvc-aircraft/archives/fgvc-aircraft-2013b-annotations.tar.gz"
+    },
+    {
+      "sha256": "a68cccfb73c2f12f7f836d1b4f856cb71718863290571e8a632b586ccf339f70",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0450014.jpg"
+    },
+    {
+      "sha256": "c12f9edc9dd1bf138e792c9899c545458ca25846dac7b9a3745809a342fd3557",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0056978.jpg"
+    },
+    {
+      "sha256": "cf2e0fde5364aa3310bddcf9cb37aecdbbc6a687f93f1a855d41c9ce3228e7d7",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0548719.jpg"
+    },
+    {
+      "sha256": "300a8f57baa79349001c8a50dc2a409e61396aecb98465a7722dc2b5be669894",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0864665.jpg"
+    },
+    {
+      "sha256": "dc06ad41c23d3f6657b31c49130df60c2303311ceacd379903d72b3573e7ca18",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2223757.jpg"
+    },
+    {
+      "sha256": "d41749d7f84eca405e97afe75b66b9f7d030520a7cc61e6d01ff79d4f869f9fa",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0732456.jpg"
+    },
+    {
+      "sha256": "0089b64ad952c3afb2c860ab71a693033c13b94da81c8d99536f96e09f535cdc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0056337.jpg"
+    },
+    {
+      "sha256": "9bfbe201901d3d5014739bb9c94e5468a4ac777fa0c3299b8c84bd064702e3c9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1197395.jpg"
+    },
+    {
+      "sha256": "53f9e84007df0aca2d74010657ad9a959c9ac949c993fd7809da22c7a0835283",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0438655.jpg"
+    },
+    {
+      "sha256": "0ffba681b5840bb970079bf62155cd82bbdb253e185a957345801ff8de1f2c46",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0337947.jpg"
+    },
+    {
+      "sha256": "4775bb1128a108f38cddb6207b389147582c4460d743a91b723373bc35958143",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0851647.jpg"
+    },
+    {
+      "sha256": "d8c9ccbe63c202a8b157d949ec2916fe48f71ee1eec99c00428eab7d34bf2c5f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0564495.jpg"
+    },
+    {
+      "sha256": "55e52b1701a9874195024742fd18a9b5b5b36294ede2d716d56f6eb3b5ed0ebc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2115318.jpg"
+    },
+    {
+      "sha256": "5a21b0234896f51fdaf08f420b43fca6eec67b6b0849362022cc8afea453f339",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0830001.jpg"
+    },
+    {
+      "sha256": "1288f357e227b4ceb045aa8ace77d88e54f28ec28ae6f23b5d1ad7f1d55749c1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1691783.jpg"
+    },
+    {
+      "sha256": "7ef6f201509dac642202e14ec70e26cd641f63c176d2905cab99d7d7ae40ac2a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0748299.jpg"
+    },
+    {
+      "sha256": "424fdd2fdcdce32627d0cb2be6f1c2b09a26ddcde8803341ec08df6b43589fac",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1758545.jpg"
+    },
+    {
+      "sha256": "3f8422d4f185b79e6899c0fa48c80ad147adfa376c175920daab79ad914a5785",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0122393.jpg"
+    },
+    {
+      "sha256": "c854c4732a14600644c4a3a2a2e00ba35cb3ed412b8251ea51442bf2b299d3e1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0853774.jpg"
+    },
+    {
+      "sha256": "271df42f7e513bea3a03fec930d0f6240c22eed4af872ecfab4305f73f9e43a8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0127627.jpg"
+    },
+    {
+      "sha256": "7e2df0beb67911d573bc073d68631e28dc50f73dc1f6ba792bc26ec011206b66",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0604668.jpg"
+    },
+    {
+      "sha256": "71478b145906ff7fb9cd407970f7005712548b55d9183a57511d398d1d2eb3ae",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0143341.jpg"
+    },
+    {
+      "sha256": "c65721f6f35415fce03051e2b8c604a48a77d4c7ff4360283c20910efaa0d7d1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0225225.jpg"
+    },
+    {
+      "sha256": "72d6f6f429a377d29671b247bdcffc4471eff242de37f40882ba7fce6d38527c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1687908.jpg"
+    },
+    {
+      "sha256": "ec8c5243e233a7f7f30c2a7dd1623957443a8b94948d1a0bb8ac62aa2c75a661",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1726606.jpg"
+    },
+    {
+      "sha256": "430e832e5cf4a2aee2b5db5c1610a6511d8241e42eeeeea936fd71251ab47aeb",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0961750.jpg"
+    },
+    {
+      "sha256": "1c97c29cf2c392bcc9f80d79b02f1ca3de06be3b5896b5dc512248852ab8a989",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0944253.jpg"
+    },
+    {
+      "sha256": "6bd7b2c566c66dc5604c7226791da55fe79621083a4c7a1ef87af1a7ce62cb93",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1973457.jpg"
+    },
+    {
+      "sha256": "2fb6e95a13ac8c02cc269867833cee456953511734290b3a0d4caa10086f8345",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1498556.jpg"
+    },
+    {
+      "sha256": "445fa0c7b0d37b0afc3268ff76a3e3446a62aaadb2f15f19308f7096445a4fc3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1763666.jpg"
+    },
+    {
+      "sha256": "66f1fe3c52303ce7fbca313d7201b9ed2711cf7f62efe0b0c260ada0f2f71345",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1503761.jpg"
+    },
+    {
+      "sha256": "d365b1d6b22e9cc74586881c02c453b06bab31d76ad9ef3f0f7bd5b935b62651",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2211307.jpg"
+    },
+    {
+      "sha256": "853621d51153907ff375f353d8dc863d4cdc7273044a3a4b4bde28b11cc30106",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1136124.jpg"
+    },
+    {
+      "sha256": "529051922b43f64e8872758bdebd227a312ab3c23ae3dcdfcf2b21d2b1b8e41e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0706175.jpg"
+    },
+    {
+      "sha256": "6a5338078ca06d11e174b6f8454c8ea4ca497092a4f61c50e4b2ba3f95283fd6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1390305.jpg"
+    },
+    {
+      "sha256": "e5c7df0202971cf5b0f5de7323d8551ebbb5239fcf24305ae82db10d43e69602",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0788947.jpg"
+    },
+    {
+      "sha256": "efcfe9a480abf1a40b0a480080de8642f668636e782cd89b67d0ccaf54681d71",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1353293.jpg"
+    },
+    {
+      "sha256": "dfc15b8eeb077ca85f809b3cd30578d1fed738f649e1a8c9360309916bcb02f2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1582314.jpg"
+    },
+    {
+      "sha256": "5d3122099d15a7aa70865fbcb24b987375f3dbf77739fc7ec5252e7cecae0dc6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0476825.jpg"
+    },
+    {
+      "sha256": "aaa1cc8f858a3bab4b6be7dccf36c8010cf74026f5c07fe44e1f8d29ee96d7d2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1313348.jpg"
+    },
+    {
+      "sha256": "4e042f2dba5d9ef25328be8419398751ebc0ac7cbebf928e3d600022756af4dd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1842078.jpg"
+    },
+    {
+      "sha256": "5d240a29ddd6ace111dc4b6c5bc773feb0665105c26db6ff85de31fd134c2f6c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0139685.jpg"
+    },
+    {
+      "sha256": "f7b0669d616d72c9d2d7cabf5e371efceced1050be5b6ce8f0e5d36427ec5ad9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1281453.jpg"
+    },
+    {
+      "sha256": "c84e8450e66cac5c249e2cfce94ba76032132b382f65d41f3e47fb981716747b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1068733.jpg"
+    },
+    {
+      "sha256": "faf2ede516d58c454b9e05c168558616ba8e8a5bbc3ab5b4c1ddcbf08b44aa3a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0198433.jpg"
+    },
+    {
+      "sha256": "5ea9922511407d08dbf5683b76c9316f8e075e503623f059f4cde9522ac2a9e1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0476345.jpg"
+    },
+    {
+      "sha256": "2f1c9bb3e1bd859e50af6e4dbfb99a3bd9b362682fabc48643ab47b8497a4d43",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0744732.jpg"
+    },
+    {
+      "sha256": "cac9d3ec1a099b0e83878946f122cc693a852d572fc1815ce333c24fb39cb249",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0765599.jpg"
+    },
+    {
+      "sha256": "7052194d3d774f990905df0c2226f1e958555dfe940e5e023103702b60b35e1b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1202048.jpg"
+    },
+    {
+      "sha256": "d990695e080be774f3a12e1f4bbbbaea3c0b1037292da1e7d648b6b68c352a12",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0950401.jpg"
+    },
+    {
+      "sha256": "b02fda7ccf0cb57e9c359660f3a99830de3413af474696f4551997cbb9122875",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1879895.jpg"
+    },
+    {
+      "sha256": "669616eb77118f88e882275be56d4922be59cc12e48b1056cf2ffb164e209c47",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0963590.jpg"
+    },
+    {
+      "sha256": "5639d83f998711b480538b0c0953844757ac6d027f435aaf264ed12b4f8de70e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1146172.jpg"
+    },
+    {
+      "sha256": "a0e5f50135a3601bbd319acb4c2d486f879b68037b0b1e706d49d8b185ca17f4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2091929.jpg"
+    },
+    {
+      "sha256": "5302a4d21fd20a78ebe785c2abd995afb428146377e0d2ce3d27190205fd3e99",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2244841.jpg"
+    },
+    {
+      "sha256": "a3f2da0ed4a5b1718d66d16380600165918d80a0b7fe608816c3867fe6637ed8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1469691.jpg"
+    },
+    {
+      "sha256": "6b5215cf2503123026b42f7a3a949dc8a96314c172b7d21dc899dd3140098179",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0056297.jpg"
+    },
+    {
+      "sha256": "0b14b9cf310e27cb2ff927bcdb676e05690e151404ca916f2f9ae77da83cf574",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0458643.jpg"
+    },
+    {
+      "sha256": "dcf2253e33c320bd1b220f6c53b494fe31ebd1ce00429feb3b75a48d3d4a0298",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0523013.jpg"
+    },
+    {
+      "sha256": "f230de9a77716930f8992d20b6ffe42b2fb233afa7d69f221484f94bf6cb73b8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0765781.jpg"
+    },
+    {
+      "sha256": "0f524d2c87f2054dcc3cd0c9b18c4c9b9760bebb9b9696404b28ea4ce7346b06",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0469140.jpg"
+    },
+    {
+      "sha256": "80d792853bb37edf3385c3435f984700bf16985e4e9e61118622d2ed4830bfb8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1486383.jpg"
+    },
+    {
+      "sha256": "dd6f682a9480d27d4dbf9b9c3a5a26a66f12fea5d5929644d8af433e545348b0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1146631.jpg"
+    },
+    {
+      "sha256": "e00cde00854772c78db444fb9e22506001482196d357f95a903459ffdbf43d8f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0447753.jpg"
+    },
+    {
+      "sha256": "cdb1ad07ea16b3ad028cb0b5b0690c1d948cccf11b48ce25dcb2e929f3a04f48",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2132127.jpg"
+    },
+    {
+      "sha256": "783ab4a550b004f1406a94ba3798596bc19729782e4052678d40eeb9706d94e9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0197363.jpg"
+    },
+    {
+      "sha256": "cac2658e56d575db61b63866a059faf2f85388ead8a1f59614c1a0e178864bb0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2213535.jpg"
+    },
+    {
+      "sha256": "8dca917021b91cb530928db4dd32b0277418b413972d9b102f21e6013a7748fc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0117996.jpg"
+    },
+    {
+      "sha256": "ca8000e17d3b5fd38d9d02d353479a8baa93f8b9ac76b4e93902b81ab659ce67",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1901133.jpg"
+    },
+    {
+      "sha256": "12806ca5ff139adfe784e8497a2d4c941babb966f4d3d194b7484db0ad1e70b5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1143413.jpg"
+    },
+    {
+      "sha256": "70e9f9928e381d17a9a68c1a2c9dbfc1456ba7cb7aa5165c8efc518d7c2f8cc5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1933933.jpg"
+    },
+    {
+      "sha256": "836fd076ed3cd525e10bb262f38027e5ca346a666b216bd6272edbc26f20c27c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0233755.jpg"
+    },
+    {
+      "sha256": "883f36c820f405629af5bfa2df9f197d4f9253220760dbb2d70bfc02417aef71",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1165767.jpg"
+    },
+    {
+      "sha256": "fd72734e8a6a5f699e9c50822127a2bf910e7e0ae2658d745d5f3e54899a3f6a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0835837.jpg"
+    },
+    {
+      "sha256": "cd88c39ab66ca9753984d7e83dce9905e61aae6aaea37ac21e4639f60bbe4249",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1476102.jpg"
+    },
+    {
+      "sha256": "6b3079c3ed8c39cebe326a2cf08a35a5fc295e54b5db19ce3474e4d7ee002300",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0182729.jpg"
+    },
+    {
+      "sha256": "215e4318869b931ecfd8aaa5cc694c9e9236a820af91efec216042dfd453153a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1870569.jpg"
+    },
+    {
+      "sha256": "756926c6822d54c4c9167be040ad544e175b9e6e5876fdc4ca1fb7039861ea44",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2176725.jpg"
+    },
+    {
+      "sha256": "b5b97707c0feac3a434ec86fb9eb631ea806f5c2c0dc89bdf63f723a110c40ad",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1228882.jpg"
+    },
+    {
+      "sha256": "9f4b730466bf2d19431b782df2335d943d28af37b98c2e4a4910283540dab84e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1514936.jpg"
+    },
+    {
+      "sha256": "933012c8cf2b29ad6a72cb9c5eb6973a6fd6573650e2d4a7b4f0b50e746e417b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1913641.jpg"
+    },
+    {
+      "sha256": "1f9ce83df253a5763b4822e214c60703508b3ef4da6513a6a9579675ca4e3da8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2069690.jpg"
+    },
+    {
+      "sha256": "9c614880f3db99a393c6cfe0702ebd9d4b8138965fc19cbeeb8d14e1b37a60a0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1191065.jpg"
+    },
+    {
+      "sha256": "72f7de2be2b81bc5f2ca203984217140b4c4ba649057ba01c6daff308dff96e9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1810920.jpg"
+    },
+    {
+      "sha256": "18cb81f50b93fb07fd7586b61da3166c19b8fd50e042e349497968e2c948e951",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0067397.jpg"
+    },
+    {
+      "sha256": "54b829a2a97b04ec26ebeb350341e8443a1b71e523e34f25ac91ee7b9382f16d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0907390.jpg"
+    },
+    {
+      "sha256": "5f80d681467af9d014bbe4953281f13641e095c0290a90590d1e42739e39cbda",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0836146.jpg"
+    },
+    {
+      "sha256": "48175df417e470796420dcaebac1fdbebc53d7ea9de472f4c68e058b94aec53b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0345781.jpg"
+    },
+    {
+      "sha256": "1cdf1914ece95f98fa2fa945edf4f88e8ca844b6912c31333bbdb1f5a949ac0f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0765780.jpg"
+    },
+    {
+      "sha256": "9e187452db41d673eadd287a4ea604e7841a6b0b3b695c1eb955dce8e2c06d87",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1464252.jpg"
+    },
+    {
+      "sha256": "c757fa6a07039aed911c9c3d18a581bf1b3a6d09fe7b78adf70136f09628c943",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0949946.jpg"
+    },
+    {
+      "sha256": "38071f60198f254057d801f604bf2437dc887a393b97e811e59cf31e77272223",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2084806.jpg"
+    },
+    {
+      "sha256": "c36a0c5bd4ff1172a93b70c5ccd6e0602286382486f6c902fa301f0d08a85f84",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1539428.jpg"
+    },
+    {
+      "sha256": "8269f1a321f632e6e280bfbc89a657174bf064f913cbc7d0057a0b48535dc878",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1909808.jpg"
+    },
+    {
+      "sha256": "c297503afa85d1a7e666e1357671c4ccbc77615eca4047426f92b8e5314755b0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1351410.jpg"
+    },
+    {
+      "sha256": "e11395c66a6fde11d5c6bf04ac80a529c85c062d9558f32ad49c0554db52a59e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2210075.jpg"
+    },
+    {
+      "sha256": "2e4c784e37acc0800b0d6f9943d0923361cc56c5ce7517769a22e0f7be5b8371",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1003143.jpg"
+    },
+    {
+      "sha256": "238a661b825a6fa3b41bdd4cdb4533fa3c7540a89bf4b4c6b401a603fbf83bbc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1818746.jpg"
+    },
+    {
+      "sha256": "55e35fd94acb4e16e231b56b262bcbecd5e4351cf68e95a45ff05f122e0970a5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0445491.jpg"
+    },
+    {
+      "sha256": "ac0852b888581a2527d55cbca2ad69b869074b126e21748289925cc59cb60753",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1541378.jpg"
+    },
+    {
+      "sha256": "95d044b2c1e40b0fefd34b17bc6d75e4bcb656bbb80ea608bfd6a8bbe705e31f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0523031.jpg"
+    },
+    {
+      "sha256": "372a8c80dd2a65dae0113f04f1cb51eda7563b0dae0710c2bc82be53c01cd2de",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1102381.jpg"
+    },
+    {
+      "sha256": "05dbf254bcff8d2a7e726d1e320babe72fd6973c649cf7d91f8b86167ef7d865",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2057952.jpg"
+    },
+    {
+      "sha256": "420b71ff40a95597b5ed86da3bbd02fdea45db2cd2459b4cf5e42b44958980b0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0857653.jpg"
+    },
+    {
+      "sha256": "aaa011c0c9e8af843554e294db8d78c8b4a7b4b45eda98093297c904ec12cd21",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0547318.jpg"
+    },
+    {
+      "sha256": "de3c4827de9bbe41a111def846990637d4b74a8c23998329ec4e4b8f2d7f0047",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1616512.jpg"
+    },
+    {
+      "sha256": "64c988e5bec3b230d6279e07f2154798a10425f7735c975638fd57d1db8519ff",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0434343.jpg"
+    },
+    {
+      "sha256": "8860048618857d1b60ce0fc7f7e558d64a155abc5b8b22fae29c7df703e67559",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0076836.jpg"
+    },
+    {
+      "sha256": "7608ddcd729f03c07de09570b017a18f56466a3e8d629b30dbc69cb14f156d87",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2258288.jpg"
+    },
+    {
+      "sha256": "b53ce8295f26b87781a874a3cc1906649affb103312424c47c47b591f58ac48f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0257026.jpg"
+    },
+    {
+      "sha256": "ea83d63ff25a26d4bfa5b90c554a563353d8450495918fdf18a5782392cc1e7b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1870658.jpg"
+    },
+    {
+      "sha256": "22210bc4817c610b553bff131b1e23585c919a581db28a8e5028eb47be69b1f9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1184708.jpg"
+    },
+    {
+      "sha256": "061d3707bf9af4a9c37b457b2cfd3c387c2917653955138bd5a5061ee1c0cc06",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0175819.jpg"
+    },
+    {
+      "sha256": "0999f244a0335eda048dca335e172441ba6a03cfee950c7cc6108b683ff3c290",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0857160.jpg"
+    },
+    {
+      "sha256": "5f5b80be808114e9692187a7e6519d1114a5bd6a57e87eb57d703068a4e0bb3f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1027573.jpg"
+    },
+    {
+      "sha256": "eed2549b115c26ac085fc820813efa0d2f2b00fdb53c99dfeaaf72092ab96709",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1531355.jpg"
+    },
+    {
+      "sha256": "4e8420ff24bbdff1832098bb5728afdfb351c255182f129018ca7ebec2e18f52",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0457830.jpg"
+    },
+    {
+      "sha256": "49c415165d4a0910491e864985db786189b254563a260673a91ccb8f69d412dd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1234832.jpg"
+    },
+    {
+      "sha256": "0b159a5a916d6ecdd18a74e27d2153e7a2eedef5814dd91932970726b83f5449",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0140272.jpg"
+    },
+    {
+      "sha256": "1505bb8591dc565fa4407e10c3397eb7dd1f51cd31484c012830296e5f476d03",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0187671.jpg"
+    },
+    {
+      "sha256": "160266d54ef804f25dbc4411743d97bb0bc2c011a1bc228121ebfeec91b95ba3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1649738.jpg"
+    },
+    {
+      "sha256": "b33b953f1527cbcc8475ba841e74bf57905ce6b0425d2ba72e660d71ffb334fc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2124076.jpg"
+    },
+    {
+      "sha256": "e570d953426a2eee576c3926f5855135cbff14edbe6932d5c45a92b6b43351d2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0745361.jpg"
+    },
+    {
+      "sha256": "1fab0aaa430c0aeab473f496983fe32e51081872f1c633996e898f05796fc0c2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1922848.jpg"
+    },
+    {
+      "sha256": "658b5f0159659ec7ce275eb99fd9c33a5026699d43eb563d880c5c5756a52de6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1758713.jpg"
+    },
+    {
+      "sha256": "0610e4daf0c3bb1f1b24947e810fb71c05843ee2d6ad3b17b78fe838b4eac403",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1469709.jpg"
+    },
+    {
+      "sha256": "94b73b7f03fa9cb4319a6fd8b7818f68c22c5ca552704c4cc3cc1eb67d413815",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1081563.jpg"
+    },
+    {
+      "sha256": "0fa2a62a91f91946c1ecdcbfcadacd3016afe3a9c182191692ddae7979263d4c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1469672.jpg"
+    },
+    {
+      "sha256": "6d17cfe673b691c4a0109c17732d04260cd77cbe1eb9805cf6daa7f350ffbef0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1840139.jpg"
+    },
+    {
+      "sha256": "bd94d244704095c69e60f5db7f460c26676cc9276d873c99126f9effdea28b67",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1471167.jpg"
+    },
+    {
+      "sha256": "150661aeb1f87efcb5633728cd74c8786dfd22f971bc0edcece6141eb4098a78",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1619902.jpg"
+    },
+    {
+      "sha256": "6f2d5959b68a3f42623b8a230f9389222293832556f820c15dbe471d6ee3a871",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0469779.jpg"
+    },
+    {
+      "sha256": "ad4052877a982abdb6feb8e26136edbd2ff9f44813603ee7aa5c9685a0c2f90f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1932603.jpg"
+    },
+    {
+      "sha256": "dacbc99b27142a6d7b6056a219de2252cdfa83837881535765c7eee5a8238d35",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1840423.jpg"
+    },
+    {
+      "sha256": "91ddfac36ec8ac9fd75aea5ca2cfa52d381b9ac78cca5aa94332f8b782a0ab6a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1973442.jpg"
+    },
+    {
+      "sha256": "db1541e7ce48c70361c16019f09254e12c7767505f02d22ef3b552fcfec31da6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2233490.jpg"
+    },
+    {
+      "sha256": "33a246642e33b0e216039c16348cf87009539d7a8687a322e0b4e4eb0bc5d3b9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0848058.jpg"
+    },
+    {
+      "sha256": "36d36f50750114eaab933080e76f73ee79c38ba66b7de018627d4c7a3f33fa6d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1143414.jpg"
+    },
+    {
+      "sha256": "9cb2a8803d518936a03171db1fb23fef4387adb0483ea6a2419c427f7a3531d2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0901370.jpg"
+    },
+    {
+      "sha256": "89785300c3c6d6ca1575c0bd451a9594e26acb5de9b1f6d1d0a709d9f4100819",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0064202.jpg"
+    },
+    {
+      "sha256": "e1ee155a4fb451c0b97ade2a20c233ad83a4a25d32fbd3d27944a3a83b02f9e8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1223346.jpg"
+    },
+    {
+      "sha256": "adcf2076950a1b95ce5cc8232f2f618fd4e61fc77e3bc212ecb96636ad8d0b4e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1864787.jpg"
+    },
+    {
+      "sha256": "4fcdfb1c97ba32892d5a1344183c751af42ddbc67d1fab62983449cbcbaf147e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1798654.jpg"
+    },
+    {
+      "sha256": "7702522afa088277001ccbe84995d79af19227815101bfe45ea8f833f20a24d8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2222405.jpg"
+    },
+    {
+      "sha256": "13ceeff3295966b9c587253e3f8f2f06a32aafbb9ae4f8b7e4bc77f7135f5d2a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0656580.jpg"
+    },
+    {
+      "sha256": "359b3a0e35c613d2b4f5f3f8d10ca13de882492e825d5055e393b7de07a98c2d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0765604.jpg"
+    },
+    {
+      "sha256": "bb3205dee8f6bf0b27ebc6c8a0a35f62c07d1c10d990558f9bef1d8a57db2656",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1619921.jpg"
+    },
+    {
+      "sha256": "bb90e1797b58c238f24b822240cbb74ebb816caad0f9eee80dbdf07951df4a92",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2259875.jpg"
+    },
+    {
+      "sha256": "0f8f4fe86b5454c67da5a7e83f28e4dc2a9ec696efac53307c7032cf56430513",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0143389.jpg"
+    },
+    {
+      "sha256": "69b6618407cfe82aed6aa8644b2891da7cfbe7e0497bf8a94b74f32fffd772c2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1950554.jpg"
+    },
+    {
+      "sha256": "7358833d79f0af0b1b6e0a8b1faf3fcc50dc01114cf7ab9d7c9dffabdc2b5411",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1358106.jpg"
+    },
+    {
+      "sha256": "e92af4c3b170408aee7a00c6f3ecbe889ea136c41279dbb9a6ce046bc2102a33",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1193030.jpg"
+    },
+    {
+      "sha256": "c58715fd9ed05848bffd080ee82c2ca76f290cbd3a817485ea9d0684bc48bcb4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1336071.jpg"
+    },
+    {
+      "sha256": "7b2227e5b2e1b40825afa92c5dd66218f7cc7d4a4b977a5d473b4b933e8743ff",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0167122.jpg"
+    },
+    {
+      "sha256": "76e0749329636e4b805dcaff5388ffb256eba043a884e865e935a6d6b61aa4ee",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0758359.jpg"
+    },
+    {
+      "sha256": "8e1a8a6de6806dc46e2c5524feecb84f3b075473d9718e4a56576f85df1dded7",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0065577.jpg"
+    },
+    {
+      "sha256": "d5740f74dff4e4184c15be976d1bd3c93c25c6078fa656383ddf90fc5e963bb8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0083356.jpg"
+    },
+    {
+      "sha256": "c637cb33fcc705ccca0465d0cf3392991a97869b52260e523d76d36b8004da75",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1714820.jpg"
+    },
+    {
+      "sha256": "d004a220283950961d5006b1f4efdf61c66596b13a31f7127c584b5c7dfece16",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1001973.jpg"
+    },
+    {
+      "sha256": "43856548470db76bfcb30d18afb3a3ff53eaf6b0c7c5ee84ab0c36d200d8b14e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1926848.jpg"
+    },
+    {
+      "sha256": "b4a94b6deaef5f2d9a65b489d4eee16f05f91ef2e88ac5b8700053a544b4f24a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1355200.jpg"
+    },
+    {
+      "sha256": "d352203ec328d9130c7797e31a78f4b916a3b9e0bd89f223db06025551960ca5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1455997.jpg"
+    },
+    {
+      "sha256": "56a6a7a71f57ddb8b0a20bf3bbc9d591c575ed70b316d475774a228c2e6702ab",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1376991.jpg"
+    },
+    {
+      "sha256": "a7a0c2ae67e21e0623adb1f72fb17f5190bfde038bc35c0b391f3e1ccdeccf0b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1326007.jpg"
+    },
+    {
+      "sha256": "85d75aae200f625034880ea1eafb524cd2043f685f193ecbfc91b5e2c93eaf96",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1555985.jpg"
+    },
+    {
+      "sha256": "03f902dc7697f9740577333f7c17849c664ccfe1df1c642d62c4c1734e0c9a08",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0302019.jpg"
+    },
+    {
+      "sha256": "6d0d06e0c74bb21f7d1da80282a190203b0114a9c8f65d22260abb779f7c097c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2017851.jpg"
+    },
+    {
+      "sha256": "81e08c6445a1de1ab512a29c508d8a9d855e92e2b62a6d4a2b64a9120016433e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1351340.jpg"
+    },
+    {
+      "sha256": "27a456e65d59ab0ec5a0afd41c44f834da8ade9d437091962befc04aa5519924",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1085194.jpg"
+    },
+    {
+      "sha256": "2cf5c2252902359b8de6682a4e27a4d1a3f38ea0cb039815d513e51fdbff1b80",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1794564.jpg"
+    },
+    {
+      "sha256": "9293bf8a5ccf9234e1ba3481138b2156524cc94e8e9f1a19ad1c8940cfeebea6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0434345.jpg"
+    },
+    {
+      "sha256": "f9de3d0c264fda29268ef8bffa7ff44380db0c54cb5cd2e5a57e941cc5eaa362",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1055698.jpg"
+    },
+    {
+      "sha256": "0335e7e10c8c8188b23e63ed4d7ca126295114ba56e894165f67982cf7d1f16d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1649868.jpg"
+    },
+    {
+      "sha256": "c9fbf8649cbb49d691563f597edadfe697eaf6e8e90a81069998779bb6bdd684",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0704643.jpg"
+    },
+    {
+      "sha256": "d969ebb17b0154db06013c6e8dc61c22d606f15d184f296b4bda6fbadeb13ad5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1255008.jpg"
+    },
+    {
+      "sha256": "2d6a840234e2fce5e0d56cf96f9e7c32c2f1a66a4d29f4ca2ed8e332234e4637",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0586259.jpg"
+    },
+    {
+      "sha256": "3b7a31e7bfb285e112de31e756f79bb605dee82fe1cdc73f18043b9efb9347d8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0942395.jpg"
+    },
+    {
+      "sha256": "0d0ddd2261fa10f0fb69c6cfe06e6222db3aa379c492a23e3ee327a2facdfb7d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1567620.jpg"
+    },
+    {
+      "sha256": "b6174cde4cd22a97e9c8c14b663babafc99c3c765c612c6cb7b5245fb6ca733a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0275729.jpg"
+    },
+    {
+      "sha256": "58e6eb92044d5038dfc73f6d621535ce8d7984ebaa116c51e8100df2f71761d6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0313724.jpg"
+    },
+    {
+      "sha256": "077a132ac8bbc554252bc199d43b903cdc6379ef06293b25a49f692d8e689e8b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0728571.jpg"
+    },
+    {
+      "sha256": "0525fb63f82340d76cdbb84c9362466973716d27c6d791d4bc9573687a29f0c3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0929800.jpg"
+    },
+    {
+      "sha256": "1f2c1a0ff3676f53b8525a919fbead26f4cadcf3e7d80ca92d7a7d7c9f123497",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0476813.jpg"
+    },
+    {
+      "sha256": "84fd90f325c626304a43ef5ca60c6be4bc5d2f256b4da5daa93b3730fe38c9dd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0955449.jpg"
+    },
+    {
+      "sha256": "4c48e187d44d25c0f8feda2b9abd60515b48cf3a29637fd6d01d05b8744cce80",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1558772.jpg"
+    },
+    {
+      "sha256": "cc3e09a99916d8b78a5887c8152b02376b90d9a0ca8fab64513f82fd6ebb6b0c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1623412.jpg"
+    },
+    {
+      "sha256": "a7af177bad9d25251a8ba2961ae994d0935ea1ce33e2133c518f5abd8613bcb4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1465847.jpg"
+    },
+    {
+      "sha256": "e5a1c5382e357b1a1a0664e0d0141cd7a399b9ce17fc9432838e0b461e6b0115",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2090708.jpg"
+    },
+    {
+      "sha256": "4f1dbf985be0238bea1696304a8baf2244b76fafdc64435d43b89c9e18186199",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1923371.jpg"
+    },
+    {
+      "sha256": "87cf3ba289b317c76e679ea17e1d3377f628e89bdef9dcef0777b1541c7c912c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1726480.jpg"
+    },
+    {
+      "sha256": "5cc381c0b3cf9f7f69b62e1b443005d22d59755f300cdde4703191966e5ee1e3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1125619.jpg"
+    },
+    {
+      "sha256": "3fee65cfe03f32b57280721a7c3cd59beb8c687c522790c4a88a845304268971",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2243572.jpg"
+    },
+    {
+      "sha256": "27534d979a0498a5dd1c80d2686350bce443ea9fe418f5fd157e75662cfd1897",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2096268.jpg"
+    },
+    {
+      "sha256": "144668f5e70c9bff72eaca83eb20d589db1cc328dbb93508280061a83dc1202d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1337511.jpg"
+    },
+    {
+      "sha256": "4af918e1939c91e15456e7a77c1bdf252a2eb5b031f338f790682253245e2aa6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1156006.jpg"
+    },
+    {
+      "sha256": "ded6131adb7e4db47ac98cf72fa21f0896d8ecda88eb4256343407840149ea26",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1347237.jpg"
+    },
+    {
+      "sha256": "f69de8d5b7e0d48625021d66ae62bccbef203f03d8fd8a9eb3757aaf2d61ae59",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1066523.jpg"
+    },
+    {
+      "sha256": "b3e912a340fe36d38f0e26ff07223dbe479e1221f1fb441e6e536d748504c6de",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2066265.jpg"
+    },
+    {
+      "sha256": "c710cc7ea41a5f49d6b6507f1125bd6ca71264f288a18a67eda22d8dd886ee73",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1050675.jpg"
+    },
+    {
+      "sha256": "28617faea3dcc0752fed9a22d3e648b6f83f6c53888b964d72ec6c254c1437e9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1806229.jpg"
+    },
+    {
+      "sha256": "662935cbae9510070135c3f60e1080d86b7bb0e81314e16564e522df7b231171",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0524795.jpg"
+    },
+    {
+      "sha256": "2bdfdd6258c3cca3adb0fce7713cf29214e1843c5c9c0a40a4cd167f1de03b76",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0781149.jpg"
+    },
+    {
+      "sha256": "90674395b9e9d68bae9dd84b7ed27a79ab71468dadf6e25ab7b4dc46b81bbb2a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2139677.jpg"
+    },
+    {
+      "sha256": "92e46e5a11cd2a8d8b3b37b68338223304ef1fd94e14c6570ba5f027e8579d99",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2231272.jpg"
+    },
+    {
+      "sha256": "f50c229d522a894ba332547310c20c4e0281e4c63936113ceb460c61c24917c2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0637453.jpg"
+    },
+    {
+      "sha256": "c9eab0f7818e3e2423fb4d150b9ee4a64f86df8d7575b7dae8f4440c494c7a0d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0440694.jpg"
+    },
+    {
+      "sha256": "77419a0ccb043ecef34b965ee37e5e933083682629b8057dde5b3d646ec23b6e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1966540.jpg"
+    },
+    {
+      "sha256": "fd815a8385a77e57a947561de99b044a65975e0d01e9531dd0eff7657dedd800",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1071955.jpg"
+    },
+    {
+      "sha256": "3407b0ad4541b3a7a40b584efd87a74d695410c8b69acc9d9d8d5ff783c3e5cf",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0709877.jpg"
+    },
+    {
+      "sha256": "551b19bebb566c9c06a9fd3ebc078c98e46b979756ca3bc9b75883e7b0aa297b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0478314.jpg"
+    },
+    {
+      "sha256": "d8956fa5d3a66960a0b9b48f1c32aec45d59e57c2306396d404d34d091a49601",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0102237.jpg"
+    },
+    {
+      "sha256": "6f58850511bab3a48de6d3035e8ae6e69ea0a4a903c89267bcf55b23d6baaa32",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0218850.jpg"
+    },
+    {
+      "sha256": "51e0bf23378629d3319477c21abafb5ba3609bda581a3d6ceeb3c6626e574497",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0773044.jpg"
+    },
+    {
+      "sha256": "643c6db0720e9c57225865df21757583703346aa422168da6501e8b9bccd1527",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0689371.jpg"
+    },
+    {
+      "sha256": "c8eb8f3dcf63b143e83d37f869ab9a92142ff9bf8a5f2d0d33077e5e17aa5278",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1002458.jpg"
+    },
+    {
+      "sha256": "e6a1d4d417cbabdbc4d92fb81aab65591a32777451092d3c468e6b73504f067b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0572858.jpg"
+    },
+    {
+      "sha256": "91686734c0e97e184eaef9e17a6c2cb99dbc07ac50fe36020bbc0fcdc66c8d49",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0564013.jpg"
+    },
+    {
+      "sha256": "1742857b7fb0c070142c88cad1baa5d7cb0c17385f2a6b06051f14c1145995bc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1945292.jpg"
+    },
+    {
+      "sha256": "9916e7c542a1c3f9389e245afd41100767208c8446fadcdcf63388c59ddb4534",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0548883.jpg"
+    },
+    {
+      "sha256": "00f03e43f088d6ecbb4dbf39da6de06f6e6ecbc0820052312654fa8b1a1be973",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1316961.jpg"
+    },
+    {
+      "sha256": "afdc08e1ec9a54f097fdbcabe1a683b8fc408465b036363163f3998174080fd9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0901456.jpg"
+    },
+    {
+      "sha256": "59c2dcd2d11f346112afe326cee8be92c6424bc86e858f7d28ef4c4fee0a90e5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0782914.jpg"
+    },
+    {
+      "sha256": "1f7f1bf952e415ce69fbb8c0b4e767fb76848286a6d0b021515fdf1917ba7eb1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0593168.jpg"
+    },
+    {
+      "sha256": "50792c4bf1cd7e53a2c3e7cd254e29dbde6b611be9b424d8b6da237e16aaef97",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1314561.jpg"
+    },
+    {
+      "sha256": "f906ea38eabf5409a6c00291d8344e65c5609ee2756b87a74815660b1f6d6bb3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0907367.jpg"
+    },
+    {
+      "sha256": "73a389fd9642e63b5777306443228982d9c0f3df96b43ad17869c1b9ecead294",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1251764.jpg"
+    },
+    {
+      "sha256": "6fd7e38ec5b8b10ee09c9c47f3e6558a7741ec22e8c96b690f38f22a5149ec9e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0554721.jpg"
+    },
+    {
+      "sha256": "29652c8963c79c3d88369c40889c9e63c11a3e067d5bd18b1f11baf1f7a69ddb",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0174937.jpg"
+    },
+    {
+      "sha256": "d9553fc2ada471b6ee226be33d41a4bac361c6f75b8250698cac0645df6f8932",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1974802.jpg"
+    },
+    {
+      "sha256": "8dbb9cda7aea103af867b5d16bba9d1de05f914c516bddad5ef4a6ce48da407c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1001821.jpg"
+    },
+    {
+      "sha256": "95481fbe92b000dbe6fc0e67450ca267cdafd36661c763e26a5eab5358b23ccc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1924286.jpg"
+    },
+    {
+      "sha256": "743f562a017a2cad80a0a526bb4ce3fc2605149ab3252791dd9ee219f1a78827",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1411124.jpg"
+    },
+    {
+      "sha256": "9377a2bc0dbd9f8a6bad6e26f672cb6e0786d0b885b990a5b20c9fc07398b4e9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1940512.jpg"
+    },
+    {
+      "sha256": "d823906acaa22a5cf14055d7c88736e152c99031acfd8bb978e3d7527ea1068e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2026690.jpg"
+    },
+    {
+      "sha256": "8c9b85e77824f09d7fd41a0a6e96735f439ca7776bba750c29c455831c94351a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1379879.jpg"
+    },
+    {
+      "sha256": "d8fbd9466025e6b7ed9d51f45525b03331bcf15d4aedcc85cba0e95a28658e70",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1032474.jpg"
+    },
+    {
+      "sha256": "37f288783aba67892f357b261acf90284570a4dadabc0a46fe6b22c45a0f277b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2008454.jpg"
+    },
+    {
+      "sha256": "e2464887788771be4629c0cde658a60ae0084a0a9005b7d2c3226c24e72e0775",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2008455.jpg"
+    },
+    {
+      "sha256": "db084c72c827d086dc884b9fa4d708d88499079e578f24e93f0306688cdafe80",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2010474.jpg"
+    },
+    {
+      "sha256": "ca5ccd7a2c549ab9b2687fbdbcd9274db22d7628c281fb9b2f51e354ee7a6aed",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0302001.jpg"
+    },
+    {
+      "sha256": "933f159c69df54139c706f80d31b68cb638736938108d338cc99920d9a621ceb",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0093513.jpg"
+    },
+    {
+      "sha256": "0ca2ab37058618aef67b22b1d3c6da5cd6cc16dd3ba83b2ee38ff1ee92e2d56a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0064627.jpg"
+    },
+    {
+      "sha256": "68fe66e3e857e751b2fa9231559a678122f003ba86d320d27eeca5d3a43199cb",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0362888.jpg"
+    },
+    {
+      "sha256": "eecaa43dd17b91e8cd0b9d7c31d172607e7aeeac37a7d144055894a0dfffb0b3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1028704.jpg"
+    },
+    {
+      "sha256": "4035e1adb2070ff062b185dacdf8d41c22638cc625591480dc54a3b8027b1a6b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2147230.jpg"
+    },
+    {
+      "sha256": "489e9c1d2064827ae4855a1243bec4bb44c2e393194625cad950de30c42e30d1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1709677.jpg"
+    },
+    {
+      "sha256": "449d228629cd1e240d5fbd5c5790dc25e38d3cb93d153a8e8508877ec81fc9cc",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2264968.jpg"
+    },
+    {
+      "sha256": "c25a3c128b36c2a62338631327cf185e927e79aa5c3841c86d59b41d804fc175",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0732415.jpg"
+    },
+    {
+      "sha256": "c7d4e7509ca21fb8415bca63e3633b7a42be9d81a3592c94ac42957aea2ffe04",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2231709.jpg"
+    },
+    {
+      "sha256": "a400f0558f2f7ef1184a7b3052e282b077339b8271630a0eae289d839698ca33",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1637925.jpg"
+    },
+    {
+      "sha256": "f78ad7e5f73a35e7c8759e632b3768b39b7b6ecf9a1e5dd4d9401d6e9afcedaf",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1513134.jpg"
+    },
+    {
+      "sha256": "f6f34c997fd49ab3922096419894cc8d08d908de9ceed67e88a4c18afaa4335b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1460096.jpg"
+    },
+    {
+      "sha256": "8547e1da85c65a8584b2742adc5822e1d7b2acbda1cacaf6128e27928e3fc2b2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1122822.jpg"
+    },
+    {
+      "sha256": "a6e2944c34840b3d8153e706d0b6bac75c8634846af72e8a7528098a1377af23",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1810960.jpg"
+    },
+    {
+      "sha256": "17fc0c60b12e53bb20b8f2c2500d881f01d7146514f6169683b856d76e534543",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1674738.jpg"
+    },
+    {
+      "sha256": "136cf66623c6d4fc9ebf5069eea74a735f9db9b331e48e3d332fbccec1b323c9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0908591.jpg"
+    },
+    {
+      "sha256": "32e9728af827aa40e86685b4000707f79164323b050ba9ac92d93699f5b88db7",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0832778.jpg"
+    },
+    {
+      "sha256": "71aa2605d03e9292e4705971d24738cf34fb549f287bb7427c62ad4083c7844d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1077156.jpg"
+    },
+    {
+      "sha256": "4ec7a5a65fb47941edfaee5239112331bbfacc19343510371e0b0eaec9b1c589",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0905078.jpg"
+    },
+    {
+      "sha256": "162427a3ffab2bfce76fb4b794aebcf17a271af362bd1b84c44bc116949a23e9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1052982.jpg"
+    },
+    {
+      "sha256": "38bd413b5d0e43327b5c151e2f22a45dc62905b711ac5cf593e3cf40f27804e2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1663625.jpg"
+    },
+    {
+      "sha256": "89fcc8cfa8b566d0a6fd1feb9cb6b2acc1eb4a314ac41b18a4713787aa6937c8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1899114.jpg"
+    },
+    {
+      "sha256": "5825104d156dc9ea195296b93f01f1e04fb7738e6db9555e78f9208de0c98b66",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2054455.jpg"
+    },
+    {
+      "sha256": "b0deb705c84feb729c4d5e24ae7b822ed8f5943f8717ad8b6e083978bb719778",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2259021.jpg"
+    },
+    {
+      "sha256": "8bc812442a1813dd5bb9e1f8856dada6c61aa904bd0e830e87421d2ab2858715",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2091938.jpg"
+    },
+    {
+      "sha256": "939fc787030f0a01f8ce253825c552e7cdceb4a5cb968f30411a495b4f146fb6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2004590.jpg"
+    },
+    {
+      "sha256": "ee667f3b8723cb8852e8b9310bfc59b51ca716e7e679d553006131f19dc5607a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2115085.jpg"
+    },
+    {
+      "sha256": "f4d8398bea74a31da7f8089d538d4d5794384cdde7782ed4db1a6bd150062c46",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1551125.jpg"
+    },
+    {
+      "sha256": "45306a4ac125417fec72f98ab3059faab82c9acd7404113f7c5d641e03660926",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0350200.jpg"
+    },
+    {
+      "sha256": "72e9a77ebd35abf0fd1067bdcf4729980d8d6f4dcf23388fb41983d22b42d564",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0999159.jpg"
+    },
+    {
+      "sha256": "1a1ee42f7a43a128c89100bb7f02a7037b84ef161475bba8f693d4884f041821",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0483246.jpg"
+    },
+    {
+      "sha256": "6ab6f5183f72ef1d9e3105489494dc270f91610fe86df7c92a36283b8f944c37",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0136148.jpg"
+    },
+    {
+      "sha256": "11c4c9337fdc36c4308ac96208385e1195490ba3eccda6c7e962d262cc8d515c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2020296.jpg"
+    },
+    {
+      "sha256": "330f4159ec3ca9fff5125ee1d9acb96e0f929f1096bd3b4fe45a31263fab93ba",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0909665.jpg"
+    },
+    {
+      "sha256": "a21690e80956c292065294e6ac499c8d661f52e6b6066b8fb2a75dc3661503e3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1399596.jpg"
+    },
+    {
+      "sha256": "0554669856bf5e64ec1b45a17f4b2bcd3e42708bf8f7bc8f3899089fcc3c373a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1129151.jpg"
+    },
+    {
+      "sha256": "10ca3ced87038869722d48f35ff7dd9e7c85a7c09d0d91f6cebc69ab2e30efa2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1246013.jpg"
+    },
+    {
+      "sha256": "457ce12a1ac4716fcbbe2405507354ccf12367e2124655137d180bc822b433be",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1073073.jpg"
+    },
+    {
+      "sha256": "38cd5f1a1874ddd32dbd17b7676f1e378fdc61593f9312152756b45822756d3f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2003270.jpg"
+    },
+    {
+      "sha256": "b73bb2fe357342250dc2132f4425c15b39fe3d3cdd6d4648ccc4a13779ed83ef",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1357956.jpg"
+    },
+    {
+      "sha256": "7452bbbb2b03337eb9685bece30aaf8c216dd14aa920fe11a641e858292cb86b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0794898.jpg"
+    },
+    {
+      "sha256": "d726321d59b01cf503b21bb319078516d467627f5108e7b492a8bc4bc75909d2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1605154.jpg"
+    },
+    {
+      "sha256": "ab10b9525a0c04774a056cc09728575912dd021b6e99bad8109d8d3bd798d025",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1714826.jpg"
+    },
+    {
+      "sha256": "43b616ff7ce8ac31de58361bce7825fe0e7604f9423c48eba2e50b1b457f093d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1807123.jpg"
+    },
+    {
+      "sha256": "58e40bc93443795cfd495e23ba099adc32999c592533bb32c1b88cfc8cb364cf",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1707110.jpg"
+    },
+    {
+      "sha256": "883ffdeb32d605968b626b2d6f30fd366aed277db4fdb2b962225033eb4cfb04",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1351641.jpg"
+    },
+    {
+      "sha256": "c028e68c711ef8a4cb0caa0e9c13223949ac38ffef95334585d1f9d4ae69d076",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2185361.jpg"
+    },
+    {
+      "sha256": "f393334f9dc8804f34a61fc8d23cc5ee6cd1beda5bf8420875c4ce0137308e0a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1254962.jpg"
+    },
+    {
+      "sha256": "c256d86f5cc19d96d6d3b96b8af977f8829bb9b4abf5e4248ad34a39b0b03a39",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1588720.jpg"
+    },
+    {
+      "sha256": "a2684aa436ed6c6e9b3951e37f9b2e336c109d0a693c51d13145be79e0afee17",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2114113.jpg"
+    },
+    {
+      "sha256": "efab207785af92cde8e5f40bfae6896644fa0b53d0e12b9a080e4c921e85ef3e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1754078.jpg"
+    },
+    {
+      "sha256": "6ab3d290b1f57b8c71b54636e8b05efa1d5c3423c910696d0c74480f67026020",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1588718.jpg"
+    },
+    {
+      "sha256": "65ef6a77e33098d5bddb00c307cbb4d5e07acf3c71a10d5c6a00d0c7ecdee68e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1601716.jpg"
+    },
+    {
+      "sha256": "e0a2455c98667b50b7814ed36e90ac79b5cff000f99633a1fb5ab7eab78ab65a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1254668.jpg"
+    },
+    {
+      "sha256": "62691465459c9641e191a2d77259811fdaabc4c73d1eae0b7957c78571ded912",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1230192.jpg"
+    },
+    {
+      "sha256": "7cb60e287ba484fc47da111b6d0673278cb48822ad134daf6aa34d444a11db10",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1842075.jpg"
+    },
+    {
+      "sha256": "27490cb3f0efaa401546ed6cbcffeaaefb22c76f7ddb0556fd4a4cdf74e5947e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1355436.jpg"
+    },
+    {
+      "sha256": "8c66a307b56624c12e3096b4dd2ff7439f98be535cd3bd59ddf9ac034ad0c956",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0547519.jpg"
+    },
+    {
+      "sha256": "b83674bb1a9d78edf1b84589103f49687abb77c93c950a603f3645769bbcf0d3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2097519.jpg"
+    },
+    {
+      "sha256": "4442cff8aadd6bf1f9d68019ce705c194ea916632c0f9743a5fe78192c540802",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1198138.jpg"
+    },
+    {
+      "sha256": "0d23190778e8d03ceae1640c339d9edb1b974e51aa7ae4b44640ce9788ecd186",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1031647.jpg"
+    },
+    {
+      "sha256": "e02340412414e87be312d3c7cda630d65b07c1a38062273fa8cffa8c5322b415",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2057396.jpg"
+    },
+    {
+      "sha256": "c5b2b6564284ec950138b1f79cdf35cbd073e8aaf40d0a64679ede36192cd7c8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1154960.jpg"
+    },
+    {
+      "sha256": "9557c67bc14d97269eb76ace865fcb93405be1d8ae8339ef5e962609600337a0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1774329.jpg"
+    },
+    {
+      "sha256": "fe74af04b764fb8e2c582e17970b8d9f3dc378dda9c4d06b04ba939c3d6e912d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1115404.jpg"
+    },
+    {
+      "sha256": "91f57b6dcabecef3fc60453fd54d0215d55ac596da6d20c4bbfcf4f4175caf25",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0890795.jpg"
+    },
+    {
+      "sha256": "b05b4df56eceedfbd98984c4492e98a3ff7daa9de6e2b316467123e285c5c802",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0716371.jpg"
+    },
+    {
+      "sha256": "abb7ecfc2cad8e845f76deb7017e1e51f3048992e02bf3b3bd56e2d17241893f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0907347.jpg"
+    },
+    {
+      "sha256": "af0ea2f2c6c453c19724815873bf3ff35493be9125ef9d1be2afa2ae9640d024",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0927837.jpg"
+    },
+    {
+      "sha256": "1b94458055e9fbbdb06aa8808c8c90a8f4006341be8f766e6cb3e19c3d784dbf",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0134595.jpg"
+    },
+    {
+      "sha256": "0d9393240f0a3ad50882b3fd5fc921ed5938dd8e77cbd9151ba65325ec167dcb",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1117692.jpg"
+    },
+    {
+      "sha256": "080fa5a991459d25d5de1866ed653100dc569e5669b3096fdc49ee1690a6e5a4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0066425.jpg"
+    },
+    {
+      "sha256": "091340fed694cae1c8b7b79231e567d27f1e82837abb4b381dc57f8015e08167",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1558572.jpg"
+    },
+    {
+      "sha256": "6fc017c20e04de6431b8fc5d5ef9963e580cb44bacb6f5dbddaf984c4b83099c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0872249.jpg"
+    },
+    {
+      "sha256": "3c659942d9ca8db797fd6f9f11559c648867153cce08affaffe02bb786ea1b3b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1329309.jpg"
+    },
+    {
+      "sha256": "2f430b4f73b674a65829acb1ea974337526b4d7a7f83164842610d8ad3296016",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0842533.jpg"
+    },
+    {
+      "sha256": "f306c3051d603a18c743a370220acba216e836734a76e9e465b521941739579c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1430003.jpg"
+    },
+    {
+      "sha256": "6cdea22cb70daf293f76ae4ef9a9cef7490d3d0669a94fe91de7bbbaa064cb4e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0774288.jpg"
+    },
+    {
+      "sha256": "8cb50870dfd07ce5958327fffbd4cc0530abf2ef94af6a6f2238a644dc9c4df3",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0298506.jpg"
+    },
+    {
+      "sha256": "e4aeb35414e2257439a88a20bab78084d603424572c906d547432b98227372dd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1542797.jpg"
+    },
+    {
+      "sha256": "642953344b0af7d750ab80f15df8ce37317cbe9aabeb990edcc5770756cf152a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0447806.jpg"
+    },
+    {
+      "sha256": "9fb9dd2629bf08f306f0b9046852531d373a87ab57767eaf26b1412aacd3a7af",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2088351.jpg"
+    },
+    {
+      "sha256": "c601440e540a6719280914b8ea5c9390253feb1160895139c4fc3cde057af50b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1498679.jpg"
+    },
+    {
+      "sha256": "cc4d09c1dab101f3350a21747a7e538d1bb0500fb3ce8b0bbb4dbd2959537597",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1833904.jpg"
+    },
+    {
+      "sha256": "25fdb0253342066c3201185cd2c35653402b65d9998377ae2ca490a8ccf50040",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2106202.jpg"
+    },
+    {
+      "sha256": "97d90a72ba0b48b23c70d40db83ad2a9903cc057e5539737d40a4984ae913bea",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1447127.jpg"
+    },
+    {
+      "sha256": "1a13cae02ad634d28d383b46442562a92f337bac9e10a01b5f16895b60d3eee4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1702899.jpg"
+    },
+    {
+      "sha256": "925f6b271ed1f13c05729990340b29a8d6c6afdad4f7b4dd9966e90fcd5c7878",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1290539.jpg"
+    },
+    {
+      "sha256": "a7d83dd6dc12a9c433ef04e7e5bbb1910b3dc9e0f92bb77078ae08e8f54d70fd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1477073.jpg"
+    },
+    {
+      "sha256": "e0074b6f9a8db9bc6238ff1650ef9df42bdc761e40377ea66de924b4d05a61ae",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0877683.jpg"
+    },
+    {
+      "sha256": "e2db246c1acb649feb0167b233819912002872bf75ccf436edc9dc85ceca94db",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0934118.jpg"
+    },
+    {
+      "sha256": "cc542b94d9ff6ec0f08dac224173065fb66d85a4d015aa47e70a81f19f7d8ed8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1244756.jpg"
+    },
+    {
+      "sha256": "995ac8ce54132057313aae6da97e5f5f1932023ea8df3ba4376291adfea80858",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1826520.jpg"
+    },
+    {
+      "sha256": "b1aeabe0b38022d8381ecaf66860d16a88029cf56e35160060c97ebb2dd4ddfd",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0523181.jpg"
+    },
+    {
+      "sha256": "ec28e2a7e6e1cb61a2efac71fb17511a1f58a2b7b794516073cf118fd35d0510",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0522959.jpg"
+    },
+    {
+      "sha256": "b681792f36ca8314c9320223174dca9347f9a13853c4c409333547c7f7bfb2d1",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0737312.jpg"
+    },
+    {
+      "sha256": "e92d4bf0711c397dea783afdd5c9c5b2a3a0052deaa7ca74fb2ddb251725f563",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0063277.jpg"
+    },
+    {
+      "sha256": "1153289cbb7910fe63cf7620b0183e3c70094b0350f901d2742777cb3d853893",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0218848.jpg"
+    },
+    {
+      "sha256": "e87fe991ad2320346f17a340463a9a4cf2d2aee419753bef1b1a2f9241967c3a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0536306.jpg"
+    },
+    {
+      "sha256": "0e9285ac81c22a692d4c2052b1c556b0c83c03fc01f42f0cd8907bffcf09c139",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0602750.jpg"
+    },
+    {
+      "sha256": "86193cfffb4cc5ec6f6e953c48c75c5d513b25af282a241a6fc91dd74c190ed9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1554795.jpg"
+    },
+    {
+      "sha256": "aefcfba1f64863151b6d7b4f29efaf768ee3cadbd4991621ca76641c64a60138",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1526201.jpg"
+    },
+    {
+      "sha256": "c2dff6a04b56ddfd4840513b51a81a523ce216d118ec6eb777ead7defc4219fe",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1636315.jpg"
+    },
+    {
+      "sha256": "38fe99e123a51149029c5e14eeebd100fa5832fc64a9260ad1ad0c5e5c29126b",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1123299.jpg"
+    },
+    {
+      "sha256": "02e8bc95c8111d0f6e63199b9279e33e232c254f6e01ecb38e924e864c83d2b2",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1036880.jpg"
+    },
+    {
+      "sha256": "36e6602a8fd44109736aabdc2c002c3273ae19bb3b52863cd7ae57538641d065",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1875195.jpg"
+    },
+    {
+      "sha256": "99ee391d6e195b54a62136ee96fe50c34fc18bfa00f39642a85c23099c525eaf",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0843963.jpg"
+    },
+    {
+      "sha256": "fae59d0c753c845391f594f0e3959709213c2bc848c17113071a468d1088ca40",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1676760.jpg"
+    },
+    {
+      "sha256": "fd47c983f45ddd5ea47bd3e5f6b997724548353bbb049e3873e83ce5047cd2ae",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0056589.jpg"
+    },
+    {
+      "sha256": "e934ebea8b39399be4f61fe662eeb9ea37530d6208d2f3c6af088db935ff9073",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1265320.jpg"
+    },
+    {
+      "sha256": "7895da68fcb723ebfa42b0a713c86fcd6ba45628e70c5b48e4cb05c4fa7bb67c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2001287.jpg"
+    },
+    {
+      "sha256": "e80d474b90704357f85e8d72ebb3e5ac902a98972154163ae3627936ec84caf9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1517885.jpg"
+    },
+    {
+      "sha256": "92f85fd4449b3a42ce0331ad3e8049edcad3d869fbb59f156fe513ed81c26e0d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1388982.jpg"
+    },
+    {
+      "sha256": "8efc35215aa798c019509bd3dc40828bc7bc7407317b732ba5da32f859e9783f",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2118114.jpg"
+    },
+    {
+      "sha256": "3a17a8938fe102a6337b2cef74599a9a798f3db30e5ae2d1b1cf416d393fd514",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0977264.jpg"
+    },
+    {
+      "sha256": "d0783750828a5eb03fe609f1fb7e6db4aa4b1b8d20e557c4414df1159461d880",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0364670.jpg"
+    },
+    {
+      "sha256": "b4ae50e1e403a7b6347769f7e1e8b026b30f16c44af830d066b885673bba5887",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0411770.jpg"
+    },
+    {
+      "sha256": "12122aae29dc718bb66146bff69dec4275a45f9a54be7239d310a7e75bc7b2c4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0735014.jpg"
+    },
+    {
+      "sha256": "7003f2cf936d85607651d109ea7489a0800a3573ea048c588bddd7b3cd494d78",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2031392.jpg"
+    },
+    {
+      "sha256": "5b737f71d805c9635e2f70b5fc44a487d716a381624173c550b4f4c60f41be82",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1293682.jpg"
+    },
+    {
+      "sha256": "a60d5a337a8d2143fe38ec2e7830bc3901371be284bdf37380aca866fc91040e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1523054.jpg"
+    },
+    {
+      "sha256": "a0a22438955b30b932a38ad61ac733159164802af6dbeb7fa213ab9fac47a7ea",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1468387.jpg"
+    },
+    {
+      "sha256": "bcfcf64c24d4b3fdc0fb4d7c9ab97e908da1d76f947d1092b4f51e5bf109fed4",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2148543.jpg"
+    },
+    {
+      "sha256": "d49ae755fdaeac8a9b5cf3bdc3e94f6010a6b08bc5c6a143cd729c222b33cb88",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1461716.jpg"
+    },
+    {
+      "sha256": "6015282a59c925c32eefefcce9ac1c7089cb72c85ac85dfd6d93c304c7a4fba0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1906969.jpg"
+    },
+    {
+      "sha256": "0888917639af0962e4247e70a684d2a04fd0a155cb192a0cb4a78851aafb732a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2210244.jpg"
+    },
+    {
+      "sha256": "f58549a72d8f9912319029cbeeecdc11b0ec7449aae0e996efd20ef3a8bcf0e0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1311406.jpg"
+    },
+    {
+      "sha256": "b5f43579f2561d87ef62a7ec812f10155a088dcfdf68f4cfef565dfac7ad4308",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2243578.jpg"
+    },
+    {
+      "sha256": "3e9668ae9bb62860628df7de9fcdd7e1a079edc400fd31499082ffc6eb2cf351",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2202486.jpg"
+    },
+    {
+      "sha256": "1b9ce2827ce5fda0e001987cbcbfaa8198f1575995824d2d37acfe0d8d1e2472",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2135681.jpg"
+    },
+    {
+      "sha256": "cc805e2f08f922fa77592dc5f5cbf2ea9f4061db06a5540d01fd88c039191881",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2014222.jpg"
+    },
+    {
+      "sha256": "c3bb9e4f6e0228991bb922922cad0bd5874264fc0d356e5c266723b7995f7557",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1770844.jpg"
+    },
+    {
+      "sha256": "8ee4f65c17704baafe7fd2119680ed8c0c6e2827efd952733d7bae37605a6ee5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1966254.jpg"
+    },
+    {
+      "sha256": "8d4866aca47e7e68b2644bc8730b5b59f85158b0ef4a328a3e3354625d4654c5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1014304.jpg"
+    },
+    {
+      "sha256": "219ac5c2adf6d96756b6abb3ab4617ae68f3d46c001bfb9158838cb3279d88a9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0880559.jpg"
+    },
+    {
+      "sha256": "36fa1e75056879c5c4856ac88973b45a77f118b012ae8bff29ea2f93c7b7bcc9",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2033183.jpg"
+    },
+    {
+      "sha256": "5827c601d10ab8619f8d2f1dbf3da6414ee906fce7a4d33b8a08a92853d9e5ab",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1559316.jpg"
+    },
+    {
+      "sha256": "18c91906fa72fff045a25bf4923e3fbe93830ddeea9d470c34573a47fa2c1b80",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0740887.jpg"
+    },
+    {
+      "sha256": "36c494c4fb837612557ab8b8f8086b0a8245c26ecc9d5cca246a3b31ee5da045",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0098085.jpg"
+    },
+    {
+      "sha256": "a9799fe4d140245065bb18c541d654d86203cb3decfbbd2677b8275a59ceea04",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1550162.jpg"
+    },
+    {
+      "sha256": "67423e1b10ea9a3e4b480e70ee8289e2053a466c1503246ed519a607a656a0b0",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1729159.jpg"
+    },
+    {
+      "sha256": "c0905b4a8681979735c1c192abd84fb2340b493584d50677dc7337a0ec13699c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1735417.jpg"
+    },
+    {
+      "sha256": "979cbe2865b631767f6818ae3a6d90681e72602091663e71f55a8fa8fd06c66c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2043843.jpg"
+    },
+    {
+      "sha256": "33e245f8320d45882457f20811e8fc76a8daf2a2db7fcf4afd66737be008fbb8",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1778957.jpg"
+    },
+    {
+      "sha256": "e4fc654cc8e8be34b3542275e5f81bd1f1ae444243ae94a687ac5ea57c463bab",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0607518.jpg"
+    },
+    {
+      "sha256": "af1c0542469b734b8ed8089c3a5d976243a9bedf03f3dcc7a6aae14f8135406d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1299913.jpg"
+    },
+    {
+      "sha256": "a1f064915eb201b90ae762d7f5a0bdff7f60767935b8b35b022048bff86e442d",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/2094375.jpg"
+    },
+    {
+      "sha256": "25537bac94449a682819883d42901845de7aaaaf945f5ab81e04e5e0c54c3dd5",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0536299.jpg"
+    },
+    {
+      "sha256": "00300ae0e0bedbb210c8609d40882a0756456498bf0ea0326563828f2930f4ba",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0525710.jpg"
+    },
+    {
+      "sha256": "17df2a92479914e26f1dc3b71a6316ac4acdc5a4a82e99079d8cd0813fcb3109",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0523144.jpg"
+    },
+    {
+      "sha256": "bb1207ce6c0bcb016045d9b475d973342712e05a572a667c6d650324409d09ae",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0944175.jpg"
+    },
+    {
+      "sha256": "7c3d18894dbac046937e428e5ae8f6f401b7d446ff42c5c0c1adbe5c7206eb91",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1182715.jpg"
+    },
+    {
+      "sha256": "ef69f2089a4ec9a78b6b0b6ba22a054b5d6e95029016cc6281e946651cabba6e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0062675.jpg"
+    },
+    {
+      "sha256": "dea1e0a719a522a329754d638353aa95a71b91395f2b77a11541253288f9fd7a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1164220.jpg"
+    },
+    {
+      "sha256": "492ba59b9914224e4776c9c1d3716763a05535be11c6b5374b0d7489462bf08e",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1590459.jpg"
+    },
+    {
+      "sha256": "0d7b617f0a6acba9178ba2a257acd89e21cf4c9c291c4dc9b8e182b8a01c1be6",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1244289.jpg"
+    },
+    {
+      "sha256": "2d5b8328d0f181bf8bf2b46de6eb1b88e2b4fa98583d8dc601a9475423d26967",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/0944239.jpg"
+    },
+    {
+      "sha256": "69ffd59aa3378899a28df2aa6aabe557e8f19f2e24199ff6b0551f866e399dfe",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1320583.jpg"
+    },
+    {
+      "sha256": "0e4ba382e8675113ee0e714530b66066ba4c299d9e5b0eab26a0aa2008cb986a",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1284223.jpg"
+    },
+    {
+      "sha256": "cac50ecfd5953aef9e4642aba836a97a0f6d08d9919c7d056951e94ec9796b6c",
+      "url": "https://huggingface.co/datasets/Shiym/ViT-FineTune/resolve/16c6368266640c62cafa0cd59b9abb01291b7072/fgvc-aircraft-2013b/data/images/1000013.jpg"
+    }
+  ],
+  "stage_id": null,
+  "status": "completed",
+  "train_diagnostic_ids": [
+    "1966895",
+    "0514738",
+    "1680707",
+    "1449320",
+    "0394154",
+    "0642084",
+    "0690074",
+    "0522914"
+  ],
+  "train_metrics": {
+    "epoch": 0.2066115702479339,
+    "train_loss": 0.11882484017733058,
+    "train_runtime": 10647.5248,
+    "train_samples_per_second": 0.028,
+    "train_steps_per_second": 0.028
+  },
+  "trainable_parameters": {
+    "count": 1089536,
+    "names": [
+      "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.0.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.0.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.1.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.1.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.1.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.1.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.2.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.2.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.2.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.2.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.3.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.3.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.3.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.3.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.4.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.4.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.4.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.4.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.5.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.5.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.5.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.5.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.6.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.6.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.6.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.6.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.7.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.7.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.7.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.7.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.8.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.8.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.8.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.8.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.9.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.9.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.9.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.9.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.10.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.10.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.10.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.10.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.11.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.11.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.11.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.11.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.12.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.12.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.12.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.12.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.13.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.13.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.13.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.13.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.14.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.14.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.14.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.14.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.15.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.15.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.15.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.15.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.16.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.16.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.16.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.16.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.17.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.17.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.17.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.17.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.18.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.18.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.18.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.18.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.19.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.19.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.19.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.19.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.20.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.20.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.20.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.20.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.21.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.21.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.21.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.21.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.22.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.22.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.22.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.22.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.23.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.23.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.23.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.23.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.24.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.24.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.24.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.24.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.25.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.25.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.25.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.25.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.26.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.26.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.26.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.26.self_attn.v_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.27.self_attn.q_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.27.self_attn.q_proj.lora_B.default.weight",
+      "base_model.model.model.language_model.layers.27.self_attn.v_proj.lora_A.default.weight",
+      "base_model.model.model.language_model.layers.27.self_attn.v_proj.lora_B.default.weight"
+    ]
+  }
+}
