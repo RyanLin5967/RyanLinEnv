@@ -710,9 +710,11 @@ def test_every_arm_and_promoted_control_builds_a_valid_assay_profile(tmp_path):
     for a in specs:
         profile = arm_exec.Arm(tmp_path, a, tmp_path / "r").assay_profile(local)
         profile.validate()  # predict_train_subset runs this first; None raised TypeError
+        # literal Profile defaults (never read from the subject): temperature 1.0, G 4
+        defaults = {"temperature": 1.0, "num_generations": 4}
         for k in arm_exec.PROFILE_KEYS:  # the spec's value, or the default if absent/None
             want = a.get(k)
-            assert getattr(profile, k) == (getattr(local.Profile(), k) if want is None else want)
+            assert getattr(profile, k) == (defaults[k] if want is None else want), (a["id"], k)
     controls = sum(a["track"] == "control" and "@r" not in a["id"] for a in specs)
     assert controls == 40 + 29 + 20  # wave-1 and pre-registered wave-2 controls, and ours
 
@@ -1023,3 +1025,136 @@ def test_wave2_launch_refuses_until_gate0_passed(tmp_path, monkeypatch):
             assert calls == [], (gate, calls)
     held = runner.launch_hold({}, {"id": "x", "family": "wave2-rft", "track": "rl"}, {})
     assert "GATE 0" in held
+
+
+# ---- delta review of 0f0f430: replay manifests with repeated ids, stricter checks ------
+def _replay_payload(tmp_path):
+    """A probe TRAIN pool of 8 real images, placed as a payload's training manifest."""
+    from vision_rl import vlm_local_training as local
+
+    data = tmp_path / "probe"
+    local.make_probe_data(data)
+    manifests = tmp_path / "root" / "payload" / "data" / "manifests"
+    manifests.mkdir(parents=True)
+    rows = [json.loads(x) for x in (data / "train.jsonl").read_text().splitlines()]
+    for r in rows:
+        r["image"] = str((data / r["image"]).resolve())
+    (manifests / "s_train_probe.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows))
+    return local, data, [r["id"] for r in rows]
+
+
+@pytest.mark.parametrize("kind", ["dapo-repeats", "rung3-1500", "dapo-rung3-4000"])
+def test_replay_manifest_with_repeats_loads_and_trains_in_order(tmp_path, monkeypatch, kind):
+    local, data, pool = _replay_payload(tmp_path)
+    if kind == "dapo-repeats":  # replacement draws pick the same row again
+        ids = [pool[0], pool[3], pool[3], pool[1], pool[0], pool[5], pool[3]]
+    else:  # a rung-3 control (1,500 committed ids) or a DAPO one past the 3,334-row cap
+        n = 1500 if kind == "rung3-1500" else 4000
+        ids = [pool[(k * 3) % len(pool)] for k in range(n)]
+    spec = {"id": f"x~ctl-{kind}", "mode": "sft", "train_ids": ids, "lr": 1e-5, "seed": 42,
+            "init": "I", "order": "sequential", "cycle": True, "response_format": "answer_only",
+            "num_generations": 4, "min_pixels": 1, "max_pixels": 2, "max_completion_length": 8,
+            "max_active_seconds": 100.0}
+    arm = arm_exec.Arm(tmp_path / "root", spec, tmp_path / "r")
+    path = arm.manifest()
+    argv = arm.trainer_args(path, 12000, len(ids), None)
+    assert "--replay-sequence" in argv
+    with pytest.raises(ValueError, match="must be unique"):  # the crash this fixes
+        local.load_classification(path, "train", ["blue", "red"], require_all_classes=False)
+    rows = local.load_classification(path, "train", ["blue", "red"], require_all_classes=False,
+                                     allow_repeated_ids=True)
+    assert [r["id"] for r in rows] == ids  # every presentation, in replay order
+    # train_local accepts it (past loader, row cap and validation) and reaches preflight
+    monkeypatch.setattr(local, "preflight", lambda *_: (_ for _ in ()).throw(
+        RuntimeError("reached preflight")))
+    common = dict(mode="sft", train_only=True, exploratory_sweep=local.EXPLORATORY_SWEEP_ID,
+                  order="sequential", cycle=True, max_steps=12000, max_active_seconds=100.0,
+                  learning_rate=1e-5, model_directory=tmp_path / "model")
+    with pytest.raises(RuntimeError, match="reached preflight"):
+        local.train_local(path, None, data / "data_spec.json", tmp_path / "out",
+                          replay_sequence=True, **common)
+    with pytest.raises(ValueError, match="must be unique"):
+        local.train_local(path, None, data / "data_spec.json", tmp_path / "out2", **common)
+
+
+def test_replay_sequence_is_control_only_and_repeats_must_be_exact(tmp_path):
+    local, data, pool = _replay_payload(tmp_path)
+    with pytest.raises(ValueError, match="sequential SFT control"):
+        local.train_local(data / "train.jsonl", None, data / "data_spec.json", tmp_path / "o",
+                          mode="grpo", train_only=True, replay_sequence=True)
+    rows = [json.loads(x) for x in (data / "train.jsonl").read_text().splitlines()]
+    bad = dict(rows[0], label="red" if rows[0]["label"] == "blue" else "blue")
+    (data / "bad.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [rows[0], bad]))
+    with pytest.raises(ValueError, match="must repeat its row"):
+        local.load_classification(data / "bad.jsonl", "train", ["blue", "red"],
+                                  require_all_classes=False, allow_repeated_ids=True)
+    distinct = arm_exec.Arm(tmp_path / "root", {"id": "c", "mode": "sft", "train_ids": pool,
+                                                "lr": 1e-5, "seed": 1, "init": "I",
+                                                "response_format": "answer_only",
+                                                "num_generations": 4, "min_pixels": 1,
+                                                "max_pixels": 2, "max_completion_length": 8},
+                            tmp_path / "r")
+    assert "--replay-sequence" not in distinct.trainer_args(tmp_path / "m", 8, 8, None)
+
+
+def test_assay_profile_refuses_a_missing_key_other_than_temperature(tmp_path):
+    from vision_rl import vlm_local_training as local
+
+    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 1,
+            "max_pixels": 2, "max_completion_length": 8, "num_generations": 8,
+            "temperature": None}
+    assert arm_exec.Arm(tmp_path, base, tmp_path / "r").assay_profile(local).temperature == 1.0
+    for key in ("response_format", "max_pixels", "num_generations"):
+        with pytest.raises(SystemExit, match=key):
+            arm_exec.Arm(tmp_path, dict(base, **{key: None}), tmp_path / "r").assay_profile(local)
+    sft = dict(base, mode="sft", num_generations=None)  # SFT never samples: default 4
+    assert arm_exec.Arm(tmp_path, sft, tmp_path / "r").assay_profile(local).num_generations == 4
+
+
+def test_scanned_replay_refuses_committed_ids_outside_the_scan_order(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step2", "steps": 2, "active_seconds": 9.0}]}))
+    state = {"arms": {"d": {"status": "DONE", "results_dir": str(res)}}}
+    ctl = {"id": "d~ctl", "control_of": "d", "max_steps_total": 100,
+           "control_replays": "scanned"}
+
+    def write(committed, scanned, schema=None):
+        (res / "endpoint_receipt.json").write_text(json.dumps(
+            {"global_step": 2, "committed_prompt_ids": committed,
+             **({"schema": schema} if schema else {})}))
+        (res / "scanned_ids.json").write_text(json.dumps(
+            {"global_step": 2, "scanned_prompt_ids": scanned}))
+
+    write(["c", "g"], ["a", "c", "d", "g"])
+    assert runner.control_spec(state, ctl)["train_ids"] == ["a", "c", "d", "g"]
+    for committed in (["g", "c"], ["c", "z"]):  # out of order / never scanned
+        write(committed, ["a", "c", "d", "g"])
+        with pytest.raises(SystemExit, match="not within its scanned ids"):
+            runner.control_spec(state, ctl)
+    rft = "arm_exec-rft-endpoint-v1"
+    write(["g", "c"], ["a", "c", "d", "g"], rft)  # RFT: kept order is canonical, subset
+    assert runner.control_spec(state, ctl)["train_ids"] == ["a", "c", "d", "g"]
+    write(["c", "z"], ["a", "c", "d", "g"], rft)
+    with pytest.raises(SystemExit, match="not within its scanned ids"):
+        runner.control_spec(state, ctl)
+
+
+def test_rft_scan_refuses_a_kept_prompt_the_round_never_sampled(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1)])
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    rec["rounds"][0]["prompt_ids"] = ["p2", "p3"]
+    (arm.out / "local_training.json").write_text(json.dumps(rec))
+    with pytest.raises(SystemExit, match="did not sample"):
+        arm.scanned_ids({"global_step": 1, "committed_prompt_ids": ["p1"]})
+
+
+def test_truncated_dynamic_sampling_journal_refuses_clearly(tmp_path):
+    lines = _draws(1, ["a", "b"])
+    arm, receipt = _dapo_out(tmp_path, lines, ["b"])
+    with (arm.out / "dynamic_sampling.jsonl").open("a") as handle:
+        handle.write('{"global_step": 2, "dra')  # a crash mid-write
+    with pytest.raises(SystemExit, match="line 3 of 3 is not JSON"):
+        arm.scanned_ids(receipt)

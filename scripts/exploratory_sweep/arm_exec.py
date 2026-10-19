@@ -199,6 +199,12 @@ class Arm:
             args += ["--order", s.get("order", "random")]
             if s.get("cycle"):
                 args += ["--cycle"]
+            ids = s.get("train_ids") or []
+            if len(set(ids)) < len(ids):
+                # a control replaying a sequence that presents a row again (dynamic-sampling
+                # redraws, an RFT pool wrap, more committed ids than distinct rows): the
+                # trainer loads the repeats and trains them in this order
+                args += ["--replay-sequence"]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
         if stop_seconds is not None:
@@ -225,14 +231,25 @@ class Arm:
         if self.spec["mode"] == "rft":
             rec = json.loads((self.out / "local_training.json").read_text())
             ids = [pid for entry in rec["rounds"] for pid in entry["prompt_ids"]]
+            for entry in rec["rounds"]:  # what a round kept must be prompts it sampled
+                kept = json.loads((self.out / f"round-{entry['round']:02d}" / "kept.json")
+                                  .read_text())["kept"]
+                if not set(kept) <= set(entry["prompt_ids"]):
+                    raise SystemExit(f"REFUSE: RFT round {entry['round']} kept prompts it "
+                                     f"did not sample")
             source = "local_training.json rounds[].prompt_ids"
         elif (self.out / "dynamic_sampling.jsonl").is_file():
             steps, committed = int(receipt["global_step"]), receipt["committed_prompt_ids"]
             if len(committed) != steps:
                 raise SystemExit("REFUSE: dynamic sampling with reused updates is not replayable")
             blocks, block = {}, []
-            for line in (self.out / "dynamic_sampling.jsonl").read_text().splitlines():
-                entry = json.loads(line)
+            lines = (self.out / "dynamic_sampling.jsonl").read_text().splitlines()
+            for number, line in enumerate(lines, 1):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    raise SystemExit(f"REFUSE: dynamic_sampling.jsonl line {number} of "
+                                     f"{len(lines)} is not JSON (truncated write?)") from None
                 block.append(entry)
                 if entry.get("kept"):
                     blocks[int(entry["global_step"])] = block
@@ -446,12 +463,20 @@ class Arm:
         return doc["metrics"]
 
     def assay_profile(self, vlt):
-        """A key the spec lacks, or sets to None, takes the Profile default. Table controls
-        have no `temperature` (s[k] raised KeyError), and SFT arms and promoted controls
-        (runner.control_for) set it to None, which Profile.validate() refuses with a
-        TypeError inside predict_train_subset. Either way the arm crashed at its first assay,
-        after its training. The assay is greedy, so temperature never changes a prediction."""
+        """The assay's Profile from the spec. Only `temperature` (any mode) and
+        `num_generations` (SFT and eval, which never sample) may be absent or None; they then
+        take the Profile default. Table controls have no `temperature` (s[k] raised
+        KeyError), and SFT arms and promoted controls (runner.control_for) set it to None,
+        which Profile.validate() refuses with a TypeError inside predict_train_subset, so
+        every such arm crashed at its first assay, after training. The assay is greedy, so
+        neither key changes a prediction. Any other key absent or None refuses: e.g. a None
+        response_format would silently assay under the wrong prompt."""
         s = self.spec
+        optional = {"temperature"} | ({"num_generations"} if s.get("mode") in (
+            "sft", "egsft", "eval") else set())
+        missing = [k for k in PROFILE_KEYS if s.get(k) is None and k not in optional]
+        if missing:
+            raise SystemExit(f"REFUSE: {s.get('id')} has no {missing} for its assay profile")
         return vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
                            dtype=s.get("dtype", "float32"))
 

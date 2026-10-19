@@ -380,6 +380,22 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   `arm_exec` writes them to `scanned_ids.json`. A missing or mismatched file refuses the
   control and never falls back. The step caps of these controls are 12,000 (DAPO) and
   12,800 (RFT).
+
+  The committed ids must lie within the scanned ids. For DAPO they must appear as an
+  in-order subsequence. For RFT they must be a subset, and each round's kept prompts must
+  be prompts that round sampled.
+- **Replay sequences can repeat rows.** A replay list can present the same TRAIN row more
+  than once:
+  - DAPO redraws pick rows at random;
+  - the RFT pool wraps after about 45 rounds;
+  - a rung-3 control commits 1,500 ids from a 1,424-row pool.
+
+  The trainer used to refuse a manifest with a repeated id. It now has a default-off,
+  control-only `--replay-sequence` mode: sequential TRAIN-only SFT. In this mode each
+  repeat must exactly repeat its first row (same image and label). Rows train in manifest
+  order, and the row cap counts distinct images. `arm_exec` passes the flag only when a
+  control's list actually repeats an id. Every control declares the `replay_sequence`
+  feature, so it launches only where the trainer has it.
 - **Device controls.** W and I are each assayed on every device class
   (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against I measured under its own
   numerics, and each GPU eval against the CPU fp32 eval.

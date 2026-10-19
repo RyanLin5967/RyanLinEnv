@@ -167,7 +167,9 @@ def wave2_arms() -> list:
         if c["control_of"] != rl["id"]:
             raise ValueError("control order differs from its RL arms")
         c.update(lr=rl["matched_control_lr"],
-                 features=list(DEVICES[rl["device_class"]]["features"]),
+                 # replay_sequence: a replay list that presents a row again needs it
+                 features=sorted(set(DEVICES[rl["device_class"]]["features"])
+                                 | {"replay_sequence"}),
                  response_format=rl.get("control_response_format", c["response_format"]),
                  max_steps_total=rl.get("control_max_steps_total", c["max_steps_total"]))
         if rl.get("control_replays"):
