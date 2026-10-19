@@ -69,7 +69,7 @@ The rules come from `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`.
     same code. Promotion refuses if no placebo result exists.
   - Promotion keeps the top third of groups, and only those strictly above the bar.
   - The rung schedule is fixed by `rung_stops`, with no early stop.
-- **C16:** co-tenancy is recorded per stage. GPU co-tenants come from nvidia-smi; for CPU, load1 is
+- **C16:** co-tenancy is recorded per stage. GPU co-tenants come from nvidia-smi; a CPU sample counts as shared when load1 exceeds the stage's threads + 1; load1 is also
   recorded. A time comparison refuses when the RL arm and its control ran under different co-tenancy.
 - **C19:** a continuation is reported only after its device class's E0 has passed. E0 is a `kind: e0`
   row that runs 4 updates uninterrupted twice and 2+2 resumed. It passes when |B−A| ≤ 2·|A2−A| + 1e-7.

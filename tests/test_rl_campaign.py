@@ -372,10 +372,13 @@ def test_scanned_ids_for_dynamic_sampling_keep_dropped_draws_in_order(tmp_path):
 
 
 def test_cotenancy_summary_flags_shared_only_when_a_foreign_process_was_seen():
-    c = arm_exec.CoTenancy(cuda=False)
+    c = arm_exec.CoTenancy(cuda=False, threads=10**6)  # no load can exceed this
     c.sample(1)
     s = c.summary()
     assert s["device"] == "cpu" and s["samples"] == 1 and s["shared"] is False
+    busy = arm_exec.CoTenancy(cuda=False, threads=-2)  # any load1 >= 0 exceeds -2 + 1
+    busy.sample(1)
+    assert busy.summary()["shared"] is True and busy.summary()["samples_with_cotenant"] == 1
     c = arm_exec.CoTenancy(cuda=True)
     c.samples, c.hits, c.foreign = 4, 1, {"999": {"used_mib": "7000", "name": "python"}}
     assert c.summary()["shared"] is True and c.summary()["samples_with_cotenant"] == 1

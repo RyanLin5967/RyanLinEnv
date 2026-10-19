@@ -103,13 +103,15 @@ class CoTenancy:
     """Who else used this machine while a stage ran (root correction C16).
 
     CUDA: every `nvidia-smi --query-compute-apps` sample; a process not in the stage's own
-    process tree is a co-tenant. CPU: load1 samples (another user's work shows only as load).
-    `shared` is True when any sample saw a co-tenant GPU process; the campaign report refuses
+    process tree is a co-tenant. CPU: a sample is co-tenant when load1 exceeds the stage's own
+    threads + 1 (other work shows only as load). `shared` is True when any sample saw a
+    co-tenant; the campaign report refuses
     a time comparison between an RL arm and a control whose `shared` values differ.
     Blind spot: a co-tenant that starts and ends between two samples is not seen."""
 
-    def __init__(self, cuda: bool):
+    def __init__(self, cuda: bool, threads: int = 0):
         self.cuda, self.samples, self.foreign, self.hits, self.load = cuda, 0, {}, 0, []
+        self.threads = int(threads)
 
     @staticmethod
     def tree(root: int) -> set:
@@ -128,8 +130,10 @@ class CoTenancy:
 
     def sample(self, root: int) -> None:
         self.samples += 1
-        self.load.append(os.getloadavg()[0])
+        load1 = os.getloadavg()[0]
+        self.load.append(load1)
         if not self.cuda:
+            self.hits += load1 > self.threads + 1
             return
         q = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,process_name",
                             "--format=csv,noheader,nounits"], capture_output=True, text=True)
@@ -294,7 +298,7 @@ class Arm:
         started = time.time()
         log = self.work / f"{label}.log"
         cuda = self.spec.get("device", "cpu") == "cuda"
-        watch = CoTenancy(cuda)
+        watch = CoTenancy(cuda, int(self.spec.get("threads") or 0))
         with log.open("w") as handle:
             proc = subprocess.Popen([str(self.python), "-s", "-P", *args], env=self.env,
                                     stdout=handle, stderr=subprocess.STDOUT)

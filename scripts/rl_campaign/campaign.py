@@ -40,7 +40,8 @@ Root corrections (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md), enforced her
       inside the update span, so they are in the RL arm's active seconds.
   C10/M5/C11 promotion: best-of-k vs best-of-k (same k); the bar is the max placebo delta
       (SFT-from-I vs SFT-from-I at another seed, same code); fixed rung_stops, no early stop.
-  C16 per-stage co-tenancy (arm_exec.CoTenancy); a time comparison with different
+  C16 per-stage co-tenancy (arm_exec.CoTenancy: foreign GPU process, or CPU load1 > own
+      threads + 1); a time comparison with different
       co-tenancy refuses.
   C19 a continuation is quoted only after the device class's E0 (kind e0: N uninterrupted
       vs N/2+N/2 resumed, against the N vs N run-to-run floor) passed.
