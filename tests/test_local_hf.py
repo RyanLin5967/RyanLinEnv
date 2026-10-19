@@ -165,3 +165,38 @@ def test_kernel_pin_refuses_a_onednn_isa_other_than_the_plan_once_torch_is_loade
     monkeypatch.setenv("DNNL_MAX_CPU_ISA", "AVX")  # the legacy alias must stay unset
     with pytest.raises(ValueError, match="loaded before the CPU kernel path"):
         local_hf.pin_cpu_numerics(numerics)
+
+
+def test_vml_warmup_runs_each_op_single_threaded_then_restores(monkeypatch):
+    previous = torch.get_num_threads()
+    seen = {}
+    for name in local_hf.VML_WARMUP_OPS:
+        real = getattr(torch, name)
+
+        def record(x, real=real, name=name):
+            seen.setdefault(name, torch.get_num_threads())
+            return real(x)
+
+        monkeypatch.setattr(torch, name, record)
+    assert local_hf.vml_warmup(torch) is True
+    assert seen == {name: 1 for name in ("cos", "sin", "exp", "tanh", "log")}
+    assert torch.get_num_threads() == previous
+
+
+def test_kernel_pin_applies_and_records_the_vml_warmup(monkeypatch):
+    monkeypatch.setenv("ATEN_CPU_CAPABILITY", "default")
+    monkeypatch.setenv("MKL_CBWR", "AVX")
+    monkeypatch.setenv("ONEDNN_MAX_CPU_ISA", "AVX")
+    monkeypatch.delenv("DNNL_MAX_CPU_ISA", raising=False)
+    numerics = {"aten_cpu_capability_env": "default",
+                "aten_cpu_capability": torch.backends.cpu.get_cpu_capability(),
+                "mkldnn_enabled": torch.backends.mkldnn.enabled, "mkl_cbwr": "AVX",
+                "mkl_available": torch.backends.mkl.is_available(),
+                "onednn_max_cpu_isa": "AVX", "vml_single_thread_warmup": True}
+    calls = []
+    monkeypatch.setattr(local_hf, "vml_warmup", lambda module: calls.append(module) or True)
+    observed = local_hf.pin_cpu_numerics(numerics)
+    assert calls == [torch] and observed["vml_single_thread_warmup"] is True
+    monkeypatch.setattr(local_hf, "vml_warmup", lambda module: False)
+    with pytest.raises(ValueError, match="not the pre-registered one"):
+        local_hf.pin_cpu_numerics(numerics)

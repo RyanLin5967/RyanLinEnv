@@ -100,20 +100,46 @@ def pin_cpu_numerics(numerics):
     import torch
 
     torch.backends.mkldnn.enabled = numerics["mkldnn_enabled"]
+    warmed = numerics.get("vml_single_thread_warmup") is True and vml_warmup(torch)
     observed = {
         "aten_cpu_capability": torch.backends.cpu.get_cpu_capability(),
         "mkldnn_enabled": torch.backends.mkldnn.enabled,
         "mkl_cbwr": os.environ.get("MKL_CBWR"),
         "mkl_available": torch.backends.mkl.is_available(),
         "onednn_max_cpu_isa": os.environ.get("ONEDNN_MAX_CPU_ISA"),
+        "vml_single_thread_warmup": warmed,
     }
     expected = {"aten_cpu_capability": numerics["aten_cpu_capability"],
                 "mkldnn_enabled": numerics["mkldnn_enabled"], "mkl_cbwr": numerics["mkl_cbwr"],
                 "mkl_available": numerics["mkl_available"],
-                "onednn_max_cpu_isa": numerics.get("onednn_max_cpu_isa")}
+                "onednn_max_cpu_isa": numerics.get("onednn_max_cpu_isa"),
+                "vml_single_thread_warmup": numerics.get("vml_single_thread_warmup") is True}
     if observed != expected:
         raise ValueError(f"CPU kernel path is not the pre-registered one: {observed}")
     return observed
+
+
+VML_WARMUP_OPS = ("cos", "sin", "exp", "tanh", "log")
+
+
+def vml_warmup(torch):
+    """One single-threaded pass through MKL VML's float ops before any parallel region.
+
+    torch 2.14.1's bundled MKL sometimes dispatches its AVX-512 VML kernels on CPUs without
+    AVX-512 when several OpenMP workers make the first VML call at once: SIGILL (rc 132) at
+    the same libtorch_cpu.so offset, in mkl_vml_kernel_sCos_Z0HAynn, on Ivy Bridge (iccad1/3)
+    and Broadwell (iccad5/6) alike, under every environment pin. A first call made by one
+    thread initialises the dispatch before any race. Returns True once done.
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        values = torch.linspace(0.5, 1.5, 1 << 20)
+        for name in VML_WARMUP_OPS:
+            getattr(torch, name)(values)
+    finally:
+        torch.set_num_threads(previous)
+    return True
 
 
 def _mapped_libraries():
