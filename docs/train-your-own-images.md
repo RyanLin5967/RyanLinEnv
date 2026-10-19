@@ -28,7 +28,8 @@ my-photos/
 - Exact copies (identical pixels) are dropped, and the same image filed under two labels is
   refused. Near-copies such as a resized or re-saved photo, or burst shots, are not detected.
   Keep those together by hand if you want an honest test score.
-- Hidden files and macOS zip leftovers (`__MACOSX`, `._name.jpg`) are skipped.
+- In a folder of label subfolders, hidden files and macOS zip leftovers (`__MACOSX`,
+  `._name.jpg`) are skipped. Remove them from an already-split export before training.
 - If your folder already has `train/`, `test/` and `valid/` (or `validation/` or `val/`),
   for example a Roboflow classification export, those splits are used exactly as given.
 - Every training image is held in memory once, at about 2.4 MB per image (4 views). A few
