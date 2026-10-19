@@ -6,7 +6,7 @@ ARMS="sftceil-cont-all-lr3e-6:iccad11:10
 sftceil-cont-all-lr5e-6:iccad7:10
 sftceil-cont-all-lr1e-5:iccad11:10
 sftceil-cont-all-lr2e-5:iccad12:10
-sftceil-I-seed1:ecetesla0:10
+sftceil-I-seed1:iccad8:11
 sftceil-I-seed2:iccad10:10
 sftceil-I-seed3:iccad13:10
 sftceil-I-seed4:iccad12:10

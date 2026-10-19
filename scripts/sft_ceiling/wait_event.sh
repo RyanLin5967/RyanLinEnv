@@ -8,7 +8,7 @@ RUNS="sftceil-cont-all-lr3e-6-10:iccad11
 sftceil-cont-all-lr5e-6-10:iccad7
 sftceil-cont-all-lr1e-5-10:iccad11
 sftceil-cont-all-lr2e-5-10:iccad12
-sftceil-I-seed1-10:ecetesla0
+sftceil-I-seed1-11:iccad8
 sftceil-I-seed2-10:iccad10
 sftceil-I-seed3-10:iccad13
 sftceil-I-seed4-10:iccad12
