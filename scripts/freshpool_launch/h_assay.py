@@ -100,7 +100,7 @@ def answer(completion, labels, profile=PROFILE):
 
 
 def assay(rows, split, adapter, stage_dir, *, data_spec, model_directory, device, profile,
-          label_trie=None, threads=None, precision_transfer=None):
+          threads=None, precision_transfer=None, label_trie=None):
     labels = vlt.load_spec(Path(data_spec))["labels"]
     adapter_sha = file_sha256(Path(adapter) / "adapter_model.safetensors")
     answers = {row["id"]: [] for row in rows}
@@ -189,12 +189,12 @@ def main(argv=None):
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
     parser.add_argument("--device", choices=vlt.DEVICES, default="mps")
-    parser.add_argument("--training-group", type=int, choices=TRAINING_GROUPS)
-    parser.add_argument("--label-trie", type=Path)
-    parser.add_argument("--label-trie-sha256")
     parser.add_argument("--threads", type=int, help="torch intra-op CPU threads (default 2)")
     parser.add_argument("--precision-transfer", choices=vlt.INFERENCE_PRECISION_TRANSFERS,
                         help="run the endpoint on another base dtype (recorded per chunk)")
+    parser.add_argument("--training-group", type=int, choices=TRAINING_GROUPS)
+    parser.add_argument("--label-trie", type=Path)
+    parser.add_argument("--label-trie-sha256")
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
@@ -213,8 +213,8 @@ def main(argv=None):
     rows = read_rows(args["manifest"])
     result = assay(rows, args["split"], args["adapter"], args["stage_dir"],
                    data_spec=args["data_spec"], model_directory=args["model_directory"],
-                   device=args["device"], profile=profile, label_trie=trie,
-                   threads=args["threads"], precision_transfer=args["precision_transfer"])
+                   device=args["device"], profile=profile, threads=args["threads"],
+                   precision_transfer=args["precision_transfer"], label_trie=trie)
     fragment = {"run_id": args["run_id"], "split": args["split"],
                 "manifest_sha256": file_sha256(args["manifest"]),
                 "seeds": list(SEEDS[args["split"]]), "completion_order":

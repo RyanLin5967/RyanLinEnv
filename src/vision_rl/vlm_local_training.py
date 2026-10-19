@@ -33,8 +33,7 @@ from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_l
 
 DEFAULT_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
 DEVICES = ("mps", "cpu", "cuda")
-# --loss-type (signal-limit): the two aggregations its plans name; GRPO_KNOBS takes more.
-SIGNAL_LOSS_TYPES = ("grpo", "dr_grpo")
+GRPO_LOSS_TYPES = ("grpo", "dr_grpo")  # the explicit train_local/trainer_kwargs loss_type
 GRPO_REWARD_SCALES = ("group", "none")
 REWARDS = ("exact", "exact_hn")
 CONSTRAINED_GREEDY = "label-trie-constrained-greedy/pass@1"
@@ -61,7 +60,9 @@ GRPO_KNOBS = {
     "num_iterations": 1,
     "top_entropy_quantile": 1.0,
 }
-GRPO_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
+KNOB_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
+# GRPO knobs with one shared CLI flag (--loss-type, --scale-rewards): see main().
+ROUTED_KNOBS = ("loss_type", "scale_rewards")
 # FGVC-Aircraft 2013b taxonomy for the closed-set prompt. Every (manufacturer, family,
 # variants) row was derived from the author release's native TRAIN annotations only
 # (images_{variant,family,manufacturer}_train.txt, SHA-256 29ac66fb..., 9bc9b649...,
@@ -173,27 +174,6 @@ EXPLORATORY_SWEEP_ID = "aircraft-exploratory-sweep-v2"
 NATIVE_TRAIN_ROWS = 3334
 
 
-def _torch_threads() -> int:
-    """Torch intra-op CPU threads: the historical 2 unless an environment variable says so.
-
-    VISION_RL_TORCH_THREADS (1..256) is set only by the UWaterloo freshpool/signal-limit CPU
-    path (scripts/freshpool_launch/uw_stage_a.py); VLM_TORCH_THREADS (1..256) by the
-    exploratory sweep's arm_exec. Each keeps its own refusal; both set and different refuses.
-    """
-    values = []
-    signal = os.environ.get("VISION_RL_TORCH_THREADS")
-    if signal is not None:
-        if not signal.isdigit() or not 1 <= int(signal) <= 256:
-            raise LocalVLMError(f"VISION_RL_TORCH_THREADS must be 1..256, got {signal!r}")
-        values.append(int(signal))
-    sweep = os.environ.get("VLM_TORCH_THREADS")
-    if sweep is not None:
-        if not sweep.isdigit() or not 1 <= int(sweep) <= 256:
-            raise ValueError("VLM_TORCH_THREADS must be an integer in 1..256")
-        values.append(int(sweep))
-    if len(set(values)) > 1:
-        raise LocalVLMError("VISION_RL_TORCH_THREADS and VLM_TORCH_THREADS disagree")
-    return values[0] if values else 2
 MODEL_REVISIONS = {
     DEFAULT_MODEL: "895c3a49bc3fa70a340399125c650a463535e71c",
     "Qwen/Qwen2.5-VL-3B-Instruct": "66285546d2b821cf421d4f5eb2576359d3770cd3",
@@ -298,6 +278,32 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
     (output / "adapter-source.py").write_bytes(source)
 
 
+def _torch_threads() -> int:
+    """Torch CPU threads: 2, unless an environment override (1..256) says otherwise.
+
+    Two launchers set one each, merged from parallel branches:
+    - VISION_RL_TORCH_THREADS: the UWaterloo CPU execution path
+      (scripts/freshpool_launch/uw_stage_a.py); an invalid value raises LocalVLMError.
+    - VLM_TORCH_THREADS: the exploratory sweep's arm executor
+      (scripts/exploratory_sweep/arm_exec.py); an invalid value raises ValueError.
+    Both set to different values refuses rather than picking one.
+    """
+    found = {}
+    raw = os.environ.get("VISION_RL_TORCH_THREADS")
+    if raw is not None:
+        if not raw.isdigit() or not 1 <= int(raw) <= 256:
+            raise LocalVLMError(f"VISION_RL_TORCH_THREADS must be 1..256, got {raw!r}")
+        found["VISION_RL_TORCH_THREADS"] = int(raw)
+    raw = os.environ.get("VLM_TORCH_THREADS")
+    if raw is not None:
+        if not raw.isdigit() or not 1 <= int(raw) <= 256:
+            raise ValueError("VLM_TORCH_THREADS must be an integer in 1..256")
+        found["VLM_TORCH_THREADS"] = int(raw)
+    if len(set(found.values())) > 1:
+        raise LocalVLMError(f"conflicting torch thread overrides: {found}")
+    return next(iter(found.values()), 2)
+
+
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
     if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
@@ -341,7 +347,7 @@ def preflight(device: str = "mps") -> dict[str, Any]:
             "capability": list(torch.cuda.get_device_capability(0)),
             "native_bfloat16": bool(torch.cuda.is_bf16_supported(including_emulation=False)),
         }
-    environment = {
+    return {
         "device": device,
         "python": sys.version.split()[0],
         "package_versions": versions,
@@ -351,17 +357,6 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         "model_downloads": False,
         **cuda,
     }
-    if device == "cuda":
-        # Both CUDA records are kept: `cuda_device` (signal-limit) gates bfloat16 inference
-        # in _refuse_unsupported_dtype, `cuda` (exploratory sweep) gates training precision in
-        # check_device_dtype. CUDA-only keys, so mps/cpu environments are unchanged.
-        environment["cuda"] = {
-            "device_name": torch.cuda.get_device_name(0),
-            "capability": list(torch.cuda.get_device_capability(0)),
-            "torch_cuda": torch.version.cuda,
-            "bf16_native": torch.cuda.get_device_capability(0) >= (8, 0),
-        }
-    return environment
 
 
 def check_device_dtype(device: str, dtype: str, environment: dict, *, training: bool) -> None:
@@ -377,7 +372,8 @@ def check_device_dtype(device: str, dtype: str, environment: dict, *, training: 
     if dtype == "float16" and device != "cuda":
         raise ValueError("float16 runs only on --device cuda (CUDA loss scaling)")
     if device == "cuda" and dtype == "bfloat16" and training:
-        if not environment.get("cuda", {}).get("bf16_native"):
+        # preflight's CUDA record (merged from main): cuda_device.native_bfloat16
+        if not environment.get("cuda_device", {}).get("native_bfloat16"):
             raise ValueError(
                 "bfloat16 training needs CUDA compute capability >= 8.0; use float16 here"
             )
@@ -404,13 +400,16 @@ def _cuda_memory(device: str) -> dict | None:
 def _refuse_unsupported_dtype(environment: dict, profile: Profile, training: bool = False) -> None:
     """A CUDA card without native bfloat16 (e.g. RTX 2080 Ti) must run float16 or float32.
 
-    Inference callers use this (training=False). `training=True` is the signal-limit rule
-    from before CUDA float16 loss scaling existed (no GradScaler: refuse float16 training
-    everywhere); train_local and rft_local now gate training precision with
-    check_device_dtype instead, whose float16 path trains under a GradScaler.
+    float16 is inference-only. Training refuses it on every device (train_local and RFT);
+    train in float32. (The merged sweep-feat-cuda branch brought a GradScaler fp16 training
+    path, `_trainer_with_loss_scaling`; main's rule wins, per the root RL corrections C2:
+    GRPO runs in fp32 only and fp16 has no sampler-teacher parity evidence. That path is
+    unreachable from training until a parity measurement and a decision lift this.)
     """
     if training and profile.dtype == "float16":
-        raise LocalVLMError("float16 training has no loss scaling here; train in float32")
+        raise LocalVLMError(
+            "float16 training is refused (no parity evidence; corrections C2); train in float32"
+        )
     device = environment.get("cuda_device")
     if device is not None and profile.dtype == "bfloat16" and not device["native_bfloat16"]:
         fallback = "float32" if training else "float16 or float32"
@@ -458,12 +457,18 @@ def load_classification(
     *,
     preprocessing_id: str | None = None,
     require_all_classes: bool = True,
+    allow_repeated_ids: bool = False,
 ) -> list[dict[str, Any]]:
-    """Only immutable task-wide text enters the prompt; rows cannot override it."""
+    """Only immutable task-wide text enters the prompt; rows cannot override it.
+
+    `allow_repeated_ids` (default off; a matched control's replay sequence only) accepts an
+    id more than once, as an exact repeat (same image and label) of its first row, so a
+    sequential replay can present a row again in order.
+    """
     path = Path(path).resolve()
     if preprocessing_id not in (None, PREPROCESSING_ID):
         raise ValueError("unknown preprocessing_id")
-    rows, seen = [], set()
+    rows, seen, first = [], set(), {}
     for number, line in enumerate(path.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -472,17 +477,25 @@ def load_classification(
             raise ValueError(f"{path.name}:{number}: require only id, split, image, label")
         if row["split"] != split or split not in {"train", "validation"}:
             raise ValueError(f"expected {split} split; training adapter never opens test")
-        if not isinstance(row["id"], str) or not row["id"] or row["id"] in seen:
+        repeat = isinstance(row["id"], str) and row["id"] in seen
+        if not isinstance(row["id"], str) or not row["id"] or (repeat and not allow_repeated_ids):
             raise ValueError("classification IDs must be unique nonempty strings")
         if row["label"] not in labels or not isinstance(row["image"], str):
             raise ValueError("unknown canonical label or invalid image path")
         row["image"] = str((path.parent / row["image"]).resolve())
+        if repeat:
+            original = first[row["id"]]
+            if (row["image"], row["label"]) != (original["image"], original["label"]):
+                raise ValueError(f"{path.name}:{number}: a repeated id must repeat its row")
+            rows.append(dict(original))
+            continue
         row["image_sha256"] = (
             aircraft_pixel_sha256(row["image"])
             if preprocessing_id == PREPROCESSING_ID
             else image_hash(row["image"])
         )
         seen.add(row["id"])
+        first[row["id"]] = row
         rows.append(row)
     if not rows:
         raise ValueError("manifest is empty")
@@ -775,31 +788,32 @@ def make_reward(
     allow_reasoning: bool = True,
     journal_io_context=None,
     observe_prompt=None,
-    reward: str = "exact",
-    confusers: dict[str, list[str]] | None = None,
     shaping: dict[str, Any] | None = None,
     response_format: str | None = None,
+    reward: str = "exact",
+    confusers: dict[str, list[str]] | None = None,
 ):
     """Exact task reward with journaled groups; never inject synthetic variance.
 
-    `reward="exact_hn"` is a separately named reward: 1 for the exact gold + EOS,
-    HN_CONFUSER_REWARD (-0.5) for a terminated canonical answer that is one of the gold's
-    confusers in the frozen `confusers` map, 0 otherwise (invalid answers included).
-    ``shaping`` (default off) replaces the returned reward with hierarchical partial
-    credit (see ``shaped_reward``). The two are exclusive. Correctness statistics still
-    count exact gold only; ``mixed_groups`` counts groups whose returned rewards differ,
-    i.e. that carry a GRPO advantage.
+    Two default-off reward variants, never combined:
+    - ``shaping`` replaces the returned reward with hierarchical partial credit (see
+      ``shaped_reward``); the journal adds ``exact_rewards``.
+    - ``reward="exact_hn"`` is a separately named reward: 1 for the exact gold + EOS,
+      HN_CONFUSER_REWARD (-0.5) for a terminated canonical answer that is one of the gold's
+      confusers in the frozen ``confusers`` map, 0 otherwise (invalid answers included); the
+      journal adds ``exact`` and ``confuser``.
+    Correctness statistics always count exact gold only; ``mixed`` (and ``mixed_groups``)
+    follows the returned rewards, i.e. whether the group carries a GRPO advantage.
+    ``response_format`` (exploratory formats only; None for the legacy ones) selects the
+    answer grammar; for a legacy format ``parse_answer`` is exactly ``parse_label``.
     """
     if reward not in REWARDS or (reward == "exact_hn") != (confusers is not None):
         raise ValueError("reward must be exact, or exact_hn with a frozen confusion map")
-    if shaping is not None and reward != "exact":
-        raise ValueError("hierarchical reward shaping and exact_hn are exclusive")
+    if shaping is not None and confusers is not None:
+        raise ValueError("hierarchical shaping and the exact_hn reward cannot combine")
     if shaping is not None:
         if set(shaping["family"]) != set(labels):
             raise ValueError("reward shaping hierarchy must cover exactly the labels")
-        stats_extra = {"exact_mixed_groups": 0, "shaped_reward_sum": 0.0}
-    else:
-        stats_extra = {}
     stats = {"groups": 0, "mixed_groups": 0, "all_correct_groups": 0, "all_zero_groups": 0}
     stats.update(
         unique_prompt_ids=0,
@@ -814,10 +828,16 @@ def make_reward(
         canonical_completions=0,
         recognition_mixed_groups=0,
     )
+    if shaping is not None:
+        stats.update(exact_mixed_groups=0, shaped_reward_sum=0.0)
     if reward == "exact_hn":
         stats["confuser_completions"] = 0
-    stats.update(stats_extra)
     seen_ids = set()
+
+    def answer(text):
+        return parse_answer(
+            text, labels, allow_reasoning=allow_reasoning, response_format=response_format
+        )
 
     def exact_label_accuracy(completions, label, id, completion_ids, **_):
         if not len(completions) == len(label) == len(id) == len(completion_ids):
@@ -825,26 +845,25 @@ def make_reward(
         if len(completions) % group_size:
             raise ValueError("reward batch does not contain complete groups")
         exact = [
-            float(
-                bool(tokens)
-                and tokens[-1] in eos_ids
-                and parse_answer(
-                    text,
-                    labels,
-                    allow_reasoning=allow_reasoning,
-                    response_format=response_format,
-                )
-                == expected
-            )
+            float(bool(tokens) and tokens[-1] in eos_ids and answer(text) == expected)
             for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
         ]
+        rewards = exact
+        if shaping is not None:
+            rewards = [
+                shaped_reward(
+                    answer(text) if tokens and tokens[-1] in eos_ids else None,
+                    expected,
+                    shaping,
+                )
+                for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
+            ]
         if confusers is not None:
             confused = [
                 not correct
                 and bool(tokens)
                 and tokens[-1] in eos_ids
-                and parse_label(text, labels, allow_reasoning=allow_reasoning)
-                in confusers.get(expected, ())
+                and answer(text) in confusers.get(expected, ())
                 for text, expected, tokens, correct in zip(
                     completions, label, completion_ids, exact, strict=True
                 )
@@ -853,24 +872,6 @@ def make_reward(
                 HN_CONFUSER_REWARD if hit else correct
                 for hit, correct in zip(confused, exact, strict=True)
             ]
-        elif shaping is None:
-            rewards = exact
-        else:
-            rewards = [
-                shaped_reward(
-                    parse_answer(
-                        text,
-                        labels,
-                        allow_reasoning=allow_reasoning,
-                        response_format=response_format,
-                    )
-                    if tokens and tokens[-1] in eos_ids
-                    else None,
-                    expected,
-                    shaping,
-                )
-                for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
-            ]
         serialized = []
         for start in range(0, len(rewards), group_size):
             stop = start + group_size
@@ -878,24 +879,17 @@ def make_reward(
                 raise ValueError("TRL reward group mixes different examples")
             if observe_prompt is not None:
                 observe_prompt(id[start])
-            returned = rewards[start:stop]
-            mixed = min(returned) != max(returned)
-            # Correctness counts read exact gold only; for "exact" this is `returned` itself.
-            correct = group = exact[start:stop]
+            group = rewards[start:stop]
+            mixed = min(group) != max(group)
+            # Correctness counts read exact gold only; for "exact" this is `group` itself.
+            correct = exact[start:stop]
             texts = [_completion_text(x) for x in completions[start:stop]]
             terminated = [
                 bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
             ]
             thinking = [_complete_think_block(text, response_format) for text in texts]
             canonical = [
-                parse_answer(
-                    text,
-                    labels,
-                    allow_reasoning=allow_reasoning,
-                    response_format=response_format,
-                )
-                if ended
-                else None
+                answer(text) if ended else None
                 for text, ended in zip(texts, terminated, strict=True)
             ]
             recognition_mixed = any(correct) and any(
@@ -922,23 +916,20 @@ def make_reward(
             stats["task_correct_without_think"] += sum(
                 int(value) for value, thought in zip(correct, thinking, strict=True) if not thought
             )
-            # Journal key order is each side's own: shaping's fields follow "rewards",
-            # exact_hn's close the record.
-            extra = shaped = {}
+            extra = {}
+            if shaping is not None:
+                stats["exact_mixed_groups"] += int(min(correct) != max(correct))
+                stats["shaped_reward_sum"] += sum(group)
+                extra = {"exact_rewards": correct}
             if confusers is not None:
                 stats["confuser_completions"] += sum(confused[start:stop])
                 extra = {"exact": correct, "confuser": confused[start:stop]}
-            if shaping is not None:
-                stats["exact_mixed_groups"] += int(min(group) != max(group))
-                stats["shaped_reward_sum"] += sum(returned)
-                shaped = {"exact_rewards": group}
             serialized.append(
                 json.dumps(
                     {
                         "id": id[start],
                         "label": label[start],
-                        "rewards": returned,
-                        **shaped,
+                        "rewards": group,
                         "mixed": mixed,
                         "recognition_mixed": recognition_mixed,
                         "canonical_predictions": canonical,
@@ -1002,8 +993,8 @@ def validate_grpo_overrides(overrides: dict | None) -> dict:
         raise ValueError("epsilon_high must be finite, in (0, 10] and >= epsilon (clip-higher)")
     if merged["delta"] is not None and (not _finite(merged["delta"]) or merged["delta"] <= 1):
         raise ValueError("delta must be finite and > 1")
-    if merged["loss_type"] not in GRPO_LOSS_TYPES:
-        raise ValueError("loss_type must be one of " + ", ".join(GRPO_LOSS_TYPES))
+    if merged["loss_type"] not in KNOB_LOSS_TYPES:
+        raise ValueError("loss_type must be one of " + ", ".join(KNOB_LOSS_TYPES))
     if merged["scale_rewards"] not in ("group", "batch", "none"):
         raise ValueError("scale_rewards must be group, batch or none")
     if merged["importance_sampling_level"] not in ("token", "sequence"):
@@ -1042,9 +1033,9 @@ def trainer_kwargs(
     save_steps: int,
     beta: float = 0.04,
     order: str = "random",
+    grpo_overrides: dict | None = None,
     loss_type: str | None = None,
     scale_rewards: str = "group",
-    grpo_overrides: dict | None = None,
     prompts_per_update: int = 1,
 ) -> dict:
     """Explicit comparable defaults; one unique prompt per optimizer update by default.
@@ -1052,8 +1043,9 @@ def trainer_kwargs(
     `loss_type` None is the legacy "grpo" (per-sequence length normalisation); "dr_grpo"
     divides by the constant max_completion_length. `scale_rewards` "none" drops the
     group-std advantage scaling (Dr-GRPO). Both are GRPO-only.
-    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS); it may not
-    also set loss_type or scale_rewards when those are passed directly.
+    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS), e.g. a DAPO
+    loss_type. A knob may come from one route only: an explicit `loss_type` or non-default
+    `scale_rewards` together with the same knob in `grpo_overrides` refuses.
     `prompts_per_update` P (GRPO only, 1..32, default 1 = legacy): one optimizer update
     consumes P distinct prompts x G generations. TRL generates the P*G batch once
     (generation_batch_size = P*G) and accumulates it one completion per micro-step
@@ -1065,17 +1057,17 @@ def trainer_kwargs(
         raise ValueError("prompts_per_update applies only to GRPO")
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
-    if loss_type not in (None, *SIGNAL_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
-        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
-    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
-        raise ValueError("loss_type and scale_rewards apply only to GRPO")
     overrides = validate_grpo_overrides(grpo_overrides)
     if overrides and mode != "grpo":
         raise ValueError("grpo_overrides apply only to GRPO")
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
+    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
+        raise ValueError("loss_type and scale_rewards apply only to GRPO")
     if (loss_type is not None and "loss_type" in overrides) or (
         scale_rewards != "group" and "scale_rewards" in overrides
     ):
-        raise ValueError("pass loss_type/scale_rewards once: directly or as grpo_overrides")
+        raise ValueError("loss_type/scale_rewards given both explicitly and in grpo_overrides")
     if prompts_per_update != 1 and overrides.get("num_iterations", 1) != 1:
         raise ValueError("prompts_per_update > 1 cannot combine with num_iterations > 1")
     common = dict(
@@ -1350,8 +1342,8 @@ def _evaluate(
         predictions,
         spec["labels"],
         allow_reasoning=True,
-        **({"decoding_protocol": CONSTRAINED_GREEDY} if trie is not None else {}),
         **_format_kwargs(profile),
+        **({"decoding_protocol": CONSTRAINED_GREEDY} if trie is not None else {}),
     ), predictions
 
 
@@ -1431,9 +1423,9 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
-    label_trie: Path | None = None,
     threads: int = DEFAULT_THREADS,
     precision_transfer: str | None = None,
+    label_trie: Path | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
 
@@ -1476,8 +1468,8 @@ def predict_train_subset(
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory")
     environment = preflight(device)
-    check_device_dtype(device, profile.dtype, environment, training=False)
     _refuse_unsupported_dtype(environment, profile)
+    check_device_dtype(device, profile.dtype, environment, training=False)
     model_directory = Path(model_directory).resolve()
     output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -1514,6 +1506,8 @@ def predict_train_subset(
         "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
         "optimizer_steps": 0,
     }
+    if threads != DEFAULT_THREADS:
+        record["torch_threads"] = threads
     trie = None
     if label_trie is not None:
         _, trie, trie_sha256 = load_label_trie(label_trie)
@@ -1522,8 +1516,6 @@ def predict_train_subset(
             "protocol": CONSTRAINED_GREEDY,
             "scope": LabelTrieLogitsProcessor.scope,
         }
-    if threads != DEFAULT_THREADS:
-        record["torch_threads"] = threads
     if _expanded.is_expanded(profile) and not init_adapter:
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
@@ -1548,7 +1540,7 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        # An explicit --threads wins; otherwise _torch_threads() (env var, or the historical 2).
+        # An explicit --threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
         _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
         transformers = import_module("transformers")
         if sample_groups:
@@ -4130,6 +4122,49 @@ def gold_nll_improved(record: dict, after_nll: float) -> bool | None:
     return None if before is None else after_nll < before
 
 
+def _trainer_with_replay_order(base, sequence_ids, committed_entries):
+    """--replay-sequence: prove at run time that rows trained in manifest order.
+
+    The order rests on Hugging Face Trainer choosing a SequentialSampler for
+    train_sampling_strategy="sequential"; a library change that shuffled instead would be
+    silent. So `_get_train_sampler` refuses anything but a SequentialSampler with one-row
+    updates, and after training the exposure ledger (one committed prompt id per update,
+    resumes included) must equal the manifest's ids in order, cycling. Either mismatch
+    refuses before an endpoint is published.
+    """
+    torch = import_module("torch")
+    sequence_ids = list(sequence_ids)
+    if not sequence_ids:
+        raise ValueError("replay sequence is empty")
+
+    class ReplayOrderTrainer(base):
+        def _get_train_sampler(self, *args, **kwargs):
+            sampler = super()._get_train_sampler(*args, **kwargs)
+            if not isinstance(sampler, torch.utils.data.SequentialSampler) or (
+                self.args.per_device_train_batch_size * self.args.gradient_accumulation_steps
+                != 1
+            ):
+                raise LocalVLMError(
+                    "replay_sequence requires a SequentialSampler with one-row updates; got "
+                    f"{type(sampler).__name__}"
+                )
+            return sampler
+
+        def train(self, *args, **kwargs):
+            result = super().train(*args, **kwargs)
+            got = [entry["id"] for entry in committed_entries()]
+            want = [sequence_ids[i % len(sequence_ids)] for i in range(len(got))]
+            if got != want:
+                first = next(i for i, (a, b) in enumerate(zip(got, want)) if a != b)
+                raise LocalVLMError(
+                    f"replay order differs from the manifest at update {first + 1}: "
+                    f"trained {got[first]!r}, manifest {want[first]!r}"
+                )
+            return result
+
+    return ReplayOrderTrainer
+
+
 def _trainer_with_continuation(base, parent_global_step: int):
     """Replay the new TRAIN from row 0 at the parent's next step, across resumes.
 
@@ -4195,14 +4230,6 @@ def train_local(
     target_accepted: int = 600,
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
-    loss_type: str | None = None,
-    scale_rewards: str = "group",
-    reward: str = "exact",
-    confusion_map: Path | None = None,
-    taxonomy: Path | None = None,
-    label_trie: Path | None = None,
-    egsft_scale: str = "group",
-    egsft_band_group: int | None = None,
     exploratory_sweep: str | None = None,
     threads: int = DEFAULT_THREADS,
     loss_scale_init: float | None = None,
@@ -4212,6 +4239,15 @@ def train_local(
     invalid_reward: float | None = None,
     grpo_overrides: dict | None = None,
     dynamic_sampling_max_draws: int | None = None,
+    replay_sequence: bool = False,
+    loss_type: str | None = None,
+    scale_rewards: str = "group",
+    reward: str = "exact",
+    confusion_map: Path | None = None,
+    taxonomy: Path | None = None,
+    label_trie: Path | None = None,
+    egsft_scale: str = "group",
+    egsft_band_group: int | None = None,
     prompts_per_update: int = 1,
     skip_zero_advantage_steps: bool = False,
 ) -> dict:
@@ -4272,6 +4308,16 @@ def train_local(
         exploratory_sweep != EXPLORATORY_SWEEP_ID or train_only is not True
     ):
         raise ValueError(f"exploratory_sweep must be {EXPLORATORY_SWEEP_ID!r} with train_only")
+    if type(replay_sequence) is not bool:
+        raise ValueError("replay_sequence must be boolean")
+    if replay_sequence and (mode != "sft" or order != "sequential" or train_only is not True):
+        raise ValueError("replay_sequence is a TRAIN-only sequential SFT control mode")
+    if replay_sequence and continue_from_checkpoint is not None:
+        raise ValueError("replay_sequence cannot combine with a continuation's rotated order")
+    if replay_sequence and finalize_only:
+        # finalize_only publishes a checkpoint without calling train(), so the end-of-run
+        # exposure-order check (_trainer_with_replay_order) would never run
+        raise ValueError("replay_sequence cannot finalize without training (order unchecked)")
     overrides = validate_grpo_overrides(grpo_overrides)
     if (overrides or dynamic_sampling_max_draws is not None) and mode != "grpo":
         raise ValueError("grpo_overrides and dynamic sampling apply only to GRPO")
@@ -4322,16 +4368,17 @@ def train_local(
             "choose sft/egsft/grpo (or hn_sft/hls_sft/cce_sft) and one of the explicitly "
             "pinned Qwen models"
         )
-    if loss_type not in (None, *SIGNAL_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
         raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
     if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
         raise ValueError("loss_type and scale_rewards apply only to GRPO")
+    # a loss_type chosen through grpo_overrides (e.g. DAPO) is explicit too
+    if mode == "grpo" and beta == 0 and loss_type is None and "loss_type" not in overrides:
+        raise ValueError("beta=0 GRPO requires an explicit loss_type (grpo or dr_grpo)")
     if (loss_type is not None and "loss_type" in overrides) or (
         scale_rewards != "group" and "scale_rewards" in overrides
     ):
-        raise ValueError("pass loss_type/scale_rewards once: directly or as grpo_overrides")
-    if mode == "grpo" and beta == 0 and loss_type is None and "loss_type" not in overrides:
-        raise ValueError("beta=0 GRPO requires an explicit loss_type (grpo or dr_grpo)")
+        raise ValueError("loss_type/scale_rewards given both explicitly and in grpo_overrides")
     if reward not in REWARDS or (reward != "exact" and mode != "grpo"):
         raise ValueError("reward must be exact, or exact_hn for GRPO")
     if (confusion_map is not None) != (reward == "exact_hn" or mode == "hn_sft"):
@@ -4432,6 +4479,7 @@ def train_local(
         spec["labels"],
         preprocessing_id=spec.get("preprocessing_id"),
         require_all_classes=not train_only,
+        allow_repeated_ids=replay_sequence,
     )
     row_cap = (
         NATIVE_TRAIN_ROWS
@@ -4440,7 +4488,8 @@ def train_local(
         if screened or order == "sequential"
         else 400
     )
-    if train_only and len(train_rows) > row_cap:
+    # a replay sequence presents rows again; the cap is on distinct TRAIN images
+    if train_only and len({row["id"] for row in train_rows}) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
     if len(train_rows) < prompts_per_update:
         raise ValueError("prompts_per_update exceeds the TRAIN rows; it needs distinct prompts")
@@ -4547,6 +4596,12 @@ def train_local(
             "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
             "max_consecutive_skips": MAX_CONSECUTIVE_LOSS_SCALE_SKIPS,
         }
+    if replay_sequence:
+        settings["replay_sequence"] = {
+            "order": "manifest rows in file order, repeated ids presented again",
+            "rows": len(train_rows),
+            "distinct_ids": len({row["id"] for row in train_rows}),
+        }
     if overrides:
         settings["grpo_overrides"] = overrides
     if prompts_per_update != 1:
@@ -4592,6 +4647,8 @@ def train_local(
                 "mask": "1[u_G(p) >= threshold]; outside: zero loss and no optimizer step "
                 "(AdamW state untouched), presentation still counted toward max_steps",
             }
+    if exploratory_sweep is not None:
+        settings["exploratory_sweep"] = exploratory_sweep
     if loss_type not in (None, "grpo"):
         settings["loss_type"] = loss_type
     if scale_rewards != "group":
@@ -4618,8 +4675,6 @@ def train_local(
         settings["taxonomy_sha256"] = _file_sha256(Path(taxonomy))
     if label_trie is not None:
         _, trie, settings["label_trie_sha256"] = load_label_trie(label_trie)
-    if exploratory_sweep is not None:
-        settings["exploratory_sweep"] = exploratory_sweep
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
     if shaping is not None:
@@ -4752,9 +4807,7 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
-    if device != "cuda":
-        # signal-limit refusal (LocalVLMError, "float16 training ..."): no GradScaler off CUDA
-        _refuse_unsupported_dtype(environment, profile, training=True)
+    _refuse_unsupported_dtype(environment, profile, training=True)
     check_device_dtype(device, profile.dtype, environment, training=True)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
@@ -4802,7 +4855,7 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        # An explicit --threads wins; otherwise _torch_threads() (env var, or the historical 2).
+        # An explicit --threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
         _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
@@ -4878,9 +4931,9 @@ def train_local(
             save_steps=save_steps,
             beta=beta,
             **({"order": order} if order != "random" else {}),
+            **({"grpo_overrides": overrides} if overrides else {}),
             **({"loss_type": loss_type} if loss_type is not None else {}),
             **({"scale_rewards": scale_rewards} if scale_rewards != "group" else {}),
-            **({"grpo_overrides": overrides} if overrides else {}),
             **({"prompts_per_update": prompts_per_update} if prompts_per_update != 1 else {}),
         )
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
@@ -4916,9 +4969,9 @@ def train_local(
             allow_reasoning=True,
             journal_io_context=audit.timer.exclude_journal_io,
             observe_prompt=relay.note if relay is not None else audit.observe_prompt,
-            **({"reward": reward, "confusers": confusers} if reward != "exact" else {}),
             **({"shaping": shaping} if shaping is not None else {}),
             **_format_kwargs(profile),
+            **({"reward": reward, "confusers": confusers} if reward != "exact" else {}),
         )
         dynamic_summary = {} if dynamic_sampling_max_draws is not None else None
         constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
@@ -4985,6 +5038,10 @@ def train_local(
                     journal_io_context=audit.timer.exclude_journal_io,
                 )
             constructor = _trainer_with_sft_exposure(constructor, audit)
+            if replay_sequence:
+                constructor = _trainer_with_replay_order(
+                    constructor, [row["id"] for row in train_rows], lambda: exposure.entries
+                )
             if continuation is not None:
                 constructor = _trainer_with_continuation(
                     constructor, continuation["parent_global_step"]
@@ -5377,8 +5434,22 @@ def _rft_sft_round(
 
     class Budget(transformers.TrainerCallback):
         stopped_by_budget = False
+        skipped = consecutive = 0
 
-        def on_step_end(self, args, state, control, **_):
+        def on_step_end(self, args, state, control, optimizer=None, **_):
+            if profile.dtype == "float16":
+                # A GradScaler overflow skips the optimizer step but still advances
+                # global_step: count it, and refuse a nonfinite run as train_local does.
+                if getattr(optimizer, "step_was_skipped", False):
+                    Budget.skipped += 1
+                    Budget.consecutive += 1
+                    if Budget.consecutive > MAX_CONSECUTIVE_LOSS_SCALE_SKIPS:
+                        raise LocalVLMError(
+                            "float16 gradients overflowed on every recent step; not loss-scale "
+                            "warm-up but a nonfinite forward/backward"
+                        )
+                else:
+                    Budget.consecutive = 0
             if clock is not None and clock.exhausted():
                 Budget.stopped_by_budget = True
                 control.should_training_stop = True
@@ -5396,7 +5467,7 @@ def _rft_sft_round(
     )
     result = trainer.train()
     losses = [entry["loss"] for entry in trainer.state.log_history if "loss" in entry]
-    return {
+    out = {
         "optimizer_steps": trainer.state.global_step,
         "planned_steps": steps,
         "stopped_by_time_budget": Budget.stopped_by_budget,
@@ -5404,6 +5475,9 @@ def _rft_sft_round(
         "first_loss": losses[0] if losses else None,
         "last_loss": losses[-1] if losses else None,
     }
+    if profile.dtype == "float16":  # presentations stay optimizer_steps; skips are explicit
+        out["loss_scale_skipped_steps"] = Budget.skipped
+    return out
 
 
 def _peft_weights_sha256(adapter: Path) -> str:
@@ -5597,6 +5671,7 @@ def rft_local(
     elif output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory or resume the same RFT run")
     environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile, training=True)
     check_device_dtype(device, profile.dtype, environment, training=True)
     if previous and previous["environment"] != environment:
         raise ValueError("RFT resume requires the original environment and adapter source")
@@ -5905,6 +5980,8 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             "cycle",
             "grpo_overrides",
             "dynamic_sampling_max_draws",
+            "loss_scale_init",
+            "replay_sequence",
             "prompts_per_update",
             "skip_zero_advantage_steps",
             "loss_type",
@@ -5921,9 +5998,9 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
         args["target_accepted"],
         args["beta"],
         args["save_steps"],
-        args["scale_rewards"],
-        args["reward"],
-        args["egsft_scale"],
+        args.get("scale_rewards", "group"),
+        args.get("reward", "exact"),
+        args.get("egsft_scale", "group"),
     ) != ("random", 0.5, 600, 0.04, 8, "group", "exact", "group"):
         parser.error(f"RFT refuses GRPO/SFT-only options: {refused or 'order/screen/beta/save'}")
     try:
@@ -5967,32 +6044,6 @@ def _cli_bool(value: str) -> bool:
     return value == "true"
 
 
-def _route_loss_knobs(knobs: dict) -> dict:
-    """One --loss-type/--scale-rewards flag serves both option families.
-
-    Only those two knobs, with values the signal-limit options name (loss_type grpo|dr_grpo,
-    scale_rewards group|none), go to train_local's `loss_type`/`scale_rewards` (their
-    settings keys and beta=0 rule are unchanged). Any other knob, or any other value,
-    sends every passed knob to `grpo_overrides` (GRPO_KNOBS, validated there).
-    """
-    signal = (
-        knobs
-        and set(knobs) <= {"loss_type", "scale_rewards"}
-        and knobs.get("loss_type", "grpo") in SIGNAL_LOSS_TYPES
-        and knobs.get("scale_rewards", "group") in GRPO_REWARD_SCALES
-    )
-    if signal:
-        return {
-            "loss_type": knobs.get("loss_type"),
-            "scale_rewards": knobs.get("scale_rewards", "group"),
-        }
-    return {
-        "loss_type": None,
-        "scale_rewards": "group",
-        **({"grpo_overrides": dict(knobs)} if knobs else {}),
-    }
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
@@ -6008,7 +6059,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Frozen-base sampled reward groups on at most 32 TRAIN images; never fits",
     )
     parser.add_argument(
-        "--mode", choices=("grpo", "sft", "egsft", *LABEL_LOSS_MODES, "rft"), default="grpo"
+        "--mode", choices=("grpo", "sft", "egsft", "rft", *LABEL_LOSS_MODES), default="grpo"
     )
     for name in (
         "train",
@@ -6021,14 +6072,17 @@ def main(argv: list[str] | None = None) -> int:
         "screen-journal",
         "screen-tokenizations",
         "continue-from-checkpoint",
+        "label-hierarchy",
         "confusion-map",
         "taxonomy",
         "label-trie",
-        "label-hierarchy",
     ):
         parser.add_argument(f"--{name}", type=Path)
-    # --loss-type and --scale-rewards come from the GRPO_KNOBS loop below (one flag each);
-    # _route_loss_knobs sends the signal-limit values to loss_type/scale_rewards.
+    # One flag each, two routes (merged branches): grpo/dr_grpo and group/none reach the
+    # explicit train_local parameters; every other allowlisted value (e.g. dapo, batch) is a
+    # GRPO knob and reaches grpo_overrides.
+    parser.add_argument("--loss-type", choices=KNOB_LOSS_TYPES)
+    parser.add_argument("--scale-rewards", choices=("group", "batch", "none"), default="group")
     parser.add_argument("--reward", choices=REWARDS, default="exact")
     parser.add_argument("--egsft-scale", choices=GRPO_REWARD_SCALES, default="group")
     parser.add_argument("--egsft-band-group", type=int, choices=EGSFT_BAND_GROUPS)
@@ -6068,10 +6122,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--order", choices=("random", "sequential"), default="random")
     parser.add_argument("--cycle", action="store_true")
+    parser.add_argument(
+        "--replay-sequence",
+        action="store_true",
+        help="SFT control: the TRAIN manifest is a replay sequence; repeated ids train again",
+    )
     parser.add_argument("--screen-threshold", type=float, default=0.5)
     parser.add_argument("--target-accepted", type=int, default=600)
     parser.add_argument("--probe", action="store_true")
     for name, value in GRPO_KNOBS.items():
+        if name in ROUTED_KNOBS:
+            continue  # --loss-type / --scale-rewards above
         if type(value) is bool:
             kind = _cli_bool
         elif name in ("loss_type", "scale_rewards", "importance_sampling_level"):
@@ -6134,9 +6195,16 @@ def main(argv: list[str] | None = None) -> int:
             "rft_skip_all_correct",
         )
     }
-    knobs = {key: args.pop(key) for key in GRPO_KNOBS}
+    knobs = {key: args.pop(key) for key in GRPO_KNOBS if key not in ROUTED_KNOBS}
     knobs = {key: value for key, value in knobs.items() if value is not None}
-    args.update(_route_loss_knobs(knobs))
+    if args["loss_type"] not in (None, *GRPO_LOSS_TYPES):
+        knobs["loss_type"] = args["loss_type"]
+        args["loss_type"] = None
+    if args["scale_rewards"] not in GRPO_REWARD_SCALES:
+        knobs["scale_rewards"] = args["scale_rewards"]
+        args["scale_rewards"] = "group"
+    if knobs:
+        args["grpo_overrides"] = knobs
     if args["dynamic_sampling_max_draws"] is None:
         args.pop("dynamic_sampling_max_draws")
     if args["prompts_per_update"] is None:
@@ -6184,16 +6252,17 @@ def main(argv: list[str] | None = None) -> int:
                         "screen_journal",
                         "screen_tokenizations",
                         "continue_from_checkpoint",
-                        "loss_type",
-                        "confusion_map",
-                        "taxonomy",
-                        "egsft_band_group",
                         "label_hierarchy",
                         "family_credit",
                         "manufacturer_credit",
                         "invalid_reward",
                         "grpo_overrides",
                         "dynamic_sampling_max_draws",
+                        "replay_sequence",
+                        "loss_type",
+                        "confusion_map",
+                        "taxonomy",
+                        "egsft_band_group",
                         "prompts_per_update",
                         "skip_zero_advantage_steps",
                     )

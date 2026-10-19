@@ -693,6 +693,15 @@ def required_stages(spec: dict, label: str):
     return need if label in need else need + [label]
 
 
+def missing_stage(stage_shared: dict, label: str, spec: dict | None = None) -> str | None:
+    """The first train stage `label` accumulates over that has no record (named in the
+    refusal), "<trajectory unknown>" when the stages cannot be named, else None."""
+    need = required_stages(spec or {}, label)
+    if need is None:
+        return "<trajectory unknown>"
+    return next((x for x in need if x not in stage_shared), None)
+
+
 def shared_through(stage_shared: dict, label: str, spec: dict | None = None):
     """C16 for a time match: the OR of `shared` over EVERY train stage up to and including the
     one that produced `label` (a checkpoint's active seconds, and a control's time stop,
@@ -783,8 +792,12 @@ def build_report(arms: dict, gold: dict, resamples: int, e0_passed=()) -> dict:
                 else:  # an SFT (placebo) arm reads one row per step
                     read = int(e["steps"])
                 if rl_sh is None or ctl_sh is None:
-                    out["refused"].append(f"{arm_id} {e['label']}: no stage record for "
-                                          f"{e['label'] if rl_sh is None else label}")
+                    side, gone = (("rl", missing_stage(rec["stage_shared"], e["label"], spec))
+                                  if rl_sh is None else
+                                  ("ctl", missing_stage(ctl["stage_shared"], label,
+                                                        ctl["spec"])))
+                    out["refused"].append(f"{arm_id} {e['label']}: no {side} stage record "
+                                          f"for {gone}")
                 elif rl_sh != ctl_sh:
                     # C16: every stage up to this checkpoint (RL) and up to its time match
                     # (control) together must agree on co-tenancy

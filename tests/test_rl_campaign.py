@@ -571,7 +571,7 @@ def test_cotenancy_counts_every_earlier_stage_on_both_sides(tmp_path):
 def test_a_missing_stage_record_refuses_instead_of_falling_back(tmp_path):
     out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", False)],
                      [("train-time1", False)], {"step1": 8, "step2": 16}, (40, 80))
-    assert out["refused"] == ["rl step2: no stage record for time2"]
+    assert out["refused"] == ["rl step2: no ctl stage record for time2"]
 
 
 @pytest.mark.parametrize("extra", [
@@ -583,14 +583,15 @@ def test_a_missing_stage_record_refuses_instead_of_falling_back(tmp_path):
     ["--label-hierarchy", "@payload/data/x.json"],
 ])
 def test_extra_values_must_be_finite_and_stay_inside_payload_code(extra):
-    with pytest.raises(SystemExit):
-        arm_exec.checked_extras(extra, [])
+    for resolved in (False, True):  # the raw table value and the resolved path both refuse
+        with pytest.raises(SystemExit):
+            arm_exec.checked_extras(extra, [], resolved=resolved)
 
 
 def test_extra_values_that_are_fine_pass():
     ok = ["--epsilon-high", "0.28", "--label-hierarchy",
-          "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json"]
-    assert arm_exec.checked_extras(ok, []) == ok
+          "@payload/code/scripts/exploratory_sweep/label-hierarchy-train-v1.json"]
+    assert arm_exec.checked_extras(ok, [], resolved=False) == ok
 
 
 def test_stage_record_refuses_stale_files_foreign_stage_ids_and_non_fp32(tmp_path):
@@ -631,38 +632,49 @@ def test_a_synthetic_four_draw_dynamic_sampling_row_refuses_before_the_trainer(t
     assert argv[-2:] == ["--dynamic-sampling-max-draws", "8"]
 
 
-# ---- stage ids chosen by arm_exec, through the real run_stage argv path ------------------
+# ---- stage ids chosen by arm_exec, through the real trainer_args / rft_args argv -------
 FAKE_TRAINER = r'''
 import hashlib, json, os, sys
 argv = sys.argv[1:]
 mode = open(os.environ["FAKE_MODE_FILE"]).read().strip()
-out = argv[argv.index("--output") + 1]
-sid = argv[argv.index("--stage-id") + 1] if "--stage-id" in argv else None
-stop = (int(argv[argv.index("--stop-after-steps") + 1])
-        if "--stop-after-steps" in argv else None)
+def opt(flag):
+    return argv[argv.index(flag) + 1] if flag in argv else None
+out, sid, rft = opt("--output"), opt("--stage-id"), opt("--mode") == "rft"
+stop = opt("--rft-stop-after-steps") if rft else opt("--stop-after-steps")
+stop = int(stop) if stop is not None else None
 os.makedirs(out + "/final_adapter", exist_ok=True)
-weights = b"adapter-" + str(stop).encode()
+weights = b"adapter-" + str(stop).encode() + mode.encode()
 open(out + "/final_adapter/adapter_model.safetensors", "wb").write(weights)
 sha = hashlib.sha256(weights).hexdigest()
 open(out + "/argv.json", "w").write(json.dumps(argv))
-recorded = None if mode == "ignore_id" else sid
-receipt = {"status": "completed", "global_step": stop, "stage_id": recorded,
-           "final_adapter": {"path": "final_adapter", "weights_sha256": sha}}
-open(out + "/endpoint_receipt.json", "w").write(json.dumps(receipt))
+dtype = "bfloat16" if mode == "bf16" else "float32"
+record = {"control_identity": {"profile": {"dtype": dtype}}}
+if rft:
+    record.update(status="completed", final_adapter_sha256=sha, rounds=[], optimizer_steps=0,
+                  active_seconds=0.0, settings={"epochs_per_round": 1})
+    if mode == "rft_rounds":   # the run ran out of rounds before this stage's stop
+        record.update(stop_reason="rounds")
+    else:
+        record.update(stop_reason="stop_after_steps",
+                      boundary={"stop_after_steps": 1 if mode == "rft_wrong_boundary" else stop})
+else:
+    recorded = None if mode == "ignore_id" else sid
+    record.update(stage_id=recorded, sampler_teacher_logprob_parity={
+        "within_tolerance": True, "tolerance": 1e-3})
+    if mode != "stale":
+        open(out + "/endpoint_receipt.json", "w").write(json.dumps({
+            "status": "boundary_reached", "global_step": stop, "stage_id": recorded,
+            "committed_prompt_ids": ["p"] * (stop or 0), "committed_active_seconds": 1.0,
+            "final_adapter": {"path": "final_adapter", "weights_sha256": sha}}))
 if mode != "stale":
-    dtype = "bfloat16" if mode == "bf16" else "float32"
-    record = {"stage_id": recorded, "control_identity": {"profile": {"dtype": dtype}},
-              "sampler_teacher_logprob_parity": {"within_tolerance": True, "tolerance": 1e-3},
-              "boundary": {"stop_after_steps": stop} if stop else None}
-    if mode == "rft_wrong_boundary":
-        record["boundary"] = {"stop_after_steps": 1}
     open(out + "/local_training.json", "w").write(json.dumps(record))
 '''
 
 
-def _stage_arm(tmp_path, mode, spec_mode="grpo", dtype="float32"):
+def _stage_arm(tmp_path, mode, spec):
     root = tmp_path / "root"
     (root / "venv/bin").mkdir(parents=True)
+    _fake_payload(root)
     fake = tmp_path / "fake_trainer.py"
     fake.write_text(FAKE_TRAINER)
     py = root / "venv/bin/python"
@@ -671,7 +683,6 @@ def _stage_arm(tmp_path, mode, spec_mode="grpo", dtype="float32"):
     py.chmod(0o755)
     mode_file = tmp_path / "mode"
     mode_file.write_text(mode)
-    spec = {"id": "arm1", "mode": spec_mode, "dtype": dtype, "threads": 1}
     arm = arm_exec.Arm(root, spec, tmp_path / "results")
     arm.env["FAKE_MODE_FILE"] = str(mode_file)
     arm.results.mkdir(parents=True)
@@ -679,13 +690,11 @@ def _stage_arm(tmp_path, mode, spec_mode="grpo", dtype="float32"):
     return arm, mode_file
 
 
-BASE_ARGV = ["-m", "vision_rl.vlm_local_training", "--mode", "grpo", "--output"]
-
-
 def test_run_stage_passes_its_own_stage_id_and_requires_it_back(tmp_path):
-    arm, mode = _stage_arm(tmp_path, "honest")
-    argv = BASE_ARGV + [str(arm.out), "--stop-after-steps", "50"]
-    arm.run_stage("train-50", argv)
+    spec = camp.build_spec(table(), grpo_row(id="arm1"))
+    arm, mode = _stage_arm(tmp_path, "honest", spec)
+    m = tmp_path / "m.jsonl"
+    arm.run_stage("train-50", arm.trainer_args(m, 200, 50, None))
     sent = json.loads((arm.out / "argv.json").read_text())
     assert sent[sent.index("--stage-id") + 1] == "arm1-train-50"  # chosen by arm_exec
     assert json.loads((arm.out / "local_training.json").read_text())["stage_id"] == (
@@ -693,40 +702,53 @@ def test_run_stage_passes_its_own_stage_id_and_requires_it_back(tmp_path):
     for bad, match in (("ignore_id", "stage_id"), ("bf16", "bfloat16")):
         mode.write_text(bad)
         with pytest.raises(SystemExit, match=match):
-            arm.run_stage("train-100", BASE_ARGV + [str(arm.out), "--stop-after-steps", "100"])
-    # a stage that exits 0 without rewriting its record: the previous stage's file is stale
+            arm.run_stage("train-100", arm.trainer_args(m, 200, 100, None))
+    # a stage that exits 0 without rewriting its receipt and record: both are stale
     mode.write_text("stale")
-    with pytest.raises(SystemExit, match="stale|stage_id"):
-        arm.run_stage("train-150", BASE_ARGV + [str(arm.out), "--stop-after-steps", "150"])
+    with pytest.raises(SystemExit, match="stale"):
+        arm.run_stage("train-150", arm.trainer_args(m, 200, 150, None))
     with pytest.raises(SystemExit, match="arm_exec's"):
-        arm.run_stage("x", BASE_ARGV + [str(arm.out), "--stage-id", "mine"])
+        arm.run_stage("x", arm.trainer_args(m, 200, 50, None) + ["--stage-id", "mine"])
 
 
 def test_sft_stage_checks_the_id_but_not_float32(tmp_path):
-    arm, mode = _stage_arm(tmp_path, "bf16", spec_mode="sft", dtype="bfloat16")
-    arm.run_stage("train-2", BASE_ARGV + [str(arm.out), "--stop-after-steps", "2"])
+    spec = camp.build_spec(table(), grpo_row(id="s1", mode="sft", device_class="gtx1070-fp16"))
+    arm, mode = _stage_arm(tmp_path, "bf16", spec)
+    m = tmp_path / "m.jsonl"
+    arm.run_stage("train-50", arm.trainer_args(m, 200, 50, None))
     mode.write_text("ignore_id")
     with pytest.raises(SystemExit, match="stage_id"):
-        arm.run_stage("train-4", BASE_ARGV + [str(arm.out), "--stop-after-steps", "4"])
+        arm.run_stage("train-100", arm.trainer_args(m, 200, 100, None))
 
 
-def test_rft_stage_requires_its_own_stop_boundary_and_float32(tmp_path, monkeypatch):
-    arm, mode = _stage_arm(tmp_path, "honest", spec_mode="rft")
+def _rft_spec():
+    return dict(camp.BASE, id="r1", mode="rft", lr=1e-5, device="cpu", dtype="float32",
+                threads=1, stops=[150, 300], max_steps_total=1500,
+                rft={"rounds": 400, "prompts_per_round": 32})
 
-    def receipt():
-        sha = arm_exec.sha_file(arm.out / "final_adapter/adapter_model.safetensors")
-        return {"status": "completed", "global_step": 150,
-                "final_adapter": {"path": "final_adapter", "weights_sha256": sha}}
-    monkeypatch.setattr(arm, "rft_receipt", receipt)
-    argv = BASE_ARGV + [str(arm.out), "--stop-after-steps", "150"]
-    arm.run_stage("train-150", argv)
-    sent = json.loads((arm.out / "argv.json").read_text())
-    assert "--stage-id" not in sent  # the RFT CLI refuses it
+
+def test_rft_stage_requires_its_own_stop_boundary_and_float32(tmp_path):
+    arm, mode = _stage_arm(tmp_path, "honest", _rft_spec())
+    m = tmp_path / "m.jsonl"
+    argv = arm.trainer_args(m, 1500, 150, None)  # the real rft_args path
+    assert argv[argv.index("--rft-stop-after-steps") + 1] == "150"
+    receipt = arm.run_stage("train-150", argv, 150)
+    assert receipt["status"] == "boundary_reached"
+    assert "--stage-id" not in json.loads((arm.out / "argv.json").read_text())  # RFT CLI
     for bad, match in (("rft_wrong_boundary", "boundary"), ("bf16", "bfloat16"),
-                       ("stale", "stale|boundary")):
+                       ("stale", "stale")):
         mode.write_text(bad)
         with pytest.raises(SystemExit, match=match):
-            arm.run_stage("train-300", BASE_ARGV + [str(arm.out), "--stop-after-steps", "300"])
+            arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 300)
+    with pytest.raises(SystemExit, match="ran with"):  # the stop that ran must be the stop
+        arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 450)
+
+
+def test_rft_stage_that_runs_out_of_rounds_ends_the_run(tmp_path):
+    arm, mode = _stage_arm(tmp_path, "rft_rounds", _rft_spec())
+    receipt = arm.run_stage("train-150", arm.trainer_args(tmp_path / "m.jsonl", 1500, 150,
+                                                          None), 150)
+    assert receipt["status"] == "total_budget_exhausted" and receipt["stop_reason"] == "rounds"
 
 
 def test_label_hierarchy_symlink_out_of_payload_code_refuses(tmp_path):
@@ -767,7 +789,7 @@ def test_a_continuation_with_an_unfetched_earlier_rung_refuses(tmp_path):
                  {f"time{i}": dict(GOLD) for i in (1, 2, 3)}),
     ]
     out = camp.build_report(camp.collect(dirs), GOLD, 50, e0_passed={"cpu-fp32"})
-    assert out["refused"] == ["rl step4: no stage record for step4"]
+    assert out["refused"] == ["rl step4: no rl stage record for step1"]  # names the gap
     assert camp.required_stages({"trajectory_stops": [1, 2, 4]}, "step4") == [
         "step1", "step2", "step4"]
     assert camp.required_stages({"resume_stop": 2, "stops": [4]}, "step4") is None

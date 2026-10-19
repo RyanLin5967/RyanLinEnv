@@ -1,0 +1,969 @@
+{
+ "bands": {
+  "0.02<=p<0.1": {
+   "greedy_invalid": 2,
+   "greedy_wrong": 58,
+   "n": 58
+  },
+  "0.1<=p<=0.9": {
+   "greedy_invalid": 9,
+   "greedy_wrong": 149,
+   "n": 396
+  },
+  "p<0.02": {
+   "greedy_invalid": 4,
+   "greedy_wrong": 129,
+   "n": 129
+  },
+  "p>0.9": {
+   "greedy_invalid": 0,
+   "greedy_wrong": 0,
+   "n": 853
+  }
+ },
+ "class_count_min_max": {
+  "hard": [
+   0,
+   11
+  ],
+  "mid": [
+   0,
+   14
+  ],
+  "mixed": [
+   0,
+   15
+  ],
+  "unreachable": [
+   0,
+   10
+  ]
+ },
+ "class_coverage": {
+  "hard": 67,
+  "mid": 83,
+  "mixed": 84,
+  "unreachable": 62
+ },
+ "classes_majority_unreachable": [
+  "Boeing 717",
+  "MD-80"
+ ],
+ "classes_without_eligible_rows": [],
+ "per_class": {
+  "707-320": {
+   "eligible": 18,
+   "greedy_acc": 0.8889,
+   "hard": 1,
+   "mean_p": 0.8793,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "727-200": {
+   "eligible": 13,
+   "greedy_acc": 0.9231,
+   "hard": 0,
+   "mean_p": 0.8981,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 1
+  },
+  "737-200": {
+   "eligible": 16,
+   "greedy_acc": 0.6875,
+   "hard": 2,
+   "mean_p": 0.7054,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 3
+  },
+  "737-300": {
+   "eligible": 14,
+   "greedy_acc": 0.6429,
+   "hard": 4,
+   "mean_p": 0.6324,
+   "mid": 5,
+   "mixed": 7,
+   "unreachable": 1
+  },
+  "737-400": {
+   "eligible": 11,
+   "greedy_acc": 0.7273,
+   "hard": 2,
+   "mean_p": 0.7181,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "737-500": {
+   "eligible": 17,
+   "greedy_acc": 0.6471,
+   "hard": 5,
+   "mean_p": 0.5956,
+   "mid": 12,
+   "mixed": 12,
+   "unreachable": 1
+  },
+  "737-600": {
+   "eligible": 15,
+   "greedy_acc": 0.6667,
+   "hard": 4,
+   "mean_p": 0.5728,
+   "mid": 12,
+   "mixed": 12,
+   "unreachable": 1
+  },
+  "737-700": {
+   "eligible": 11,
+   "greedy_acc": 0.6364,
+   "hard": 0,
+   "mean_p": 0.6071,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 4
+  },
+  "737-800": {
+   "eligible": 11,
+   "greedy_acc": 0.6364,
+   "hard": 4,
+   "mean_p": 0.6387,
+   "mid": 3,
+   "mixed": 6,
+   "unreachable": 0
+  },
+  "737-900": {
+   "eligible": 13,
+   "greedy_acc": 0.6923,
+   "hard": 3,
+   "mean_p": 0.6564,
+   "mid": 7,
+   "mixed": 7,
+   "unreachable": 1
+  },
+  "747-100": {
+   "eligible": 10,
+   "greedy_acc": 0.7,
+   "hard": 1,
+   "mean_p": 0.5018,
+   "mid": 8,
+   "mixed": 8,
+   "unreachable": 2
+  },
+  "747-200": {
+   "eligible": 15,
+   "greedy_acc": 0.3333,
+   "hard": 9,
+   "mean_p": 0.3975,
+   "mid": 12,
+   "mixed": 12,
+   "unreachable": 1
+  },
+  "747-300": {
+   "eligible": 8,
+   "greedy_acc": 0.125,
+   "hard": 6,
+   "mean_p": 0.267,
+   "mid": 5,
+   "mixed": 7,
+   "unreachable": 1
+  },
+  "747-400": {
+   "eligible": 13,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9796,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "757-200": {
+   "eligible": 12,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.974,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 0
+  },
+  "757-300": {
+   "eligible": 13,
+   "greedy_acc": 0.5385,
+   "hard": 3,
+   "mean_p": 0.5512,
+   "mid": 3,
+   "mixed": 4,
+   "unreachable": 3
+  },
+  "767-200": {
+   "eligible": 9,
+   "greedy_acc": 0.5556,
+   "hard": 3,
+   "mean_p": 0.5635,
+   "mid": 4,
+   "mixed": 5,
+   "unreachable": 1
+  },
+  "767-300": {
+   "eligible": 14,
+   "greedy_acc": 0.5,
+   "hard": 4,
+   "mean_p": 0.5114,
+   "mid": 3,
+   "mixed": 5,
+   "unreachable": 3
+  },
+  "767-400": {
+   "eligible": 9,
+   "greedy_acc": 0.7778,
+   "hard": 1,
+   "mean_p": 0.7212,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "777-200": {
+   "eligible": 12,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9839,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 0
+  },
+  "777-300": {
+   "eligible": 11,
+   "greedy_acc": 0.8182,
+   "hard": 0,
+   "mean_p": 0.8073,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 2
+  },
+  "A300B4": {
+   "eligible": 13,
+   "greedy_acc": 0.6923,
+   "hard": 1,
+   "mean_p": 0.6608,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 3
+  },
+  "A310": {
+   "eligible": 13,
+   "greedy_acc": 0.6154,
+   "hard": 2,
+   "mean_p": 0.6382,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 3
+  },
+  "A318": {
+   "eligible": 16,
+   "greedy_acc": 0.4375,
+   "hard": 4,
+   "mean_p": 0.516,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 5
+  },
+  "A319": {
+   "eligible": 15,
+   "greedy_acc": 0.8,
+   "hard": 2,
+   "mean_p": 0.8145,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "A320": {
+   "eligible": 11,
+   "greedy_acc": 0.9091,
+   "hard": 0,
+   "mean_p": 0.9034,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 1
+  },
+  "A321": {
+   "eligible": 10,
+   "greedy_acc": 0.7,
+   "hard": 0,
+   "mean_p": 0.7019,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 3
+  },
+  "A330-200": {
+   "eligible": 14,
+   "greedy_acc": 0.9286,
+   "hard": 0,
+   "mean_p": 0.8721,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "A330-300": {
+   "eligible": 14,
+   "greedy_acc": 0.8571,
+   "hard": 2,
+   "mean_p": 0.8708,
+   "mid": 2,
+   "mixed": 3,
+   "unreachable": 0
+  },
+  "A340-200": {
+   "eligible": 11,
+   "greedy_acc": 0.5455,
+   "hard": 3,
+   "mean_p": 0.5127,
+   "mid": 5,
+   "mixed": 6,
+   "unreachable": 2
+  },
+  "A340-300": {
+   "eligible": 9,
+   "greedy_acc": 0.3333,
+   "hard": 3,
+   "mean_p": 0.2882,
+   "mid": 2,
+   "mixed": 5,
+   "unreachable": 3
+  },
+  "A340-500": {
+   "eligible": 6,
+   "greedy_acc": 0.6667,
+   "hard": 1,
+   "mean_p": 0.5516,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "A340-600": {
+   "eligible": 13,
+   "greedy_acc": 0.6154,
+   "hard": 3,
+   "mean_p": 0.5024,
+   "mid": 5,
+   "mixed": 7,
+   "unreachable": 2
+  },
+  "A380": {
+   "eligible": 12,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 1.0,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "ATR-42": {
+   "eligible": 15,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9463,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 0
+  },
+  "ATR-72": {
+   "eligible": 14,
+   "greedy_acc": 0.7857,
+   "hard": 1,
+   "mean_p": 0.7577,
+   "mid": 2,
+   "mixed": 3,
+   "unreachable": 2
+  },
+  "An-12": {
+   "eligible": 17,
+   "greedy_acc": 0.9412,
+   "hard": 1,
+   "mean_p": 0.9355,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 0
+  },
+  "BAE 146-200": {
+   "eligible": 13,
+   "greedy_acc": 0.7692,
+   "hard": 3,
+   "mean_p": 0.7476,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 0
+  },
+  "BAE 146-300": {
+   "eligible": 12,
+   "greedy_acc": 0.0833,
+   "hard": 6,
+   "mean_p": 0.1199,
+   "mid": 4,
+   "mixed": 7,
+   "unreachable": 5
+  },
+  "BAE-125": {
+   "eligible": 17,
+   "greedy_acc": 0.6471,
+   "hard": 2,
+   "mean_p": 0.4933,
+   "mid": 8,
+   "mixed": 9,
+   "unreachable": 4
+  },
+  "Beechcraft 1900": {
+   "eligible": 15,
+   "greedy_acc": 0.8667,
+   "hard": 2,
+   "mean_p": 0.7016,
+   "mid": 12,
+   "mixed": 12,
+   "unreachable": 0
+  },
+  "Boeing 717": {
+   "eligible": 14,
+   "greedy_acc": 0.0,
+   "hard": 4,
+   "mean_p": 0.038,
+   "mid": 3,
+   "mixed": 4,
+   "unreachable": 10
+  },
+  "C-130": {
+   "eligible": 20,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9999,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "C-47": {
+   "eligible": 18,
+   "greedy_acc": 0.1667,
+   "hard": 11,
+   "mean_p": 0.2524,
+   "mid": 12,
+   "mixed": 13,
+   "unreachable": 4
+  },
+  "CRJ-200": {
+   "eligible": 13,
+   "greedy_acc": 0.9231,
+   "hard": 0,
+   "mean_p": 0.9005,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 1
+  },
+  "CRJ-700": {
+   "eligible": 16,
+   "greedy_acc": 0.75,
+   "hard": 2,
+   "mean_p": 0.6736,
+   "mid": 6,
+   "mixed": 7,
+   "unreachable": 2
+  },
+  "CRJ-900": {
+   "eligible": 13,
+   "greedy_acc": 0.4615,
+   "hard": 5,
+   "mean_p": 0.4862,
+   "mid": 7,
+   "mixed": 8,
+   "unreachable": 2
+  },
+  "Cessna 172": {
+   "eligible": 19,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9998,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "Cessna 208": {
+   "eligible": 20,
+   "greedy_acc": 0.95,
+   "hard": 1,
+   "mean_p": 0.9478,
+   "mid": 0,
+   "mixed": 1,
+   "unreachable": 0
+  },
+  "Cessna 525": {
+   "eligible": 15,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.963,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 0
+  },
+  "Cessna 560": {
+   "eligible": 18,
+   "greedy_acc": 0.9444,
+   "hard": 0,
+   "mean_p": 0.9151,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 1
+  },
+  "Challenger 600": {
+   "eligible": 13,
+   "greedy_acc": 0.9231,
+   "hard": 0,
+   "mean_p": 0.884,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 1
+  },
+  "DC-10": {
+   "eligible": 18,
+   "greedy_acc": 0.6667,
+   "hard": 3,
+   "mean_p": 0.6438,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 3
+  },
+  "DC-3": {
+   "eligible": 19,
+   "greedy_acc": 0.8947,
+   "hard": 1,
+   "mean_p": 0.8824,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "DC-6": {
+   "eligible": 18,
+   "greedy_acc": 0.8333,
+   "hard": 2,
+   "mean_p": 0.8479,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "DC-8": {
+   "eligible": 13,
+   "greedy_acc": 0.5385,
+   "hard": 5,
+   "mean_p": 0.5491,
+   "mid": 7,
+   "mixed": 7,
+   "unreachable": 1
+  },
+  "DC-9-30": {
+   "eligible": 15,
+   "greedy_acc": 0.8,
+   "hard": 2,
+   "mean_p": 0.6766,
+   "mid": 7,
+   "mixed": 8,
+   "unreachable": 1
+  },
+  "DH-82": {
+   "eligible": 20,
+   "greedy_acc": 0.95,
+   "hard": 1,
+   "mean_p": 0.9268,
+   "mid": 2,
+   "mixed": 2,
+   "unreachable": 0
+  },
+  "DHC-1": {
+   "eligible": 19,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9194,
+   "mid": 4,
+   "mixed": 4,
+   "unreachable": 0
+  },
+  "DHC-6": {
+   "eligible": 15,
+   "greedy_acc": 0.9333,
+   "hard": 0,
+   "mean_p": 0.799,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 1
+  },
+  "DHC-8-100": {
+   "eligible": 18,
+   "greedy_acc": 0.9444,
+   "hard": 0,
+   "mean_p": 0.87,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "DHC-8-300": {
+   "eligible": 17,
+   "greedy_acc": 0.5294,
+   "hard": 5,
+   "mean_p": 0.5321,
+   "mid": 7,
+   "mixed": 8,
+   "unreachable": 3
+  },
+  "DR-400": {
+   "eligible": 19,
+   "greedy_acc": 0.8947,
+   "hard": 2,
+   "mean_p": 0.8507,
+   "mid": 6,
+   "mixed": 7,
+   "unreachable": 0
+  },
+  "Dornier 328": {
+   "eligible": 15,
+   "greedy_acc": 0.8667,
+   "hard": 2,
+   "mean_p": 0.8543,
+   "mid": 2,
+   "mixed": 3,
+   "unreachable": 0
+  },
+  "E-170": {
+   "eligible": 5,
+   "greedy_acc": 0.8,
+   "hard": 0,
+   "mean_p": 0.784,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 1
+  },
+  "E-190": {
+   "eligible": 12,
+   "greedy_acc": 0.75,
+   "hard": 3,
+   "mean_p": 0.5754,
+   "mid": 10,
+   "mixed": 11,
+   "unreachable": 0
+  },
+  "E-195": {
+   "eligible": 10,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.8174,
+   "mid": 4,
+   "mixed": 4,
+   "unreachable": 0
+  },
+  "EMB-120": {
+   "eligible": 17,
+   "greedy_acc": 0.5294,
+   "hard": 4,
+   "mean_p": 0.3743,
+   "mid": 13,
+   "mixed": 13,
+   "unreachable": 4
+  },
+  "ERJ 135": {
+   "eligible": 15,
+   "greedy_acc": 0.8,
+   "hard": 3,
+   "mean_p": 0.6456,
+   "mid": 10,
+   "mixed": 12,
+   "unreachable": 0
+  },
+  "ERJ 145": {
+   "eligible": 15,
+   "greedy_acc": 0.8,
+   "hard": 2,
+   "mean_p": 0.7836,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "Embraer Legacy 600": {
+   "eligible": 7,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.8818,
+   "mid": 4,
+   "mixed": 4,
+   "unreachable": 0
+  },
+  "Eurofighter Typhoon": {
+   "eligible": 16,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.998,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "F-16A/B": {
+   "eligible": 18,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9994,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "F/A-18": {
+   "eligible": 15,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.998,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "Falcon 2000": {
+   "eligible": 10,
+   "greedy_acc": 0.9,
+   "hard": 1,
+   "mean_p": 0.753,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 0
+  },
+  "Falcon 900": {
+   "eligible": 17,
+   "greedy_acc": 0.5294,
+   "hard": 6,
+   "mean_p": 0.5159,
+   "mid": 9,
+   "mixed": 11,
+   "unreachable": 2
+  },
+  "Fokker 100": {
+   "eligible": 14,
+   "greedy_acc": 0.7143,
+   "hard": 2,
+   "mean_p": 0.6289,
+   "mid": 5,
+   "mixed": 5,
+   "unreachable": 2
+  },
+  "Fokker 50": {
+   "eligible": 16,
+   "greedy_acc": 0.9375,
+   "hard": 0,
+   "mean_p": 0.9204,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 1
+  },
+  "Fokker 70": {
+   "eligible": 12,
+   "greedy_acc": 0.8333,
+   "hard": 1,
+   "mean_p": 0.7806,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "Global Express": {
+   "eligible": 13,
+   "greedy_acc": 0.9231,
+   "hard": 1,
+   "mean_p": 0.8541,
+   "mid": 3,
+   "mixed": 4,
+   "unreachable": 0
+  },
+  "Gulfstream IV": {
+   "eligible": 13,
+   "greedy_acc": 0.6923,
+   "hard": 4,
+   "mean_p": 0.6903,
+   "mid": 8,
+   "mixed": 9,
+   "unreachable": 0
+  },
+  "Gulfstream V": {
+   "eligible": 15,
+   "greedy_acc": 0.6,
+   "hard": 5,
+   "mean_p": 0.6321,
+   "mid": 7,
+   "mixed": 8,
+   "unreachable": 1
+  },
+  "Hawk T1": {
+   "eligible": 19,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9955,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "Il-76": {
+   "eligible": 16,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9871,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "L-1011": {
+   "eligible": 13,
+   "greedy_acc": 0.6154,
+   "hard": 4,
+   "mean_p": 0.6831,
+   "mid": 4,
+   "mixed": 4,
+   "unreachable": 1
+  },
+  "MD-11": {
+   "eligible": 11,
+   "greedy_acc": 0.9091,
+   "hard": 1,
+   "mean_p": 0.8748,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 0
+  },
+  "MD-80": {
+   "eligible": 14,
+   "greedy_acc": 0.0714,
+   "hard": 5,
+   "mean_p": 0.0876,
+   "mid": 2,
+   "mixed": 6,
+   "unreachable": 8
+  },
+  "MD-87": {
+   "eligible": 17,
+   "greedy_acc": 0.4706,
+   "hard": 8,
+   "mean_p": 0.3851,
+   "mid": 14,
+   "mixed": 15,
+   "unreachable": 1
+  },
+  "MD-90": {
+   "eligible": 15,
+   "greedy_acc": 0.6,
+   "hard": 6,
+   "mean_p": 0.6362,
+   "mid": 7,
+   "mixed": 8,
+   "unreachable": 0
+  },
+  "Metroliner": {
+   "eligible": 12,
+   "greedy_acc": 0.8333,
+   "hard": 0,
+   "mean_p": 0.8225,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 2
+  },
+  "Model B200": {
+   "eligible": 19,
+   "greedy_acc": 0.7368,
+   "hard": 2,
+   "mean_p": 0.5705,
+   "mid": 12,
+   "mixed": 14,
+   "unreachable": 3
+  },
+  "PA-28": {
+   "eligible": 18,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9844,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "SR-20": {
+   "eligible": 18,
+   "greedy_acc": 0.8889,
+   "hard": 2,
+   "mean_p": 0.8359,
+   "mid": 6,
+   "mixed": 6,
+   "unreachable": 0
+  },
+  "Saab 2000": {
+   "eligible": 16,
+   "greedy_acc": 0.75,
+   "hard": 2,
+   "mean_p": 0.7357,
+   "mid": 4,
+   "mixed": 4,
+   "unreachable": 2
+  },
+  "Saab 340": {
+   "eligible": 16,
+   "greedy_acc": 0.875,
+   "hard": 2,
+   "mean_p": 0.8256,
+   "mid": 5,
+   "mixed": 6,
+   "unreachable": 0
+  },
+  "Spitfire": {
+   "eligible": 19,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9983,
+   "mid": 0,
+   "mixed": 0,
+   "unreachable": 0
+  },
+  "Tornado": {
+   "eligible": 19,
+   "greedy_acc": 1.0,
+   "hard": 0,
+   "mean_p": 0.9877,
+   "mid": 1,
+   "mixed": 1,
+   "unreachable": 0
+  },
+  "Tu-134": {
+   "eligible": 16,
+   "greedy_acc": 0.875,
+   "hard": 1,
+   "mean_p": 0.8576,
+   "mid": 1,
+   "mixed": 2,
+   "unreachable": 1
+  },
+  "Tu-154": {
+   "eligible": 11,
+   "greedy_acc": 0.7273,
+   "hard": 2,
+   "mean_p": 0.7709,
+   "mid": 3,
+   "mixed": 3,
+   "unreachable": 1
+  },
+  "Yak-42": {
+   "eligible": 17,
+   "greedy_acc": 0.6471,
+   "hard": 6,
+   "mean_p": 0.5077,
+   "mid": 10,
+   "mixed": 13,
+   "unreachable": 0
+  }
+ },
+ "totals": {
+  "eligible": 1436,
+  "greedy_correct": 1100,
+  "greedy_invalid": 15,
+  "greedy_wrong": 336,
+  "greedy_wrong_unreachable": 129,
+  "hard": 207,
+  "hard_and_mid": 149,
+  "mean_noncanonical_share": 0.00276,
+  "mid": 396,
+  "mixed": 454,
+  "unreachable": 129
+ },
+ "unreachable_classes": []
+}

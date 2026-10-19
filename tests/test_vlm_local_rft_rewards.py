@@ -16,7 +16,7 @@ import pytest
 from vision_rl import vlm_local_training as local
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET = ROOT / "scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json"
+ASSET = ROOT / "scripts/exploratory_sweep/label-hierarchy-train-v1.json"
 LABELS = ["737-800", "737-900", "A321", "MD-11"]
 HIERARCHY = {
     "737-800": {"family": "Boeing 737", "manufacturer": "Boeing"},
@@ -553,28 +553,32 @@ def _cuda_stack(monkeypatch, policies, bf16_native):
     monkeypatch.setattr(local, "import_module", modules)
     monkeypatch.setattr(local, "preflight", lambda *_: {
         "adapter_source_sha256": local._file_sha256(Path(local.__file__)),
-        "cuda": {"bf16_native": bf16_native}})
+        "cuda_device": {"name": "card", "native_bfloat16": bf16_native}})
 
 
 def test_rft_runs_on_cuda_under_the_train_local_device_rules(diagnostic, tmp_path,
                                                              monkeypatch):
+    """RFT follows train_local's rules (main merge): bf16 needs a native-bf16 card, and
+    float16 training is refused on every device (corrections C2: no parity evidence)."""
     policies = []
     profile = replace(local.Profile(), response_format="answer_only")
     _cuda_stack(monkeypatch, policies, bf16_native=False)
-    with pytest.raises(ValueError, match="capability >= 8.0"):
+    with pytest.raises(local.LocalVLMError, match="no native bfloat16"):
         run_rft(diagnostic, tmp_path / "bf16", policies, [], [], device="cuda",
                 profile=replace(profile, dtype="bfloat16"))
-    record = run_rft(diagnostic, tmp_path / "fp16", policies, [], [], device="cuda",
-                     profile=replace(profile, dtype="float16"))
-    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
-    assert record["settings"]["loss_scaling"]["init_scale"] == local.DEFAULT_LOSS_SCALE_INIT
+    for device, out in (("cuda", "fp16"), ("cpu", "cpu16")):
+        with pytest.raises(local.LocalVLMError, match="float16 training"):
+            run_rft(diagnostic, tmp_path / out, policies, [], [], device=device,
+                    profile=replace(profile, dtype="float16"))
+        assert not (tmp_path / out).exists()
     _cuda_stack(monkeypatch, policies, bf16_native=True)
     record = run_rft(diagnostic, tmp_path / "ampere", policies, [], [], device="cuda",
                      profile=replace(profile, dtype="bfloat16"))
-    assert record["status"] == "completed" and "loss_scaling" not in record["settings"]
-    with pytest.raises(ValueError, match="only on --device cuda"):
-        run_rft(diagnostic, tmp_path / "cpu16", policies, [], [], device="cpu",
-                profile=replace(profile, dtype="float16"))
+    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
+    assert "loss_scaling" not in record["settings"]
+    record = run_rft(diagnostic, tmp_path / "fp32", policies, [], [], device="cuda",
+                     profile=profile)
+    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
 
 
 def test_rft_default_threads_fall_back_to_the_env_without_entering_the_record(
@@ -594,6 +598,55 @@ def test_rft_refuses_tagged_response_formats_before_any_output(diagnostic, tmp_p
     assert not (tmp_path / "out").exists()
 
 
+def _fake_round_stack(monkeypatch, skips):
+    """trl/transformers/accelerate fakes: the trainer reports `skips` (one bool per step)
+    through the callbacks exactly as HF Trainer passes the optimizer to on_step_end."""
+
+    class FakeTrainer:
+        def __init__(self, model, args, processing_class, train_dataset, callbacks):
+            self.callbacks, self.args = callbacks, args
+            self.state = SimpleNamespace(global_step=0, log_history=[])
+
+        def train(self):
+            for skipped in skips:
+                self.state.global_step += 1
+                self.state.log_history.append({"loss": 1.0})
+                for cb in self.callbacks:
+                    cb.on_step_end(self.args, self.state, SimpleNamespace(),
+                                   optimizer=SimpleNamespace(step_was_skipped=skipped))
+            return SimpleNamespace(training_loss=1.0)
+
+    modules = {
+        "trl": SimpleNamespace(
+            SFTConfig=lambda **k: SimpleNamespace(device=SimpleNamespace(type="cuda")),
+            SFTTrainer=FakeTrainer),
+        "transformers": SimpleNamespace(TrainerCallback=object),
+        "accelerate.utils": SimpleNamespace(GradScalerKwargs=object),
+    }
+    monkeypatch.setattr(local, "import_module", lambda name: modules[name])
+
+
+def _round(tmp_path, dtype, steps):
+    return local._rft_sft_round(None, None, [], replace(local.Profile(), dtype=dtype),
+                                tmp_path, device="cuda", steps=steps, learning_rate=1e-5,
+                                seed=1)
+
+
+def test_rft_float16_round_counts_scaler_skips_and_refuses_endless_overflow(tmp_path,
+                                                                           monkeypatch):
+    _fake_round_stack(monkeypatch, [True, False, True])
+    out = _round(tmp_path, "float16", 3)
+    assert out["optimizer_steps"] == 3 and out["loss_scale_skipped_steps"] == 2
+    _fake_round_stack(monkeypatch, [True, False])
+    assert "loss_scale_skipped_steps" not in _round(tmp_path, "bfloat16", 2)  # fp16 only
+    limit = local.MAX_CONSECUTIVE_LOSS_SCALE_SKIPS
+    _fake_round_stack(monkeypatch, [True] * limit)
+    assert _round(tmp_path, "float16", limit)["loss_scale_skipped_steps"] == limit
+    _fake_round_stack(monkeypatch, [True] * (limit + 1))
+    with pytest.raises(local.LocalVLMError, match="overflowed on every recent step"):
+        _round(tmp_path, "float16", limit + 1)
+
+
 def test_cli_forwards_the_rft_step_boundary_only_when_given(monkeypatch, capsys):
     captured = []
     monkeypatch.setattr(local, "rft_local", lambda *a, **k: captured.append(k) or {"ok": 1})
@@ -607,7 +660,8 @@ def test_cli_forwards_the_rft_step_boundary_only_when_given(monkeypatch, capsys)
     legacy = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
     for bad in (legacy + ["--rft-stop-after-steps", "150"],
                 argv + ["--epsilon-high", "0.28"],
-                argv + ["--dynamic-sampling-max-draws", "4"]):
+                argv + ["--dynamic-sampling-max-draws", "4"],
+                argv + ["--dtype", "float16", "--loss-scale-init", "1024"]):
         with pytest.raises(SystemExit):
             local.main(bad)
     capsys.readouterr()

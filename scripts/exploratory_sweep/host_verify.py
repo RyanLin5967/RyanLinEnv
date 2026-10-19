@@ -56,6 +56,7 @@ FEATURE_FLAGS = {
     "invalid_answer_penalty": "--invalid-reward",
     "rejection_sampling_ft": ("--mode", "rft"),
     "rft_step_boundary": "--rft-stop-after-steps",
+    "replay_sequence": "--replay-sequence",
     "cuda_float16": "--loss-scale-init",
     "sft_augmentation": "--sft-augmentation",
     "resolution_transfer": "--pixel-transfer",

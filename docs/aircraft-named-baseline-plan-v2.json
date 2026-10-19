@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "plan_id": "aircraft-named-baseline-qwen3.8-27b-hf-cpu-v2",
+  "status": "PRE_REGISTERED_UNACTIVATED",
+  "activated": false,
+  "activation": null,
+  "created_date": "2026-10-18",
+  "author_agent": "claude (workflow subagent, branch named-baseline-v2-hf-cpu.noindex)",
+  "why_v2": "v1 (MLX 8-bit on Ryan's Mac) wired about 37.5 GB and lagged the Mac, so its full-VAL stage was paused after invocations 1-3 (runs/aircraft-named-baseline-v1-run2). MLX is Apple-only and cannot run on the UWaterloo hosts. v2 runs the same base model from the author's unquantized weights with transformers on CPU on the ram pool.",
+  "must_not_run_until": [
+    "Root review approves this plan and writes an activated copy (activated true, activation.activated_at, activation.approved_by, every sources_pinned value filled with the merged code's SHA256) committed before the first model call; the runner refuses anything else and requires that copy's SHA256 on every invocation.",
+    "The runtime pins below are installed on every shard host (the runner refuses any other version set) and the weights pass the integrity record on that host."
+  ],
+  "scope": "Named open-weight comparator on FGVC-Aircraft 2013b native VALIDATION only. No TEST image is opened, decoded, synced or predicted. No training. The only download is the pinned author snapshot, onto the shard hosts.",
+  "baseline_identity": {
+    "name": "Qwen3.8-27B (author bf16 weights, computed in float32), native instruct profile, transformers on CPU",
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "license": "Apache-2.0",
+    "claim_label": "Qwen3.8-27B (author bf16 weights, fp32 compute, transformers CPU) native-instruct (direct answer), single seeded sample per image",
+    "identity_change_vs_v1": "v1 evaluated mlx-community/Qwen3.8-27B-8bit@815b83c0 (8-bit affine, group 64) converted from this same upstream revision (docs/local-qwen3.8-27b-8bit-provenance.json upstream_revision_checked 1d4bf0f2). v2 evaluates the author bf16 weights themselves, so the two are the same base model at different numerics: v2 is the unquantized author model, v1 a lossy 8-bit conversion. The engine also changes (mlx-vlm 0.6.8 on Metal -> transformers 5.20.0 on CPU, float32 compute over the exactly upcast bf16 weights), and the random stream changes (MLX -> torch.Generator) while the sampling definition stays the mlx-vlm one. A v2 result is therefore NOT a v1 result and is never labelled as the 8-bit model.",
+    "v1_results_not_merged": "No v1 run-2 artifact (discovery 34/100 twice, full-VAL invocations 1-3) is read, copied, resumed or pooled by v2. v2 regenerates every discovery and full-VAL image from scratch. v1 numbers may be quoted beside v2 only with their own label.",
+    "not_claimed": "Not the strongest Qwen3.8 profile (xhigh thinking stays unmeasured, as in v1). Bit-identical outputs to any GPU or MLX run are not claimed."
+  },
+  "model": {
+    "directory": "host-local, passed as --weights; the snapshot lives in /dev/shm/r226lin-qwen38-27b-1d4bf0f2 on each shard host because /var/tmp on the shard hosts has 8-54 GB free and the snapshot is 55.6 GB (uwrun hosts ram, 2026-10-18)",
+    "integrity": "docs/qwen3.8-27b-hf-integrity-1d4bf0f2.json",
+    "integrity_sha256": "c5450e81de7ca7969a5db9c28210cf2d9749682ff4a0b26b9680c706e390697f",
+    "verification": "run and smoke refuse an integrity record whose SHA256 differs from integrity_sha256; verify_snapshot then rehashes all 32 files before each load: sha256 of each LFS file (18 safetensors + tokenizer.json) and the git blob SHA-1 of every other file, as published by the Hub API; strict loader, trust_remote_code false, offline",
+    "python": "uv venv -p 3.12.15 /var/tmp/r226lin-nbv2/venv on each host (the lock, not the project, is installed: do not pip install this repository, the runtime lock refuses it), then /var/tmp/r226lin-nbv2/venv/bin/python -I; the runner puts the staged tree's src/ on sys.path itself",
+    "runtime_pins": {
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "transformers": "5.20.0",
+      "tokenizers": "0.23.3",
+      "pillow": "12.3.0",
+      "numpy": "2.5.4",
+      "safetensors": "0.8.0"
+    },
+    "runtime_pins_source": "uv pip freeze of the iccad3 setup run qwen38hf-setup-iccad3 (2026-10-18); transformers/tokenizers/pillow/numpy/safetensors equal v1's runtime pins; torch from download.pytorch.org/whl/cpu, the same torch/torchvision pair CI's local-vlm job installs; torchvision is required by the Qwen3-VL processor in transformers 5.20.0 (the first smoke launch failed without it); httpx is imported by vision_rl.evaluation and is not a runtime pin",
+    "install": "uv venv -p 3.12.15 <venv>; uv pip install --no-deps --index-url https://download.pytorch.org/whl/cpu torch==2.14.1+cpu torchvision==0.29.1+cpu; uv pip install --no-deps -r <the lock without its torch and torchvision lines>; uv pip freeze must then equal the lock byte for byte",
+    "runtime_lock": {
+      "freeze": "docs/qwen3.8-27b-hf-cpu-freeze.txt",
+      "freeze_sha256": "f3107ead9e5a6d4e55c48374cab5334c115de3b1d591042ca899bbd4fcd1c3ac",
+      "python": "3.12.15",
+      "rule": "run and smoke refuse unless the lock file has this SHA256, every installed distribution (importlib.metadata, names normalised) equals the lock exactly (no extra, missing or different package, transitive dependencies such as huggingface_hub included), and platform.python_version() is this version. The lock SHA256 and Python version are in each shard's run identity.",
+      "source": "uv pip freeze of the iccad5 venv that ran qwen38hf-smoke-pinned-iccad5 (2026-10-18); every nbv2-* probe venv was built from it with --no-deps and its freeze diffed equal (run.log FREEZE_MATCH)"
+    }
+  },
+  "engine": {
+    "name": "transformers-cpu",
+    "dtype": "float32",
+    "dtype_rule": "Compute in float32: the author bf16 weights are loaded with dtype=float32, an exact upcast (every bf16 value is representable in float32), so the weights are the author's values and only activations are computed at higher precision. bf16 compute is not supported natively by the ram-pool CPUs (Xeon E5-2667 v2 / Ivy Bridge: AVX without AVX2, FMA or AVX512-BF16; torch cpu_capability DEFAULT), so torch emulates it, and it was measured impractical (dtype_evidence). The dtype is part of the run identity, so shards cannot silently differ; changing it needs a new plan version.",
+    "dtype_evidence": "reports/2026-10-18-named-baseline-v2-smoke: bf16 on iccad3 had not finished TRAIN image 0447760 after about 3,120 s of generation and was stopped; float32 finished the same image in 504.6 s (iccad3) and 859.7 s (iccad1).",
+    "cpu_numerics": {
+      "aten_cpu_capability_env": "default",
+      "aten_cpu_capability": "DEFAULT",
+      "mkldnn_enabled": true,
+      "mkl_cbwr": "AVX",
+      "onednn_max_cpu_isa": "AVX",
+      "mkl_available": true,
+      "reason": "The pool mixes Ivy Bridge (iccad1/2/3: AVX only), Broadwell (iccad5: AVX2+FMA) and Skylake-SP (iccad9-13: AVX-512). Unpinned kernels differ per family: the first-step score rows of the canary images differ between iccad3 and iccad5 unpinned (no unpinned model run finished on a Skylake host; there, only the unpinned kernel_fingerprint was measured, and it differs from both) (reports/2026-10-18-named-baseline-v2-kernel-probe). The engine sets ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX and ONEDNN_MAX_CPU_ISA=AVX (DNNL_MAX_CPU_ISA unset) before torch is imported, keeps oneDNN on, refuses unless torch reports this path (or if torch/MKL was loaded before with a different environment), and records kernel_fingerprint in every shard's run identity, so the merge refuses shards whose kernels computed its fixed operations differently.",
+      "change_from_previous_pin": "The previous pin turned oneDNN off. Measured back to back on iccad3 (kernel probe, 1 TRAIN image + 16 forced decode tokens, 32 threads): oneDNN off + MKL_CBWR=AVX decoded at 61.7 s/token and 462 s/image; oneDNN off alone 13.7 s/token, 361 s/image; oneDNN on (with or without MKL_CBWR) 2.1 s/token, 243-255 s/image; CPU cores busy 25-32 in every config, so host load does not explain it. oneDNN off was the cost. Capping oneDNN at the AVX ISA keeps its speed (iccad3 2.08 s/token) and keeps one numerics path: the first-step logits of all four canary images are bit-identical on iccad1, iccad2, iccad3 (Ivy Bridge) and iccad5 (Broadwell), see measured_cost.canary.",
+      "evidence_limits": "Equality is measured on the first-step score rows (SHA256 of the float32 bytes) and the full answers of 4 TRAIN images, plus kernel_fingerprint on 5 hosts of 3 CPU families. It is strong evidence that the hosts compute the same function, not a proof for every VAL image; the fingerprint in each shard's identity is the runtime check.",
+      "vml_single_thread_warmup": true,
+      "vml_warmup_rule": "pin_cpu_numerics runs one single-threaded pass of torch cos, sin, exp, tanh and log over 2^20 float32 values right after torch is imported, before any multithreaded op, then restores the thread count, and records vml_single_thread_warmup: true in the observed numerics, which enter every shard run identity. Reason (measured 2026-10-18): torch 2.14.1 bundled MKL intermittently runs its AVX-512 VML kernels on CPUs without AVX-512 when OpenMP workers make the first VML call concurrently, a SIGILL (rc 132) at libtorch_cpu.so offset 0xb724bf3 in mkl_vml_kernel_sCos_Z0HAynn (dmesg, objdump on iccad6); under this plan pin the elementwise probe crashed 5/200 (iccad3), 1/200 (iccad1), 3/200 (iccad6, Broadwell) and environment pins do not prevent it. A crash is a lost process under budget_semantics.recovery. Evidence for the warm-up: reports/2026-10-18-named-baseline-v2-kernel-probe/sigill/."
+    },
+    "threads": 32,
+    "threads_rule": "Fixed and part of the run identity: float32 reductions (ATen parallel loops, MKL without CBWR STRICT) can depend on the thread count, so every shard uses torch.set_num_threads(32) and uwrun --threads 32 (OMP/MKL/OPENBLAS = 32). Measured: under this pin, 16 and 32 threads gave identical first-step logits on iccad3 and identical kernel fingerprints on all 5 probed hosts, but the canary ran at 32, so 32 stays fixed.",
+    "implementation": "scripts/aircraft_named_baseline_hf.py (TransformersBackend, run_local_hf; kept out of src/vision_rl because pre-registered plans hash every module there); journal loop is local_vlm._run_locked unchanged",
+    "sampler_equivalence": "local_hf.mlx_filter reproduces mlx-vlm 0.6.8 make_logits_processors + make_sampler: presence penalty 1.5 on the unique tokens among the last 20 entries of mlx-vlm's token history (the whole prompt, or only its last token when the prompt exceeds the 2048-token prefill step and is prefilled in chunks, followed by the generated tokens; generate/ar.py and sample_utils.py), log-softmax, top-p 0.8 on the untempered distribution (keep where ascending cumulative probability > 0.2), top-k 20, categorical draw at temperature 0.7. The draw is made in the logits processor with torch.Generator seeded by the per-image seed; generate() runs greedy over a one-hot row with the author generation_config replaced by a neutral one, and the emitted tokens are compared with the drawn tokens (any difference is refused).",
+    "stop_rule": "finish_reason stop iff the last generated token is one of the author generation_config eos_token_id; the eos token is not part of the text (as mlx-vlm); otherwise length at max_tokens",
+    "kernel_fingerprint_sha256": "9d149dab64c57b7aa064767439b4f96d775c5a744d4c5d37857d4fb24f368d61",
+    "kernel_fingerprint_rule": "machine_preflight refuses, before any image and before the ledger charges an invocation, a host whose kernel_fingerprint (scripts/aircraft_named_baseline_hf.py, 32 threads, this plan's kernel path) differs from this value. Measured with the committed function under this path on iccad1, iccad3, iccad5, iccad6, iccad9, iccad10, iccad12 and iccad13, identical at 16 and 32 threads (reports/2026-10-18-named-baseline-v2-kernel-probe/fingerprint/)."
+  },
+  "generation": {
+    "profile": "instruct",
+    "native_profile": "qwen3.8-native-instruct-v1",
+    "sampling": {
+      "max_tokens": 16384,
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "min_p": 0.0,
+      "presence_penalty": 1.5,
+      "repetition_penalty": 1.0,
+      "enable_thinking": false
+    },
+    "sampling_source": "vision_rl.local_vlm.INSTRUCT_GENERATION (author-card native instruct values); identical to the measured chunk1 probe",
+    "assistant_prefill": "<think>\n\n</think>\n\n",
+    "seed": 1729,
+    "per_image_seed": "int(sha256(canonical([1729, id]))[:8], 16) as in run_local",
+    "mlx_memory_limit_bytes": null,
+    "decoding_protocol": "One seeded native-sampled completion per image (pass@1). The eight endpoints are greedy; this difference is disclosed, not equalised, because the baseline must use its supported native profile.",
+    "output_budget_note": "The native 16,384-token ceiling is kept. No reduced cap is imposed to cause truncation.",
+    "memory_note": "No MLX limit. A float32 shard process peaked at 164742791168 bytes (153.4 GiB) RSS in the smoke; that figure includes the mapped /dev/shm snapshot pages (iccad2, 188 GB, ran the canary with about 27 GB still free), so the footprint is about 153 GiB in total, not RSS plus the snapshot. One shard per host, launched with uwrun --mem 170."
+  },
+  "prompt_and_parser": {
+    "same_as": "vision_rl.vlm_local_evaluation (eight-endpoint native-VAL evaluator): prompt_text(spec, \"answer_only\") over the complete 100-label vocabulary, parse_label(response, labels, allow_reasoning=True) only for a normally terminated generation",
+    "response_format": "answer_only",
+    "prompt_sha256": "859dd366a3287a1db0fdc4ff3e3472780e974167e25f8512773cb420d60894e1",
+    "prompt_sha256_evidence": "Equal to prompt_sha256 in runs/aircraft-native-val-activation-v1/bundle/plan.json and to runs/local-qwen8bit/aircraft-native-instruct-plan/prompt.txt (shasum -a 256, 2026-10-17); recomputed from data_spec by jq with the prompt_text formula.",
+    "output_grammar": "canonical-label-v2/optional-tags",
+    "parser_source_sha256": "f75d20ee9e44fd519ef65d0c4bad25b30f5fb973bce18a185141494e9e3adfca",
+    "parser_source_sha256_evidence": "sha256 of the parse_label source text in the evaluator frozen copy (runs/aircraft-native-val-activation-v1/frozen/src) and on main c966df4 (identical), equal to parser_source_sha256 in the native-instruct probe plan.",
+    "terminated_rule": "finish_reason == \"stop\"; otherwise the answer is None (invalid, counted wrong)",
+    "no_repair": "Raw generated text is retained; no answer repair, fuzzy matching or retry.",
+    "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+    "formatted_prompt_evidence": "frontier._digest of the chat-templated prompt recorded by every completed v1 image (runs/aircraft-named-baseline-v1-run2/stage-discovery/run/attempts.jsonl, one distinct value) and by the MLX TRAIN probe (runs/local-qwen8bit/aircraft-native-instruct-probe); the v2 engine refuses any image whose templated prompt differs"
+  },
+  "inputs": {
+    "dataset_root": "data/fgvc-aircraft-2013b",
+    "val_images": {
+      "path": "audit/val-images.json",
+      "sha256": "046320db26084151ad73f138f75ce9e655f356257780b130815edd5a83561420"
+    },
+    "validation": {
+      "path": "development/validation.jsonl",
+      "sha256": "27d5cd01bd7e8e007211623ac2186f94ecb308afa4a02745ce39c92fb504b9cb"
+    },
+    "data_spec": {
+      "path": "candidates/fourshot-seed791/data_spec.json",
+      "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a"
+    },
+    "image_preprocessing": "fgvc-aircraft-rgb-remove-bottom20-v1 (shared aircraft_data transform; original JPEG, RGB, bottom 20 rows removed, no box crop, no external resize, no EXIF transposition); run_local rehashes model-visible pixels before each image",
+    "hash_instrument": "shasum -a 256 on the main checkout, 2026-10-17"
+  },
+  "sources_pinned": {
+    "src/vision_rl/local_vlm.py": "240bc6c161fb4f65fd42b0041427e099705f0f86ad06787e9a745f9cad1452bb",
+    "src/vision_rl/local_vlm_execution.py": "089b9462a61081ac52d84c9450ce8ba1e6d84bb20dda911fb5031d7493c9a36a",
+    "src/vision_rl/aircraft_data.py": null,
+    "src/vision_rl/frontier.py": null,
+    "src/vision_rl/vlm_local_training.py": null,
+    "src/vision_rl/classification_comparison.py": null,
+    "scripts/aircraft_named_baseline_hf.py": null,
+    "scripts/aircraft_named_baseline.py": "26b8f4dbe5a20e180c1b611f1f5819929f8c47ec65e2cb6608b1e184d85c64a6",
+    "scripts/aircraft_named_baseline_v2.py": null
+  },
+  "sources_pinned_note": "local_vlm.py, local_vlm_execution.py and the v1 runner are byte-identical to main da4e401 (the v1 run hashes them, so v2 does not edit them). Every source the runner hashes is listed (the runner refuses an activated plan whose keys differ from its hashed set). The null pins (the two v2 scripts and the four shared vision_rl modules other work keeps changing on main) are filled at activation with the activated commit's file hashes; an activated plan with any null pin is refused, so activation pins every hashed source. All runner sources are also hashed into each shard ledger at its first invocation and must not change afterwards.",
+  "sharding": {
+    "shards": {
+      "discovery": 10,
+      "full": 60
+    },
+    "hosts": {
+      "ICCAD1": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+      "ICCAD3": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+      "iccad5": "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz",
+      "iccad10": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+      "iccad12": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz",
+      "iccad13": "Intel(R) Xeon(R) Gold 6154 CPU @ 3.00GHz"
+    },
+    "hosts_rule": "Allowlist (run_shard refuses any other hostname, or this hostname with another CPU model, and a shard never leaves the host its ledger started on): exactly the hosts whose dnnavx TRAIN canary reproduced the first-step score rows (SHA256 of the float32 bytes) of all four canary images and the four answers, and that can take a launch with uwrun --mem 170. Measured peak RSS was 164742791168 bytes = 153.4 GiB (it includes the mapped /dev/shm snapshot pages); --mem 170 (GiB) is that plus about 10%, and uwrun then requires MemAvailable >= 178 GiB at placement, after the host already holds the 52 GB snapshot in /dev/shm. Keys are os.uname().nodename as each host reports it. Not allowlisted: iccad2 (188 GB total, about 130 GB available once the snapshot is in /dev/shm: its canary matched, but it cannot take --mem 170, and with 27 GB left during the canary it sat near uwrun's oom-guard line); ecetesla0 (92 GB), ecetesla1 (125 GB), iccad4 (125 GB), iccad6 (156 GB): too little RAM; iccad0, iccad7 and iccad8 (250 GB) had only 180-222 GB free beside the exploratory sweep, too little to leave the sweep room once 178 GiB is claimed; iccad9 and iccad11 (Gold 6136, 48 threads) have the RAM, but the sweep kept them at load 47-60 on 48 threads, their dnnavx canary had not finished 4 images after 73 min and was stopped to leave the sweep its cores, so they have no canary evidence (iccad9's kernel_fingerprint under dnnavx matches, 9d149dab...; iccad11 was not fingerprinted). Adding a host later needs its canary and a new plan version.",
+    "assignment": "author-order position i of a stage manifest belongs to shard i mod N: discovery N = 10 (10 images each), full N = 60 (56 or 55 images each). Hosts pull the next unstarted shard; a full shard may only go to a host that ran a discovery shard (the gate refuses others), so every pool host takes at least one discovery shard first. Small full shards keep the end of the run short: the last shard on the slowest measured host is about 56 x 973 s = 15 h, so near the end shards go to the fastest idle host.",
+    "merge": "scripts/aircraft_named_baseline_v2.py merge (writes <output>/merged-<stage>-predictions.json): union of the shard journals; refuses an image journaled outside its shard or reserved/completed twice within one, a shard directory outside shard-k-of-N (N per stage), a shard with journaled images but no budget ledger or run.json, shards whose run identities differ in anything but their rows, shard index and host (the identity includes dtype, threads, kernel_fingerprint, the observed CPU kernel settings, runtime versions, the runtime lock SHA256, the Python version and the formatted-prompt hash), shard ledgers that started under different plan SHA256s or runner sources, and any missing, unknown or hard-stop image. Its per_shard output names each shard's host and CPU model, and per_host gives each host's mean latency. The observed kernel settings can only equal the plan's (the pin raises otherwise), so they are a record; kernel_fingerprint is the part that can differ between hosts and is what makes the merge catch a numerics difference on its fixed operations.",
+    "shared_state": "Shards share no lock. Shard results are fetched to one output directory before merge; the merge refuses duplicates, so running one shard twice cannot be double-counted.",
+    "sigill_admission_rule": "Pre-registered 2026-10-19 (root decision), before the engine forwards below had finished: iccad1, iccad3 and iccad5 stay on the allowlist only if each completes >= 15 real-engine forwards (reports/2026-10-18-named-baseline-v2-kernel-probe/sigill/model_probe.py: the plan pin with the VML warm-up, model load, fingerprint check, one TRAIN image through the vision tower and full prefill) with 0 SIGILL; any SIGILL in those 15 removes that host. The Skylake hosts (AVX-512, iccad10/12/13) are not affected by this failure mode. Runs past 15 are extra evidence only.",
+    "sigill_admission_result": "Met for iccad1, iccad3 and iccad5 (committed log snapshot reports/2026-10-18-named-baseline-v2-kernel-probe/sigill/nbv2-sigillwarm-<host>.log): real-engine forwards with the warm-up, each recording warmup true and a matching fingerprint, 0 SIGILL: iccad1 21, iccad3 27, iccad5 16; elementwise runs with the engine pin 0/200 on each. All three stay on the allowlist."
+  },
+  "stages": {
+    "discovery": {
+      "order": 1,
+      "definition": "strong_baseline.validation_discovery of docs/aircraft-rl-protocol-freshpool-v1.json",
+      "selection": "Within each of the 100 classes, the native-VAL ID with the lowest SHA256 of compact JSON [\"fgvc-aircraft-2013b\",\"fgvc-aircraft-freshpool-screened-grpo-v1\",\"baseline-discovery\",791,label,id] (salt pinned by decision D13); evaluated in author order. Metadata only; no image or model output consulted.",
+      "images": 100,
+      "ids": [
+        "0067396",
+        "0091362",
+        "0092976",
+        "0097108",
+        "0098072",
+        "0118429",
+        "0136167",
+        "0182724",
+        "0195002",
+        "0295861",
+        "0302868",
+        "0368821",
+        "0388910",
+        "0447773",
+        "0458784",
+        "0491938",
+        "0558247",
+        "0591254",
+        "0598742",
+        "0692142",
+        "0699595",
+        "0722894",
+        "0730793",
+        "0737639",
+        "0842400",
+        "0851614",
+        "0858585",
+        "0875351",
+        "0890355",
+        "0903124",
+        "0907752",
+        "0917396",
+        "0927430",
+        "0950326",
+        "0962633",
+        "0973103",
+        "0977265",
+        "1018862",
+        "1026133",
+        "1027348",
+        "1031522",
+        "1042843",
+        "1047792",
+        "1053984",
+        "1094917",
+        "1097303",
+        "1110803",
+        "1119082",
+        "1131594",
+        "1149050",
+        "1152495",
+        "1157334",
+        "1161864",
+        "1164553",
+        "1168016",
+        "1168209",
+        "1170152",
+        "1193564",
+        "1231212",
+        "1246392",
+        "1269238",
+        "1288661",
+        "1294506",
+        "1334472",
+        "1345202",
+        "1351207",
+        "1365711",
+        "1372373",
+        "1389713",
+        "1391858",
+        "1393629",
+        "1510899",
+        "1555557",
+        "1570201",
+        "1584007",
+        "1594799",
+        "1602047",
+        "1605065",
+        "1608837",
+        "1691790",
+        "1783696",
+        "1795992",
+        "1816331",
+        "1838250",
+        "1839351",
+        "1861128",
+        "1879799",
+        "1895885",
+        "1898332",
+        "1980084",
+        "2015169",
+        "2091953",
+        "2103000",
+        "2115048",
+        "2127863",
+        "2137099",
+        "2179973",
+        "2190106",
+        "2226295",
+        "2227920"
+      ],
+      "ids_sha256": "c8d73a4cd59107e65df631a8b5af476b9916aa1e0ec1a6bf0642741b06963865",
+      "ids_evidence": "Computed with jq -c and shasum -a 256 over audit/val-images.json by two independent jq reductions that agree; the runner recomputes it in Python and refuses on any difference.",
+      "uncertainty": {
+        "method": "Hoeffding, 100 bounded outcomes, clipped to [0,1]",
+        "confidence_level": 0.95,
+        "half_width": 0.13581015157406195
+      },
+      "report": "numerator, denominator, exact IDs, macro (= micro by balance), invalid/unterminated answers, finish reasons, native tokens, generation and charged active seconds; a partial run reports completed counts and metric null",
+      "budget": {
+        "chunk_images": 10,
+        "image_seconds": 2600,
+        "load_allowance_seconds": 1800,
+        "long_generation_allowance_seconds": 1310720,
+        "max_invocations": 3,
+        "max_active_seconds": 4015560,
+        "max_calendar_seconds": 5184000,
+        "max_output_bytes": 1073741824,
+        "derivation": "per shard (10 shards of 10 images, one invocation each if nothing fails): image_seconds 2600 is 2.3x the slowest canary image under this plan's kernel path (1142.1 s, iccad12 under the sweep's load); load 1800 s covers snapshot rehash plus load; long_generation_allowance 1310720 s = two native 16,384-token answers at 40 s/token, about 2.1x the slowest decode measured under this kernel path (18.64 s/token, iccad12 under the sweep's load); wall cap = 1800 + 10 x 2600 + 1310720 = 1338520 s; max_active = 3 wall caps; calendar 60 days. These are ceilings, not expectations: canary answers were 5-7 tokens. A third maximum-length answer in one invocation would hit the wall cap, which kills the invocation and charges its full cap.",
+        "stall_seconds": 10800
+      },
+      "regenerated": "Same 100 IDs as v1, regenerated by v2; v1 discovery outputs are not reused."
+    },
+    "full": {
+      "order": 2,
+      "images": 3333,
+      "ids_sha256": "c33a8794a287122d2237f0906996fd1988f7f16604ecf887786229b398cef0cd",
+      "ids_evidence": "sha256 of compact JSON list of all image_id values of audit/val-images.json in author order (jq -c, shasum -a 256).",
+      "regenerates_discovery_images": "Yes: full VAL is its own run; discovery outputs are never copied into it.",
+      "gate": {
+        "requires": "every discovery shard completed with zero unknown and zero hard-stop outcomes, under this activated plan's SHA256 and the same runner sources",
+        "minimum_valid_answer_fraction": 0.9,
+        "max_projected_shard_active_seconds": 1209600,
+        "max_shard_active_seconds": 5184000,
+        "projection": "per full shard: ceil(3333 / sharding.shards.full) x the SLOWEST discovery host's mean image latency (discovery latencies grouped by the host recorded in each shard's run identity) + ceil(that / chunk_images) x max(discovery mean load seconds, the largest per-shard (charged seconds not spent generating) / invocations). A full shard runs on one host, and run_shard refuses a full shard on any host that ran no discovery image, so the projection bounds every host that can run one. (The previous pooled mean let a shard on a host slower than the pool average halt before finishing.)",
+        "active_cap_multiplier": 2.0,
+        "shard_max_active_seconds": "min(max_shard_active_seconds, active_cap_multiplier x projection + one full invocation wall cap); a hard ceiling per shard. v2 adds the wall cap (v1: multiplier x projection) because the long-generation allowance alone exceeds a shard projection on these CPUs, which would make v1's consistency rule refuse every run",
+        "ceiling_consistency": "a static plan rule (check_plan_consistency, applied by load_plan to every plan): max_projected_shard_active_seconds + one full invocation wall cap <= max_shard_active_seconds, and active_cap_multiplier >= 1. Together they guarantee projection + wall cap <= shard_max_active_seconds for every affordable projection, so the runtime check the previous version carried could never fire and was removed.",
+        "on_stop": "Report the named comparator as incomplete. Do not change prompt, profile, output budget, dtype or sample to rescue it; any change is a new plan version.",
+        "headroom": "Not gated here; a root decision."
+      },
+      "budget": {
+        "chunk_images": 64,
+        "image_seconds": 2600,
+        "load_allowance_seconds": 1800,
+        "long_generation_allowance_seconds": 1310720,
+        "max_invocations": 4,
+        "max_active_seconds": "derived per shard by the gate",
+        "max_calendar_seconds": 5184000,
+        "max_output_bytes": 2147483648,
+        "derivation": "per shard of 56 or 55 images (60 shards): one chunk of 64 covers a shard, 4 invocations allowed; wall cap = 1800 + 64 x 2600 + 1310720 = 1478920 s (two maximum-length answers per invocation, as in discovery); calendar 60 days",
+        "stall_seconds": 10800
+      }
+    }
+  },
+  "budget_semantics": {
+    "scope": "Every budget is per shard: each shard has its own ledger.jsonl under stage-<stage>/shard-<k>-of-<N>/ and its own invocation count, active seconds and calendar clock.",
+    "invocation_wall_seconds": "load_allowance_seconds + chunk_images x image_seconds + long_generation_allowance_seconds (discovery 1338520 s, full 1478920 s); the uwrun --timeout of an invocation is this value + 3600 s: the machine preflight (snapshot rehash, runtime lock, kernel pin, fingerprint) runs before the ledger's start event so a refusal is never charged, and is therefore outside the charged window but inside the uwrun timeout; a full rehash measured 158.7 s on idle iccad3 (sha256sum over the 19 LFS files), and the slack leaves room for it on a loaded host",
+    "long_generation_allowance": "1310720 s covers two native 16,384-token answers per invocation at 40 s/token, about 2.1x the slowest decode measured under this kernel path (see stages.*.budget.derivation). It is not unlimited: a third maximum-length answer in one invocation would reach the wall cap, the supervisor kills the invocation, the ledger charges its full wall cap, and the reserved image is unknown_after_interruption, which halts the shard for human review (recovery is a new plan version).",
+    "charging": "A finished invocation is charged its measured elapsed seconds; a started invocation with no finish record is charged its full wall cap.",
+    "survives_resume": "The ledger's first start time and invocation count are never reset.",
+    "refusals": "A new invocation is refused when any of: invocations >= max_invocations, charged active seconds + the invocation wall cap > max_active_seconds (so the cap is a hard ceiling while the supervisor enforces the wall cap), calendar >= max_calendar_seconds, run output >= max_output_bytes, an unfinished prior invocation, or any unknown/hard-stop outcome (human review, no automatic continuation). Exception: a lost process may be recovered once under budget_semantics.recovery.",
+    "stall": "stall_seconds 10800 (3 h): a watchdog thread in run_shard ends the process (exit 75, stalled-<invocation>.json beside the ledger) when nothing under the shard's run directory changed for that long. A live run writes there at every reservation, completion and every 32 generated tokens; the longest legitimate silence is one image's prefill (largest canary prefill 766 s under the previous pin, 694 s under this one, on 1.67 MP; VAL reaches 1.9 MP) or the first image after load. A stalled invocation thus ends as a lost process within 3 h instead of holding its host until the wall cap.",
+    "recovery": "Pre-registered, bounded: a shard whose process was lost (its ledger has an invocation with no finish record: uwrun timeout or oom-guard, the stall watchdog, a reboot, or a process killed by a signal such as SIGILL, rc 132) and whose journal has no hard stop may be recovered ONCE, on another allowlisted host (a full-stage host must also have run discovery): `recover` writes lost.json beside the original ledger (lost host, unfinished invocations, unknown images, discarded completed count, the ledger's SHA256 and charged seconds, plan SHA256) and starts the shard from scratch in stage-<stage>/shard-<k>-of-<N>-rerun/ with a fresh ledger and budget; further invocations use `run --rerun`. Merge then scores that shard only from the rerun: nothing the lost attempt journaled is read as a prediction, and its charged seconds are reported separately (lost_process_charged_active_seconds). The original shard is refused once lost.json exists; a rerun is never recovered again (a second loss of the same shard, a hard stop, or an exhausted budget still stops the stage under gate.on_stop). Recovery changes no prompt, profile, budget, dtype or sample.",
+    "recovery_known_limit": "The rerun-must-match check covers only images the lost attempt COMPLETED. The image in flight when the process died (reserved, never completed) has no recorded answer, so the rerun answer for it is not cross-checked; only the engine determinism (same seed, pinned kernel path, matching kernel fingerprint) protects it. At most one such image per lost shard, and lost.json lists it under unknown_images."
+  },
+  "supervision": {
+    "command": "uwrun run --host <a host in sharding.hosts> [--need none on iccad1/3] --threads 32 --mem 170 --timeout <invocation_wall_seconds + 3600> --name <new name> -- bash -c 'cd /var/tmp/r226lin-nbv2/repo && /var/tmp/r226lin-nbv2/venv/bin/python -I scripts/aircraft_named_baseline_v2.py run --plan <ACTIVATED.json> --expected-plan-sha256 <sha> --stage <stage> --shard <k> --repository /var/tmp/r226lin-nbv2/repo --weights /dev/shm/r226lin-qwen38-27b-1d4bf0f2 --output /var/tmp/r226lin-nbv2/out'",
+    "outputs_and_sync": "Each host has its own --output at the fixed host-local path /var/tmp/r226lin-nbv2/out (see fixed_paths; never inside uwrun's per-run directory). (1) After every discovery shard finishes, fetch each WHOLE shard directory (ledger.jsonl, run/, summary.json; never only run/: merge refuses a shard with journaled images but no ledger or run.json) to one collector directory on the Mac with uwrun fetch. (2) Run merge --stage discovery on the collector. (3) Before the first full-VAL invocation on a host, copy the collector's complete stage-discovery/ (all shard directories) into that host's --output (uwrun run --sync <collector> ... or rsync): full-stage run_shard reads every discovery ledger, journal and run identity from its own --output and refuses ('discovery shard k never ran') until they are there. (4) Fetch each finished full shard directory into the collector and run merge --stage full and compare there.",
+    "host_binding": "A shard's host (hostname + CPU model) is in its run identity: a shard started on one host can only be resumed on that host (a resume elsewhere is refused before model load). If a host is lost mid-shard, that shard cannot be moved; it needs a new plan version.",
+    "wall_limit": "uwrun --timeout TERMs then KILLs the process group at the bound; a killed invocation has no finish record and is charged its full wall cap",
+    "memory": "No MLX/Metal limit applies. Peak RSS 153.4 GiB (164.7 GB decimal), snapshot pages included. Launch every invocation with uwrun --threads 32 --mem 170 (--need none on iccad1/3, which lack AVX2); uwrun places it only where MemAvailable >= 178 GiB. One shard per host.",
+    "one_invocation_at_a_time": "run_local_hf holds an exclusive lock on its shard run directory; no automatic retries",
+    "staged_tree": "src/, scripts/, docs/ (plan + integrity), data/fgvc-aircraft-2013b/{audit/val-images.json, development/validation.jsonl, development/images/validation/, candidates/fourshot-seed791/data_spec.json} only; never data/fgvc-aircraft-2013b/sealed",
+    "fixed_paths": "The staged tree (/var/tmp/r226lin-nbv2/repo), venv and --output (/var/tmp/r226lin-nbv2/out) live at fixed host-local paths OUTSIDE uwrun's per-run directory, staged once per host (rsync or a uwrun --sync run that copies into them). --output must persist across invocations: a shard's ledger, journal and budget clock live there, and an --output inside a new uwrun run directory would start an empty ledger and silently reset the invocation, active-seconds and calendar budgets. The run identity holds no staging path (only the split directory's last four components and every image's hashes), so the same shard may resume from a re-staged tree.",
+    "memory_guard": "uwrun v5.4: --mem 170 caps the run's resident memory (GiB) at the measured 153.4 GiB peak plus about 10%, and placement then requires MemAvailable >= 178 GiB (uwrun's 8 GiB margin). A run stopped by uwrun's oom-guard (status oom-guard: host free RAM below max(4 GB, 3% of RAM)) or by --mem is killed like a timeout: the ledger has no finish record, so the invocation is charged its full wall cap; the image it had reserved is unknown_after_interruption and is never regenerated or quoted; the shard halts for human review (no automatic retry), and its stage cannot merge, so the named comparator is reported incomplete under on_stop."
+  },
+  "measured_cost": {
+    "instrument": "Two instruments. (1) reports/2026-10-18-named-baseline-v2-kernel-probe: scripts/aircraft_named_baseline_v2.py smoke driven by probe/kernel_probe.py, one process per kernel configuration, recording per image the answer, drawn tokens, latency, prefill and the SHA256 of the first-step score row, then a 16-token forced greedy text decode for s/token with CPU-seconds/wall (cores busy) and loadavg; plus fingerprint/fp_probe.py (kernel_fingerprint, no model). This is the configuration the plan runs (dnnavx). (2) The earlier reports/2026-10-18-named-baseline-v2-smoke under the PREVIOUS pin (oneDNN off), kept below as pinned_* history.",
+    "split": "TRAIN only (0447760, 1158113, 0090868, 0489934); never VAL or TEST",
+    "this_plan_kernel_path_seconds_per_image": {
+      "note": "dnnavx (ATen default, MKL_CBWR=AVX, oneDNN on capped at AVX), float32, 32 threads, mean of the 4 canary images; uwrun nbv2-dnnavx-<host>; hosts shared with other jobs (iccad10/12/13 with the exploratory sweep, load 45-97 on 72 threads), so per-host figures, not dedicated hardware",
+      "iccad1": 258.0,
+      "iccad2": 281.9,
+      "iccad3": 265.0,
+      "iccad5": 503.5,
+      "iccad10": 558.1,
+      "iccad12": 973.0,
+      "iccad13": 546.6
+    },
+    "this_plan_decode_seconds_per_token": {
+      "iccad1": 2.2,
+      "iccad2": 1.96,
+      "iccad3": 2.08,
+      "iccad5": 6.99,
+      "iccad10": 12.14,
+      "iccad12": 18.64,
+      "iccad13": 7.96
+    },
+    "kernel_pin_cost": {
+      "question": "Did the previous pin (oneDNN off, MKL_CBWR=AVX) cause the 4-5x decode slowdown, or host load? Measured back to back on one host (iccad3, uwrun nbv2-pinprobe-iccad3, image 0447760 + 16 forced decode tokens, 32 threads, run order as listed).",
+      "previous_pin_onednn_off_cbwr": {
+        "seconds_per_image": 462.1,
+        "decode_seconds_per_token": 61.74,
+        "cores_busy": 25.4
+      },
+      "unpinned": {
+        "seconds_per_image": 255.0,
+        "decode_seconds_per_token": 2.12,
+        "cores_busy": 31.5
+      },
+      "onednn_off_only": {
+        "seconds_per_image": 360.7,
+        "decode_seconds_per_token": 13.72,
+        "cores_busy": 31.5
+      },
+      "cbwr_only_onednn_on": {
+        "seconds_per_image": 243.3,
+        "decode_seconds_per_token": 2.09,
+        "cores_busy": 31.6
+      },
+      "this_plan_dnnavx": {
+        "seconds_per_image_4_images": 265.0,
+        "decode_seconds_per_token": 2.08,
+        "cores_busy": 31.6,
+        "source": "nbv2-dnnavx-iccad3"
+      },
+      "conclusion": "The pin, not load: oneDNN off costs 6.5x in decode on its own and about 29x together with MKL_CBWR, with the process using 25-32 cores throughout. With oneDNN on, MKL_CBWR=AVX costs nothing on iccad3. Run-to-run spread of the previous pin is large (iccad2 decoded at 13.5 s/token under it), so the 61.7 is one draw; the ordering held on every host measured.",
+      "avx_cap_cost_on_newer_cpus": "The pin is free on Ivy Bridge but not on newer hosts: iccad5 ran 503.5 s/image under dnnavx vs 230.1 s/image fully unpinned, back to back (nbv2-dnnavx-iccad5). That compares all three settings at once (ATen capability, MKL_CBWR and the oneDNN ISA cap); no cbwr-only config ran on iccad5, so how the 2.2x splits between them is unmeasured. Unpinned, however, iccad5's first-step logits differ from iccad3's, so the AVX cap is the price of one numerics path across the pool."
+    },
+    "pinned_float32_seconds_per_image": {
+      "iccad3": [
+        333.1,
+        550.9,
+        257.5,
+        330.1
+      ],
+      "iccad5": [
+        912.0,
+        1249.4,
+        1004.9,
+        915.2
+      ]
+    },
+    "pinned_float32_mean_seconds_per_image": {
+      "iccad3": 367.9,
+      "iccad5": 1020.4
+    },
+    "pinned_prefill_seconds": {
+      "iccad3": [
+        253.7,
+        380.7,
+        177.5,
+        225.4
+      ],
+      "iccad5": [
+        476.6,
+        765.7,
+        490.5,
+        564.2
+      ]
+    },
+    "pinned_decode_seconds_per_token": {
+      "iccad3": [
+        13.2,
+        28.4,
+        13.3,
+        26.2
+      ],
+      "iccad5": [
+        72.6,
+        80.6,
+        85.7,
+        87.8
+      ]
+    },
+    "unpinned_float32_mean_seconds_per_image": {
+      "iccad1": 533.7,
+      "iccad3": 398.1,
+      "note": "oneDNN on, default kernels; iccad1 was not re-measured pinned"
+    },
+    "generated_tokens_per_image": [
+      7,
+      7,
+      7,
+      5
+    ],
+    "prompt_tokens": [
+      1392,
+      2391,
+      1161,
+      1445
+    ],
+    "peak_rss_gb": 164.7,
+    "bfloat16": "iccad3: image 0447760 unfinished after about 3,120 s, stopped; impractical on these CPUs",
+    "canary": {
+      "expected_responses": {
+        "0447760": "Fokker 50",
+        "1158113": "Fokker 70",
+        "0090868": "DC-9-30",
+        "0489934": "ATR-42"
+      },
+      "first_step_score_sha256_prefixes_this_plan": [
+        "4d8a20fdc6f8",
+        "9ca6fadda004",
+        "aa4bde630a55",
+        "1b223ace61a3"
+      ],
+      "observed": "Under this plan's kernel path (dnnavx) all four answers AND all four first-step score-row SHA256s are identical on iccad1, iccad2, iccad3 (Ivy Bridge E5-2667 v2), iccad5 (Broadwell E5-2640 v4), iccad10, iccad12 and iccad13 (Skylake Gold 6154), and at 16 threads on iccad3. Unpinned, iccad5's score rows differ from iccad3's (34b56fcb... vs 43f80dae... on 0447760). The previous pin also gave one score row everywhere it ran (1941b42d... on iccad1/2/3/5/10/12). kernel_fingerprint (integer-valued inputs, current code) is 9d149dab... under dnnavx on iccad3, iccad5, iccad6, iccad9 and iccad12, identical at 16 and 32 threads, and differs per ISA unpinned (DEFAULT 34d1388d, AVX2 a9270444, AVX512 3ff3c85f), so it fires on a real kernel difference. (The fingerprints inside the probe JSONs came from an earlier version that drew inputs with torch.randn; they differed between Ivy Bridge and AVX2 hosts while the model's score rows matched, because ATen's normal sampler picks an AVX2 fill by CPUID. That version is replaced.)"
+    },
+    "host_conditions": "All hosts were shared with other users' jobs; the Skylake hosts carried the exploratory sweep (load 45-97 on 72 logical CPUs) and our probes ran at nice 10-19 there, so their rates are pessimistic and will move with the sweep; per-host numbers only, not dedicated-hardware figures",
+    "projection_full_val": "The 6 allowlisted hosts pulling 60 shards at the dnnavx rates above: aggregate 1/258.0 + 1/265.0 + 1/503.5 + 1/558.1 + 1/973.0 + 1/546.6 = 0.014285 images/s, so 3,333 images take about 233,300 s = 64.8 h of generation, plus per-invocation preflight and load (60 invocations over 6 hosts) and the end of the run (worst case one 56-image shard on iccad12, about 15 h; about 4 h on an Ivy Bridge host): about 65-73 h (2.7-3.0 days). With iccad2 too (canary matched, excluded for --mem) it would be 0.01783 images/s, 51.9 h. The two Ivy Bridge hosts alone: 121.0 h. The previous plan's figure was about 170 h on 3 hosts under the previous pin. Discovery (10 shards of 10): 0.7 h (Ivy Bridge) to 2.7 h (iccad12) per shard. Not a forecast: VAL images run up to 1.9 MP (largest canary image 1.67 MP), the Skylake rates depend on the sweep's load, and the full-stage cap is derived from the discovery measurement at the slowest discovery host.",
+    "consistency_with_v1": "All 16 float32 smoke images reproduce v1's templated-prompt sha c4409cac..., and the two images shared with v1's MLX TRAIN probe (0447760, 1158113) have identical input_ids_shape, pixel_values_shape and image_grid_thw."
+  },
+  "analysis": {
+    "metric": "mean(diag(row_normalized_confusion)) (equal-class accuracy) via vision_rl.classification_comparison, plus image (micro) accuracy; invalid, unterminated and missing answers stay in class denominators",
+    "comparisons_after_full": "compare: the merged baseline versus each declared arm on all 3,333 native-VAL images; equal-class difference with compare_classification's paired bootstrap (stratified image and class-cluster CIs) and image-accuracy difference with a paired image bootstrap, both 20,000 draws, seed 2718",
+    "claim_limits": "A full native-VAL baseline claim requires all 3,333 merged predictions with zero unknown. The discovery sample is a resource-sizing and validity diagnostic, never a benchmark score or a win. Frontier superiority still requires the frozen native TEST, which this plan does not touch."
+  },
+  "comparison": {
+    "resamples": 20000,
+    "seed": 2718,
+    "arms": [
+      {
+        "name": "W",
+        "evaluator_arm": "common",
+        "meaning": "common warm initialization"
+      },
+      {
+        "name": "RL400",
+        "evaluator_arm": "rl-exposure",
+        "meaning": "RL400 endpoint"
+      },
+      {
+        "name": "strongest_SFT",
+        "evaluator_arm": "sft-1e5-time",
+        "meaning": "strongest declared SFT endpoint by the evaluator's pre-declared rule (comparison.json strongest_declared_sft)"
+      }
+    ],
+    "arm_source": {
+      "bundle": "runs/aircraft-native-val-activation-v1/bundle (main checkout; not git-tracked)",
+      "comparison_json_sha256": "a49482bcf4e301a6fbeb2c95ea8b338598a002c1bfbda1ee496ac48d6caaf2f5",
+      "export": "scripts/aircraft_named_baseline_v2.py export-arm --plan <plan> --bundle <bundle> --arm W|RL400|strongest_SFT --out <arm>.json: refuses unless the bundle's comparison.json has comparison_json_sha256, its plan.json is the one that comparison ran under, the arm's predictions.jsonl has the SHA256 that comparison recorded, and (strongest_SFT) strongest_declared_sft is sft-1e5-time; then reads the arm's hash-chained journal through the evaluator's own Journal, re-parses every completed terminated response with parse_label and refuses any disagreement with the recorded canonical label. The output carries plan_arm, evaluator_arm, comparison_json_sha256 and prediction_journal_sha256, which compare checks."
+    },
+    "candidate": "the merged v2 baseline"
+  },
+  "deviations_from_v1": [
+    "Weights: author bf16 instead of the 8-bit MLX conversion (identity_change_vs_v1).",
+    "Engine and random stream: transformers CPU and torch.Generator instead of mlx-vlm and MLX; sampling definition unchanged.",
+    "Shards (10 discovery, 60 full) pulled by an allowlist of canary-checked hosts, each shard bound to its host, with a refusing merge; budgets per shard; the gate projects at the slowest discovery host and adds one invocation wall cap to the multiplied projection.",
+    "Comparison arms are pinned in code (W=common, RL400=rl-exposure, strongest_SFT=sft-1e5-time) and through the bundle's comparison.json SHA256, plan.json and per-arm journal SHA256; image accuracy gets its own paired bootstrap.",
+    "The runtime is locked to a committed uv pip freeze and Python 3.12.15, and the snapshot directory may hold nothing the integrity record does not list (except hf download's own bookkeeping)."
+  ],
+  "resume_and_journal": "run_local attempts.jsonl: each image is reserved (fsynced) before generation; an interrupted reservation is unknown_after_interruption and never regenerated; completed answers, including invalid ones, are never repeated; a resume with any identity change (model files, prompt, pixels, seed, profile, runtime versions, sources) is refused before model load. The runner's ledger.jsonl carries the budget clock.",
+  "runner": "scripts/aircraft_named_baseline_v2.py (tests: tests/test_aircraft_named_baseline_v2.py, fake backend; tests/test_local_hf.py for the sampler, torch only)"
+}

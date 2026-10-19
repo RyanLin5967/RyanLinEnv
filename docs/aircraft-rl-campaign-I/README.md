@@ -89,3 +89,8 @@ The rules come from `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`.
   - RFT's CLI refuses `--stage-id`. Its fresh record must instead carry this stage's `--stop-after-steps` boundary (none for the final stage), and must be float32.
   - `@payload/code/...` values are confined to payload/code after resolving symlinks.
   - C16 needs every stage of the trajectory up to a checkpoint (`trajectory_stops`, which promote extends), so a continuation whose earlier rung was not fetched refuses.
+- **Merge of main (#36) and review 4:**
+  - The extras allowlist is main's `EXTRA_FLAGS`, which has the tighter value ranges, plus `--prompts-per-update` (1..32) and `--skip-zero-advantage-steps`. File flags are checked twice: as raw `@payload/code/...` text, and as the resolved file after `payload_arg`.
+  - Scanned rows come from main's `Arm.scanned_ids` (RFT rounds, and dynamic-sampling blocks) plus screened-GRPO scored candidates.
+  - An RFT stage reads its stop from `--rft-stop-after-steps`. An early end by rounds, max_steps or active seconds finishes as `total_budget_exhausted`. A reused completed RFT endpoint must still be float32.
+  - `endpoint_receipt.json` must be newer than the stage start.

@@ -2561,6 +2561,397 @@ def test_gold_nll_improved_is_none_without_a_pre_score():
     assert local.gold_nll_improved({"before_train_gold_nll": 1.25}, 1.25) is False
 
 
+# ---------------------------------------------------------------- CUDA / float16 / threads
+
+
+def test_float16_profile_is_cuda_only_and_bf16_training_needs_sm80():
+    local.Profile(dtype="float16").validate()
+    with pytest.raises(ValueError, match="float32, bfloat16 or float16"):
+        local.Profile(dtype="float64").validate()
+    # preflight's CUDA record after the main merge: cuda_device.native_bfloat16
+    ampere = {"cuda_device": {"name": "RTX 3070", "native_bfloat16": True}}
+    turing = {"cuda_device": {"name": "RTX 2080 Ti", "native_bfloat16": False}}
+    for device in ("cpu", "mps"):
+        with pytest.raises(ValueError, match="only on --device cuda"):
+            local.check_device_dtype(device, "float16", {}, training=False)
+    local.check_device_dtype("cuda", "float16", turing, training=True)
+    local.check_device_dtype("cuda", "bfloat16", ampere, training=True)
+    with pytest.raises(ValueError, match="capability >= 8.0"):
+        local.check_device_dtype("cuda", "bfloat16", turing, training=True)
+    local.check_device_dtype("cuda", "bfloat16", turing, training=False)
+    for device in ("cpu", "mps"):
+        for dtype in ("float32", "bfloat16"):
+            local.check_device_dtype(device, dtype, {}, training=True)
+
+
+def test_only_float16_turns_on_trainer_loss_scaling(tmp_path):
+    kwargs = dict(device="cuda", max_steps=4, learning_rate=1e-5, seed=42, save_steps=1)
+    for mode in ("grpo", "sft"):
+        fp32 = local.trainer_kwargs(mode, tmp_path, local.Profile(), **kwargs)
+        bf16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="bfloat16"), **kwargs)
+        fp16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="float16"), **kwargs)
+        assert fp32["fp16"] is False and fp32["bf16"] is False and bf16 == fp32
+        assert fp16["fp16"] is True and fp16["bf16"] is False
+        assert {k: v for k, v in fp16.items() if k != "fp16"} == {
+            k: v for k, v in fp32.items() if k != "fp16"
+        }
+        assert fp32["use_cpu"] is False
+    cpu = local.trainer_kwargs("grpo", tmp_path, local.Profile(), **{**kwargs, "device": "cpu"})
+    assert cpu["use_cpu"] is True and cpu["fp16"] is False
+
+
+@pytest.mark.parametrize(
+    "dtype, extra, match",
+    [
+        ("float32", {"loss_scale_init": 1024.0}, "only to float16"),
+        ("bfloat16", {"loss_scale_init": 1024.0}, "only to float16"),
+        ("float16", {"loss_scale_init": 0.5}, ">= 1"),
+        ("float16", {"loss_scale_init": float("inf")}, ">= 1"),
+        ("float32", {"threads": 0}, "threads"),
+        ("float32", {"threads": 2.0}, "threads"),
+    ],
+)
+def test_precision_and_thread_options_fail_before_io(tmp_path, monkeypatch, dtype, extra, match):
+    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must fail before preflight"))
+    with pytest.raises(ValueError, match=match):
+        local.train_local(
+            tmp_path / "missing-train.jsonl",
+            None,
+            tmp_path / "missing-spec.json",
+            tmp_path / "out",
+            device="cuda",
+            profile=local.Profile(dtype=dtype),
+            train_only=True,
+            **extra,
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_cli_passes_device_threads_and_loss_scale(monkeypatch, capsys):
+    seen = []
+
+    def train(**kwargs):
+        seen.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(local, "train_local", train)
+    base = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
+    assert local.main(base) == 0
+    assert seen[-1]["threads"] == 2 and seen[-1]["loss_scale_init"] is None
+    assert seen[-1]["device"] == "mps"
+    argv = base + ["--device", "cuda", "--dtype", "float16", "--threads", "16"]
+    assert local.main(argv + ["--loss-scale-init", "1024"]) == 0
+    assert seen[-1]["device"] == "cuda" and seen[-1]["threads"] == 16
+    assert seen[-1]["profile"].dtype == "float16" and seen[-1]["loss_scale_init"] == 1024.0
+    capsys.readouterr()
+
+
+def test_cli_inference_takes_threads_but_refuses_loss_scale(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(local, "predict_train_subset", lambda *a, **k: seen.append(k) or {})
+    argv = ["--predict-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
+    argv += ["--model-directory", "m", "--device", "cuda", "--threads", "8"]
+    assert local.main(argv) == 0
+    assert seen[-1]["threads"] == 8 and seen[-1]["device"] == "cuda"
+    with pytest.raises(SystemExit):
+        local.main(argv + ["--dtype", "float16", "--loss-scale-init", "64"])
+    capsys.readouterr()
+
+
+def test_loss_scaling_wrapper_sets_scaler_and_requires_fp16_accelerator():
+    utils = pytest.importorskip("accelerate.utils")
+
+    class Base:
+        precision = "fp16"
+
+        def _build_accelerator_args(self, **kwargs):
+            return {"mixed_precision": self.precision, "kwargs_handlers": ["ddp"], **kwargs}
+
+    trainer = local._trainer_with_loss_scaling(Base, 1024.0)()
+    args = trainer._build_accelerator_args()
+    assert args["kwargs_handlers"][0] == "ddp"
+    scaler = args["kwargs_handlers"][-1]
+    assert isinstance(scaler, utils.GradScalerKwargs)
+    assert scaler.to_kwargs() == {"init_scale": 1024.0}  # growth interval = torch default
+    trainer.precision = "no"
+    with pytest.raises(local.LocalVLMError, match="fp16 mixed precision"):
+        trainer._build_accelerator_args()
+
+
+def test_loss_scaled_audit_counts_skips_and_refuses_inconsistent_or_endless_overflow(tmp_path):
+    pytest.importorskip("transformers")
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(2)
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.lora_B = torch.nn.Parameter(torch.tensor([1.0]))
+
+    def step(audit, model, grad, skipped, scaler=True):
+        model.lora_B.grad = torch.tensor([grad])
+        state, control = SimpleNamespace(global_step=1), SimpleNamespace()
+        optimizer = SimpleNamespace(step_was_skipped=skipped)
+        if scaler:
+            optimizer.scaler = SimpleNamespace(get_scale=lambda: 512.0)
+        audit.on_step_begin(None, state, control)
+        audit.on_pre_optimizer_step(None, state, control, model=model)
+        audit.on_step_end(None, state, control, optimizer=optimizer)
+
+    model = Model()
+    audit = local._audit_callback(tmp_path / "a", None, loss_scaled=True)
+    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    step(audit, model, float("inf"), skipped=True)
+    assert audit.summary["loss_scale_skipped_steps"] == 1
+    assert audit.summary["nonzero_gradient_steps"] == 0
+    assert audit.summary["max_gradient_norm_observed"] == 0.0 and audit.summary["loss_scale"] == 512
+    step(audit, model, 0.5, skipped=False)
+    assert audit.summary["loss_scale_skipped_steps"] == 1
+    assert audit.summary["nonzero_gradient_steps"] == 1
+    assert audit.summary["optimizer_steps_observed"] == 2
+    for grad, skipped, match in ((0.5, True, "disagrees"), (float("nan"), False, "disagrees")):
+        with pytest.raises(local.LocalVLMError, match=match):
+            step(audit, model, grad, skipped=skipped)
+    with pytest.raises(local.LocalVLMError, match="lacks an active GradScaler"):
+        step(audit, model, 0.5, skipped=False, scaler=False)
+
+    audit = local._audit_callback(tmp_path / "b", None, loss_scaled=True)
+    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    for _ in range(local.MAX_CONSECUTIVE_LOSS_SCALE_SKIPS):
+        step(audit, model, float("inf"), skipped=True)
+    with pytest.raises(local.LocalVLMError, match="overflowed on every recent step"):
+        step(audit, model, float("inf"), skipped=True)
+
+    plain = local._audit_callback(tmp_path / "c", None)
+    plain.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
+    assert "loss_scale_skipped_steps" not in plain.summary
+    with pytest.raises(local.LocalVLMError, match="nonfinite gradient"):
+        step(plain, model, float("inf"), skipped=True)
+
+
+def test_active_timer_synchronizes_cuda(tmp_path, monkeypatch):
+    syncs = []
+    monkeypatch.setattr(
+        local,
+        "import_module",
+        lambda _: SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: syncs.append(1))),
+    )
+    timer = local._ActiveStepTimer(tmp_path, None, "cuda")
+    timer.begin()
+    timer.end()
+    assert syncs == [1, 1]
+
+
+
+def _endpoint(tmp_path, dtype):
+    identity = {
+        "model": local.DEFAULT_MODEL,
+        "model_revision": "pin",
+        "processor_model": "processor",
+        "processor_revision": "pin",
+        "profile": asdict(local.Profile(dtype=dtype)),
+        "train": "t",
+        "validation": "v",
+        "data_spec_sha256": "spec",
+    }
+    adapter = tmp_path / "final_adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text(
+        json.dumps(
+            {
+                "peft_type": "LORA",
+                "task_type": "CAUSAL_LM",
+                "r": 8,
+                "lora_alpha": 16,
+                "target_modules": ["q_proj", "v_proj"],
+            }
+        )
+    )
+    (adapter / "adapter_model.safetensors").write_bytes(b"weights")
+    (tmp_path / "local_training.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "control_identity": identity,
+                "final_adapter": str(adapter),
+                "final_adapter_sha256": hashlib.sha256(b"weights").hexdigest(),
+            }
+        )
+    )
+    return adapter, identity
+
+
+def test_inference_precision_transfer_is_explicit_and_names_both_dtypes(tmp_path):
+    adapter, identity = _endpoint(tmp_path, "float16")
+    fp32 = local.Profile()
+    target = dict(identity, profile=asdict(fp32))
+    with pytest.raises(ValueError, match="identical model/processor/profile"):
+        local._inference_adapter_identity(adapter, target, fp32)
+    got = local._inference_adapter_identity(
+        adapter, target, fp32, precision_transfer="float16-to-float32"
+    )
+    assert got["precision_transfer"]["parent_base_dtype"] == "float16"
+    assert got["precision_transfer"]["target_base_dtype"] == "float32"
+    for wrong in ("bfloat16-to-float32", "float32-to-float16", "float16-to-bfloat16"):
+        with pytest.raises(ValueError, match="inference precision transfer"):
+            local._inference_adapter_identity(adapter, target, fp32, precision_transfer=wrong)
+    # Warm-start training keeps the narrow float32-parent rule.
+    with pytest.raises(ValueError, match="only explicit"):
+        local._adapter_identity(adapter, target, fp32, precision_transfer="float16-to-float32")
+    same = local._inference_adapter_identity(adapter, identity, local.Profile(dtype="float16"))
+    assert "precision_transfer" not in same
+
+
+def test_inference_cli_forwards_precision_transfer_only_when_declared(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(local, "sample_train_groups", lambda *a, **k: seen.append(k) or {})
+    argv = ["--sample-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
+    argv += ["--model-directory", "m", "--init-adapter", "a"]
+    assert local.main(argv) == 0 and "precision_transfer" not in seen[-1]
+    assert local.main(argv + ["--initial-adapter-precision-transfer", "float16-to-float32"]) == 0
+    assert seen[-1]["precision_transfer"] == "float16-to-float32"
+    capsys.readouterr()
+
+
+def test_inference_precision_transfer_needs_adapter_before_output(diagnostic, tmp_path):
+    with pytest.raises(ValueError, match="needs a saved adapter"):
+        local.predict_train_subset(
+            diagnostic / "train.jsonl",
+            diagnostic / "data_spec.json",
+            tmp_path / "out",
+            model_directory=tmp_path / "model",
+            device="cpu",
+            precision_transfer="float16-to-float32",
+        )
+    assert not (tmp_path / "out").exists()
+
+
+# --- RFT / expert iteration (released TRL; CI local-vlm job) ---------------------
+
+
+def test_rft_sft_round_trains_on_given_completions_and_respects_time_budget(tmp_path):
+    trl = released_trl()
+    import torch
+    from datasets import Dataset
+
+    torch.set_num_threads(2)
+    # One repeated pair: with one example per update, first and last logged losses must be
+    # measured on the SAME example for "loss fell" to mean the round learned (CI run
+    # 39109621953 compared losses on different examples and flaked).
+    records = {
+        "id": ["a#0", "a#1", "a#2"],
+        "label": ["a", "a", "a"],
+        "prompt": ["a b", "a b", "a b"],
+        "completion": [" a", " a", " a"],
+    }
+    tokenizer, policy = _tiny_text_policy()
+    before = {k: v.detach().clone() for k, v in policy.named_parameters() if v.requires_grad}
+    result = local._rft_sft_round(
+        policy,
+        tokenizer,
+        Dataset.from_dict(records),
+        local.Profile(),
+        tmp_path / "round",
+        device="cpu",
+        steps=6,
+        learning_rate=1e-2,
+        seed=42,
+    )
+    assert trl.__version__ == "1.16.0"
+    assert result["optimizer_steps"] == 6 and result["stopped_by_time_budget"] is False
+    assert math.isfinite(result["train_loss"]) and result["last_loss"] < result["first_loss"]
+    assert any(
+        not torch.equal(before[name], parameter)
+        for name, parameter in policy.named_parameters()
+        if parameter.requires_grad
+    )
+    assert not any((tmp_path / "round").glob("checkpoint-*"))  # rounds commit adapters only
+    # An exhausted cumulative budget stops after the first update of the next round.
+    clock = local._RFTClock(committed=10.0, budget=5.0)
+    stopped = local._rft_sft_round(
+        policy,
+        tokenizer,
+        Dataset.from_dict(records),
+        local.Profile(),
+        tmp_path / "round2",
+        device="cpu",
+        steps=6,
+        learning_rate=1e-2,
+        seed=43,
+        clock=clock,
+    )
+    assert stopped["optimizer_steps"] == 1 and stopped["stopped_by_time_budget"] is True
+
+
+def test_rft_round_adapter_restore_is_exact_and_detects_drift(tmp_path):
+    released_trl()
+    import torch
+
+    _, trained = _tiny_text_policy(seed=1)
+    with torch.no_grad():
+        for name, parameter in trained.named_parameters():
+            if "lora_B" in name:
+                parameter.fill_(0.25)
+    trained.save_pretrained(str(tmp_path / "adapter"))
+    _, fresh = _tiny_text_policy(seed=2)
+    local._load_round_adapter(fresh, tmp_path / "adapter")
+    expected = dict(trained.named_parameters())
+    for name, parameter in fresh.named_parameters():
+        if "lora_" in name:
+            assert torch.equal(parameter, expected[name])
+    assert local._peft_weights_sha256(tmp_path / "adapter") == local._file_sha256(
+        tmp_path / "adapter" / "adapter_model.safetensors"
+    )
+
+
+def test_batched_group_sampler_cuts_each_draw_at_first_eos(tmp_path):
+    torch = pytest.importorskip("torch")
+    torch.set_num_threads(2)
+
+    class Inputs(dict):
+        def to(self, device):
+            return self
+
+    class Policy:
+        def eval(self):
+            return self
+
+        def generate(self, **kwargs):
+            assert not torch.is_grad_enabled() and kwargs["num_return_sequences"] == 4
+            return torch.tensor(
+                [[8, 8, 10, 99, 0], [8, 8, 11, 99, 0], [8, 8, 10, 10, 10], [8, 8, 12, 99, 0]]
+            )
+
+    processor = SimpleNamespace(
+        tokenizer=SimpleNamespace(
+            decode=lambda tokens, **_: {10: "blue", 11: "red", 12: "bad"}[tokens[0]]
+        )
+    )
+    original = local._inputs
+    local._inputs = lambda *_: Inputs(input_ids=torch.tensor([[8, 8]]))
+    try:
+        reward = local.make_reward(["blue", "red"], 4, [99], tmp_path / "groups.jsonl")
+        groups = local._sample_groups_batched(
+            Policy(),
+            processor,
+            [{"id": "one", "label": "blue"}],
+            {},
+            local.Profile(),
+            "cpu",
+            tmp_path,
+            reward,
+            SimpleNamespace(eos_token_id=[99]),
+        )
+    finally:
+        local._inputs = original
+    assert [s["completion_ids"] for s in groups["one"]] == [[10, 99], [11, 99], [10, 10, 10],
+                                                            [12, 99]]
+    assert [s["terminated"] for s in groups["one"]] == [True, True, False, True]
+    assert json.loads((tmp_path / "groups.jsonl").read_text())["rewards"] == [1, 0, 0, 0]
+    journal = json.loads((tmp_path / "sampled_completions.jsonl").read_text())
+    assert journal["id"] == "one" and len(journal["samples"]) == 4
+
+
 # ---------------------------------------------------------------------------------------
 # Signal-limit study trainer options (docs/aircraft-rl-next-study-v1.json work list).
 # Every expected value below is hand-computed from the fixture, never read off the subject.
@@ -3425,394 +3816,65 @@ def test_constrained_greedy_is_refused_for_sampling(diagnostic, tmp_path):
         )
 
 
-# ---------------------------------------------------------------- CUDA / float16 / threads
+# ---------------------------------------------------------------- replay-sequence order guard
 
 
-def test_float16_profile_is_cuda_only_and_bf16_training_needs_sm80():
-    local.Profile(dtype="float16").validate()
-    with pytest.raises(ValueError, match="float32, bfloat16 or float16"):
-        local.Profile(dtype="float64").validate()
-    ampere = {"cuda": {"bf16_native": True}}
-    turing = {"cuda": {"bf16_native": False}}
-    for device in ("cpu", "mps"):
-        with pytest.raises(ValueError, match="only on --device cuda"):
-            local.check_device_dtype(device, "float16", {}, training=False)
-    local.check_device_dtype("cuda", "float16", turing, training=True)
-    local.check_device_dtype("cuda", "bfloat16", ampere, training=True)
-    with pytest.raises(ValueError, match="capability >= 8.0"):
-        local.check_device_dtype("cuda", "bfloat16", turing, training=True)
-    local.check_device_dtype("cuda", "bfloat16", turing, training=False)
-    for device in ("cpu", "mps"):
-        for dtype in ("float32", "bfloat16"):
-            local.check_device_dtype(device, dtype, {}, training=True)
+class _SequentialSampler:  # stands in for torch.utils.data.SequentialSampler
+    pass
 
 
-def test_only_float16_turns_on_trainer_loss_scaling(tmp_path):
-    kwargs = dict(device="cuda", max_steps=4, learning_rate=1e-5, seed=42, save_steps=1)
-    for mode in ("grpo", "sft"):
-        fp32 = local.trainer_kwargs(mode, tmp_path, local.Profile(), **kwargs)
-        bf16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="bfloat16"), **kwargs)
-        fp16 = local.trainer_kwargs(mode, tmp_path, local.Profile(dtype="float16"), **kwargs)
-        assert fp32["fp16"] is False and fp32["bf16"] is False and bf16 == fp32
-        assert fp16["fp16"] is True and fp16["bf16"] is False
-        assert {k: v for k, v in fp16.items() if k != "fp16"} == {
-            k: v for k, v in fp32.items() if k != "fp16"
-        }
-        assert fp32["use_cpu"] is False
-    cpu = local.trainer_kwargs("grpo", tmp_path, local.Profile(), **{**kwargs, "device": "cpu"})
-    assert cpu["use_cpu"] is True and cpu["fp16"] is False
+class _RandomSampler:  # a shuffling sampler (not a SequentialSampler)
+    pass
 
 
-@pytest.mark.parametrize(
-    "dtype, extra, match",
-    [
-        ("float32", {"loss_scale_init": 1024.0}, "only to float16"),
-        ("bfloat16", {"loss_scale_init": 1024.0}, "only to float16"),
-        ("float16", {"loss_scale_init": 0.5}, ">= 1"),
-        ("float16", {"loss_scale_init": float("inf")}, ">= 1"),
-        ("float32", {"threads": 0}, "threads"),
-        ("float32", {"threads": 2.0}, "threads"),
-    ],
-)
-def test_precision_and_thread_options_fail_before_io(tmp_path, monkeypatch, dtype, extra, match):
-    monkeypatch.setattr(local, "preflight", lambda *_: pytest.fail("must fail before preflight"))
-    with pytest.raises(ValueError, match=match):
-        local.train_local(
-            tmp_path / "missing-train.jsonl",
-            None,
-            tmp_path / "missing-spec.json",
-            tmp_path / "out",
-            device="cuda",
-            profile=local.Profile(dtype=dtype),
-            train_only=True,
-            **extra,
-        )
-    assert not (tmp_path / "out").exists()
-
-
-def test_cli_passes_device_threads_and_loss_scale(monkeypatch, capsys):
-    seen = []
-
-    def train(**kwargs):
-        seen.append(kwargs)
-        return {"ok": True}
-
-    monkeypatch.setattr(local, "train_local", train)
-    base = ["--train", "t.jsonl", "--data-spec", "s.json", "--output", "o", "--train-only"]
-    assert local.main(base) == 0
-    assert seen[-1]["threads"] == 2 and seen[-1]["loss_scale_init"] is None
-    assert seen[-1]["device"] == "mps"
-    argv = base + ["--device", "cuda", "--dtype", "float16", "--threads", "16"]
-    assert local.main(argv + ["--loss-scale-init", "1024"]) == 0
-    assert seen[-1]["device"] == "cuda" and seen[-1]["threads"] == 16
-    assert seen[-1]["profile"].dtype == "float16" and seen[-1]["loss_scale_init"] == 1024.0
-    capsys.readouterr()
-
-
-def test_cli_inference_takes_threads_but_refuses_loss_scale(monkeypatch, capsys):
-    seen = []
-    monkeypatch.setattr(local, "predict_train_subset", lambda *a, **k: seen.append(k) or {})
-    argv = ["--predict-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
-    argv += ["--model-directory", "m", "--device", "cuda", "--threads", "8"]
-    assert local.main(argv) == 0
-    assert seen[-1]["threads"] == 8 and seen[-1]["device"] == "cuda"
-    with pytest.raises(SystemExit):
-        local.main(argv + ["--dtype", "float16", "--loss-scale-init", "64"])
-    capsys.readouterr()
-
-
-def test_loss_scaling_wrapper_sets_scaler_and_requires_fp16_accelerator():
-    utils = pytest.importorskip("accelerate.utils")
+def _replay_trainer(monkeypatch, sampler, entries, accumulation=1):
+    """The order guard against a fake torch, so these tests run (never skip) without torch."""
+    fake = SimpleNamespace(utils=SimpleNamespace(data=SimpleNamespace(
+        SequentialSampler=_SequentialSampler)))
+    monkeypatch.setattr(local, "import_module", lambda name: {"torch": fake}[name])
 
     class Base:
-        precision = "fp16"
+        args = SimpleNamespace(per_device_train_batch_size=1,
+                               gradient_accumulation_steps=accumulation)
 
-        def _build_accelerator_args(self, **kwargs):
-            return {"mixed_precision": self.precision, "kwargs_handlers": ["ddp"], **kwargs}
+        def _get_train_sampler(self, *args, **kwargs):
+            return sampler
 
-    trainer = local._trainer_with_loss_scaling(Base, 1024.0)()
-    args = trainer._build_accelerator_args()
-    assert args["kwargs_handlers"][0] == "ddp"
-    scaler = args["kwargs_handlers"][-1]
-    assert isinstance(scaler, utils.GradScalerKwargs)
-    assert scaler.to_kwargs() == {"init_scale": 1024.0}  # growth interval = torch default
-    trainer.precision = "no"
-    with pytest.raises(local.LocalVLMError, match="fp16 mixed precision"):
-        trainer._build_accelerator_args()
+        def train(self, *args, **kwargs):
+            return "trained"
+
+    return local._trainer_with_replay_order(Base, ["a", "b", "c"], lambda: entries)()
 
 
-def test_loss_scaled_audit_counts_skips_and_refuses_inconsistent_or_endless_overflow(tmp_path):
-    pytest.importorskip("transformers")
-    torch = pytest.importorskip("torch")
-    torch.set_num_threads(2)
-
-    class Model(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.lora_B = torch.nn.Parameter(torch.tensor([1.0]))
-
-    def step(audit, model, grad, skipped, scaler=True):
-        model.lora_B.grad = torch.tensor([grad])
-        state, control = SimpleNamespace(global_step=1), SimpleNamespace()
-        optimizer = SimpleNamespace(step_was_skipped=skipped)
-        if scaler:
-            optimizer.scaler = SimpleNamespace(get_scale=lambda: 512.0)
-        audit.on_step_begin(None, state, control)
-        audit.on_pre_optimizer_step(None, state, control, model=model)
-        audit.on_step_end(None, state, control, optimizer=optimizer)
-
-    model = Model()
-    audit = local._audit_callback(tmp_path / "a", None, loss_scaled=True)
-    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
-    step(audit, model, float("inf"), skipped=True)
-    assert audit.summary["loss_scale_skipped_steps"] == 1
-    assert audit.summary["nonzero_gradient_steps"] == 0
-    assert audit.summary["max_gradient_norm_observed"] == 0.0 and audit.summary["loss_scale"] == 512
-    step(audit, model, 0.5, skipped=False)
-    assert audit.summary["loss_scale_skipped_steps"] == 1
-    assert audit.summary["nonzero_gradient_steps"] == 1
-    assert audit.summary["optimizer_steps_observed"] == 2
-    for grad, skipped, match in ((0.5, True, "disagrees"), (float("nan"), False, "disagrees")):
-        with pytest.raises(local.LocalVLMError, match=match):
-            step(audit, model, grad, skipped=skipped)
-    with pytest.raises(local.LocalVLMError, match="lacks an active GradScaler"):
-        step(audit, model, 0.5, skipped=False, scaler=False)
-
-    audit = local._audit_callback(tmp_path / "b", None, loss_scaled=True)
-    audit.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
-    for _ in range(local.MAX_CONSECUTIVE_LOSS_SCALE_SKIPS):
-        step(audit, model, float("inf"), skipped=True)
-    with pytest.raises(local.LocalVLMError, match="overflowed on every recent step"):
-        step(audit, model, float("inf"), skipped=True)
-
-    plain = local._audit_callback(tmp_path / "c", None)
-    plain.on_train_begin(None, SimpleNamespace(global_step=0), SimpleNamespace(), model=model)
-    assert "loss_scale_skipped_steps" not in plain.summary
-    with pytest.raises(local.LocalVLMError, match="nonfinite gradient"):
-        step(plain, model, float("inf"), skipped=True)
+def test_replay_sequence_refuses_a_shuffling_sampler(monkeypatch):
+    with pytest.raises(local.LocalVLMError, match="SequentialSampler.*; got _RandomSampler"):
+        _replay_trainer(monkeypatch, _RandomSampler(), [])._get_train_sampler()
+    with pytest.raises(local.LocalVLMError, match="one-row updates"):
+        _replay_trainer(monkeypatch, _SequentialSampler(), [], 2)._get_train_sampler()
+    sequential = _SequentialSampler()
+    assert _replay_trainer(monkeypatch, sequential, [])._get_train_sampler() is sequential
 
 
-def test_active_timer_synchronizes_cuda(tmp_path, monkeypatch):
-    syncs = []
-    monkeypatch.setattr(
-        local,
-        "import_module",
-        lambda _: SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: syncs.append(1))),
-    )
-    timer = local._ActiveStepTimer(tmp_path, None, "cuda")
-    timer.begin()
-    timer.end()
-    assert syncs == [1, 1]
+def test_replay_sequence_refuses_an_exposure_order_that_differs_from_the_manifest(monkeypatch):
+    order = ["a", "b", "c", "a", "b"]  # cycling the 3-row manifest
+    assert _replay_trainer(monkeypatch, None, [{"id": i} for i in order]).train() == "trained"
+    shuffled = ["a", "c", "b", "a", "b"]
+    with pytest.raises(local.LocalVLMError, match="at update 2: trained 'c', manifest 'b'"):
+        _replay_trainer(monkeypatch, None, [{"id": i} for i in shuffled]).train()
 
 
-
-def _endpoint(tmp_path, dtype):
-    identity = {
-        "model": local.DEFAULT_MODEL,
-        "model_revision": "pin",
-        "processor_model": "processor",
-        "processor_revision": "pin",
-        "profile": asdict(local.Profile(dtype=dtype)),
-        "train": "t",
-        "validation": "v",
-        "data_spec_sha256": "spec",
-    }
-    adapter = tmp_path / "final_adapter"
-    adapter.mkdir()
-    (adapter / "adapter_config.json").write_text(
-        json.dumps(
-            {
-                "peft_type": "LORA",
-                "task_type": "CAUSAL_LM",
-                "r": 8,
-                "lora_alpha": 16,
-                "target_modules": ["q_proj", "v_proj"],
-            }
-        )
-    )
-    (adapter / "adapter_model.safetensors").write_bytes(b"weights")
-    (tmp_path / "local_training.json").write_text(
-        json.dumps(
-            {
-                "status": "completed",
-                "control_identity": identity,
-                "final_adapter": str(adapter),
-                "final_adapter_sha256": hashlib.sha256(b"weights").hexdigest(),
-            }
-        )
-    )
-    return adapter, identity
+def test_replay_sequence_refuses_finalize_only(tmp_path):
+    with pytest.raises(ValueError, match="finalize without training"):
+        local.train_local(tmp_path / "t.jsonl", None, tmp_path / "s.json", tmp_path / "o",
+                          mode="sft", order="sequential", train_only=True, replay_sequence=True,
+                          finalize_only=True)
 
 
-def test_inference_precision_transfer_is_explicit_and_names_both_dtypes(tmp_path):
-    adapter, identity = _endpoint(tmp_path, "float16")
-    fp32 = local.Profile()
-    target = dict(identity, profile=asdict(fp32))
-    with pytest.raises(ValueError, match="identical model/processor/profile"):
-        local._inference_adapter_identity(adapter, target, fp32)
-    got = local._inference_adapter_identity(
-        adapter, target, fp32, precision_transfer="float16-to-float32"
-    )
-    assert got["precision_transfer"]["parent_base_dtype"] == "float16"
-    assert got["precision_transfer"]["target_base_dtype"] == "float32"
-    for wrong in ("bfloat16-to-float32", "float32-to-float16", "float16-to-bfloat16"):
-        with pytest.raises(ValueError, match="inference precision transfer"):
-            local._inference_adapter_identity(adapter, target, fp32, precision_transfer=wrong)
-    # Warm-start training keeps the narrow float32-parent rule.
-    with pytest.raises(ValueError, match="only explicit"):
-        local._adapter_identity(adapter, target, fp32, precision_transfer="float16-to-float32")
-    same = local._inference_adapter_identity(adapter, identity, local.Profile(dtype="float16"))
-    assert "precision_transfer" not in same
-
-
-def test_inference_cli_forwards_precision_transfer_only_when_declared(monkeypatch, capsys):
-    seen = []
-    monkeypatch.setattr(local, "sample_train_groups", lambda *a, **k: seen.append(k) or {})
-    argv = ["--sample-train", "t.jsonl", "--data-spec", "s.json", "--output", "o"]
-    argv += ["--model-directory", "m", "--init-adapter", "a"]
-    assert local.main(argv) == 0 and "precision_transfer" not in seen[-1]
-    assert local.main(argv + ["--initial-adapter-precision-transfer", "float16-to-float32"]) == 0
-    assert seen[-1]["precision_transfer"] == "float16-to-float32"
-    capsys.readouterr()
-
-
-def test_inference_precision_transfer_needs_adapter_before_output(diagnostic, tmp_path):
-    with pytest.raises(ValueError, match="needs a saved adapter"):
-        local.predict_train_subset(
-            diagnostic / "train.jsonl",
-            diagnostic / "data_spec.json",
-            tmp_path / "out",
-            model_directory=tmp_path / "model",
-            device="cpu",
-            precision_transfer="float16-to-float32",
-        )
-    assert not (tmp_path / "out").exists()
-
-
-# --- RFT / expert iteration (released TRL; CI local-vlm job) ---------------------
-
-
-def test_rft_sft_round_trains_on_given_completions_and_respects_time_budget(tmp_path):
-    trl = released_trl()
-    import torch
-    from datasets import Dataset
-
-    torch.set_num_threads(2)
-    # One repeated pair: with one example per update, first and last logged losses must be
-    # measured on the SAME example for "loss fell" to mean the round learned (CI run
-    # 39109621953 compared losses on different examples and flaked).
-    records = {
-        "id": ["a#0", "a#1", "a#2"],
-        "label": ["a", "a", "a"],
-        "prompt": ["a b", "a b", "a b"],
-        "completion": [" a", " a", " a"],
-    }
-    tokenizer, policy = _tiny_text_policy()
-    before = {k: v.detach().clone() for k, v in policy.named_parameters() if v.requires_grad}
-    result = local._rft_sft_round(
-        policy,
-        tokenizer,
-        Dataset.from_dict(records),
-        local.Profile(),
-        tmp_path / "round",
-        device="cpu",
-        steps=6,
-        learning_rate=1e-2,
-        seed=42,
-    )
-    assert trl.__version__ == "1.16.0"
-    assert result["optimizer_steps"] == 6 and result["stopped_by_time_budget"] is False
-    assert math.isfinite(result["train_loss"]) and result["last_loss"] < result["first_loss"]
-    assert any(
-        not torch.equal(before[name], parameter)
-        for name, parameter in policy.named_parameters()
-        if parameter.requires_grad
-    )
-    assert not any((tmp_path / "round").glob("checkpoint-*"))  # rounds commit adapters only
-    # An exhausted cumulative budget stops after the first update of the next round.
-    clock = local._RFTClock(committed=10.0, budget=5.0)
-    stopped = local._rft_sft_round(
-        policy,
-        tokenizer,
-        Dataset.from_dict(records),
-        local.Profile(),
-        tmp_path / "round2",
-        device="cpu",
-        steps=6,
-        learning_rate=1e-2,
-        seed=43,
-        clock=clock,
-    )
-    assert stopped["optimizer_steps"] == 1 and stopped["stopped_by_time_budget"] is True
-
-
-def test_rft_round_adapter_restore_is_exact_and_detects_drift(tmp_path):
-    released_trl()
-    import torch
-
-    _, trained = _tiny_text_policy(seed=1)
-    with torch.no_grad():
-        for name, parameter in trained.named_parameters():
-            if "lora_B" in name:
-                parameter.fill_(0.25)
-    trained.save_pretrained(str(tmp_path / "adapter"))
-    _, fresh = _tiny_text_policy(seed=2)
-    local._load_round_adapter(fresh, tmp_path / "adapter")
-    expected = dict(trained.named_parameters())
-    for name, parameter in fresh.named_parameters():
-        if "lora_" in name:
-            assert torch.equal(parameter, expected[name])
-    assert local._peft_weights_sha256(tmp_path / "adapter") == local._file_sha256(
-        tmp_path / "adapter" / "adapter_model.safetensors"
-    )
-
-
-def test_batched_group_sampler_cuts_each_draw_at_first_eos(tmp_path):
-    torch = pytest.importorskip("torch")
-    torch.set_num_threads(2)
-
-    class Inputs(dict):
-        def to(self, device):
-            return self
-
-    class Policy:
-        def eval(self):
-            return self
-
-        def generate(self, **kwargs):
-            assert not torch.is_grad_enabled() and kwargs["num_return_sequences"] == 4
-            return torch.tensor(
-                [[8, 8, 10, 99, 0], [8, 8, 11, 99, 0], [8, 8, 10, 10, 10], [8, 8, 12, 99, 0]]
-            )
-
-    processor = SimpleNamespace(
-        tokenizer=SimpleNamespace(
-            decode=lambda tokens, **_: {10: "blue", 11: "red", 12: "bad"}[tokens[0]]
-        )
-    )
-    original = local._inputs
-    local._inputs = lambda *_: Inputs(input_ids=torch.tensor([[8, 8]]))
-    try:
-        reward = local.make_reward(["blue", "red"], 4, [99], tmp_path / "groups.jsonl")
-        groups = local._sample_groups_batched(
-            Policy(),
-            processor,
-            [{"id": "one", "label": "blue"}],
-            {},
-            local.Profile(),
-            "cpu",
-            tmp_path,
-            reward,
-            SimpleNamespace(eos_token_id=[99]),
-        )
-    finally:
-        local._inputs = original
-    assert [s["completion_ids"] for s in groups["one"]] == [[10, 99], [11, 99], [10, 10, 10],
-                                                            [12, 99]]
-    assert [s["terminated"] for s in groups["one"]] == [True, True, False, True]
-    assert json.loads((tmp_path / "groups.jsonl").read_text())["rewards"] == [1, 0, 0, 0]
-    journal = json.loads((tmp_path / "sampled_completions.jsonl").read_text())
-    assert journal["id"] == "one" and len(journal["samples"]) == 4
+def test_replay_sequence_refuses_a_continuation(tmp_path):
+    with pytest.raises(ValueError, match="continuation's rotated order"):
+        local.train_local(tmp_path / "t.jsonl", None, tmp_path / "s.json", tmp_path / "o",
+                          mode="sft", order="sequential", train_only=True, replay_sequence=True,
+                          continue_from_checkpoint=tmp_path / "c")
 
 
 # --- prompts_per_update, zero-advantage skip, per-update parameter delta ---
