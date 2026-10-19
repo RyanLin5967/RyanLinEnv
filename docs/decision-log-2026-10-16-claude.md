@@ -460,16 +460,29 @@ D36 is reserved by open PR #31.
 - Discovery completed 100/100 on 10 first-attempt shards (iccad1 40, iccad3 40, iccad5 20 images) under activated plan sha256 96b38f20... (D39). Accuracy 32/100 (equal-class 0.32; Hoeffding 95% [0.184, 0.456]); valid fraction 1.00; 100 stop finishes, 0 unknown, 0 hard stop. Not a benchmark score. Receipt: docs/aircraft-named-baseline-v2/discovery-receipt.json.
 - Gate: proceed. Slowest discovery host iccad5 at 512.0 s/image (iccad1 258.5, iccad3 259.2); projected full shard 28,699 s (ceiling 1,209,600); per-shard cap 1,536,318 s. Full VAL runs on iccad1/3/5 only (iccad10/12/13 stay with the RL arms; the gate refuses hosts without discovery images). Native VAL only; sealed TEST untouched.
 
-## D43 — Overnight RL-from-I results (2026-10-19): no recipe beats the strongest SFT on dev800
-All endpoints are dev800 (TRAIN-derived; never VAL or TEST), from paired class-stratified bootstrap CIs. Raw results are on branch exploratory-sweep-v2-gpu.noindex, docs/aircraft-exploratory-sweep-v2-gpu/raw/. Baselines: I = 0.775 on dev800. The best SFT-from-I is 0.785, reached at step 300 at LR 5e-6, and it declines to 0.7775 by step 1200. The seed placebo spread (best-of-k) is about 0.25 pp.
-- **Every single-image GRPO-from-I arm sits at I ± noise or drifts down.** This holds across LR 1e-5 to 5e-5, T 1.0 and 1.3, bf16 and fp32, β 0 and dynamic sampling 8. All T1.3 arms declined.
-  - Example 1: fp32 lr2e-5 T1.3 reached 0.7538 at step 300.
-  - Example 2: fp32 lr2e-5 T1.0 went 0.7712 → 0.7800 → 0.7588 at steps 150/300/600.
-- **Pool-only GRPO on the mixed-v3 hard/mid pool forgets.** The lr2e-5 T1.3 arm scored 0.7462 at 150 and 0.7262 at 300 (CI excludes 0).
-- **RFT/expert iteration with replay is flat:** 0.775, 0.774, 0.7725.
-- **The 50/50 pool + s_train mix is below:** 0.7575 at both steps.
-- **The KL-anchored pool arm R2t1** (mixed-v3, lr5e-6, β0.04, T1.0) scored 0.7762 → 0.7837 → 0.7863 at seed 42. That is the best RL endpoint, +1.1 pp vs I with CI [−0.6, +2.8], but it is not significant, and its seed 314 stayed at 0.775 → 0.775 → 0.7712. It did not replicate.
-- **Multi-image GRPO** (P=2, zero-advantage skip, lr2e-5, T1.0) scored 0.7775, 0.7762, 0.7788: flat.
-- **Interpretation (measured where stated):** on this label set, adapter I sits near a plateau that both SFT and RL fail to leave. P0-I headroom exists (pass@8 among greedy-wrong images is about 10% of all images), but no tested RL recipe converts it into greedy accuracy.
-- **Still running:** the R2t1 neighbourhood (lr1e-5 β0.04; lr5e-6 β0.1), R2t1's fp32 twin, R2t1's matched SFT controls, P=2 at lr5e-5 and lr1e-5, and the CPU D37 grid.
-- **No confirmatory (VAL) look is warranted.** Under the pre-registration (D35), a candidate must clear the dev800 promotion bar at 2 seeds and beat its matched controls first.
+## D43 — Overnight RL-from-I results (2026-10-19): no recipe significantly beats the strongest SFT or clears the promotion bar
+- **Scope.** The endpoints below are dev800 (TRAIN-derived; never VAL or TEST). CIs are paired item-level bootstrap (`scripts/exploratory_sweep/runner.py` `paired_bootstrap`, not class-stratified).
+- **Sources.** RL raw results are on branch exploratory-sweep-v2-gpu.noindex, `docs/aircraft-exploratory-sweep-v2-gpu/raw/`; the CIs come from that lane's report.json (vs I). SFT raw results are on branch sft-ceiling-lane.noindex, `docs/aircraft-sft-ceiling-v1/raw/`.
+- **I** = 0.775 on dev800.
+- **Strongest SFT-from-I** = 0.785. This is reached three ways:
+  - CPU fp32 all_train lr5e-6 at step 300 (then 0.78125 → 0.7775 at steps 600/1200);
+  - GPU s_train lr1e-5 at step 1200;
+  - GPU s_train lr5e-6 at step 2400.
+  The RL and SFT arms ran on different devices.
+- **Placebo noise.** Best-of-k placebo spread is 0.25 pp (seeds 42 vs 314). The per-checkpoint seed spread reaches 1.75 pp.
+- **Single-image GRPO-from-I** (measured at LR 1e-5 and 2e-5; T 1.0 and 1.3; bf16 and fp32; β0; DS8) sits at I ± noise or below.
+  - fp32 lr2e-5 T1.3: 0.7538 at step 300.
+  - fp32 lr2e-5 T1.0: 0.7712 → 0.7800 → 0.7588 at steps 150/300/600.
+  - The T1.3 arms all end at or below I. Only the fp32 lr2e-5 arm is clearly lower; the others are flat within their CIs.
+  - The CPU lr5e-5 arms have no endpoints yet.
+- **Pool-only GRPO on mixed-v3 forgets.** lr2e-5 T1.3: 0.7462, then 0.7262 (both CIs exclude 0).
+- **RFT/expert iteration with replay is flat:** 0.775 / 0.774 / 0.7725 at steps 178 / 331 / 605.
+- **The 50/50 pool + s_train mix** is 0.7575 at both stops (CIs include 0).
+- **KL-anchored pool arm R2t1** (mixed-v3, lr5e-6, β0.04, T1.0, bf16):
+  - Seed 42: 0.7762 → 0.7837 → 0.7863, i.e. +1.1 pp vs I with CI [−0.6, +2.8], and +0.12 pp vs the best SFT with CI [−1.75, +2.0]. This is the best RL endpoint so far, but it is not significant.
+  - Seed 314: 0.775 → 0.775 → 0.7712, no gain.
+  - Neither seed shows a reliable gain, and the promotion bar (≥0.795 at 2 seeds) is not met.
+- **Multi-image GRPO** (P=2, zero-advantage skip, lr2e-5, T1.0): 0.7775, 0.7762, 0.7788. Flat.
+- **Interpretation.** Adapter I sits near a plateau that neither SFT nor these RL recipes leave. P0-I headroom exists: pass@8 among greedy-wrong images is 9.5–10.75% of images, measured on the 400-image clean pool A+B (not dev800). No tested RL recipe converts that headroom into greedy accuracy.
+- **Next (amendment 22, CORRECTIONS M2).** RL from sftall*, the all_train lr5e-6 step-300 adapter, sha-pinned. The comparator is max(sftall*, continued-SFT controls).
+- **No confirmatory (VAL) look is warranted under D35.**
