@@ -1708,7 +1708,8 @@ def test_run_refuses_a_control_whose_update_cap_ends_before_a_time_stop(tmp_path
                       "committed_active_seconds": 180.0}])
     monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
     monkeypatch.setattr(arm, "trainer_args", lambda *a, **k: [k.get("stop_seconds")])
-    monkeypatch.setattr(arm, "run_stage", lambda label, args: stages.append(label) or next(receipts))
+    monkeypatch.setattr(arm, "run_stage",
+                        lambda label, args: stages.append(label) or next(receipts))
     monkeypatch.setattr(arm, "keep_adapter", lambda label: None)
     monkeypatch.setattr(arm, "copy_small", lambda: None)
     monkeypatch.setattr(arm, "assay_isolated", lambda *a: {"accuracy": 0.5})

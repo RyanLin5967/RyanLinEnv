@@ -1,0 +1,88 @@
+{
+ "device_class": "rtx3070-bfloat16",
+ "missing": [],
+ "native_source": "reports/2026-10-17-controlled400-native-val/README.md",
+ "rl400_minus_sft1e5E": {
+  "dev800": {
+   "ci95": [
+    -0.025,
+    0.0
+   ],
+   "delta": -0.0125,
+   "losses": 19,
+   "n": 800,
+   "p_le_0": 0.97775,
+   "resamples": 20000,
+   "wins": 9
+  },
+  "native_val_macro": -0.012699999999999934
+ },
+ "rows": [
+  {
+   "accuracy": 0.685,
+   "arm": "gpu-ecetesla2-eval-W",
+   "endpoint": "W",
+   "equal_class_accuracy": 0.685,
+   "native_val_macro": 0.6784,
+   "valid_fraction": 0.97875
+  },
+  {
+   "accuracy": 0.7025,
+   "arm": "gpu-rtx3070-calib-RL400",
+   "endpoint": "RL400",
+   "equal_class_accuracy": 0.7025,
+   "native_val_macro": 0.6982,
+   "valid_fraction": 0.97875
+  },
+  {
+   "accuracy": 0.715,
+   "arm": "gpu-rtx3070-calib-SFT1e5E",
+   "endpoint": "SFT1e5E",
+   "equal_class_accuracy": 0.715,
+   "native_val_macro": 0.7109,
+   "valid_fraction": 0.98
+  },
+  {
+   "accuracy": 0.755,
+   "arm": "gpu-rtx3070-calib-SFT5e5E",
+   "endpoint": "SFT5e5E",
+   "equal_class_accuracy": 0.755,
+   "native_val_macro": 0.7399,
+   "valid_fraction": 0.98625
+  },
+  {
+   "accuracy": 0.7325,
+   "arm": "gpu-rtx3070-calib-SFT1e4E",
+   "endpoint": "SFT1e4E",
+   "equal_class_accuracy": 0.7325,
+   "native_val_macro": 0.7301,
+   "valid_fraction": 0.99
+  },
+  {
+   "accuracy": 0.775,
+   "arm": "gpu-ecetesla2-eval-I",
+   "endpoint": "I",
+   "equal_class_accuracy": 0.775,
+   "native_val_macro": 0.7539,
+   "valid_fraction": 0.99375
+  },
+  {
+   "accuracy": 0.75375,
+   "arm": "gpu-rtx3070-calib-SFT5e5T",
+   "endpoint": "SFT5e5T",
+   "equal_class_accuracy": 0.75375,
+   "native_val_macro": 0.7534,
+   "valid_fraction": 0.985
+  },
+  {
+   "accuracy": 0.76875,
+   "arm": "gpu-rtx3070-calib-SFT1e4T",
+   "endpoint": "SFT1e4T",
+   "equal_class_accuracy": 0.76875,
+   "native_val_macro": 0.752,
+   "valid_fraction": 0.99375
+  }
+ ],
+ "spearman_native_vs_dev800_accuracy": 0.9285714285714286,
+ "spearman_native_vs_dev800_equal_class": 0.9285714285714286
+}

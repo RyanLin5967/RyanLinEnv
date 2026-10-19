@@ -1,0 +1,92 @@
+[
+ {
+  "argv": [
+   "-m",
+   "vision_rl.vlm_local_training",
+   "--mode",
+   "grpo",
+   "--train",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/data/manifests/s_train_scan_seed42.jsonl",
+   "--data-spec",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/data/data_spec.json",
+   "--output",
+   "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx3070-probe-P4-s_train-lr2e-05-g8-b0-t1-zskip/train",
+   "--model-directory",
+   "/var/tmp/r226lin-rlesweep-gpu/model/Qwen2-VL-2B-Instruct-895c3a49",
+   "--device",
+   "cuda",
+   "--dtype",
+   "bfloat16",
+   "--train-only",
+   "--exploratory-sweep",
+   "aircraft-exploratory-sweep-v2",
+   "--init-adapter",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/adapters/I/final_adapter",
+   "--learning-rate",
+   "2e-05",
+   "--seed",
+   "42",
+   "--max-steps",
+   "2",
+   "--lora-rank",
+   "8",
+   "--response-format",
+   "answer_only",
+   "--num-generations",
+   "8",
+   "--min-pixels",
+   "50176",
+   "--max-pixels",
+   "200704",
+   "--max-completion-length",
+   "256",
+   "--threads",
+   "4",
+   "--initial-adapter-precision-transfer",
+   "float32-to-bfloat16",
+   "--save-steps",
+   "2",
+   "--beta",
+   "0.0",
+   "--temperature",
+   "1.0",
+   "--loss-type",
+   "grpo",
+   "--prompts-per-update",
+   "4",
+   "--skip-zero-advantage-steps",
+   "true"
+  ],
+  "cotenancy": {
+   "gpu_pids_seen": [
+    "1770856"
+   ],
+   "gpu_probe_missing": 0,
+   "interval_seconds": 60,
+   "load1": {
+    "max": 17.08154296875,
+    "mean": 15.82568359375,
+    "n": 2
+   },
+   "other_users_threads": {
+    "max": 579,
+    "mean": 578.0,
+    "n": 2
+   },
+   "own_user_other_threads": {
+    "max": 204,
+    "mean": 202.0,
+    "n": 2
+   },
+   "samples": 2,
+   "stage_threads": {
+    "max": 19,
+    "mean": 10.0,
+    "n": 2
+   }
+  },
+  "rc": 1,
+  "stage": "train-2",
+  "wall_seconds": 82.5
+ }
+]

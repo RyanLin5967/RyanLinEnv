@@ -1,0 +1,40 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.04,
+ "device": "cuda",
+ "device_class": "rtx2080ti-float32",
+ "dtype": "float32",
+ "extra_trainer_args": [
+  "--dynamic-sampling-max-draws",
+  "8",
+  "--loss-type",
+  "grpo"
+ ],
+ "family": "promo-fp32",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx2080ti-promo-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8",
+ "init": "I",
+ "lr": 5e-06,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 1200,
+ "min_pixels": 50176,
+ "mode": "grpo",
+ "num_generations": 8,
+ "promoted_from": "gpu-rtx3070-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8",
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  150,
+  300,
+  600
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "rl",
+ "train_manifest": "pool_mixedv3_454.jsonl",
+ "wave": 1
+}

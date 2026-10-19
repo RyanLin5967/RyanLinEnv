@@ -1,0 +1,34 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.0,
+ "device": "cuda",
+ "device_class": "rtx2080ti-float32",
+ "dtype": "float32",
+ "e0_steps": 4,
+ "extra_trainer_args": [
+  "--dynamic-sampling-max-draws",
+  "8",
+  "--loss-type",
+  "grpo"
+ ],
+ "family": "gate0",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx2080ti-e0-I-grpo-lr1e-05-g8-b0-ds8",
+ "init": "I",
+ "lr": 1e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "min_pixels": 50176,
+ "mode": "e0",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 42,
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "gate0",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}

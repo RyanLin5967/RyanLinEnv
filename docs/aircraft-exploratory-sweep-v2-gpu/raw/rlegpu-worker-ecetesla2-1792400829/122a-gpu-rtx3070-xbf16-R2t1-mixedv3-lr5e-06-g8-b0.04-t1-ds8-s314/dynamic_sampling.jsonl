@@ -1,0 +1,804 @@
+{"global_step": 1, "draw": 0, "informative": true, "id": "0984284", "kept": true, "exhausted": false}
+{"global_step": 2, "draw": 0, "informative": false, "id": "2262511", "kept": false}
+{"global_step": 2, "draw": 1, "informative": false, "id": "0155603", "kept": false}
+{"global_step": 2, "draw": 2, "informative": true, "id": "0984284", "kept": true, "exhausted": false}
+{"global_step": 3, "draw": 0, "informative": true, "id": "1092415", "kept": true, "exhausted": false}
+{"global_step": 4, "draw": 0, "informative": true, "id": "0396527", "kept": true, "exhausted": false}
+{"global_step": 5, "draw": 0, "informative": true, "id": "1535841", "kept": true, "exhausted": false}
+{"global_step": 6, "draw": 0, "informative": true, "id": "0901350", "kept": true, "exhausted": false}
+{"global_step": 7, "draw": 0, "informative": false, "id": "1550113", "kept": false}
+{"global_step": 7, "draw": 1, "informative": true, "id": "1874495", "kept": true, "exhausted": false}
+{"global_step": 8, "draw": 0, "informative": false, "id": "2006024", "kept": false}
+{"global_step": 8, "draw": 1, "informative": true, "id": "0313720", "kept": true, "exhausted": false}
+{"global_step": 9, "draw": 0, "informative": true, "id": "1917518", "kept": true, "exhausted": false}
+{"global_step": 10, "draw": 0, "informative": true, "id": "1216808", "kept": true, "exhausted": false}
+{"global_step": 11, "draw": 0, "informative": false, "id": "1707735", "kept": false}
+{"global_step": 11, "draw": 1, "informative": true, "id": "1548951", "kept": true, "exhausted": false}
+{"global_step": 12, "draw": 0, "informative": false, "id": "1878600", "kept": false}
+{"global_step": 12, "draw": 1, "informative": true, "id": "0064891", "kept": true, "exhausted": false}
+{"global_step": 13, "draw": 0, "informative": false, "id": "1555715", "kept": false}
+{"global_step": 13, "draw": 1, "informative": false, "id": "1053425", "kept": false}
+{"global_step": 13, "draw": 2, "informative": true, "id": "0731199", "kept": true, "exhausted": false}
+{"global_step": 14, "draw": 0, "informative": false, "id": "1053425", "kept": false}
+{"global_step": 14, "draw": 1, "informative": true, "id": "1842566", "kept": true, "exhausted": false}
+{"global_step": 15, "draw": 0, "informative": true, "id": "1560581", "kept": true, "exhausted": false}
+{"global_step": 16, "draw": 0, "informative": true, "id": "1036801", "kept": true, "exhausted": false}
+{"global_step": 17, "draw": 0, "informative": false, "id": "0716370", "kept": false}
+{"global_step": 17, "draw": 1, "informative": false, "id": "0500443", "kept": false}
+{"global_step": 17, "draw": 2, "informative": true, "id": "1754185", "kept": true, "exhausted": false}
+{"global_step": 18, "draw": 0, "informative": true, "id": "0928043", "kept": true, "exhausted": false}
+{"global_step": 19, "draw": 0, "informative": true, "id": "0848059", "kept": true, "exhausted": false}
+{"global_step": 20, "draw": 0, "informative": true, "id": "0361575", "kept": true, "exhausted": false}
+{"global_step": 21, "draw": 0, "informative": true, "id": "1926827", "kept": true, "exhausted": false}
+{"global_step": 22, "draw": 0, "informative": true, "id": "1245215", "kept": true, "exhausted": false}
+{"global_step": 23, "draw": 0, "informative": true, "id": "1095342", "kept": true, "exhausted": false}
+{"global_step": 24, "draw": 0, "informative": false, "id": "0394154", "kept": false}
+{"global_step": 24, "draw": 1, "informative": true, "id": "2115317", "kept": true, "exhausted": false}
+{"global_step": 25, "draw": 0, "informative": true, "id": "0422859", "kept": true, "exhausted": false}
+{"global_step": 26, "draw": 0, "informative": true, "id": "0931734", "kept": true, "exhausted": false}
+{"global_step": 27, "draw": 0, "informative": false, "id": "0984409", "kept": false}
+{"global_step": 27, "draw": 1, "informative": true, "id": "0154392", "kept": true, "exhausted": false}
+{"global_step": 28, "draw": 0, "informative": false, "id": "0038598", "kept": false}
+{"global_step": 28, "draw": 1, "informative": true, "id": "1703213", "kept": true, "exhausted": false}
+{"global_step": 29, "draw": 0, "informative": false, "id": "0781150", "kept": false}
+{"global_step": 29, "draw": 1, "informative": true, "id": "1745719", "kept": true, "exhausted": false}
+{"global_step": 30, "draw": 0, "informative": true, "id": "0414366", "kept": true, "exhausted": false}
+{"global_step": 31, "draw": 0, "informative": true, "id": "2203115", "kept": true, "exhausted": false}
+{"global_step": 32, "draw": 0, "informative": true, "id": "0901509", "kept": true, "exhausted": false}
+{"global_step": 33, "draw": 0, "informative": true, "id": "1259152", "kept": true, "exhausted": false}
+{"global_step": 34, "draw": 0, "informative": true, "id": "1630052", "kept": true, "exhausted": false}
+{"global_step": 35, "draw": 0, "informative": false, "id": "0182735", "kept": false}
+{"global_step": 35, "draw": 1, "informative": true, "id": "0523118", "kept": true, "exhausted": false}
+{"global_step": 36, "draw": 0, "informative": true, "id": "0454583", "kept": true, "exhausted": false}
+{"global_step": 37, "draw": 0, "informative": false, "id": "2217838", "kept": false}
+{"global_step": 37, "draw": 1, "informative": true, "id": "1337392", "kept": true, "exhausted": false}
+{"global_step": 38, "draw": 0, "informative": true, "id": "1550821", "kept": true, "exhausted": false}
+{"global_step": 39, "draw": 0, "informative": true, "id": "1711191", "kept": true, "exhausted": false}
+{"global_step": 40, "draw": 0, "informative": true, "id": "1766203", "kept": true, "exhausted": false}
+{"global_step": 41, "draw": 0, "informative": false, "id": "0875283", "kept": false}
+{"global_step": 41, "draw": 1, "informative": true, "id": "0064904", "kept": true, "exhausted": false}
+{"global_step": 42, "draw": 0, "informative": true, "id": "2259663", "kept": true, "exhausted": false}
+{"global_step": 43, "draw": 0, "informative": true, "id": "0353522", "kept": true, "exhausted": false}
+{"global_step": 44, "draw": 0, "informative": false, "id": "1362802", "kept": false}
+{"global_step": 44, "draw": 1, "informative": false, "id": "1870570", "kept": false}
+{"global_step": 44, "draw": 2, "informative": true, "id": "1413317", "kept": true, "exhausted": false}
+{"global_step": 45, "draw": 0, "informative": true, "id": "2153514", "kept": true, "exhausted": false}
+{"global_step": 46, "draw": 0, "informative": false, "id": "0602762", "kept": false}
+{"global_step": 46, "draw": 1, "informative": true, "id": "0422859", "kept": true, "exhausted": false}
+{"global_step": 47, "draw": 0, "informative": false, "id": "1476103", "kept": false}
+{"global_step": 47, "draw": 1, "informative": false, "id": "2239287", "kept": false}
+{"global_step": 47, "draw": 2, "informative": true, "id": "0205770", "kept": true, "exhausted": false}
+{"global_step": 48, "draw": 0, "informative": true, "id": "0454746", "kept": true, "exhausted": false}
+{"global_step": 49, "draw": 0, "informative": true, "id": "0356149", "kept": true, "exhausted": false}
+{"global_step": 50, "draw": 0, "informative": true, "id": "0912693", "kept": true, "exhausted": false}
+{"global_step": 51, "draw": 0, "informative": true, "id": "1316606", "kept": true, "exhausted": false}
+{"global_step": 52, "draw": 0, "informative": false, "id": "1414284", "kept": false}
+{"global_step": 52, "draw": 1, "informative": true, "id": "0786259", "kept": true, "exhausted": false}
+{"global_step": 53, "draw": 0, "informative": true, "id": "1762142", "kept": true, "exhausted": false}
+{"global_step": 54, "draw": 0, "informative": true, "id": "1703213", "kept": true, "exhausted": false}
+{"global_step": 55, "draw": 0, "informative": false, "id": "0939503", "kept": false}
+{"global_step": 55, "draw": 1, "informative": true, "id": "0257380", "kept": true, "exhausted": false}
+{"global_step": 56, "draw": 0, "informative": true, "id": "0487374", "kept": true, "exhausted": false}
+{"global_step": 57, "draw": 0, "informative": true, "id": "0977330", "kept": true, "exhausted": false}
+{"global_step": 58, "draw": 0, "informative": true, "id": "1707740", "kept": true, "exhausted": false}
+{"global_step": 59, "draw": 0, "informative": true, "id": "0147028", "kept": true, "exhausted": false}
+{"global_step": 60, "draw": 0, "informative": true, "id": "0885966", "kept": true, "exhausted": false}
+{"global_step": 61, "draw": 0, "informative": false, "id": "0730399", "kept": false}
+{"global_step": 61, "draw": 1, "informative": false, "id": "1879894", "kept": false}
+{"global_step": 61, "draw": 2, "informative": true, "id": "0900469", "kept": true, "exhausted": false}
+{"global_step": 62, "draw": 0, "informative": true, "id": "2058486", "kept": true, "exhausted": false}
+{"global_step": 63, "draw": 0, "informative": true, "id": "1001812", "kept": true, "exhausted": false}
+{"global_step": 64, "draw": 0, "informative": true, "id": "1745719", "kept": true, "exhausted": false}
+{"global_step": 65, "draw": 0, "informative": true, "id": "1616481", "kept": true, "exhausted": false}
+{"global_step": 66, "draw": 0, "informative": true, "id": "1908065", "kept": true, "exhausted": false}
+{"global_step": 67, "draw": 0, "informative": true, "id": "0877087", "kept": true, "exhausted": false}
+{"global_step": 68, "draw": 0, "informative": true, "id": "0679350", "kept": true, "exhausted": false}
+{"global_step": 69, "draw": 0, "informative": true, "id": "0064904", "kept": true, "exhausted": false}
+{"global_step": 70, "draw": 0, "informative": false, "id": "1188038", "kept": false}
+{"global_step": 70, "draw": 1, "informative": true, "id": "0063102", "kept": true, "exhausted": false}
+{"global_step": 71, "draw": 0, "informative": true, "id": "0179022", "kept": true, "exhausted": false}
+{"global_step": 72, "draw": 0, "informative": true, "id": "1818731", "kept": true, "exhausted": false}
+{"global_step": 73, "draw": 0, "informative": true, "id": "0418704", "kept": true, "exhausted": false}
+{"global_step": 74, "draw": 0, "informative": false, "id": "0336316", "kept": false}
+{"global_step": 74, "draw": 1, "informative": true, "id": "1475361", "kept": true, "exhausted": false}
+{"global_step": 75, "draw": 0, "informative": false, "id": "0102223", "kept": false}
+{"global_step": 75, "draw": 1, "informative": true, "id": "1043777", "kept": true, "exhausted": false}
+{"global_step": 76, "draw": 0, "informative": true, "id": "0744234", "kept": true, "exhausted": false}
+{"global_step": 77, "draw": 0, "informative": false, "id": "1503445", "kept": false}
+{"global_step": 77, "draw": 1, "informative": true, "id": "1726551", "kept": true, "exhausted": false}
+{"global_step": 78, "draw": 0, "informative": true, "id": "1772017", "kept": true, "exhausted": false}
+{"global_step": 79, "draw": 0, "informative": true, "id": "1730978", "kept": true, "exhausted": false}
+{"global_step": 80, "draw": 0, "informative": true, "id": "1331909", "kept": true, "exhausted": false}
+{"global_step": 81, "draw": 0, "informative": false, "id": "0225217", "kept": false}
+{"global_step": 81, "draw": 1, "informative": true, "id": "0835324", "kept": true, "exhausted": false}
+{"global_step": 82, "draw": 0, "informative": true, "id": "0105827", "kept": true, "exhausted": false}
+{"global_step": 83, "draw": 0, "informative": true, "id": "1159626", "kept": true, "exhausted": false}
+{"global_step": 84, "draw": 0, "informative": true, "id": "0773533", "kept": true, "exhausted": false}
+{"global_step": 85, "draw": 0, "informative": true, "id": "0992232", "kept": true, "exhausted": false}
+{"global_step": 86, "draw": 0, "informative": false, "id": "2136369", "kept": false}
+{"global_step": 86, "draw": 1, "informative": true, "id": "0063102", "kept": true, "exhausted": false}
+{"global_step": 87, "draw": 0, "informative": true, "id": "2045491", "kept": true, "exhausted": false}
+{"global_step": 88, "draw": 0, "informative": true, "id": "2044258", "kept": true, "exhausted": false}
+{"global_step": 89, "draw": 0, "informative": true, "id": "1736105", "kept": true, "exhausted": false}
+{"global_step": 90, "draw": 0, "informative": true, "id": "0198449", "kept": true, "exhausted": false}
+{"global_step": 91, "draw": 0, "informative": true, "id": "1567893", "kept": true, "exhausted": false}
+{"global_step": 92, "draw": 0, "informative": true, "id": "1231578", "kept": true, "exhausted": false}
+{"global_step": 93, "draw": 0, "informative": false, "id": "1554632", "kept": false}
+{"global_step": 93, "draw": 1, "informative": true, "id": "1820311", "kept": true, "exhausted": false}
+{"global_step": 94, "draw": 0, "informative": true, "id": "0573943", "kept": true, "exhausted": false}
+{"global_step": 95, "draw": 0, "informative": true, "id": "1979606", "kept": true, "exhausted": false}
+{"global_step": 96, "draw": 0, "informative": true, "id": "2162934", "kept": true, "exhausted": false}
+{"global_step": 97, "draw": 0, "informative": false, "id": "0500443", "kept": false}
+{"global_step": 97, "draw": 1, "informative": false, "id": "0875283", "kept": false}
+{"global_step": 97, "draw": 2, "informative": true, "id": "1385076", "kept": true, "exhausted": false}
+{"global_step": 98, "draw": 0, "informative": true, "id": "0347754", "kept": true, "exhausted": false}
+{"global_step": 99, "draw": 0, "informative": false, "id": "1043724", "kept": false}
+{"global_step": 99, "draw": 1, "informative": true, "id": "0179022", "kept": true, "exhausted": false}
+{"global_step": 100, "draw": 0, "informative": false, "id": "0931743", "kept": false}
+{"global_step": 100, "draw": 1, "informative": true, "id": "1055154", "kept": true, "exhausted": false}
+{"global_step": 101, "draw": 0, "informative": true, "id": "0467430", "kept": true, "exhausted": false}
+{"global_step": 102, "draw": 0, "informative": true, "id": "1234236", "kept": true, "exhausted": false}
+{"global_step": 103, "draw": 0, "informative": false, "id": "1043374", "kept": false}
+{"global_step": 103, "draw": 1, "informative": true, "id": "1540006", "kept": true, "exhausted": false}
+{"global_step": 104, "draw": 0, "informative": true, "id": "0154392", "kept": true, "exhausted": false}
+{"global_step": 105, "draw": 0, "informative": true, "id": "0731199", "kept": true, "exhausted": false}
+{"global_step": 106, "draw": 0, "informative": false, "id": "1943367", "kept": false}
+{"global_step": 106, "draw": 1, "informative": true, "id": "1264479", "kept": true, "exhausted": false}
+{"global_step": 107, "draw": 0, "informative": false, "id": "1782070", "kept": false}
+{"global_step": 107, "draw": 1, "informative": false, "id": "1550113", "kept": false}
+{"global_step": 107, "draw": 2, "informative": true, "id": "1043374", "kept": true, "exhausted": false}
+{"global_step": 108, "draw": 0, "informative": true, "id": "1111016", "kept": true, "exhausted": false}
+{"global_step": 109, "draw": 0, "informative": true, "id": "1597829", "kept": true, "exhausted": false}
+{"global_step": 110, "draw": 0, "informative": true, "id": "1399587", "kept": true, "exhausted": false}
+{"global_step": 111, "draw": 0, "informative": true, "id": "1878591", "kept": true, "exhausted": false}
+{"global_step": 112, "draw": 0, "informative": true, "id": "1244620", "kept": true, "exhausted": false}
+{"global_step": 113, "draw": 0, "informative": true, "id": "0299620", "kept": true, "exhausted": false}
+{"global_step": 114, "draw": 0, "informative": true, "id": "0843964", "kept": true, "exhausted": false}
+{"global_step": 115, "draw": 0, "informative": true, "id": "0064891", "kept": true, "exhausted": false}
+{"global_step": 116, "draw": 0, "informative": false, "id": "0675670", "kept": false}
+{"global_step": 116, "draw": 1, "informative": false, "id": "0467386", "kept": false}
+{"global_step": 116, "draw": 2, "informative": true, "id": "1762142", "kept": true, "exhausted": false}
+{"global_step": 117, "draw": 0, "informative": true, "id": "1099011", "kept": true, "exhausted": false}
+{"global_step": 118, "draw": 0, "informative": true, "id": "0114420", "kept": true, "exhausted": false}
+{"global_step": 119, "draw": 0, "informative": true, "id": "1204260", "kept": true, "exhausted": false}
+{"global_step": 120, "draw": 0, "informative": true, "id": "2174787", "kept": true, "exhausted": false}
+{"global_step": 121, "draw": 0, "informative": true, "id": "0127649", "kept": true, "exhausted": false}
+{"global_step": 122, "draw": 0, "informative": false, "id": "1206453", "kept": false}
+{"global_step": 122, "draw": 1, "informative": true, "id": "0912693", "kept": true, "exhausted": false}
+{"global_step": 123, "draw": 0, "informative": true, "id": "1401747", "kept": true, "exhausted": false}
+{"global_step": 124, "draw": 0, "informative": true, "id": "1715316", "kept": true, "exhausted": false}
+{"global_step": 125, "draw": 0, "informative": false, "id": "1726551", "kept": false}
+{"global_step": 125, "draw": 1, "informative": true, "id": "0179022", "kept": true, "exhausted": false}
+{"global_step": 126, "draw": 0, "informative": true, "id": "0318594", "kept": true, "exhausted": false}
+{"global_step": 127, "draw": 0, "informative": false, "id": "0977899", "kept": false}
+{"global_step": 127, "draw": 1, "informative": true, "id": "0961756", "kept": true, "exhausted": false}
+{"global_step": 128, "draw": 0, "informative": true, "id": "1084922", "kept": true, "exhausted": false}
+{"global_step": 129, "draw": 0, "informative": true, "id": "1093637", "kept": true, "exhausted": false}
+{"global_step": 130, "draw": 0, "informative": false, "id": "0273083", "kept": false}
+{"global_step": 130, "draw": 1, "informative": true, "id": "0068814", "kept": true, "exhausted": false}
+{"global_step": 131, "draw": 0, "informative": true, "id": "1407503", "kept": true, "exhausted": false}
+{"global_step": 132, "draw": 0, "informative": true, "id": "0463096", "kept": true, "exhausted": false}
+{"global_step": 133, "draw": 0, "informative": true, "id": "0749478", "kept": true, "exhausted": false}
+{"global_step": 134, "draw": 0, "informative": true, "id": "1571964", "kept": true, "exhausted": false}
+{"global_step": 135, "draw": 0, "informative": false, "id": "0706205", "kept": false}
+{"global_step": 135, "draw": 1, "informative": true, "id": "0394154", "kept": true, "exhausted": false}
+{"global_step": 136, "draw": 0, "informative": true, "id": "1429708", "kept": true, "exhausted": false}
+{"global_step": 137, "draw": 0, "informative": true, "id": "1094687", "kept": true, "exhausted": false}
+{"global_step": 138, "draw": 0, "informative": false, "id": "0538594", "kept": false}
+{"global_step": 138, "draw": 1, "informative": false, "id": "0467386", "kept": false}
+{"global_step": 138, "draw": 2, "informative": true, "id": "1051497", "kept": true, "exhausted": false}
+{"global_step": 139, "draw": 0, "informative": false, "id": "1281757", "kept": false}
+{"global_step": 139, "draw": 1, "informative": false, "id": "1036801", "kept": false}
+{"global_step": 139, "draw": 2, "informative": true, "id": "1004662", "kept": true, "exhausted": false}
+{"global_step": 140, "draw": 0, "informative": false, "id": "1507531", "kept": false}
+{"global_step": 140, "draw": 1, "informative": true, "id": "1842566", "kept": true, "exhausted": false}
+{"global_step": 141, "draw": 0, "informative": true, "id": "0136197", "kept": true, "exhausted": false}
+{"global_step": 142, "draw": 0, "informative": false, "id": "0134597", "kept": false}
+{"global_step": 142, "draw": 1, "informative": true, "id": "1362802", "kept": true, "exhausted": false}
+{"global_step": 143, "draw": 0, "informative": false, "id": "1031454", "kept": false}
+{"global_step": 143, "draw": 1, "informative": true, "id": "0068814", "kept": true, "exhausted": false}
+{"global_step": 144, "draw": 0, "informative": true, "id": "1548951", "kept": true, "exhausted": false}
+{"global_step": 145, "draw": 0, "informative": true, "id": "1043793", "kept": true, "exhausted": false}
+{"global_step": 146, "draw": 0, "informative": true, "id": "1374642", "kept": true, "exhausted": false}
+{"global_step": 147, "draw": 0, "informative": false, "id": "1261425", "kept": false}
+{"global_step": 147, "draw": 1, "informative": false, "id": "0913940", "kept": false}
+{"global_step": 147, "draw": 2, "informative": false, "id": "0062662", "kept": false}
+{"global_step": 147, "draw": 3, "informative": false, "id": "1715316", "kept": false}
+{"global_step": 147, "draw": 4, "informative": true, "id": "1939758", "kept": true, "exhausted": false}
+{"global_step": 148, "draw": 0, "informative": false, "id": "2100821", "kept": false}
+{"global_step": 148, "draw": 1, "informative": true, "id": "0065834", "kept": true, "exhausted": false}
+{"global_step": 149, "draw": 0, "informative": true, "id": "0205785", "kept": true, "exhausted": false}
+{"global_step": 150, "draw": 0, "informative": false, "id": "0487399", "kept": false}
+{"global_step": 150, "draw": 1, "informative": false, "id": "1878600", "kept": false}
+{"global_step": 150, "draw": 2, "informative": true, "id": "0449728", "kept": true, "exhausted": false}
+{"global_step": 151, "draw": 0, "informative": true, "id": "0730106", "kept": true, "exhausted": false}
+{"global_step": 152, "draw": 0, "informative": false, "id": "1568114", "kept": false}
+{"global_step": 152, "draw": 1, "informative": true, "id": "0901369", "kept": true, "exhausted": false}
+{"global_step": 153, "draw": 0, "informative": true, "id": "0197891", "kept": true, "exhausted": false}
+{"global_step": 154, "draw": 0, "informative": true, "id": "0894321", "kept": true, "exhausted": false}
+{"global_step": 155, "draw": 0, "informative": true, "id": "0901529", "kept": true, "exhausted": false}
+{"global_step": 156, "draw": 0, "informative": true, "id": "1390114", "kept": true, "exhausted": false}
+{"global_step": 157, "draw": 0, "informative": false, "id": "1884753", "kept": false}
+{"global_step": 157, "draw": 1, "informative": true, "id": "0127633", "kept": true, "exhausted": false}
+{"global_step": 158, "draw": 0, "informative": true, "id": "0913940", "kept": true, "exhausted": false}
+{"global_step": 159, "draw": 0, "informative": true, "id": "0750589", "kept": true, "exhausted": false}
+{"global_step": 160, "draw": 0, "informative": true, "id": "0480708", "kept": true, "exhausted": false}
+{"global_step": 161, "draw": 0, "informative": false, "id": "1560576", "kept": false}
+{"global_step": 161, "draw": 1, "informative": false, "id": "1001812", "kept": false}
+{"global_step": 161, "draw": 2, "informative": true, "id": "1680707", "kept": true, "exhausted": false}
+{"global_step": 162, "draw": 0, "informative": false, "id": "0496749", "kept": false}
+{"global_step": 162, "draw": 1, "informative": true, "id": "0792288", "kept": true, "exhausted": false}
+{"global_step": 163, "draw": 0, "informative": false, "id": "0136182", "kept": false}
+{"global_step": 163, "draw": 1, "informative": true, "id": "0923766", "kept": true, "exhausted": false}
+{"global_step": 164, "draw": 0, "informative": true, "id": "2173590", "kept": true, "exhausted": false}
+{"global_step": 165, "draw": 0, "informative": true, "id": "0504825", "kept": true, "exhausted": false}
+{"global_step": 166, "draw": 0, "informative": true, "id": "0507685", "kept": true, "exhausted": false}
+{"global_step": 167, "draw": 0, "informative": false, "id": "0713740", "kept": false}
+{"global_step": 167, "draw": 1, "informative": true, "id": "0481979", "kept": true, "exhausted": false}
+{"global_step": 168, "draw": 0, "informative": true, "id": "1023007", "kept": true, "exhausted": false}
+{"global_step": 169, "draw": 0, "informative": true, "id": "1931136", "kept": true, "exhausted": false}
+{"global_step": 170, "draw": 0, "informative": true, "id": "1586905", "kept": true, "exhausted": false}
+{"global_step": 171, "draw": 0, "informative": false, "id": "1693197", "kept": false}
+{"global_step": 171, "draw": 1, "informative": true, "id": "0105827", "kept": true, "exhausted": false}
+{"global_step": 172, "draw": 0, "informative": true, "id": "0245219", "kept": true, "exhausted": false}
+{"global_step": 173, "draw": 0, "informative": false, "id": "1615563", "kept": false}
+{"global_step": 173, "draw": 1, "informative": true, "id": "1362802", "kept": true, "exhausted": false}
+{"global_step": 174, "draw": 0, "informative": true, "id": "1094916", "kept": true, "exhausted": false}
+{"global_step": 175, "draw": 0, "informative": true, "id": "0285462", "kept": true, "exhausted": false}
+{"global_step": 176, "draw": 0, "informative": true, "id": "0745521", "kept": true, "exhausted": false}
+{"global_step": 177, "draw": 0, "informative": true, "id": "1146230", "kept": true, "exhausted": false}
+{"global_step": 178, "draw": 0, "informative": true, "id": "0063272", "kept": true, "exhausted": false}
+{"global_step": 179, "draw": 0, "informative": true, "id": "0443884", "kept": true, "exhausted": false}
+{"global_step": 180, "draw": 0, "informative": false, "id": "1496926", "kept": false}
+{"global_step": 180, "draw": 1, "informative": true, "id": "2244549", "kept": true, "exhausted": false}
+{"global_step": 181, "draw": 0, "informative": false, "id": "0497639", "kept": false}
+{"global_step": 181, "draw": 1, "informative": true, "id": "0880595", "kept": true, "exhausted": false}
+{"global_step": 182, "draw": 0, "informative": true, "id": "1070335", "kept": true, "exhausted": false}
+{"global_step": 183, "draw": 0, "informative": true, "id": "1447977", "kept": true, "exhausted": false}
+{"global_step": 184, "draw": 0, "informative": true, "id": "2188615", "kept": true, "exhausted": false}
+{"global_step": 185, "draw": 0, "informative": true, "id": "0975825", "kept": true, "exhausted": false}
+{"global_step": 186, "draw": 0, "informative": true, "id": "2242332", "kept": true, "exhausted": false}
+{"global_step": 187, "draw": 0, "informative": true, "id": "1429258", "kept": true, "exhausted": false}
+{"global_step": 188, "draw": 0, "informative": true, "id": "1701067", "kept": true, "exhausted": false}
+{"global_step": 189, "draw": 0, "informative": true, "id": "1519466", "kept": true, "exhausted": false}
+{"global_step": 190, "draw": 0, "informative": false, "id": "0786259", "kept": false}
+{"global_step": 190, "draw": 1, "informative": false, "id": "1826676", "kept": false}
+{"global_step": 190, "draw": 2, "informative": true, "id": "0225217", "kept": true, "exhausted": false}
+{"global_step": 191, "draw": 0, "informative": true, "id": "0842124", "kept": true, "exhausted": false}
+{"global_step": 192, "draw": 0, "informative": true, "id": "2162833", "kept": true, "exhausted": false}
+{"global_step": 193, "draw": 0, "informative": true, "id": "1719561", "kept": true, "exhausted": false}
+{"global_step": 194, "draw": 0, "informative": true, "id": "0103328", "kept": true, "exhausted": false}
+{"global_step": 195, "draw": 0, "informative": true, "id": "1219389", "kept": true, "exhausted": false}
+{"global_step": 196, "draw": 0, "informative": true, "id": "1243371", "kept": true, "exhausted": false}
+{"global_step": 197, "draw": 0, "informative": true, "id": "2115317", "kept": true, "exhausted": false}
+{"global_step": 198, "draw": 0, "informative": true, "id": "0868105", "kept": true, "exhausted": false}
+{"global_step": 199, "draw": 0, "informative": true, "id": "1929102", "kept": true, "exhausted": false}
+{"global_step": 200, "draw": 0, "informative": true, "id": "0147038", "kept": true, "exhausted": false}
+{"global_step": 201, "draw": 0, "informative": true, "id": "0109457", "kept": true, "exhausted": false}
+{"global_step": 202, "draw": 0, "informative": true, "id": "1913792", "kept": true, "exhausted": false}
+{"global_step": 203, "draw": 0, "informative": true, "id": "0783899", "kept": true, "exhausted": false}
+{"global_step": 204, "draw": 0, "informative": false, "id": "1792325", "kept": false}
+{"global_step": 204, "draw": 1, "informative": false, "id": "2262511", "kept": false}
+{"global_step": 204, "draw": 2, "informative": false, "id": "1414284", "kept": false}
+{"global_step": 204, "draw": 3, "informative": true, "id": "0822062", "kept": true, "exhausted": false}
+{"global_step": 205, "draw": 0, "informative": true, "id": "1355481", "kept": true, "exhausted": false}
+{"global_step": 206, "draw": 0, "informative": true, "id": "0447807", "kept": true, "exhausted": false}
+{"global_step": 207, "draw": 0, "informative": false, "id": "2244446", "kept": false}
+{"global_step": 207, "draw": 1, "informative": false, "id": "0038598", "kept": false}
+{"global_step": 207, "draw": 2, "informative": true, "id": "0188143", "kept": true, "exhausted": false}
+{"global_step": 208, "draw": 0, "informative": true, "id": "0063102", "kept": true, "exhausted": false}
+{"global_step": 209, "draw": 0, "informative": true, "id": "1901546", "kept": true, "exhausted": false}
+{"global_step": 210, "draw": 0, "informative": true, "id": "1820311", "kept": true, "exhausted": false}
+{"global_step": 211, "draw": 0, "informative": false, "id": "1165384", "kept": false}
+{"global_step": 211, "draw": 1, "informative": true, "id": "0880595", "kept": true, "exhausted": false}
+{"global_step": 212, "draw": 0, "informative": true, "id": "1921777", "kept": true, "exhausted": false}
+{"global_step": 213, "draw": 0, "informative": true, "id": "1706716", "kept": true, "exhausted": false}
+{"global_step": 214, "draw": 0, "informative": false, "id": "0690074", "kept": false}
+{"global_step": 214, "draw": 1, "informative": false, "id": "0454583", "kept": false}
+{"global_step": 214, "draw": 2, "informative": false, "id": "1389125", "kept": false}
+{"global_step": 214, "draw": 3, "informative": true, "id": "1560576", "kept": true, "exhausted": false}
+{"global_step": 215, "draw": 0, "informative": true, "id": "0457890", "kept": true, "exhausted": false}
+{"global_step": 216, "draw": 0, "informative": true, "id": "0745448", "kept": true, "exhausted": false}
+{"global_step": 217, "draw": 0, "informative": false, "id": "0116701", "kept": false}
+{"global_step": 217, "draw": 1, "informative": true, "id": "0353522", "kept": true, "exhausted": false}
+{"global_step": 218, "draw": 0, "informative": true, "id": "0692098", "kept": true, "exhausted": false}
+{"global_step": 219, "draw": 0, "informative": true, "id": "2171433", "kept": true, "exhausted": false}
+{"global_step": 220, "draw": 0, "informative": false, "id": "1261973", "kept": false}
+{"global_step": 220, "draw": 1, "informative": true, "id": "0766954", "kept": true, "exhausted": false}
+{"global_step": 221, "draw": 0, "informative": true, "id": "0081597", "kept": true, "exhausted": false}
+{"global_step": 222, "draw": 0, "informative": true, "id": "0428735", "kept": true, "exhausted": false}
+{"global_step": 223, "draw": 0, "informative": true, "id": "0573369", "kept": true, "exhausted": false}
+{"global_step": 224, "draw": 0, "informative": true, "id": "1781350", "kept": true, "exhausted": false}
+{"global_step": 225, "draw": 0, "informative": true, "id": "1355236", "kept": true, "exhausted": false}
+{"global_step": 226, "draw": 0, "informative": true, "id": "0738021", "kept": true, "exhausted": false}
+{"global_step": 227, "draw": 0, "informative": true, "id": "1682041", "kept": true, "exhausted": false}
+{"global_step": 228, "draw": 0, "informative": false, "id": "0467386", "kept": false}
+{"global_step": 228, "draw": 1, "informative": true, "id": "0171401", "kept": true, "exhausted": false}
+{"global_step": 229, "draw": 0, "informative": true, "id": "1781328", "kept": true, "exhausted": false}
+{"global_step": 230, "draw": 0, "informative": true, "id": "0062662", "kept": true, "exhausted": false}
+{"global_step": 231, "draw": 0, "informative": true, "id": "0618977", "kept": true, "exhausted": false}
+{"global_step": 232, "draw": 0, "informative": false, "id": "1390673", "kept": false}
+{"global_step": 232, "draw": 1, "informative": true, "id": "0245219", "kept": true, "exhausted": false}
+{"global_step": 233, "draw": 0, "informative": true, "id": "0800871", "kept": true, "exhausted": false}
+{"global_step": 234, "draw": 0, "informative": true, "id": "0316509", "kept": true, "exhausted": false}
+{"global_step": 235, "draw": 0, "informative": true, "id": "1475361", "kept": true, "exhausted": false}
+{"global_step": 236, "draw": 0, "informative": true, "id": "1345040", "kept": true, "exhausted": false}
+{"global_step": 237, "draw": 0, "informative": true, "id": "0735009", "kept": true, "exhausted": false}
+{"global_step": 238, "draw": 0, "informative": true, "id": "0418967", "kept": true, "exhausted": false}
+{"global_step": 239, "draw": 0, "informative": true, "id": "0068814", "kept": true, "exhausted": false}
+{"global_step": 240, "draw": 0, "informative": true, "id": "1387200", "kept": true, "exhausted": false}
+{"global_step": 241, "draw": 0, "informative": true, "id": "1552976", "kept": true, "exhausted": false}
+{"global_step": 242, "draw": 0, "informative": false, "id": "1501838", "kept": false}
+{"global_step": 242, "draw": 1, "informative": true, "id": "0143079", "kept": true, "exhausted": false}
+{"global_step": 243, "draw": 0, "informative": true, "id": "1564774", "kept": true, "exhausted": false}
+{"global_step": 244, "draw": 0, "informative": true, "id": "1948449", "kept": true, "exhausted": false}
+{"global_step": 245, "draw": 0, "informative": false, "id": "1230223", "kept": false}
+{"global_step": 245, "draw": 1, "informative": false, "id": "1555715", "kept": false}
+{"global_step": 245, "draw": 2, "informative": true, "id": "1256682", "kept": true, "exhausted": false}
+{"global_step": 246, "draw": 0, "informative": true, "id": "1619369", "kept": true, "exhausted": false}
+{"global_step": 247, "draw": 0, "informative": false, "id": "1879981", "kept": false}
+{"global_step": 247, "draw": 1, "informative": true, "id": "0299647", "kept": true, "exhausted": false}
+{"global_step": 248, "draw": 0, "informative": true, "id": "0958618", "kept": true, "exhausted": false}
+{"global_step": 249, "draw": 0, "informative": false, "id": "0681536", "kept": false}
+{"global_step": 249, "draw": 1, "informative": true, "id": "0316509", "kept": true, "exhausted": false}
+{"global_step": 250, "draw": 0, "informative": true, "id": "1449320", "kept": true, "exhausted": false}
+{"global_step": 251, "draw": 0, "informative": true, "id": "0127633", "kept": true, "exhausted": false}
+{"global_step": 252, "draw": 0, "informative": false, "id": "1826676", "kept": false}
+{"global_step": 252, "draw": 1, "informative": true, "id": "0447749", "kept": true, "exhausted": false}
+{"global_step": 253, "draw": 0, "informative": false, "id": "1051497", "kept": false}
+{"global_step": 253, "draw": 1, "informative": true, "id": "1711191", "kept": true, "exhausted": false}
+{"global_step": 254, "draw": 0, "informative": false, "id": "0396589", "kept": false}
+{"global_step": 254, "draw": 1, "informative": true, "id": "0710454", "kept": true, "exhausted": false}
+{"global_step": 255, "draw": 0, "informative": true, "id": "0961756", "kept": true, "exhausted": false}
+{"global_step": 256, "draw": 0, "informative": true, "id": "0967847", "kept": true, "exhausted": false}
+{"global_step": 257, "draw": 0, "informative": true, "id": "1774010", "kept": true, "exhausted": false}
+{"global_step": 258, "draw": 0, "informative": true, "id": "1680778", "kept": true, "exhausted": false}
+{"global_step": 259, "draw": 0, "informative": true, "id": "0299647", "kept": true, "exhausted": false}
+{"global_step": 260, "draw": 0, "informative": false, "id": "1879894", "kept": false}
+{"global_step": 260, "draw": 1, "informative": false, "id": "0716370", "kept": false}
+{"global_step": 260, "draw": 2, "informative": true, "id": "0063272", "kept": true, "exhausted": false}
+{"global_step": 261, "draw": 0, "informative": true, "id": "2054447", "kept": true, "exhausted": false}
+{"global_step": 262, "draw": 0, "informative": true, "id": "1147739", "kept": true, "exhausted": false}
+{"global_step": 263, "draw": 0, "informative": false, "id": "1462854", "kept": false}
+{"global_step": 263, "draw": 1, "informative": false, "id": "1782070", "kept": false}
+{"global_step": 263, "draw": 2, "informative": true, "id": "2045491", "kept": true, "exhausted": false}
+{"global_step": 264, "draw": 0, "informative": true, "id": "1871272", "kept": true, "exhausted": false}
+{"global_step": 265, "draw": 0, "informative": true, "id": "0869644", "kept": true, "exhausted": false}
+{"global_step": 266, "draw": 0, "informative": false, "id": "0257380", "kept": false}
+{"global_step": 266, "draw": 1, "informative": true, "id": "1706716", "kept": true, "exhausted": false}
+{"global_step": 267, "draw": 0, "informative": true, "id": "0257378", "kept": true, "exhausted": false}
+{"global_step": 268, "draw": 0, "informative": true, "id": "2033054", "kept": true, "exhausted": false}
+{"global_step": 269, "draw": 0, "informative": true, "id": "1694806", "kept": true, "exhausted": false}
+{"global_step": 270, "draw": 0, "informative": true, "id": "0564624", "kept": true, "exhausted": false}
+{"global_step": 271, "draw": 0, "informative": true, "id": "1883790", "kept": true, "exhausted": false}
+{"global_step": 272, "draw": 0, "informative": true, "id": "1582906", "kept": true, "exhausted": false}
+{"global_step": 273, "draw": 0, "informative": true, "id": "1570250", "kept": true, "exhausted": false}
+{"global_step": 274, "draw": 0, "informative": false, "id": "1215515", "kept": false}
+{"global_step": 274, "draw": 1, "informative": true, "id": "1703213", "kept": true, "exhausted": false}
+{"global_step": 275, "draw": 0, "informative": false, "id": "0593170", "kept": false}
+{"global_step": 275, "draw": 1, "informative": false, "id": "1792325", "kept": false}
+{"global_step": 275, "draw": 2, "informative": true, "id": "2045491", "kept": true, "exhausted": false}
+{"global_step": 276, "draw": 0, "informative": true, "id": "1823113", "kept": true, "exhausted": false}
+{"global_step": 277, "draw": 0, "informative": true, "id": "1540006", "kept": true, "exhausted": false}
+{"global_step": 278, "draw": 0, "informative": false, "id": "0924085", "kept": false}
+{"global_step": 278, "draw": 1, "informative": true, "id": "2239287", "kept": true, "exhausted": false}
+{"global_step": 279, "draw": 0, "informative": true, "id": "0522914", "kept": true, "exhausted": false}
+{"global_step": 280, "draw": 0, "informative": false, "id": "1192235", "kept": false}
+{"global_step": 280, "draw": 1, "informative": true, "id": "0418704", "kept": true, "exhausted": false}
+{"global_step": 281, "draw": 0, "informative": false, "id": "0072368", "kept": false}
+{"global_step": 281, "draw": 1, "informative": false, "id": "0573369", "kept": false}
+{"global_step": 281, "draw": 2, "informative": false, "id": "0213505", "kept": false}
+{"global_step": 281, "draw": 3, "informative": true, "id": "0299620", "kept": true, "exhausted": false}
+{"global_step": 282, "draw": 0, "informative": true, "id": "2239287", "kept": true, "exhausted": false}
+{"global_step": 283, "draw": 0, "informative": true, "id": "0880595", "kept": true, "exhausted": false}
+{"global_step": 284, "draw": 0, "informative": true, "id": "0155603", "kept": true, "exhausted": false}
+{"global_step": 285, "draw": 0, "informative": true, "id": "0127034", "kept": true, "exhausted": false}
+{"global_step": 286, "draw": 0, "informative": true, "id": "0188143", "kept": true, "exhausted": false}
+{"global_step": 287, "draw": 0, "informative": true, "id": "2127989", "kept": true, "exhausted": false}
+{"global_step": 288, "draw": 0, "informative": true, "id": "1708263", "kept": true, "exhausted": false}
+{"global_step": 289, "draw": 0, "informative": true, "id": "0448006", "kept": true, "exhausted": false}
+{"global_step": 290, "draw": 0, "informative": true, "id": "1543529", "kept": true, "exhausted": false}
+{"global_step": 291, "draw": 0, "informative": true, "id": "2091304", "kept": true, "exhausted": false}
+{"global_step": 292, "draw": 0, "informative": true, "id": "0193728", "kept": true, "exhausted": false}
+{"global_step": 293, "draw": 0, "informative": false, "id": "1254089", "kept": false}
+{"global_step": 293, "draw": 1, "informative": true, "id": "1094916", "kept": true, "exhausted": false}
+{"global_step": 294, "draw": 0, "informative": false, "id": "1939758", "kept": false}
+{"global_step": 294, "draw": 1, "informative": true, "id": "0880595", "kept": true, "exhausted": false}
+{"global_step": 295, "draw": 0, "informative": true, "id": "0174893", "kept": true, "exhausted": false}
+{"global_step": 296, "draw": 0, "informative": true, "id": "1264479", "kept": true, "exhausted": false}
+{"global_step": 297, "draw": 0, "informative": true, "id": "1176914", "kept": true, "exhausted": false}
+{"global_step": 298, "draw": 0, "informative": true, "id": "1413317", "kept": true, "exhausted": false}
+{"global_step": 299, "draw": 0, "informative": true, "id": "1152739", "kept": true, "exhausted": false}
+{"global_step": 300, "draw": 0, "informative": true, "id": "0829998", "kept": true, "exhausted": false}
+{"global_step": 301, "draw": 0, "informative": true, "id": "0179070", "kept": true, "exhausted": false}
+{"global_step": 302, "draw": 0, "informative": true, "id": "0723572", "kept": true, "exhausted": false}
+{"global_step": 303, "draw": 0, "informative": true, "id": "0730970", "kept": true, "exhausted": false}
+{"global_step": 304, "draw": 0, "informative": true, "id": "1043777", "kept": true, "exhausted": false}
+{"global_step": 305, "draw": 0, "informative": true, "id": "0100211", "kept": true, "exhausted": false}
+{"global_step": 306, "draw": 0, "informative": true, "id": "1385441", "kept": true, "exhausted": false}
+{"global_step": 307, "draw": 0, "informative": true, "id": "2244549", "kept": true, "exhausted": false}
+{"global_step": 308, "draw": 0, "informative": false, "id": "0318361", "kept": false}
+{"global_step": 308, "draw": 1, "informative": true, "id": "1222829", "kept": true, "exhausted": false}
+{"global_step": 309, "draw": 0, "informative": true, "id": "0313720", "kept": true, "exhausted": false}
+{"global_step": 310, "draw": 0, "informative": true, "id": "0723207", "kept": true, "exhausted": false}
+{"global_step": 311, "draw": 0, "informative": true, "id": "1443523", "kept": true, "exhausted": false}
+{"global_step": 312, "draw": 0, "informative": false, "id": "0917712", "kept": false}
+{"global_step": 312, "draw": 1, "informative": false, "id": "0877087", "kept": false}
+{"global_step": 312, "draw": 2, "informative": true, "id": "1762142", "kept": true, "exhausted": false}
+{"global_step": 313, "draw": 0, "informative": true, "id": "0822062", "kept": true, "exhausted": false}
+{"global_step": 314, "draw": 0, "informative": true, "id": "2221713", "kept": true, "exhausted": false}
+{"global_step": 315, "draw": 0, "informative": true, "id": "1251289", "kept": true, "exhausted": false}
+{"global_step": 316, "draw": 0, "informative": true, "id": "0618967", "kept": true, "exhausted": false}
+{"global_step": 317, "draw": 0, "informative": true, "id": "0481979", "kept": true, "exhausted": false}
+{"global_step": 318, "draw": 0, "informative": true, "id": "1385076", "kept": true, "exhausted": false}
+{"global_step": 319, "draw": 0, "informative": true, "id": "1222829", "kept": true, "exhausted": false}
+{"global_step": 320, "draw": 0, "informative": true, "id": "1013061", "kept": true, "exhausted": false}
+{"global_step": 321, "draw": 0, "informative": false, "id": "0835324", "kept": false}
+{"global_step": 321, "draw": 1, "informative": true, "id": "1407503", "kept": true, "exhausted": false}
+{"global_step": 322, "draw": 0, "informative": true, "id": "1453430", "kept": true, "exhausted": false}
+{"global_step": 323, "draw": 0, "informative": true, "id": "1031455", "kept": true, "exhausted": false}
+{"global_step": 324, "draw": 0, "informative": false, "id": "1389125", "kept": false}
+{"global_step": 324, "draw": 1, "informative": true, "id": "0068814", "kept": true, "exhausted": false}
+{"global_step": 325, "draw": 0, "informative": false, "id": "0782933", "kept": false}
+{"global_step": 325, "draw": 1, "informative": false, "id": "1146230", "kept": false}
+{"global_step": 325, "draw": 2, "informative": false, "id": "0038598", "kept": false}
+{"global_step": 325, "draw": 3, "informative": true, "id": "0716370", "kept": true, "exhausted": false}
+{"global_step": 326, "draw": 0, "informative": true, "id": "0851156", "kept": true, "exhausted": false}
+{"global_step": 327, "draw": 0, "informative": true, "id": "0065834", "kept": true, "exhausted": false}
+{"global_step": 328, "draw": 0, "informative": true, "id": "1870570", "kept": true, "exhausted": false}
+{"global_step": 329, "draw": 0, "informative": true, "id": "1052486", "kept": true, "exhausted": false}
+{"global_step": 330, "draw": 0, "informative": true, "id": "0962875", "kept": true, "exhausted": false}
+{"global_step": 331, "draw": 0, "informative": true, "id": "0677583", "kept": true, "exhausted": false}
+{"global_step": 332, "draw": 0, "informative": true, "id": "1004662", "kept": true, "exhausted": false}
+{"global_step": 333, "draw": 0, "informative": true, "id": "0610689", "kept": true, "exhausted": false}
+{"global_step": 334, "draw": 0, "informative": true, "id": "1714716", "kept": true, "exhausted": false}
+{"global_step": 335, "draw": 0, "informative": true, "id": "1716062", "kept": true, "exhausted": false}
+{"global_step": 336, "draw": 0, "informative": true, "id": "0787578", "kept": true, "exhausted": false}
+{"global_step": 337, "draw": 0, "informative": false, "id": "0918736", "kept": false}
+{"global_step": 337, "draw": 1, "informative": false, "id": "0931743", "kept": false}
+{"global_step": 337, "draw": 2, "informative": true, "id": "0136197", "kept": true, "exhausted": false}
+{"global_step": 338, "draw": 0, "informative": true, "id": "0904850", "kept": true, "exhausted": false}
+{"global_step": 339, "draw": 0, "informative": true, "id": "0986161", "kept": true, "exhausted": false}
+{"global_step": 340, "draw": 0, "informative": true, "id": "0792288", "kept": true, "exhausted": false}
+{"global_step": 341, "draw": 0, "informative": false, "id": "0944208", "kept": false}
+{"global_step": 341, "draw": 1, "informative": true, "id": "1291351", "kept": true, "exhausted": false}
+{"global_step": 342, "draw": 0, "informative": true, "id": "0782915", "kept": true, "exhausted": false}
+{"global_step": 343, "draw": 0, "informative": true, "id": "0302648", "kept": true, "exhausted": false}
+{"global_step": 344, "draw": 0, "informative": false, "id": "0487344", "kept": false}
+{"global_step": 344, "draw": 1, "informative": true, "id": "1560576", "kept": true, "exhausted": false}
+{"global_step": 345, "draw": 0, "informative": false, "id": "1680707", "kept": false}
+{"global_step": 345, "draw": 1, "informative": true, "id": "0273083", "kept": true, "exhausted": false}
+{"global_step": 346, "draw": 0, "informative": true, "id": "0085358", "kept": true, "exhausted": false}
+{"global_step": 347, "draw": 0, "informative": true, "id": "1393334", "kept": true, "exhausted": false}
+{"global_step": 348, "draw": 0, "informative": true, "id": "1679994", "kept": true, "exhausted": false}
+{"global_step": 349, "draw": 0, "informative": true, "id": "1656419", "kept": true, "exhausted": false}
+{"global_step": 350, "draw": 0, "informative": true, "id": "0449728", "kept": true, "exhausted": false}
+{"global_step": 351, "draw": 0, "informative": true, "id": "0066408", "kept": true, "exhausted": false}
+{"global_step": 352, "draw": 0, "informative": true, "id": "1502611", "kept": true, "exhausted": false}
+{"global_step": 353, "draw": 0, "informative": true, "id": "0710454", "kept": true, "exhausted": false}
+{"global_step": 354, "draw": 0, "informative": true, "id": "1865143", "kept": true, "exhausted": false}
+{"global_step": 355, "draw": 0, "informative": true, "id": "1256682", "kept": true, "exhausted": false}
+{"global_step": 356, "draw": 0, "informative": true, "id": "0062255", "kept": true, "exhausted": false}
+{"global_step": 357, "draw": 0, "informative": true, "id": "0523168", "kept": true, "exhausted": false}
+{"global_step": 358, "draw": 0, "informative": true, "id": "0275249", "kept": true, "exhausted": false}
+{"global_step": 359, "draw": 0, "informative": true, "id": "1688962", "kept": true, "exhausted": false}
+{"global_step": 360, "draw": 0, "informative": true, "id": "1754185", "kept": true, "exhausted": false}
+{"global_step": 361, "draw": 0, "informative": true, "id": "0692095", "kept": true, "exhausted": false}
+{"global_step": 362, "draw": 0, "informative": true, "id": "1834825", "kept": true, "exhausted": false}
+{"global_step": 363, "draw": 0, "informative": true, "id": "1713232", "kept": true, "exhausted": false}
+{"global_step": 364, "draw": 0, "informative": true, "id": "1060500", "kept": true, "exhausted": false}
+{"global_step": 365, "draw": 0, "informative": true, "id": "0171401", "kept": true, "exhausted": false}
+{"global_step": 366, "draw": 0, "informative": true, "id": "0169310", "kept": true, "exhausted": false}
+{"global_step": 367, "draw": 0, "informative": false, "id": "1088416", "kept": false}
+{"global_step": 367, "draw": 1, "informative": true, "id": "0394095", "kept": true, "exhausted": false}
+{"global_step": 368, "draw": 0, "informative": true, "id": "1272849", "kept": true, "exhausted": false}
+{"global_step": 369, "draw": 0, "informative": true, "id": "1563889", "kept": true, "exhausted": false}
+{"global_step": 370, "draw": 0, "informative": true, "id": "1842566", "kept": true, "exhausted": false}
+{"global_step": 371, "draw": 0, "informative": true, "id": "0275110", "kept": true, "exhausted": false}
+{"global_step": 372, "draw": 0, "informative": true, "id": "1476615", "kept": true, "exhausted": false}
+{"global_step": 373, "draw": 0, "informative": true, "id": "0198445", "kept": true, "exhausted": false}
+{"global_step": 374, "draw": 0, "informative": false, "id": "1846193", "kept": false}
+{"global_step": 374, "draw": 1, "informative": false, "id": "1031454", "kept": false}
+{"global_step": 374, "draw": 2, "informative": true, "id": "0573943", "kept": true, "exhausted": false}
+{"global_step": 375, "draw": 0, "informative": true, "id": "0570728", "kept": true, "exhausted": false}
+{"global_step": 376, "draw": 0, "informative": true, "id": "0394095", "kept": true, "exhausted": false}
+{"global_step": 377, "draw": 0, "informative": false, "id": "1486682", "kept": false}
+{"global_step": 377, "draw": 1, "informative": false, "id": "0517786", "kept": false}
+{"global_step": 377, "draw": 2, "informative": true, "id": "1932450", "kept": true, "exhausted": false}
+{"global_step": 378, "draw": 0, "informative": true, "id": "1062485", "kept": true, "exhausted": false}
+{"global_step": 379, "draw": 0, "informative": true, "id": "0900469", "kept": true, "exhausted": false}
+{"global_step": 380, "draw": 0, "informative": true, "id": "1455902", "kept": true, "exhausted": false}
+{"global_step": 381, "draw": 0, "informative": true, "id": "1658463", "kept": true, "exhausted": false}
+{"global_step": 382, "draw": 0, "informative": true, "id": "0522968", "kept": true, "exhausted": false}
+{"global_step": 383, "draw": 0, "informative": true, "id": "0174901", "kept": true, "exhausted": false}
+{"global_step": 384, "draw": 0, "informative": true, "id": "2004745", "kept": true, "exhausted": false}
+{"global_step": 385, "draw": 0, "informative": true, "id": "0447749", "kept": true, "exhausted": false}
+{"global_step": 386, "draw": 0, "informative": true, "id": "1932450", "kept": true, "exhausted": false}
+{"global_step": 387, "draw": 0, "informative": true, "id": "1296886", "kept": true, "exhausted": false}
+{"global_step": 388, "draw": 0, "informative": true, "id": "0805499", "kept": true, "exhausted": false}
+{"global_step": 389, "draw": 0, "informative": true, "id": "0205770", "kept": true, "exhausted": false}
+{"global_step": 390, "draw": 0, "informative": true, "id": "1291351", "kept": true, "exhausted": false}
+{"global_step": 391, "draw": 0, "informative": true, "id": "0517785", "kept": true, "exhausted": false}
+{"global_step": 392, "draw": 0, "informative": true, "id": "2243380", "kept": true, "exhausted": false}
+{"global_step": 393, "draw": 0, "informative": true, "id": "1337392", "kept": true, "exhausted": false}
+{"global_step": 394, "draw": 0, "informative": false, "id": "1908679", "kept": false}
+{"global_step": 394, "draw": 1, "informative": true, "id": "1004662", "kept": true, "exhausted": false}
+{"global_step": 395, "draw": 0, "informative": true, "id": "1187247", "kept": true, "exhausted": false}
+{"global_step": 396, "draw": 0, "informative": false, "id": "0357866", "kept": false}
+{"global_step": 396, "draw": 1, "informative": false, "id": "1560581", "kept": false}
+{"global_step": 396, "draw": 2, "informative": false, "id": "1052486", "kept": false}
+{"global_step": 396, "draw": 3, "informative": true, "id": "0517633", "kept": true, "exhausted": false}
+{"global_step": 397, "draw": 0, "informative": false, "id": "0766954", "kept": false}
+{"global_step": 397, "draw": 1, "informative": true, "id": "0065834", "kept": true, "exhausted": false}
+{"global_step": 398, "draw": 0, "informative": true, "id": "0901369", "kept": true, "exhausted": false}
+{"global_step": 399, "draw": 0, "informative": false, "id": "0751325", "kept": false}
+{"global_step": 399, "draw": 1, "informative": true, "id": "0523168", "kept": true, "exhausted": false}
+{"global_step": 400, "draw": 0, "informative": true, "id": "0809727", "kept": true, "exhausted": false}
+{"global_step": 401, "draw": 0, "informative": true, "id": "1423583", "kept": true, "exhausted": false}
+{"global_step": 402, "draw": 0, "informative": false, "id": "1999875", "kept": false}
+{"global_step": 402, "draw": 1, "informative": true, "id": "1316606", "kept": true, "exhausted": false}
+{"global_step": 403, "draw": 0, "informative": false, "id": "0875323", "kept": false}
+{"global_step": 403, "draw": 1, "informative": true, "id": "0843964", "kept": true, "exhausted": false}
+{"global_step": 404, "draw": 0, "informative": true, "id": "1311421", "kept": true, "exhausted": false}
+{"global_step": 405, "draw": 0, "informative": false, "id": "0636482", "kept": false}
+{"global_step": 405, "draw": 1, "informative": true, "id": "2091304", "kept": true, "exhausted": false}
+{"global_step": 406, "draw": 0, "informative": true, "id": "1187709", "kept": true, "exhausted": false}
+{"global_step": 407, "draw": 0, "informative": false, "id": "1275811", "kept": false}
+{"global_step": 407, "draw": 1, "informative": true, "id": "0414366", "kept": true, "exhausted": false}
+{"global_step": 408, "draw": 0, "informative": true, "id": "0523118", "kept": true, "exhausted": false}
+{"global_step": 409, "draw": 0, "informative": false, "id": "0522830", "kept": false}
+{"global_step": 409, "draw": 1, "informative": true, "id": "0361575", "kept": true, "exhausted": false}
+{"global_step": 410, "draw": 0, "informative": true, "id": "1658655", "kept": true, "exhausted": false}
+{"global_step": 411, "draw": 0, "informative": true, "id": "1874495", "kept": true, "exhausted": false}
+{"global_step": 412, "draw": 0, "informative": true, "id": "0353524", "kept": true, "exhausted": false}
+{"global_step": 413, "draw": 0, "informative": false, "id": "1906074", "kept": false}
+{"global_step": 413, "draw": 1, "informative": true, "id": "1570250", "kept": true, "exhausted": false}
+{"global_step": 414, "draw": 0, "informative": true, "id": "1031445", "kept": true, "exhausted": false}
+{"global_step": 415, "draw": 0, "informative": true, "id": "0711206", "kept": true, "exhausted": false}
+{"global_step": 416, "draw": 0, "informative": true, "id": "0517786", "kept": true, "exhausted": false}
+{"global_step": 417, "draw": 0, "informative": true, "id": "0127501", "kept": true, "exhausted": false}
+{"global_step": 418, "draw": 0, "informative": true, "id": "0143079", "kept": true, "exhausted": false}
+{"global_step": 419, "draw": 0, "informative": true, "id": "1194995", "kept": true, "exhausted": false}
+{"global_step": 420, "draw": 0, "informative": true, "id": "1777801", "kept": true, "exhausted": false}
+{"global_step": 421, "draw": 0, "informative": true, "id": "0859029", "kept": true, "exhausted": false}
+{"global_step": 422, "draw": 0, "informative": true, "id": "1471544", "kept": true, "exhausted": false}
+{"global_step": 423, "draw": 0, "informative": true, "id": "2059195", "kept": true, "exhausted": false}
+{"global_step": 424, "draw": 0, "informative": true, "id": "1941127", "kept": true, "exhausted": false}
+{"global_step": 425, "draw": 0, "informative": true, "id": "0517633", "kept": true, "exhausted": false}
+{"global_step": 426, "draw": 0, "informative": true, "id": "0241450", "kept": true, "exhausted": false}
+{"global_step": 427, "draw": 0, "informative": true, "id": "0090868", "kept": true, "exhausted": false}
+{"global_step": 428, "draw": 0, "informative": true, "id": "1885885", "kept": true, "exhausted": false}
+{"global_step": 429, "draw": 0, "informative": false, "id": "2205728", "kept": false}
+{"global_step": 429, "draw": 1, "informative": true, "id": "1879981", "kept": true, "exhausted": false}
+{"global_step": 430, "draw": 0, "informative": true, "id": "0979652", "kept": true, "exhausted": false}
+{"global_step": 431, "draw": 0, "informative": true, "id": "0923766", "kept": true, "exhausted": false}
+{"global_step": 432, "draw": 0, "informative": false, "id": "1519814", "kept": false}
+{"global_step": 432, "draw": 1, "informative": true, "id": "1387200", "kept": true, "exhausted": false}
+{"global_step": 433, "draw": 0, "informative": true, "id": "1055154", "kept": true, "exhausted": false}
+{"global_step": 434, "draw": 0, "informative": true, "id": "1877896", "kept": true, "exhausted": false}
+{"global_step": 435, "draw": 0, "informative": true, "id": "0548477", "kept": true, "exhausted": false}
+{"global_step": 436, "draw": 0, "informative": true, "id": "0109461", "kept": true, "exhausted": false}
+{"global_step": 437, "draw": 0, "informative": true, "id": "1459173", "kept": true, "exhausted": false}
+{"global_step": 438, "draw": 0, "informative": true, "id": "1245887", "kept": true, "exhausted": false}
+{"global_step": 439, "draw": 0, "informative": true, "id": "2197329", "kept": true, "exhausted": false}
+{"global_step": 440, "draw": 0, "informative": true, "id": "0894380", "kept": true, "exhausted": false}
+{"global_step": 441, "draw": 0, "informative": true, "id": "0457865", "kept": true, "exhausted": false}
+{"global_step": 442, "draw": 0, "informative": false, "id": "1384548", "kept": false}
+{"global_step": 442, "draw": 1, "informative": true, "id": "2244549", "kept": true, "exhausted": false}
+{"global_step": 443, "draw": 0, "informative": true, "id": "1036822", "kept": true, "exhausted": false}
+{"global_step": 444, "draw": 0, "informative": false, "id": "1620917", "kept": false}
+{"global_step": 444, "draw": 1, "informative": true, "id": "0749478", "kept": true, "exhausted": false}
+{"global_step": 445, "draw": 0, "informative": true, "id": "1869981", "kept": true, "exhausted": false}
+{"global_step": 446, "draw": 0, "informative": true, "id": "1924170", "kept": true, "exhausted": false}
+{"global_step": 447, "draw": 0, "informative": true, "id": "1585256", "kept": true, "exhausted": false}
+{"global_step": 448, "draw": 0, "informative": true, "id": "0213505", "kept": true, "exhausted": false}
+{"global_step": 449, "draw": 0, "informative": true, "id": "1762097", "kept": true, "exhausted": false}
+{"global_step": 450, "draw": 0, "informative": true, "id": "1594713", "kept": true, "exhausted": false}
+{"global_step": 451, "draw": 0, "informative": true, "id": "1037501", "kept": true, "exhausted": false}
+{"global_step": 452, "draw": 0, "informative": true, "id": "1563979", "kept": true, "exhausted": false}
+{"global_step": 453, "draw": 0, "informative": true, "id": "0198777", "kept": true, "exhausted": false}
+{"global_step": 454, "draw": 0, "informative": true, "id": "1699127", "kept": true, "exhausted": false}
+{"global_step": 455, "draw": 0, "informative": true, "id": "0928043", "kept": true, "exhausted": false}
+{"global_step": 456, "draw": 0, "informative": false, "id": "0467386", "kept": false}
+{"global_step": 456, "draw": 1, "informative": false, "id": "0038598", "kept": false}
+{"global_step": 456, "draw": 2, "informative": true, "id": "1766203", "kept": true, "exhausted": false}
+{"global_step": 457, "draw": 0, "informative": false, "id": "0901369", "kept": false}
+{"global_step": 457, "draw": 1, "informative": false, "id": "0336316", "kept": false}
+{"global_step": 457, "draw": 2, "informative": false, "id": "1261425", "kept": false}
+{"global_step": 457, "draw": 3, "informative": true, "id": "2244549", "kept": true, "exhausted": false}
+{"global_step": 458, "draw": 0, "informative": true, "id": "1147739", "kept": true, "exhausted": false}
+{"global_step": 459, "draw": 0, "informative": true, "id": "0394095", "kept": true, "exhausted": false}
+{"global_step": 460, "draw": 0, "informative": true, "id": "1503445", "kept": true, "exhausted": false}
+{"global_step": 461, "draw": 0, "informative": true, "id": "1582906", "kept": true, "exhausted": false}
+{"global_step": 462, "draw": 0, "informative": true, "id": "1194995", "kept": true, "exhausted": false}
+{"global_step": 463, "draw": 0, "informative": false, "id": "1462854", "kept": false}
+{"global_step": 463, "draw": 1, "informative": false, "id": "2205728", "kept": false}
+{"global_step": 463, "draw": 2, "informative": true, "id": "1331909", "kept": true, "exhausted": false}
+{"global_step": 464, "draw": 0, "informative": true, "id": "0100211", "kept": true, "exhausted": false}
+{"global_step": 465, "draw": 0, "informative": true, "id": "1084922", "kept": true, "exhausted": false}
+{"global_step": 466, "draw": 0, "informative": true, "id": "1708263", "kept": true, "exhausted": false}
+{"global_step": 467, "draw": 0, "informative": true, "id": "1296886", "kept": true, "exhausted": false}
+{"global_step": 468, "draw": 0, "informative": false, "id": "1052486", "kept": false}
+{"global_step": 468, "draw": 1, "informative": true, "id": "1543529", "kept": true, "exhausted": false}
+{"global_step": 469, "draw": 0, "informative": true, "id": "0179022", "kept": true, "exhausted": false}
+{"global_step": 470, "draw": 0, "informative": true, "id": "0522968", "kept": true, "exhausted": false}
+{"global_step": 471, "draw": 0, "informative": true, "id": "0730106", "kept": true, "exhausted": false}
+{"global_step": 472, "draw": 0, "informative": true, "id": "1563889", "kept": true, "exhausted": false}
+{"global_step": 473, "draw": 0, "informative": false, "id": "1620917", "kept": false}
+{"global_step": 473, "draw": 1, "informative": true, "id": "0913940", "kept": true, "exhausted": false}
+{"global_step": 474, "draw": 0, "informative": true, "id": "1703213", "kept": true, "exhausted": false}
+{"global_step": 475, "draw": 0, "informative": true, "id": "1390114", "kept": true, "exhausted": false}
+{"global_step": 476, "draw": 0, "informative": true, "id": "1043724", "kept": true, "exhausted": false}
+{"global_step": 477, "draw": 0, "informative": false, "id": "0454746", "kept": false}
+{"global_step": 477, "draw": 1, "informative": true, "id": "0977899", "kept": true, "exhausted": false}
+{"global_step": 478, "draw": 0, "informative": true, "id": "1917518", "kept": true, "exhausted": false}
+{"global_step": 479, "draw": 0, "informative": true, "id": "0154392", "kept": true, "exhausted": false}
+{"global_step": 480, "draw": 0, "informative": true, "id": "0984409", "kept": true, "exhausted": false}
+{"global_step": 481, "draw": 0, "informative": true, "id": "1656419", "kept": true, "exhausted": false}
+{"global_step": 482, "draw": 0, "informative": true, "id": "0939503", "kept": true, "exhausted": false}
+{"global_step": 483, "draw": 0, "informative": true, "id": "1550821", "kept": true, "exhausted": false}
+{"global_step": 484, "draw": 0, "informative": true, "id": "0155603", "kept": true, "exhausted": false}
+{"global_step": 485, "draw": 0, "informative": false, "id": "2188615", "kept": false}
+{"global_step": 485, "draw": 1, "informative": true, "id": "0447807", "kept": true, "exhausted": false}
+{"global_step": 486, "draw": 0, "informative": true, "id": "0782933", "kept": true, "exhausted": false}
+{"global_step": 487, "draw": 0, "informative": false, "id": "1031445", "kept": false}
+{"global_step": 487, "draw": 1, "informative": true, "id": "0143079", "kept": true, "exhausted": false}
+{"global_step": 488, "draw": 0, "informative": true, "id": "2244549", "kept": true, "exhausted": false}
+{"global_step": 489, "draw": 0, "informative": true, "id": "1216808", "kept": true, "exhausted": false}
+{"global_step": 490, "draw": 0, "informative": true, "id": "1390673", "kept": true, "exhausted": false}
+{"global_step": 491, "draw": 0, "informative": false, "id": "1774010", "kept": false}
+{"global_step": 491, "draw": 1, "informative": true, "id": "1013061", "kept": true, "exhausted": false}
+{"global_step": 492, "draw": 0, "informative": true, "id": "1013061", "kept": true, "exhausted": false}
+{"global_step": 493, "draw": 0, "informative": false, "id": "1245215", "kept": false}
+{"global_step": 493, "draw": 1, "informative": true, "id": "1362802", "kept": true, "exhausted": false}
+{"global_step": 494, "draw": 0, "informative": true, "id": "0875283", "kept": true, "exhausted": false}
+{"global_step": 495, "draw": 0, "informative": true, "id": "0548477", "kept": true, "exhausted": false}
+{"global_step": 496, "draw": 0, "informative": true, "id": "1088416", "kept": true, "exhausted": false}
+{"global_step": 497, "draw": 0, "informative": true, "id": "2127989", "kept": true, "exhausted": false}
+{"global_step": 498, "draw": 0, "informative": true, "id": "0610689", "kept": true, "exhausted": false}
+{"global_step": 499, "draw": 0, "informative": false, "id": "1401747", "kept": false}
+{"global_step": 499, "draw": 1, "informative": false, "id": "0875323", "kept": false}
+{"global_step": 499, "draw": 2, "informative": true, "id": "0573369", "kept": true, "exhausted": false}
+{"global_step": 500, "draw": 0, "informative": true, "id": "0396527", "kept": true, "exhausted": false}
+{"global_step": 501, "draw": 0, "informative": false, "id": "1389125", "kept": false}
+{"global_step": 501, "draw": 1, "informative": true, "id": "1656419", "kept": true, "exhausted": false}
+{"global_step": 502, "draw": 0, "informative": true, "id": "0467430", "kept": true, "exhausted": false}
+{"global_step": 503, "draw": 0, "informative": false, "id": "0918736", "kept": false}
+{"global_step": 503, "draw": 1, "informative": true, "id": "1384548", "kept": true, "exhausted": false}
+{"global_step": 504, "draw": 0, "informative": true, "id": "1501838", "kept": true, "exhausted": false}
+{"global_step": 505, "draw": 0, "informative": true, "id": "1730978", "kept": true, "exhausted": false}
+{"global_step": 506, "draw": 0, "informative": true, "id": "1345040", "kept": true, "exhausted": false}
+{"global_step": 507, "draw": 0, "informative": true, "id": "1476103", "kept": true, "exhausted": false}
+{"global_step": 508, "draw": 0, "informative": true, "id": "1766203", "kept": true, "exhausted": false}
+{"global_step": 509, "draw": 0, "informative": true, "id": "1272849", "kept": true, "exhausted": false}
+{"global_step": 510, "draw": 0, "informative": true, "id": "1036822", "kept": true, "exhausted": false}
+{"global_step": 511, "draw": 0, "informative": true, "id": "0302648", "kept": true, "exhausted": false}
+{"global_step": 512, "draw": 0, "informative": true, "id": "1387200", "kept": true, "exhausted": false}
+{"global_step": 513, "draw": 0, "informative": true, "id": "1475361", "kept": true, "exhausted": false}
+{"global_step": 514, "draw": 0, "informative": false, "id": "1176914", "kept": false}
+{"global_step": 514, "draw": 1, "informative": true, "id": "1111016", "kept": true, "exhausted": false}
+{"global_step": 515, "draw": 0, "informative": false, "id": "0081597", "kept": false}
+{"global_step": 515, "draw": 1, "informative": true, "id": "0179070", "kept": true, "exhausted": false}
+{"global_step": 516, "draw": 0, "informative": true, "id": "1447977", "kept": true, "exhausted": false}
+{"global_step": 517, "draw": 0, "informative": true, "id": "0198449", "kept": true, "exhausted": false}
+{"global_step": 518, "draw": 0, "informative": true, "id": "1055154", "kept": true, "exhausted": false}
+{"global_step": 519, "draw": 0, "informative": false, "id": "1554632", "kept": false}
+{"global_step": 519, "draw": 1, "informative": true, "id": "1259152", "kept": true, "exhausted": false}
+{"global_step": 520, "draw": 0, "informative": true, "id": "1619369", "kept": true, "exhausted": false}
+{"global_step": 521, "draw": 0, "informative": true, "id": "0692095", "kept": true, "exhausted": false}
+{"global_step": 522, "draw": 0, "informative": true, "id": "1496926", "kept": true, "exhausted": false}
+{"global_step": 523, "draw": 0, "informative": false, "id": "0723207", "kept": false}
+{"global_step": 523, "draw": 1, "informative": true, "id": "0127034", "kept": true, "exhausted": false}
+{"global_step": 524, "draw": 0, "informative": false, "id": "1782070", "kept": false}
+{"global_step": 524, "draw": 1, "informative": true, "id": "1563889", "kept": true, "exhausted": false}
+{"global_step": 525, "draw": 0, "informative": true, "id": "1261973", "kept": true, "exhausted": false}
+{"global_step": 526, "draw": 0, "informative": false, "id": "1715316", "kept": false}
+{"global_step": 526, "draw": 1, "informative": true, "id": "1781328", "kept": true, "exhausted": false}
+{"global_step": 527, "draw": 0, "informative": true, "id": "1869981", "kept": true, "exhausted": false}
+{"global_step": 528, "draw": 0, "informative": true, "id": "1311421", "kept": true, "exhausted": false}
+{"global_step": 529, "draw": 0, "informative": true, "id": "0843964", "kept": true, "exhausted": false}
+{"global_step": 530, "draw": 0, "informative": false, "id": "1331909", "kept": false}
+{"global_step": 530, "draw": 1, "informative": true, "id": "0751325", "kept": true, "exhausted": false}
+{"global_step": 531, "draw": 0, "informative": true, "id": "0931734", "kept": true, "exhausted": false}
+{"global_step": 532, "draw": 0, "informative": false, "id": "1999875", "kept": false}
+{"global_step": 532, "draw": 1, "informative": true, "id": "2188615", "kept": true, "exhausted": false}
+{"global_step": 533, "draw": 0, "informative": true, "id": "2153514", "kept": true, "exhausted": false}
+{"global_step": 534, "draw": 0, "informative": false, "id": "2217838", "kept": false}
+{"global_step": 534, "draw": 1, "informative": true, "id": "0745448", "kept": true, "exhausted": false}
+{"global_step": 535, "draw": 0, "informative": true, "id": "0193728", "kept": true, "exhausted": false}
+{"global_step": 536, "draw": 0, "informative": false, "id": "1095342", "kept": false}
+{"global_step": 536, "draw": 1, "informative": true, "id": "1879981", "kept": true, "exhausted": false}
+{"global_step": 537, "draw": 0, "informative": true, "id": "0487374", "kept": true, "exhausted": false}
+{"global_step": 538, "draw": 0, "informative": false, "id": "0443884", "kept": false}
+{"global_step": 538, "draw": 1, "informative": false, "id": "1507531", "kept": false}
+{"global_step": 538, "draw": 2, "informative": false, "id": "0917712", "kept": false}
+{"global_step": 538, "draw": 3, "informative": true, "id": "1846193", "kept": true, "exhausted": false}
+{"global_step": 539, "draw": 0, "informative": true, "id": "1385441", "kept": true, "exhausted": false}
+{"global_step": 540, "draw": 0, "informative": false, "id": "1924170", "kept": false}
+{"global_step": 540, "draw": 1, "informative": false, "id": "1393334", "kept": false}
+{"global_step": 540, "draw": 2, "informative": true, "id": "1870570", "kept": true, "exhausted": false}
+{"global_step": 541, "draw": 0, "informative": true, "id": "1256682", "kept": true, "exhausted": false}
+{"global_step": 542, "draw": 0, "informative": true, "id": "1865143", "kept": true, "exhausted": false}
+{"global_step": 543, "draw": 0, "informative": false, "id": "1550113", "kept": false}
+{"global_step": 543, "draw": 1, "informative": false, "id": "0134597", "kept": false}
+{"global_step": 543, "draw": 2, "informative": false, "id": "1884753", "kept": false}
+{"global_step": 543, "draw": 3, "informative": false, "id": "1316606", "kept": false}
+{"global_step": 543, "draw": 4, "informative": true, "id": "0749478", "kept": true, "exhausted": false}
+{"global_step": 544, "draw": 0, "informative": true, "id": "1682041", "kept": true, "exhausted": false}
+{"global_step": 545, "draw": 0, "informative": true, "id": "0299620", "kept": true, "exhausted": false}
+{"global_step": 546, "draw": 0, "informative": true, "id": "1878591", "kept": true, "exhausted": false}
+{"global_step": 547, "draw": 0, "informative": false, "id": "0977330", "kept": false}
+{"global_step": 547, "draw": 1, "informative": true, "id": "2091304", "kept": true, "exhausted": false}
+{"global_step": 548, "draw": 0, "informative": true, "id": "0923766", "kept": true, "exhausted": false}
+{"global_step": 549, "draw": 0, "informative": true, "id": "1535841", "kept": true, "exhausted": false}
+{"global_step": 550, "draw": 0, "informative": false, "id": "1507531", "kept": false}
+{"global_step": 550, "draw": 1, "informative": true, "id": "0063102", "kept": true, "exhausted": false}
+{"global_step": 551, "draw": 0, "informative": true, "id": "0962875", "kept": true, "exhausted": false}
+{"global_step": 552, "draw": 0, "informative": true, "id": "1023007", "kept": true, "exhausted": false}
+{"global_step": 553, "draw": 0, "informative": true, "id": "0205770", "kept": true, "exhausted": false}
+{"global_step": 554, "draw": 0, "informative": true, "id": "0961756", "kept": true, "exhausted": false}
+{"global_step": 555, "draw": 0, "informative": true, "id": "1680778", "kept": true, "exhausted": false}
+{"global_step": 556, "draw": 0, "informative": false, "id": "0072368", "kept": false}
+{"global_step": 556, "draw": 1, "informative": true, "id": "0241450", "kept": true, "exhausted": false}
+{"global_step": 557, "draw": 0, "informative": false, "id": "0917712", "kept": false}
+{"global_step": 557, "draw": 1, "informative": true, "id": "1055154", "kept": true, "exhausted": false}
+{"global_step": 558, "draw": 0, "informative": true, "id": "0716370", "kept": true, "exhausted": false}
+{"global_step": 559, "draw": 0, "informative": true, "id": "1543529", "kept": true, "exhausted": false}
+{"global_step": 560, "draw": 0, "informative": true, "id": "0986161", "kept": true, "exhausted": false}
+{"global_step": 561, "draw": 0, "informative": true, "id": "2091304", "kept": true, "exhausted": false}
+{"global_step": 562, "draw": 0, "informative": true, "id": "1679994", "kept": true, "exhausted": false}
+{"global_step": 563, "draw": 0, "informative": true, "id": "0538594", "kept": true, "exhausted": false}
+{"global_step": 564, "draw": 0, "informative": true, "id": "1826676", "kept": true, "exhausted": false}
+{"global_step": 565, "draw": 0, "informative": false, "id": "1630052", "kept": false}
+{"global_step": 565, "draw": 1, "informative": false, "id": "1979606", "kept": false}
+{"global_step": 565, "draw": 2, "informative": true, "id": "1519814", "kept": true, "exhausted": false}
+{"global_step": 566, "draw": 0, "informative": false, "id": "1355236", "kept": false}
+{"global_step": 566, "draw": 1, "informative": true, "id": "0859029", "kept": true, "exhausted": false}
+{"global_step": 567, "draw": 0, "informative": false, "id": "1552976", "kept": false}
+{"global_step": 567, "draw": 1, "informative": true, "id": "0347754", "kept": true, "exhausted": false}
+{"global_step": 568, "draw": 0, "informative": true, "id": "0787578", "kept": true, "exhausted": false}
+{"global_step": 569, "draw": 0, "informative": false, "id": "2239287", "kept": false}
+{"global_step": 569, "draw": 1, "informative": false, "id": "0198445", "kept": false}
+{"global_step": 569, "draw": 2, "informative": true, "id": "1869981", "kept": true, "exhausted": false}
+{"global_step": 570, "draw": 0, "informative": false, "id": "0447807", "kept": false}
+{"global_step": 570, "draw": 1, "informative": true, "id": "0336316", "kept": true, "exhausted": false}
+{"global_step": 571, "draw": 0, "informative": true, "id": "1459173", "kept": true, "exhausted": false}
+{"global_step": 572, "draw": 0, "informative": true, "id": "2058486", "kept": true, "exhausted": false}
+{"global_step": 573, "draw": 0, "informative": true, "id": "0944208", "kept": true, "exhausted": false}
+{"global_step": 574, "draw": 0, "informative": true, "id": "0711206", "kept": true, "exhausted": false}
+{"global_step": 575, "draw": 0, "informative": true, "id": "0179070", "kept": true, "exhausted": false}
+{"global_step": 576, "draw": 0, "informative": true, "id": "0730970", "kept": true, "exhausted": false}
+{"global_step": 577, "draw": 0, "informative": true, "id": "0517633", "kept": true, "exhausted": false}
+{"global_step": 578, "draw": 0, "informative": false, "id": "1222829", "kept": false}
+{"global_step": 578, "draw": 1, "informative": true, "id": "0868105", "kept": true, "exhausted": false}
+{"global_step": 579, "draw": 0, "informative": true, "id": "1486682", "kept": true, "exhausted": false}
+{"global_step": 580, "draw": 0, "informative": false, "id": "0353524", "kept": false}
+{"global_step": 580, "draw": 1, "informative": false, "id": "0522830", "kept": false}
+{"global_step": 580, "draw": 2, "informative": true, "id": "1826676", "kept": true, "exhausted": false}
+{"global_step": 581, "draw": 0, "informative": true, "id": "1291351", "kept": true, "exhausted": false}
+{"global_step": 582, "draw": 0, "informative": true, "id": "1877896", "kept": true, "exhausted": false}
+{"global_step": 583, "draw": 0, "informative": false, "id": "0318594", "kept": false}
+{"global_step": 583, "draw": 1, "informative": true, "id": "0992232", "kept": true, "exhausted": false}
+{"global_step": 584, "draw": 0, "informative": false, "id": "2262511", "kept": false}
+{"global_step": 584, "draw": 1, "informative": true, "id": "1094916", "kept": true, "exhausted": false}
+{"global_step": 585, "draw": 0, "informative": true, "id": "1062485", "kept": true, "exhausted": false}
+{"global_step": 586, "draw": 0, "informative": true, "id": "1571964", "kept": true, "exhausted": false}
+{"global_step": 587, "draw": 0, "informative": false, "id": "2205728", "kept": false}
+{"global_step": 587, "draw": 1, "informative": true, "id": "0188143", "kept": true, "exhausted": false}
+{"global_step": 588, "draw": 0, "informative": false, "id": "1560581", "kept": false}
+{"global_step": 588, "draw": 1, "informative": true, "id": "1777801", "kept": true, "exhausted": false}
+{"global_step": 589, "draw": 0, "informative": true, "id": "0063102", "kept": true, "exhausted": false}
+{"global_step": 590, "draw": 0, "informative": true, "id": "1192235", "kept": true, "exhausted": false}
+{"global_step": 591, "draw": 0, "informative": true, "id": "1913792", "kept": true, "exhausted": false}
+{"global_step": 592, "draw": 0, "informative": true, "id": "2044258", "kept": true, "exhausted": false}
+{"global_step": 593, "draw": 0, "informative": false, "id": "0522830", "kept": false}
+{"global_step": 593, "draw": 1, "informative": true, "id": "1455902", "kept": true, "exhausted": false}
+{"global_step": 594, "draw": 0, "informative": true, "id": "0487344", "kept": true, "exhausted": false}
+{"global_step": 595, "draw": 0, "informative": true, "id": "1385076", "kept": true, "exhausted": false}
+{"global_step": 596, "draw": 0, "informative": true, "id": "0257380", "kept": true, "exhausted": false}
+{"global_step": 597, "draw": 0, "informative": false, "id": "0064891", "kept": false}
+{"global_step": 597, "draw": 1, "informative": true, "id": "1913792", "kept": true, "exhausted": false}
+{"global_step": 598, "draw": 0, "informative": true, "id": "0792288", "kept": true, "exhausted": false}
+{"global_step": 599, "draw": 0, "informative": true, "id": "0570728", "kept": true, "exhausted": false}
+{"global_step": 600, "draw": 0, "informative": false, "id": "0066408", "kept": false}
+{"global_step": 600, "draw": 1, "informative": true, "id": "1818731", "kept": true, "exhausted": false}

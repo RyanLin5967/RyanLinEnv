@@ -52,6 +52,11 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
+# controlled400 endpoints with native VAL scores (payload.py INITS): eval-only inits for the
+# dev800 calibration (root corrections M4). Never a training init.
+CALIBRATION = ("RL400", "SFT1e5E", "SFT5e5E", "SFT1e4E", "SFT5e5T", "SFT1e4T")
+
+
 def _int_at_least(n: int):
     def check(v: str):
         if not re.fullmatch(r"-?[0-9]+", v) or int(v) < n:
@@ -339,6 +344,10 @@ class Arm:
         self.env = dict(os.environ, PYTHONPATH=str(self.payload / "code" / "src"),
                         HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                         VLM_TORCH_THREADS=str(spec.get("threads", 16)))
+        if spec.get("device") == "cuda":
+            # Allocator fragmentation only (no numerics): the fp32 beta>0 GRPO on the 2080 Ti
+            # OOMed needing 274 MiB with 547 MiB reserved-but-unallocated (2026-10-19).
+            self.env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
             self.env[var] = str(spec.get("threads", 16))
         self.log = []
@@ -707,9 +716,39 @@ class Arm:
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
         if self.spec["mode"] == "grpo":
             entry["sampler_parity"] = check_parity(record, started, sid)
+        if self.spec["mode"] in ("grpo", "sft"):
+            entry["record_check"] = self.check_record(args)
         self.scanned_ids(receipt)
         write_json(self.results / "stages.json", self.log)
         return receipt
+
+    def check_record(self, args: list) -> dict:
+        """Read what the trainer RECORDED for this stage (local_training.json) and refuse
+        unless it is the spec: base dtype, device, learning rate, the --train manifest bytes,
+        and (when the spec asks for it) the dynamic-sampling draw count. This guards the
+        outcome, not the argv we meant to send."""
+        s = self.spec
+        rec = json.loads((self.out / "local_training.json").read_text())
+        st, ci = rec["settings"], rec["control_identity"]
+        train = Path(args[args.index("--train") + 1])
+        got = {"dtype": ci["profile"]["dtype"], "device": st["device"],
+               "learning_rate": float(st["learning_rate"]),
+               "train_manifest_sha256": ci["train"]["manifest_sha256"]}
+        want = {"dtype": s.get("dtype", "float32"), "device": s.get("device", "cpu"),
+                "learning_rate": float(s["lr"]), "train_manifest_sha256": sha_file(train)}
+        extras = [str(x) for x in s.get("extra_trainer_args") or []]
+        if "--dynamic-sampling-max-draws" in extras:
+            got["dynamic_sampling_max_draws"] = (st.get("dynamic_sampling") or {}).get("max_draws")
+            want["dynamic_sampling_max_draws"] = int(
+                extras[extras.index("--dynamic-sampling-max-draws") + 1])
+        if "--prompts-per-update" in extras:
+            got["prompts_per_update"] = (st.get("grpo_overrides") or {}).get("prompts_per_update")
+            want["prompts_per_update"] = int(extras[extras.index("--prompts-per-update") + 1])
+        bad = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
+        if bad:
+            write_json(self.results / "stages.json", self.log)
+            raise SystemExit(f"REFUSE: the trainer recorded a run other than the spec: {bad}")
+        return got
 
     def rft_receipt(self) -> dict:
         """The runner-facing endpoint of an RFT stage, derived from the trainer's own bound
@@ -751,12 +790,32 @@ class Arm:
         return receipt
 
     def init_adapter(self) -> Path:
-        """W or I from the payload, or {"arm", "label"}: a kept endpoint on this host."""
+        """W, I (or an assay-only calibration endpoint) from the payload, or {"arm", "label"}:
+        a kept endpoint on this host."""
         init = self.spec["init"]
         if isinstance(init, str):
-            if init not in ("W", "I"):
+            if init not in ("W", "I") and not (init in CALIBRATION
+                                                and self.spec["mode"] == "eval"):
                 raise SystemExit(f"REFUSE: unknown init {init!r}")
             return self.payload / "adapters" / init / "final_adapter"
+        if "start" in init:
+            # A start adapter staged on this host by another lane (root corrections M2:
+            # RL from sftall*): ROOT/start/<name>/final_adapter with its local_training.json
+            # beside it. Refuses unless its weights hash equals the sha the spec pins (taken
+            # from the producing lane's report), so a missing or different file never trains.
+            name = str(init["start"])
+            if "/" in name or name.startswith("."):
+                raise SystemExit(f"REFUSE: bad start name {name!r}")
+            path = self.root / "start" / name / "final_adapter"
+            want = init.get("weights_sha256")
+            if not want or not (path / "adapter_model.safetensors").is_file():
+                raise SystemExit(f"REFUSE: start adapter {path} missing or unpinned")
+            if sha_file(path / "adapter_model.safetensors") != want:
+                raise SystemExit(f"REFUSE: start adapter {path} differs from its pin {want[:12]}")
+            if not (path.parent / "local_training.json").is_file():
+                raise SystemExit(f"REFUSE: start adapter {path} has no "
+                                 "local_training.json beside it")
+            return path
         path = self.root / "arms" / init["arm"] / "kept" / init["label"] / "final_adapter"
         receipt = json.loads((path.parent / "endpoint_receipt.json").read_text())
         weights = receipt["final_adapter"]["weights_sha256"]
@@ -997,25 +1056,6 @@ def run_e0(arm: Arm, manifest: Path, summary: dict) -> dict:
     return summary
 
 
-def time_endpoints(spec: dict) -> list:
-    """[(label, active seconds)] to stop, keep and assay at after the step stops.
-
-    `time_budget_seconds` (one value; the CPU sweep's and GPU lane's matched control) keeps
-    its label "time". `time_stops` (a strictly increasing list; the RL campaign's per-
-    checkpoint time-matched control) gives "time1", "time2", ... Both at once refuse."""
-    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
-    if one and many:
-        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
-    if one:
-        return [("time", float(one))]
-    stops = [float(x) for x in many or []]
-    # (0, s1), (s1, s2), ...: each stop must exceed the one before it, the first exceed 0.
-    # It read `not 0 < a < b`, which refuses EVERY list (the first pair has a == 0).
-    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
-        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
-    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
-
-
 def write_summary(arm: Arm, summary: dict) -> None:
     """summary.json plus peak resident memory so far (the source for runner.py's --mem table):
     self = this process, which also runs the in-process assay; children = the largest
@@ -1081,6 +1121,17 @@ def run(arm: Arm, final_check: bool) -> dict:
                "receipt_sha256": sha_file(arm.root / "RECEIPT.json"),
                # an in-place continuation (runner.py continue) carries its earlier endpoints
                "endpoints": list(s.get("prior_endpoints") or [])}
+    if s["mode"] in ("e0", "p0"):  # GPU-lane GATE 0 probes (gpu_probes.py)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import gpu_probes
+
+        fn = gpu_probes.run_e0 if s["mode"] == "e0" else gpu_probes.run_p0
+        summary[s["mode"]] = fn(arm, sha_file) if s["mode"] == "p0" else {
+            k: v for k, v in fn(arm, sha_file).items()
+            if k not in ("reward_groups", "dynamic_sampling")}
+        write_json(arm.results / "stages.json", arm.log)
+        write_json(arm.results / "summary.json", summary)
+        return summary
     if s["mode"] == "eval":
         adapter = arm.init_adapter()
         summary["endpoints"].append({"label": "init", "steps": 0,

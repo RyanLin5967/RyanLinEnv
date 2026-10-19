@@ -1,0 +1,91 @@
+[
+ {
+  "argv": [
+   "-m",
+   "vision_rl.vlm_local_training",
+   "--mode",
+   "grpo",
+   "--train",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/data/manifests/pool_mixedv3_454.jsonl",
+   "--data-spec",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/data/data_spec.json",
+   "--output",
+   "/var/tmp/r226lin-rlesweep-gpu/arms/gpu-rtx2080ti-promo-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8/train",
+   "--model-directory",
+   "/var/tmp/r226lin-rlesweep-gpu/model/Qwen2-VL-2B-Instruct-895c3a49",
+   "--device",
+   "cuda",
+   "--dtype",
+   "float32",
+   "--train-only",
+   "--exploratory-sweep",
+   "aircraft-exploratory-sweep-v2",
+   "--init-adapter",
+   "/var/tmp/r226lin-rlesweep-gpu/payload/adapters/I/final_adapter",
+   "--learning-rate",
+   "5e-06",
+   "--seed",
+   "42",
+   "--max-steps",
+   "1200",
+   "--lora-rank",
+   "8",
+   "--response-format",
+   "answer_only",
+   "--num-generations",
+   "8",
+   "--min-pixels",
+   "50176",
+   "--max-pixels",
+   "200704",
+   "--max-completion-length",
+   "256",
+   "--threads",
+   "4",
+   "--save-steps",
+   "150",
+   "--stop-after-steps",
+   "150",
+   "--beta",
+   "0.04",
+   "--temperature",
+   "1.0",
+   "--dynamic-sampling-max-draws",
+   "8",
+   "--loss-type",
+   "grpo"
+  ],
+  "cotenancy": {
+   "gpu_pids_seen": [
+    "173782",
+    "3952255"
+   ],
+   "gpu_probe_missing": 0,
+   "interval_seconds": 60,
+   "load1": {
+    "max": 19.1416015625,
+    "mean": 17.768310546875,
+    "n": 2
+   },
+   "other_users_threads": {
+    "max": 866,
+    "mean": 865.5,
+    "n": 2
+   },
+   "own_user_other_threads": {
+    "max": 151,
+    "mean": 148.5,
+    "n": 2
+   },
+   "samples": 2,
+   "stage_threads": {
+    "max": 19,
+    "mean": 10.0,
+    "n": 2
+   }
+  },
+  "rc": 1,
+  "stage": "train-150",
+  "wall_seconds": 109.2
+ }
+]

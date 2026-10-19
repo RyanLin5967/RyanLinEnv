@@ -1,0 +1,25 @@
+{
+ "arm": "gpu-rtx3070-calib-SFT5e5T",
+ "endpoints": [
+  {
+   "label": "init",
+   "metrics": {
+    "accuracy": 0.75375,
+    "adapter_sha256": "6a29c6fb82f77236ed3df85e0c7c54ceda3b9b93bdb58cf08159e5edd79593dc",
+    "assay_seconds": 500.1,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.75375,
+    "label": "init",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.985
+   },
+   "steps": 0
+  }
+ ],
+ "host": "ecetesla4",
+ "receipt_sha256": "91d844522f9862b1024957cfd442f373f69ef27acb62167ff7ac3ffe33a42e32",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

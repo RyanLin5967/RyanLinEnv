@@ -1,45 +1,54 @@
-# GPU lane resume state (aircraft-exploratory-sweep-v2-gpu)
+# GPU lane resume state (aircraft-exploratory-sweep-v2-gpu) — read top to bottom
 
-Branch `exploratory-sweep-v2-gpu.noindex`, worktree /Users/idide/wt/RyanLinEnv-exploratory-sweep-v2-gpu.noindex.
-Never write the CPU sweep's /Users/idide/RyanLinEnv/runs/aircraft-exploratory-sweep-v2/state.json; never stop its runs.
-dev800 only; never native VAL or sealed TEST.
+Branch `exploratory-sweep-v2-gpu.noindex` (on origin; becomes a PR). Worktree
+/Users/idide/wt/RyanLinEnv-exploratory-sweep-v2-gpu.noindex. dev800/TRAIN only; never native VAL or sealed TEST.
+Root corrections: /Users/idide/RyanLinEnv/runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md. GATE 0 PASSED (D37).
+Pools v2 SUPERSEDED (v3 at rl-campaign-pools ad54cfb); nothing here trains on any pool: all arms train on s_train scans.
 
-- Code: CPU sweep branch + sweep-feat-cuda merged (64bc4c5), lane changes e25f050, driver bcfb5d5.
-- Payload: runs/aircraft-exploratory-sweep-v2-gpu/payload-e25f050 (sha256 ac9ce689...).
-- Host root: /var/tmp/r226lin-rlesweep-gpu on ecetesla2, ecetesla4 (bf16), eceubuntu2 (fp32). Receipts ~/rlesweep-gpu/receipts.
-- Queue per host: ROOT/gpuq/{pending,running,done,failed}; worker = scripts/exploratory_sweep/gpu_worker.sh via `gpu_lane.py worker`.
-- Driver state: runs/aircraft-exploratory-sweep-v2-gpu/state.json (workers, queued).
+## Tools (all in scripts/exploratory_sweep/)
+- gpu_lane.py: specs | enqueue --host H --ids A,B --prio NN | worker --host H [--need-cores -64] [--slot N] |
+  queue | fetch | raw | report | calib | placebo | p0sum | control2 --of ARM --host H | continue
+- gpu_ops/running.sh  (what is ACTUALLY running: read from each host's gpuq/running*; never report from queue order)
+- gpu_ops/next.sh N   (block until a new arm rc line)   gpu_ops/argv_audit.sh (actual trainer argv per host)
+- gpu_ops/boot_delta.sh OLD NEW HOSTS (env OLDPAY/ROOTNAME/SCRATCH for CPU hosts)   gpu_ops/lanetest.sh (pytest on UW)
+- Roots: GPU hosts /var/tmp/r226lin-rlesweep-gpu; CPU hosts /dev/shm/r226lin-rlesweep-gpulane. Payload 18edbc9
+  (eceubuntu2 766d3cb: + v3 mixed manifest; its receipt is stale because the CUDA kernel check OOMed under our own arm).
 
-## Procedure
-1. `python3 -I scripts/exploratory_sweep/gpu_lane.py queue --host H` (each host) - see what runs.
-2. `gpu_lane.py fetch` then `gpu_lane.py report`.
-3. When the first fp32 GRPO arm on eceubuntu2 finishes: `gpu_lane.py control --of <arm> --host eceubuntu2`.
-4. Commit raw results (copy summaries/assays into docs/aircraft-exploratory-sweep-v2-gpu/raw/) before interpreting.
+## Done (committed under docs/aircraft-exploratory-sweep-v2-gpu/)
+- Device control; E0 (resume inside floor); dev800 calibration (Spearman 0.929, RL400-SFT sign reproduced);
+  P0-I clean pool (p0-summary.json; T1.3 > T1.0); SFT-from-I curves (best 0.785); placebo s42/s314/s7 (max |d| 0.25 pp so far).
+- M9 bf16 s42 done: 0.7700/0.7750/0.7712 (flat vs I 0.775).
 
-## Log
-- 2026-10-18T17:55Z bootstrap OK ecetesla2; ecetesla4/eceubuntu2 bootstrapping.
-- ~18:10Z all three bootstrapped. Workers: rlegpu-worker-ecetesla2-1792345416, rlegpu-worker-ecetesla4-1792345781,
-  rlegpu-worker-eceubuntu2-1792345442. Queued: evals W/I per host, 16 bf16 GRPO-W G8 arms (8 per 3070),
-  4 fp32 GRPO-W G8 arms on eceubuntu2. First fetched: I on ecetesla2 bf16 = 0.7750 (CPU fp32 0.775).
-  G8 bf16 fits (5951 MiB nvidia-smi), ~6 s/update; eval 315 s (3070), 1094 s (2080 Ti fp32).
-- ~18:40Z (Mac clock) UW SSH port 22 unreachable from the Mac for ALL hosts (https to uwaterloo.ca fine).
-  Workers run in tmux and continue. NEXT: when reachable -> fetch, raw, commit; then
-  `control --of gpu-rtx2080ti-grpo-W-lr1e-05-g8-b0-t1-n --host eceubuntu2` and
-  `control --of gpu-rtx3070-grpo-W-lr1e-05-g8-b0-t1-n --host ecetesla2` once those arms are done.
-- 18:30Z SSH back (Mac on hotspot; ~/.ssh/config tunnels via eceterm1; test with `uwrun ssh H true`, not nc).
-- BUG: arm_exec save_steps changed per stage -> every multi-stop arm refused at train-300. Fixed acdab57
-  (gcd of stops); payload-acdab57 re-bootstrapped on all 3 hosts. Arms that STARTED before the fix fail at 300:
-  requeue each with `gpu_lane.py continue --of ARM --host H --resume-stop 150` (done for ecetesla2 03,10;
-  ecetesla4 03; eceubuntu2 03 pre-queued). Watch: ecetesla2 11 and ecetesla4 10 probably started on old code.
-- Carried save_steps rule (c8a7b62): continuation specs carry `save_steps` from the table spec (150); use
-  `gpu_lane.py continue` only (tests/test_gpu_lane.py, 16 passed on iccad0; mutant without the carry fails 2).
-- eceubuntu2: another user (x2524wan, Qwen3.5 ruler eval, ~7 GB) took the 2080 Ti; arms 03@c150, 04, 05, 06
-  OOMed. Worker now waits for NEED_MIB free (10500 on eceubuntu2). New worker rlegpu-worker-eceubuntu2-1792354860;
-  04/05/06 requeued from scratch (arm dirs wiped), 03 continuation requeued as @c150r2.
-- Payload re-bootstrap: code-only via scratchpad/sh/boot_code.sh (hardlinks data from host payload; host_verify rehashes all).
-- 3070 workers (started 17:43/17:49) still run the OLD worker script (no GPU-free wait); arm_exec is re-read per arm.
-- AMENDMENT 1 (coordinator reprioritisation): SFT->RL. 24 GRPO-I arms added to gpu-arms.json (old 26 specs unchanged).
-  Queued prio 20-25: 6 bf16 GRPO-I per 3070, 3 fp32 GRPO-I on eceubuntu2. All pending GRPO-W specs renamed 6xx (behind).
-  W control queued: 59-gpu-rtx3070-grpo-W-lr2e-05-g8-b0.04-t1-n~ctl on ecetesla2.
-  NEXT on each GRPO-I arm finishing: fetch; raw; commit; `gpu_lane.py control --of ARM --host SAME --prio 0N`
-  (SFT continuation from I, LR 5e-6, E + time-matched T). Report: `gpu_lane.py report` (vs I, vs ctl E/T).
+## In flight (2026-10-19 ~04:30Z)
+- ecetesla2: xbf16 lr2e-5 T1.3 -> xbf16 lr5e-5 T1.3 -> M9 s42 control2 x3 (prio 30-32).
+- ecetesla4: M9 bf16 s314 -> xbf16 lr2e-5 T1.0 -> lr5e-5 T1.0 -> placebo s11, s2718.
+- eceubuntu2 (fp32; co-tenant x2524wan blocks at times): cgrpo lr2e-5 T1.3 -> P0 mixed v3 -> lr5e-5/lr1e-5/lr3e-6 T1.3 -> lr2e-5 T1.0 -> M9 fp32.
+- CPU fp32 (16 thr each): iccad0 lr2e-5 T1.0 + lr5e-5 T1.3 s314; iccad13 lr5e-5 T1.0 + lr2e-5 T1.3 s2718 + lr3e-6 T1.3
+  (lr3e-6 T1.0 queued); iccad8 M9 fp32 s42+s314; iccad10 lr1e-5 T1.3 + lr2e-5 T1.0 s314 + lr2e-5 T1.3 s7;
+  iccad11 lr5e-5 T1.3; iccad12 lr2e-5 T1.3 s314; iccad7 lr1e-5 T1.0 + lr2e-5 T1.3 s11.
+
+## Rules from root
+- Any xbf16 arm >= 0.795 dev800 -> fp32 replicate jumps the 2080 Ti queue; its bf16 control2 follows.
+- Per RL arm on finish: control2 (SFT-from-I LR 5e-6/1e-5/2e-5, scanned ids, time-matched each checkpoint) on the
+  SAME device class (CPU arms -> CPU fp32, same host preferred).
+- At step 150 of CPU arms: report draws/update from dynamic_sampling.jsonl.
+- Report every endpoint: vs I, vs best SFT-from-I (0.785), vs matched control, paired CIs (`gpu_lane.py report`).
+
+## OVERNIGHT (2026-10-19 night; /Users/idide/RyanLinEnv/runs/session-handoff-2026-10-16/OVERNIGHT.md)
+- 3070 queues (amendment 14): ecetesla2 P1 mixedv3 lr2e-5 T1.3, P3 hardv3, P5 s_train lr1e-4, P7 G16, then M9 s42 ctl;
+  ecetesla4 P2 mixedv3 lr5e-5, P4 s_train lr5e-5 T1.3, P6 T1.5, then lr5e-5 T1.0, placebo s2718/s11.
+- If a 3070 queue empties: seeds of the current best recipe (gpu_lane promotion_specs style), never idle.
+- DONE ~09:10Z: 3070s on main trainer (M3), payload 4113fc1 (scripts; running workers keep the old worker
+  script until their next restart; the new one retries only co-tenant OOMs). P=4 OOMs on a 3070; P=2 fits.
+- ecetesla4: P2 lr2e-5 (running) -> P2 lr1e-5 -> lr5e-5 T1.0 (P=1) -> placebo s2718/s11. T>=1.3 retired (amendment 20).
+- ecetesla2: R2t1 (running) -> P2 lr5e-5 -> P5t1 -> M9 s42 ctl -> G16.
+- TODO when both step150 exist (P2 lr2e-5 on ecetesla4, P2 lr5e-5 on ecetesla2): add P2 seed-314 of the better LR
+  (spec via promotion_specs-style seed copy, s_train_scan_seed314) at the front of whichever 3070 frees first.
+- TODO when R2t1 finishes (600): `gpu_lane.py control2 --of gpu-rtx3070-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8 --host ecetesla4 --prio 1401` then rename keys on host to 1401z1..3 (after P2 lr2e-5, before P2 lr1e-5? root: after the P=2 lr2e-5 arm).
+- Amendment 21 queued: ecetesla2 122a R2t1 s314, 122b lr1e-5 b0.04, 122c lr5e-6 b0.1; eceubuntu2 002 R2t1 fp32 twin.
+- eceubuntu2 (fp32 T1.0 twin) and CPU arms stay on their old trainer until their arms finish.
+- Promoted arm finishes -> `gpu_lane.py control2 --of ARM --host ecetesla2|4 --prio 06` (bf16 controls).
+
+## Next action (loop)
+`bash scripts/exploratory_sweep/gpu_ops/next.sh 300; bash scripts/exploratory_sweep/gpu_ops/tick.sh`
+-> SendMessage main one line per new endpoint (tick prints them); check `gpu_ops/running.sh` hourly.

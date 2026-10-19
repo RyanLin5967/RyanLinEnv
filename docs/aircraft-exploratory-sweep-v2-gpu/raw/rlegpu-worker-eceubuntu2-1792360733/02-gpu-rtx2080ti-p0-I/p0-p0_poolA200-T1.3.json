@@ -1,0 +1,3802 @@
+[
+ {
+  "correct": 8,
+  "greedy": "Hawk T1",
+  "greedy_correct": true,
+  "id": "1244760",
+  "label": "Hawk T1",
+  "p_gold": 0.9666306705791935,
+  "samples": [
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1"
+  ],
+  "u": 0.23777258093395987
+ },
+ {
+  "correct": 4,
+  "greedy": "Fokker 100",
+  "greedy_correct": true,
+  "id": "1745719",
+  "label": "Fokker 100",
+  "p_gold": 0.21042139891562744,
+  "samples": [
+   "Fokker 100",
+   "BAE 146-200",
+   "Fokker 100",
+   null,
+   "Fokker 100",
+   "Metroliner",
+   "DC-9-30",
+   "Fokker 100"
+  ],
+  "u": 0.8489314687104388
+ },
+ {
+  "correct": 8,
+  "greedy": "A320",
+  "greedy_correct": true,
+  "id": "1293019",
+  "label": "A320",
+  "p_gold": 0.9997877374530814,
+  "samples": [
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320"
+  ],
+  "u": 0.0016968393598799647
+ },
+ {
+  "correct": 8,
+  "greedy": "Fokker 50",
+  "greedy_correct": true,
+  "id": "1200336",
+  "label": "Fokker 50",
+  "p_gold": 0.9156537357396707,
+  "samples": [
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50"
+  ],
+  "u": 0.5058598131608737
+ },
+ {
+  "correct": 0,
+  "greedy": "MD-87",
+  "greedy_correct": false,
+  "id": "2124340",
+  "label": "Boeing 717",
+  "p_gold": 0.0042016270904353115,
+  "samples": [
+   "MD-87",
+   "MD-80",
+   null,
+   "DC-9-30",
+   "MD-87",
+   "DC-9-30",
+   null,
+   "MD-87"
+  ],
+  "u": 0.033122845966997216
+ },
+ {
+  "correct": 0,
+  "greedy": "Yak-42",
+  "greedy_correct": false,
+  "id": "0043892",
+  "label": "Challenger 600",
+  "p_gold": 0.00045597745256737267,
+  "samples": [
+   null,
+   "Fokker 50",
+   "ERJ 145",
+   "Yak-42",
+   null,
+   "Yak-42",
+   null,
+   null
+  ],
+  "u": 0.0036420032943376146
+ },
+ {
+  "correct": 7,
+  "greedy": "Yak-42",
+  "greedy_correct": true,
+  "id": "0606123",
+  "label": "Yak-42",
+  "p_gold": 0.9732777236797475,
+  "samples": [
+   "Yak-42",
+   "Yak-42",
+   null,
+   "Yak-42",
+   "Yak-42",
+   "Yak-42",
+   "Yak-42",
+   "Yak-42"
+  ],
+  "u": 0.19481761161666167
+ },
+ {
+  "correct": 7,
+  "greedy": "727-200",
+  "greedy_correct": true,
+  "id": "1019011",
+  "label": "727-200",
+  "p_gold": 0.9424086224507002,
+  "samples": [
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   null,
+   "727-200"
+  ],
+  "u": 0.37782292056947137
+ },
+ {
+  "correct": 8,
+  "greedy": "DC-6",
+  "greedy_correct": true,
+  "id": "1335215",
+  "label": "DC-6",
+  "p_gold": 0.9728792860739549,
+  "samples": [
+   "DC-6",
+   "DC-6",
+   "DC-6",
+   "DC-6",
+   "DC-6",
+   "DC-6",
+   "DC-6",
+   "DC-6"
+  ],
+  "u": 0.19745082219085527
+ },
+ {
+  "correct": 7,
+  "greedy": "Eurofighter Typhoon",
+  "greedy_correct": true,
+  "id": "1754077",
+  "label": "Eurofighter Typhoon",
+  "p_gold": 0.9824723706706662,
+  "samples": [
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   null,
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon"
+  ],
+  "u": 0.13191397033117588
+ },
+ {
+  "correct": 6,
+  "greedy": "Fokker 50",
+  "greedy_correct": true,
+  "id": "0127633",
+  "label": "Fokker 50",
+  "p_gold": 0.5835406018270533,
+  "samples": [
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   null,
+   "Fokker 50",
+   "Fokker 50",
+   "Fokker 50",
+   null
+  ],
+  "u": 0.9856498978577927
+ },
+ {
+  "correct": 8,
+  "greedy": "A319",
+  "greedy_correct": true,
+  "id": "2246105",
+  "label": "A319",
+  "p_gold": 0.9657540449858003,
+  "samples": [
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319"
+  ],
+  "u": 0.24328509797330336
+ },
+ {
+  "correct": 8,
+  "greedy": "Beechcraft 1900",
+  "greedy_correct": true,
+  "id": "1772155",
+  "label": "Beechcraft 1900",
+  "p_gold": 0.8716451992396336,
+  "samples": [
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   "Beechcraft 1900"
+  ],
+  "u": 0.666789992533728
+ },
+ {
+  "correct": 5,
+  "greedy": "Embraer Legacy 600",
+  "greedy_correct": true,
+  "id": "1476103",
+  "label": "Embraer Legacy 600",
+  "p_gold": 0.7021509011847326,
+  "samples": [
+   "Embraer Legacy 600",
+   null,
+   null,
+   "Embraer Legacy 600",
+   "Embraer Legacy 600",
+   "Embraer Legacy 600",
+   null,
+   "Embraer Legacy 600"
+  ],
+  "u": 0.9408576283382276
+ },
+ {
+  "correct": 0,
+  "greedy": "Falcon 2000",
+  "greedy_correct": false,
+  "id": "1820311",
+  "label": "BAE-125",
+  "p_gold": 0.0407731948007181,
+  "samples": [
+   "Falcon 2000",
+   null,
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000"
+  ],
+  "u": 0.28324546158334085
+ },
+ {
+  "correct": 0,
+  "greedy": "Global Express",
+  "greedy_correct": false,
+  "id": "1304093",
+  "label": "ERJ 145",
+  "p_gold": 2.4914265707601367e-05,
+  "samples": [
+   "Global Express",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Global Express",
+   null,
+   null,
+   null,
+   "Global Express"
+  ],
+  "u": 0.0001992967463491091
+ },
+ {
+  "correct": 0,
+  "greedy": "Fokker 70",
+  "greedy_correct": false,
+  "id": "1826676",
+  "label": "Yak-42",
+  "p_gold": 0.048569253076126626,
+  "samples": [
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Metroliner",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70"
+  ],
+  "u": 0.3285441567420362
+ },
+ {
+  "correct": 8,
+  "greedy": "DH-82",
+  "greedy_correct": true,
+  "id": "2211337",
+  "label": "DH-82",
+  "p_gold": 0.9733149682656933,
+  "samples": [
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82"
+  ],
+  "u": 0.19457108217676156
+ },
+ {
+  "correct": 8,
+  "greedy": "E-170",
+  "greedy_correct": true,
+  "id": "1227101",
+  "label": "E-170",
+  "p_gold": 0.9011114667779186,
+  "samples": [
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170"
+  ],
+  "u": 0.5652614639040846
+ },
+ {
+  "correct": 8,
+  "greedy": "C-130",
+  "greedy_correct": true,
+  "id": "0771762",
+  "label": "C-130",
+  "p_gold": 0.9989929068984884,
+  "samples": [
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130"
+  ],
+  "u": 0.008028403317833721
+ },
+ {
+  "correct": 7,
+  "greedy": "CRJ-700",
+  "greedy_correct": true,
+  "id": "2189858",
+  "label": "CRJ-700",
+  "p_gold": 0.8398378350868014,
+  "samples": [
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-900"
+  ],
+  "u": 0.7525062437326324
+ },
+ {
+  "correct": 7,
+  "greedy": "DHC-1",
+  "greedy_correct": true,
+  "id": "1592073",
+  "label": "DHC-1",
+  "p_gold": 0.8480879825815715,
+  "samples": [
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   null,
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   "DHC-1"
+  ],
+  "u": 0.7323743503090139
+ },
+ {
+  "correct": 8,
+  "greedy": "SR-20",
+  "greedy_correct": true,
+  "id": "1658297",
+  "label": "SR-20",
+  "p_gold": 0.986043436141649,
+  "samples": [
+   "SR-20",
+   "SR-20",
+   "SR-20",
+   "SR-20",
+   "SR-20",
+   "SR-20",
+   "SR-20",
+   "SR-20"
+  ],
+  "u": 0.10634812368752677
+ },
+ {
+  "correct": 5,
+  "greedy": "BAE-125",
+  "greedy_correct": true,
+  "id": "0361575",
+  "label": "BAE-125",
+  "p_gold": 0.5322561667952218,
+  "samples": [
+   "BAE-125",
+   null,
+   "BAE-125",
+   "Beechcraft 1900",
+   "BAE-125",
+   "BAE-125",
+   null,
+   "BAE-125"
+  ],
+  "u": 0.9912676090901129
+ },
+ {
+  "correct": 8,
+  "greedy": "737-200",
+  "greedy_correct": true,
+  "id": "0789826",
+  "label": "737-200",
+  "p_gold": 0.9843329085728,
+  "samples": [
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200"
+  ],
+  "u": 0.11867510340193124
+ },
+ {
+  "correct": 6,
+  "greedy": "A340-600",
+  "greedy_correct": true,
+  "id": "1926827",
+  "label": "A340-600",
+  "p_gold": 0.8308915107540893,
+  "samples": [
+   "A340-600",
+   "A340-600",
+   "A340-600",
+   "A340-500",
+   "A340-600",
+   "A340-600",
+   "A340-600",
+   "A340-500"
+  ],
+  "u": 0.7728274500077127
+ },
+ {
+  "correct": 6,
+  "greedy": "737-600",
+  "greedy_correct": true,
+  "id": "2091304",
+  "label": "737-600",
+  "p_gold": 0.7645793092407841,
+  "samples": [
+   "737-600",
+   "737-600",
+   "737-500",
+   "737-600",
+   "737-600",
+   "737-600",
+   "737-700",
+   "737-600"
+  ],
+  "u": 0.8832073760326673
+ },
+ {
+  "correct": 8,
+  "greedy": "Tornado",
+  "greedy_correct": true,
+  "id": "1091255",
+  "label": "Tornado",
+  "p_gold": 0.9875210415204598,
+  "samples": [
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado"
+  ],
+  "u": 0.09557852742791004
+ },
+ {
+  "correct": 0,
+  "greedy": "DC-8",
+  "greedy_correct": false,
+  "id": "1523895",
+  "label": "DC-10",
+  "p_gold": 0.000535147554657162,
+  "samples": [
+   "DC-8",
+   "DC-8",
+   "DC-8",
+   "DC-8",
+   "DC-8",
+   "DC-8",
+   null,
+   "DC-8"
+  ],
+  "u": 0.0042731702925693504
+ },
+ {
+  "correct": 3,
+  "greedy": "747-100",
+  "greedy_correct": true,
+  "id": "0843964",
+  "label": "747-100",
+  "p_gold": 0.542242127963651,
+  "samples": [
+   "747-300",
+   "747-300",
+   "747-100",
+   "747-100",
+   "747-300",
+   "747-100",
+   "747-200",
+   "747-300"
+  ],
+  "u": 0.9905982120861163
+ },
+ {
+  "correct": 4,
+  "greedy": "747-100",
+  "greedy_correct": true,
+  "id": "0809727",
+  "label": "747-100",
+  "p_gold": 0.5786359682711726,
+  "samples": [
+   "747-200",
+   "747-100",
+   "747-100",
+   null,
+   "747-200",
+   "747-100",
+   "747-100",
+   "747-200"
+  ],
+  "u": 0.9864389486673943
+ },
+ {
+  "correct": 8,
+  "greedy": "Tu-154",
+  "greedy_correct": true,
+  "id": "0487397",
+  "label": "Tu-154",
+  "p_gold": 0.9703044210027106,
+  "samples": [
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154"
+  ],
+  "u": 0.21428674220974636
+ },
+ {
+  "correct": 6,
+  "greedy": "DR-400",
+  "greedy_correct": true,
+  "id": "1234230",
+  "label": "DR-400",
+  "p_gold": 0.9419806099041385,
+  "samples": [
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   null,
+   "DR-400",
+   "DR-400",
+   null
+  ],
+  "u": 0.38007991751002995
+ },
+ {
+  "correct": 0,
+  "greedy": "Beechcraft 1900",
+  "greedy_correct": false,
+  "id": "1776805",
+  "label": "EMB-120",
+  "p_gold": 0.006694597593675,
+  "samples": [
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   null,
+   "Beechcraft 1900",
+   "Beechcraft 1900",
+   null,
+   "Beechcraft 1900",
+   null
+  ],
+  "u": 0.05231854908060296
+ },
+ {
+  "correct": 4,
+  "greedy": "Fokker 100",
+  "greedy_correct": true,
+  "id": "0958618",
+  "label": "Fokker 100",
+  "p_gold": 0.5602753444097089,
+  "samples": [
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 100",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 100",
+   "Fokker 100",
+   "Fokker 100"
+  ],
+  "u": 0.9888923547975645
+ },
+ {
+  "correct": 8,
+  "greedy": "CRJ-900",
+  "greedy_correct": true,
+  "id": "2221719",
+  "label": "CRJ-900",
+  "p_gold": 0.9867978035619857,
+  "samples": [
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-900"
+  ],
+  "u": 0.10086398600308784
+ },
+ {
+  "correct": 8,
+  "greedy": "BAE 146-200",
+  "greedy_correct": true,
+  "id": "1598901",
+  "label": "BAE 146-200",
+  "p_gold": 0.8727314568676328,
+  "samples": [
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-200"
+  ],
+  "u": 0.6634534607356118
+ },
+ {
+  "correct": 8,
+  "greedy": "A340-200",
+  "greedy_correct": true,
+  "id": "0295746",
+  "label": "A340-200",
+  "p_gold": 0.8318037417575288,
+  "samples": [
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200"
+  ],
+  "u": 0.7708245087319923
+ },
+ {
+  "correct": 4,
+  "greedy": "DHC-8-100",
+  "greedy_correct": true,
+  "id": "1194995",
+  "label": "DHC-8-100",
+  "p_gold": 0.6801403448081955,
+  "samples": [
+   "DHC-8-300",
+   "DHC-8-100",
+   "DHC-8-300",
+   "DHC-8-100",
+   "DHC-8-100",
+   "DHC-8-300",
+   "DHC-8-100",
+   "DHC-8-300"
+  ],
+  "u": 0.9540985725824168
+ },
+ {
+  "correct": 7,
+  "greedy": "Saab 340",
+  "greedy_correct": true,
+  "id": "1977817",
+  "label": "Saab 340",
+  "p_gold": 0.8943283265129366,
+  "samples": [
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 2000",
+   "Saab 340"
+  ],
+  "u": 0.5907620417021504
+ },
+ {
+  "correct": 0,
+  "greedy": null,
+  "greedy_correct": false,
+  "id": "0102223",
+  "label": "A300B4",
+  "p_gold": 0.14052335235087587,
+  "samples": [
+   "DC-6",
+   null,
+   null,
+   null,
+   null,
+   "DC-8",
+   null,
+   null
+  ],
+  "u": 0.7022355326849986
+ },
+ {
+  "correct": 2,
+  "greedy": "737-500",
+  "greedy_correct": true,
+  "id": "0912693",
+  "label": "737-500",
+  "p_gold": 0.5484550756551307,
+  "samples": [
+   "737-600",
+   "737-600",
+   "737-500",
+   "737-500",
+   "737-600",
+   "737-600",
+   "737-600",
+   "737-600"
+  ],
+  "u": 0.9900846758555606
+ },
+ {
+  "correct": 8,
+  "greedy": "Spitfire",
+  "greedy_correct": true,
+  "id": "2171883",
+  "label": "Spitfire",
+  "p_gold": 0.9895660618926461,
+  "samples": [
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire"
+  ],
+  "u": 0.08048601538521735
+ },
+ {
+  "correct": 8,
+  "greedy": "F-16A/B",
+  "greedy_correct": true,
+  "id": "2123710",
+  "label": "F-16A/B",
+  "p_gold": 0.9918724752715694,
+  "samples": [
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B"
+  ],
+  "u": 0.06320037305062552
+ },
+ {
+  "correct": 8,
+  "greedy": "A380",
+  "greedy_correct": true,
+  "id": "1368055",
+  "label": "A380",
+  "p_gold": 0.9985378966742192,
+  "samples": [
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380"
+  ],
+  "u": 0.011637144428856883
+ },
+ {
+  "correct": 8,
+  "greedy": "Hawk T1",
+  "greedy_correct": true,
+  "id": "1615575",
+  "label": "Hawk T1",
+  "p_gold": 0.9789494328578225,
+  "samples": [
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1"
+  ],
+  "u": 0.15650585381387425
+ },
+ {
+  "correct": 5,
+  "greedy": "E-190",
+  "greedy_correct": true,
+  "id": "1554632",
+  "label": "E-190",
+  "p_gold": 0.7554215289257993,
+  "samples": [
+   "E-195",
+   "E-190",
+   "E-190",
+   "E-190",
+   "E-190",
+   "E-195",
+   "E-195",
+   "E-190"
+  ],
+  "u": 0.893936173099908
+ },
+ {
+  "correct": 2,
+  "greedy": "DC-9-30",
+  "greedy_correct": false,
+  "id": "0480708",
+  "label": "MD-87",
+  "p_gold": 0.20031546228120437,
+  "samples": [
+   "DC-9-30",
+   "DC-9-30",
+   "DC-9-30",
+   "MD-87",
+   "DC-9-30",
+   "MD-87",
+   "DC-9-30",
+   "DC-9-30"
+  ],
+  "u": 0.832753775522786
+ },
+ {
+  "correct": 6,
+  "greedy": "DHC-1",
+  "greedy_correct": true,
+  "id": "1380455",
+  "label": "DHC-1",
+  "p_gold": 0.7418002518459499,
+  "samples": [
+   null,
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   "DHC-1",
+   null
+  ],
+  "u": 0.9082957694845084
+ },
+ {
+  "correct": 2,
+  "greedy": "A330-300",
+  "greedy_correct": false,
+  "id": "0745521",
+  "label": "A340-500",
+  "p_gold": 0.31506877646200104,
+  "samples": [
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A340-500",
+   "A330-300",
+   "A340-500",
+   "A330-300",
+   "A330-300"
+  ],
+  "u": 0.95146606424616
+ },
+ {
+  "correct": 7,
+  "greedy": "Saab 340",
+  "greedy_correct": true,
+  "id": "1390114",
+  "label": "Saab 340",
+  "p_gold": 0.7394422188197336,
+  "samples": [
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 340",
+   "Saab 2000"
+  ],
+  "u": 0.9106000743005779
+ },
+ {
+  "correct": 5,
+  "greedy": "DHC-8-100",
+  "greedy_correct": false,
+  "id": "1656419",
+  "label": "DHC-8-300",
+  "p_gold": 0.46496491583147886,
+  "samples": [
+   "DHC-8-300",
+   "DHC-8-300",
+   "DHC-8-100",
+   "DHC-8-300",
+   null,
+   "DHC-8-100",
+   "DHC-8-300",
+   "DHC-8-300"
+  ],
+  "u": 0.9911002659260633
+ },
+ {
+  "correct": 8,
+  "greedy": "An-12",
+  "greedy_correct": true,
+  "id": "1052986",
+  "label": "An-12",
+  "p_gold": 0.9634909237494439,
+  "samples": [
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12"
+  ],
+  "u": 0.25735540761205594
+ },
+ {
+  "correct": 0,
+  "greedy": "Metroliner",
+  "greedy_correct": false,
+  "id": "2096267",
+  "label": "ATR-72",
+  "p_gold": 0.00012893476181061845,
+  "samples": [
+   null,
+   null,
+   "E-170",
+   "Metroliner",
+   null,
+   "Metroliner",
+   "Metroliner",
+   "Metroliner"
+  ],
+  "u": 0.0010310127376595979
+ },
+ {
+  "correct": 7,
+  "greedy": "Dornier 328",
+  "greedy_correct": true,
+  "id": "0923562",
+  "label": "Dornier 328",
+  "p_gold": 0.8801197368486767,
+  "samples": [
+   "Dornier 328",
+   "Dornier 328",
+   "Dornier 328",
+   "Dornier 328",
+   null,
+   "Dornier 328",
+   "Dornier 328",
+   "Dornier 328"
+  ],
+  "u": 0.6399737778358845
+ },
+ {
+  "correct": 0,
+  "greedy": "MD-90",
+  "greedy_correct": false,
+  "id": "1095342",
+  "label": "MD-80",
+  "p_gold": 0.05855221533405859,
+  "samples": [
+   "MD-90",
+   "MD-87",
+   "MD-90",
+   "MD-87",
+   "MD-87",
+   "MD-90",
+   "MD-87",
+   "MD-90"
+  ],
+  "u": 0.3828796003913353
+ },
+ {
+  "correct": 6,
+  "greedy": "ATR-72",
+  "greedy_correct": true,
+  "id": "1325112",
+  "label": "ATR-72",
+  "p_gold": 0.9301141176821818,
+  "samples": [
+   "ATR-72",
+   "ATR-72",
+   "ATR-72",
+   "ATR-72",
+   "ATR-42",
+   "ATR-72",
+   "ATR-42",
+   "ATR-72"
+  ],
+  "u": 0.4398686361199974
+ },
+ {
+  "correct": 5,
+  "greedy": "737-500",
+  "greedy_correct": true,
+  "id": "1459173",
+  "label": "737-500",
+  "p_gold": 0.41655524902524527,
+  "samples": [
+   "737-500",
+   "737-300",
+   "737-600",
+   "737-500",
+   "737-500",
+   "737-300",
+   "737-500",
+   "737-500"
+  ],
+  "u": 0.9856658881282905
+ },
+ {
+  "correct": 7,
+  "greedy": "An-12",
+  "greedy_correct": true,
+  "id": "1376795",
+  "label": "An-12",
+  "p_gold": 0.9312565158870137,
+  "samples": [
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   "An-12",
+   null,
+   "An-12",
+   "An-12"
+  ],
+  "u": 0.434341137103634
+ },
+ {
+  "correct": 8,
+  "greedy": "757-200",
+  "greedy_correct": true,
+  "id": "1155017",
+  "label": "757-200",
+  "p_gold": 0.9980653289251307,
+  "samples": [
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200"
+  ],
+  "u": 0.015372970476442926
+ },
+ {
+  "correct": 8,
+  "greedy": "737-200",
+  "greedy_correct": true,
+  "id": "1548405",
+  "label": "737-200",
+  "p_gold": 0.9265912532350704,
+  "samples": [
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200",
+   "737-200"
+  ],
+  "u": 0.45661759603079577
+ },
+ {
+  "correct": 0,
+  "greedy": "DC-3",
+  "greedy_correct": false,
+  "id": "1023003",
+  "label": "C-47",
+  "p_gold": 0.0062023383931831665,
+  "samples": [
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3"
+  ],
+  "u": 0.04855483349902412
+ },
+ {
+  "correct": 8,
+  "greedy": "F-16A/B",
+  "greedy_correct": true,
+  "id": "0934121",
+  "label": "F-16A/B",
+  "p_gold": 0.9969694826294384,
+  "samples": [
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B",
+   "F-16A/B"
+  ],
+  "u": 0.023988538692834127
+ },
+ {
+  "correct": 6,
+  "greedy": "737-700",
+  "greedy_correct": true,
+  "id": "1846150",
+  "label": "737-700",
+  "p_gold": 0.983841937303316,
+  "samples": [
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-600",
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-600"
+  ],
+  "u": 0.12218570886813575
+ },
+ {
+  "correct": 8,
+  "greedy": "A380",
+  "greedy_correct": true,
+  "id": "1531175",
+  "label": "A380",
+  "p_gold": 0.9998231129408368,
+  "samples": [
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380",
+   "A380"
+  ],
+  "u": 0.0014142206902884036
+ },
+ {
+  "correct": 8,
+  "greedy": "Metroliner",
+  "greedy_correct": true,
+  "id": "1570192",
+  "label": "Metroliner",
+  "p_gold": 0.9460596866371584,
+  "samples": [
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner"
+  ],
+  "u": 0.35827598165193053
+ },
+ {
+  "correct": 3,
+  "greedy": "A340-600",
+  "greedy_correct": true,
+  "id": "0570728",
+  "label": "A340-600",
+  "p_gold": 0.48473148439681896,
+  "samples": [
+   "A340-600",
+   "A340-500",
+   "A340-500",
+   "A340-600",
+   "A340-500",
+   "A340-600",
+   "A340-500",
+   "A340-500"
+  ],
+  "u": 0.9919830376509244
+ },
+ {
+  "correct": 1,
+  "greedy": "747-100",
+  "greedy_correct": false,
+  "id": "1486682",
+  "label": "747-200",
+  "p_gold": 0.1719220434779403,
+  "samples": [
+   "747-300",
+   "747-100",
+   "747-100",
+   "747-100",
+   "747-100",
+   "747-100",
+   "747-100",
+   "747-200"
+  ],
+  "u": 0.7789088849263112
+ },
+ {
+  "correct": 7,
+  "greedy": "PA-28",
+  "greedy_correct": true,
+  "id": "1405302",
+  "label": "PA-28",
+  "p_gold": 0.7660598643562373,
+  "samples": [
+   "PA-28",
+   "PA-28",
+   "SR-20",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28"
+  ],
+  "u": 0.8813863906115279
+ },
+ {
+  "correct": 8,
+  "greedy": "DH-82",
+  "greedy_correct": true,
+  "id": "1019430",
+  "label": "DH-82",
+  "p_gold": 0.9790376747696545,
+  "samples": [
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82",
+   "DH-82"
+  ],
+  "u": 0.15589740545025924
+ },
+ {
+  "correct": 6,
+  "greedy": "737-400",
+  "greedy_correct": true,
+  "id": "0699596",
+  "label": "737-400",
+  "p_gold": 0.8810948953860642,
+  "samples": [
+   "737-400",
+   "737-300",
+   "737-400",
+   "737-400",
+   "737-300",
+   "737-400",
+   "737-400",
+   "737-400"
+  ],
+  "u": 0.6367701518670966
+ },
+ {
+  "correct": 6,
+  "greedy": "DHC-8-300",
+  "greedy_correct": true,
+  "id": "1548444",
+  "label": "DHC-8-300",
+  "p_gold": 0.9026003035384594,
+  "samples": [
+   "DHC-8-100",
+   "DHC-8-300",
+   "DHC-8-300",
+   "DHC-8-300",
+   "DHC-8-300",
+   "Dornier 328",
+   "DHC-8-300",
+   "DHC-8-300"
+  ],
+  "u": 0.559481846785927
+ },
+ {
+  "correct": 8,
+  "greedy": "Eurofighter Typhoon",
+  "greedy_correct": true,
+  "id": "0877089",
+  "label": "Eurofighter Typhoon",
+  "p_gold": 0.9805220162771515,
+  "samples": [
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon",
+   "Eurofighter Typhoon"
+  ],
+  "u": 0.1456048059390303
+ },
+ {
+  "correct": 8,
+  "greedy": "C-130",
+  "greedy_correct": true,
+  "id": "0978113",
+  "label": "C-130",
+  "p_gold": 0.9989739191808474,
+  "samples": [
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130"
+  ],
+  "u": 0.008179227400808897
+ },
+ {
+  "correct": 8,
+  "greedy": "DC-3",
+  "greedy_correct": true,
+  "id": "0960175",
+  "label": "DC-3",
+  "p_gold": 0.881265919388958,
+  "samples": [
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3"
+  ],
+  "u": 0.63620573425565
+ },
+ {
+  "correct": 5,
+  "greedy": "BAE 146-200",
+  "greedy_correct": true,
+  "id": "1781350",
+  "label": "BAE 146-200",
+  "p_gold": 0.5318308952049852,
+  "samples": [
+   "BAE 146-200",
+   null,
+   "BAE 146-200",
+   "BAE 146-300",
+   "BAE 146-200",
+   "BAE 146-300",
+   "BAE 146-200",
+   "BAE 146-200"
+  ],
+  "u": 0.9912919476535031
+ },
+ {
+  "correct": 5,
+  "greedy": "Dornier 328",
+  "greedy_correct": true,
+  "id": "0943962",
+  "label": "Dornier 328",
+  "p_gold": 0.6937349244606328,
+  "samples": [
+   "Dornier 328",
+   null,
+   "Dornier 328",
+   "Dornier 328",
+   "Dornier 328",
+   null,
+   "Dornier 328",
+   null
+  ],
+  "u": 0.9462752190414185
+ },
+ {
+  "correct": 8,
+  "greedy": "Il-76",
+  "greedy_correct": true,
+  "id": "0781670",
+  "label": "Il-76",
+  "p_gold": 0.9522727803266162,
+  "samples": [
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76"
+  ],
+  "u": 0.3237754003904898
+ },
+ {
+  "correct": 8,
+  "greedy": "A319",
+  "greedy_correct": true,
+  "id": "2088369",
+  "label": "A319",
+  "p_gold": 0.9973527046215174,
+  "samples": [
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319",
+   "A319"
+  ],
+  "u": 0.020983169709529403
+ },
+ {
+  "correct": 0,
+  "greedy": "BAE 146-200",
+  "greedy_correct": false,
+  "id": "0136162",
+  "label": "BAE 146-300",
+  "p_gold": 0.0015339057416675528,
+  "samples": [
+   "Fokker 100",
+   "Fokker 100",
+   "BAE 146-200",
+   null,
+   "Fokker 100",
+   "BAE 146-200",
+   null,
+   null
+  ],
+  "u": 0.012205567383468119
+ },
+ {
+  "correct": 8,
+  "greedy": "767-200",
+  "greedy_correct": true,
+  "id": "1383295",
+  "label": "767-200",
+  "p_gold": 0.9921228169915761,
+  "samples": [
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200"
+  ],
+  "u": 0.061307167545573735
+ },
+ {
+  "correct": 3,
+  "greedy": "BAE 146-200",
+  "greedy_correct": false,
+  "id": "0751325",
+  "label": "Beechcraft 1900",
+  "p_gold": 0.43722439898682053,
+  "samples": [
+   "Beechcraft 1900",
+   "BAE 146-300",
+   "BAE 146-200",
+   "BAE 146-200",
+   "BAE 146-300",
+   "Beechcraft 1900",
+   "BAE 146-300",
+   "Beechcraft 1900"
+  ],
+  "u": 0.9886025786413729
+ },
+ {
+  "correct": 0,
+  "greedy": "737-700",
+  "greedy_correct": false,
+  "id": "0361351",
+  "label": "737-600",
+  "p_gold": 0.03782068358138016,
+  "samples": [
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-700",
+   "737-700"
+  ],
+  "u": 0.26540471836671853
+ },
+ {
+  "correct": 0,
+  "greedy": "A330-200",
+  "greedy_correct": false,
+  "id": "0396589",
+  "label": "A310",
+  "p_gold": 0.09779855306366776,
+  "samples": [
+   "A330-200",
+   "A300B4",
+   "A330-200",
+   "A300B4",
+   "A300B4",
+   "A330-200",
+   "A330-200",
+   "A330-200"
+  ],
+  "u": 0.5610367501403666
+ },
+ {
+  "correct": 8,
+  "greedy": "ERJ 145",
+  "greedy_correct": true,
+  "id": "1376551",
+  "label": "ERJ 145",
+  "p_gold": 0.8864884397988212,
+  "samples": [
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145",
+   "ERJ 145"
+  ],
+  "u": 0.6185965263903518
+ },
+ {
+  "correct": 7,
+  "greedy": "Tu-134",
+  "greedy_correct": true,
+  "id": "0523155",
+  "label": "Tu-134",
+  "p_gold": 0.9516873187297291,
+  "samples": [
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   null,
+   "Tu-134",
+   "Tu-134"
+  ],
+  "u": 0.3270942197624479
+ },
+ {
+  "correct": 1,
+  "greedy": null,
+  "greedy_correct": false,
+  "id": "0062662",
+  "label": "DC-8",
+  "p_gold": 0.060482906317518084,
+  "samples": [
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   "DC-8"
+  ],
+  "u": 0.39293179277616896
+ },
+ {
+  "correct": 7,
+  "greedy": "DHC-8-100",
+  "greedy_correct": true,
+  "id": "0157159",
+  "label": "DHC-8-100",
+  "p_gold": 0.876063253584153,
+  "samples": [
+   "DHC-8-100",
+   "DHC-8-100",
+   "DHC-8-100",
+   "DHC-8-100",
+   "DHC-8-100",
+   "DHC-8-300",
+   "DHC-8-100",
+   "DHC-8-100"
+  ],
+  "u": 0.6530365050616522
+ },
+ {
+  "correct": 7,
+  "greedy": "777-300",
+  "greedy_correct": true,
+  "id": "1246993",
+  "label": "777-300",
+  "p_gold": 0.9268926068526367,
+  "samples": [
+   "777-300",
+   "777-300",
+   "777-300",
+   "777-300",
+   "777-300",
+   "777-200",
+   "777-300",
+   "777-300"
+  ],
+  "u": 0.45520219939570566
+ },
+ {
+  "correct": 8,
+  "greedy": "Il-76",
+  "greedy_correct": true,
+  "id": "1033762",
+  "label": "Il-76",
+  "p_gold": 0.9714786222365759,
+  "samples": [
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76",
+   "Il-76"
+  ],
+  "u": 0.206647881496224
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 525",
+  "greedy_correct": true,
+  "id": "1135961",
+  "label": "Cessna 525",
+  "p_gold": 0.9426449868169848,
+  "samples": [
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525"
+  ],
+  "u": 0.3765734443138468
+ },
+ {
+  "correct": 6,
+  "greedy": "Embraer Legacy 600",
+  "greedy_correct": true,
+  "id": "1834825",
+  "label": "Embraer Legacy 600",
+  "p_gold": 0.6625307596943684,
+  "samples": [
+   null,
+   "Embraer Legacy 600",
+   "Embraer Legacy 600",
+   "Embraer Legacy 600",
+   "Embraer Legacy 600",
+   null,
+   "Embraer Legacy 600",
+   "Embraer Legacy 600"
+  ],
+  "u": 0.9627083280975672
+ },
+ {
+  "correct": 6,
+  "greedy": "A340-500",
+  "greedy_correct": true,
+  "id": "1062482",
+  "label": "A340-500",
+  "p_gold": 0.9091506909339998,
+  "samples": [
+   "A340-500",
+   "A340-500",
+   "A340-600",
+   "A340-500",
+   "A340-500",
+   "A340-600",
+   "A340-500",
+   "A340-500"
+  ],
+  "u": 0.5332471383514495
+ },
+ {
+  "correct": 6,
+  "greedy": "Cessna 208",
+  "greedy_correct": true,
+  "id": "0851157",
+  "label": "Cessna 208",
+  "p_gold": 0.8336080533909858,
+  "samples": [
+   null,
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   null,
+   "Cessna 208"
+  ],
+  "u": 0.7668173102902754
+ },
+ {
+  "correct": 8,
+  "greedy": "DC-10",
+  "greedy_correct": true,
+  "id": "0062226",
+  "label": "DC-10",
+  "p_gold": 0.9908666499676971,
+  "samples": [
+   "DC-10",
+   "DC-10",
+   "DC-10",
+   "DC-10",
+   "DC-10",
+   "DC-10",
+   "DC-10",
+   "DC-10"
+  ],
+  "u": 0.07077327602895252
+ },
+ {
+  "correct": 8,
+  "greedy": "Gulfstream V",
+  "greedy_correct": true,
+  "id": "1166589",
+  "label": "Gulfstream V",
+  "p_gold": 0.9190043828871302,
+  "samples": [
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V",
+   "Gulfstream V"
+  ],
+  "u": 0.4912075449253693
+ },
+ {
+  "correct": 8,
+  "greedy": "737-300",
+  "greedy_correct": true,
+  "id": "0114409",
+  "label": "737-300",
+  "p_gold": 0.9379621371746434,
+  "samples": [
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300"
+  ],
+  "u": 0.400923256580692
+ },
+ {
+  "correct": 8,
+  "greedy": "CRJ-200",
+  "greedy_correct": true,
+  "id": "1700606",
+  "label": "CRJ-200",
+  "p_gold": 0.9958369806933783,
+  "samples": [
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200"
+  ],
+  "u": 0.032822913362232975
+ },
+ {
+  "correct": 0,
+  "greedy": "A330-200",
+  "greedy_correct": false,
+  "id": "0082967",
+  "label": "A340-200",
+  "p_gold": 0.0032716188138903197,
+  "samples": [
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200"
+  ],
+  "u": 0.02587520579531044
+ },
+ {
+  "correct": 8,
+  "greedy": "ATR-42",
+  "greedy_correct": true,
+  "id": "0851153",
+  "label": "ATR-42",
+  "p_gold": 0.9822833379587221,
+  "samples": [
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42"
+  ],
+  "u": 0.13324926441715895
+ },
+ {
+  "correct": 8,
+  "greedy": "Spitfire",
+  "greedy_correct": true,
+  "id": "2042721",
+  "label": "Spitfire",
+  "p_gold": 0.990236264884633,
+  "samples": [
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire",
+   "Spitfire"
+  ],
+  "u": 0.07549211884965915
+ },
+ {
+  "correct": 7,
+  "greedy": "ERJ 135",
+  "greedy_correct": true,
+  "id": "0422704",
+  "label": "ERJ 135",
+  "p_gold": 0.8242808510246789,
+  "samples": [
+   null,
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135"
+  ],
+  "u": 0.7868901424051707
+ },
+ {
+  "correct": 4,
+  "greedy": "EMB-120",
+  "greedy_correct": true,
+  "id": "2006024",
+  "label": "EMB-120",
+  "p_gold": 0.6377400605358458,
+  "samples": [
+   "EMB-120",
+   "EMB-120",
+   "EMB-120",
+   null,
+   null,
+   null,
+   null,
+   "EMB-120"
+  ],
+  "u": 0.9723412956159005
+ },
+ {
+  "correct": 8,
+  "greedy": "737-300",
+  "greedy_correct": true,
+  "id": "0569402",
+  "label": "737-300",
+  "p_gold": 0.9687792111152593,
+  "samples": [
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300"
+  ],
+  "u": 0.22411298053989082
+ },
+ {
+  "correct": 0,
+  "greedy": "MD-90",
+  "greedy_correct": false,
+  "id": "0944254",
+  "label": "MD-80",
+  "p_gold": 0.01618638794890966,
+  "samples": [
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90"
+  ],
+  "u": 0.12238786984472172
+ },
+ {
+  "correct": 8,
+  "greedy": "Challenger 600",
+  "greedy_correct": true,
+  "id": "2137132",
+  "label": "Challenger 600",
+  "p_gold": 0.9906720071563123,
+  "samples": [
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600",
+   "Challenger 600"
+  ],
+  "u": 0.07223254806519769
+ },
+ {
+  "correct": 6,
+  "greedy": "ATR-42",
+  "greedy_correct": true,
+  "id": "1883803",
+  "label": "ATR-42",
+  "p_gold": 0.9099537636977353,
+  "samples": [
+   null,
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   "ATR-42",
+   null,
+   "ATR-42",
+   "ATR-42"
+  ],
+  "u": 0.5299385790237475
+ },
+ {
+  "correct": 1,
+  "greedy": "DC-3",
+  "greedy_correct": false,
+  "id": "1036801",
+  "label": "C-47",
+  "p_gold": 0.11254987630726575,
+  "samples": [
+   "C-47",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3"
+  ],
+  "u": 0.6152738882902722
+ },
+ {
+  "correct": 3,
+  "greedy": "747-300",
+  "greedy_correct": false,
+  "id": "1037501",
+  "label": "747-200",
+  "p_gold": 0.294085044220602,
+  "samples": [
+   "747-100",
+   "747-200",
+   "747-200",
+   "747-300",
+   "747-100",
+   "747-300",
+   "747-300",
+   "747-200"
+  ],
+  "u": 0.9382818451198438
+ },
+ {
+  "correct": 8,
+  "greedy": "757-300",
+  "greedy_correct": true,
+  "id": "1150188",
+  "label": "757-300",
+  "p_gold": 0.9799226931038116,
+  "samples": [
+   "757-300",
+   "757-300",
+   "757-300",
+   "757-300",
+   "757-300",
+   "757-300",
+   "757-300",
+   "757-300"
+  ],
+  "u": 0.14977372593032104
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 560",
+  "greedy_correct": true,
+  "id": "1943161",
+  "label": "Cessna 560",
+  "p_gold": 0.8230500292457258,
+  "samples": [
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560"
+  ],
+  "u": 0.7894225511935173
+ },
+ {
+  "correct": 7,
+  "greedy": "Tornado",
+  "greedy_correct": true,
+  "id": "1251382",
+  "label": "Tornado",
+  "p_gold": 0.9887029503559821,
+  "samples": [
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   "Tornado",
+   null,
+   "Tornado",
+   "Tornado",
+   "Tornado"
+  ],
+  "u": 0.08688255295754439
+ },
+ {
+  "correct": 8,
+  "greedy": "DC-3",
+  "greedy_correct": true,
+  "id": "0730802",
+  "label": "DC-3",
+  "p_gold": 0.9969899585637609,
+  "samples": [
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3",
+   "DC-3"
+  ],
+  "u": 0.023828163206420006
+ },
+ {
+  "correct": 8,
+  "greedy": "737-900",
+  "greedy_correct": true,
+  "id": "1052314",
+  "label": "737-900",
+  "p_gold": 0.9984895530163059,
+  "samples": [
+   "737-900",
+   "737-900",
+   "737-900",
+   "737-900",
+   "737-900",
+   "737-900",
+   "737-900",
+   "737-900"
+  ],
+  "u": 0.012019887879632929
+ },
+ {
+  "correct": 7,
+  "greedy": "747-400",
+  "greedy_correct": true,
+  "id": "2222716",
+  "label": "747-400",
+  "p_gold": 0.979968474611995,
+  "samples": [
+   "747-400",
+   null,
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400"
+  ],
+  "u": 0.14945589672290888
+ },
+ {
+  "correct": 8,
+  "greedy": "DHC-6",
+  "greedy_correct": true,
+  "id": "1384617",
+  "label": "DHC-6",
+  "p_gold": 0.8131990453766719,
+  "samples": [
+   "DHC-6",
+   "DHC-6",
+   "DHC-6",
+   "DHC-6",
+   "DHC-6",
+   "DHC-6",
+   "DHC-6",
+   "DHC-6"
+  ],
+  "u": 0.8087602144038545
+ },
+ {
+  "correct": 5,
+  "greedy": "A330-300",
+  "greedy_correct": true,
+  "id": "1939758",
+  "label": "A330-300",
+  "p_gold": 0.6172253032992286,
+  "samples": [
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300"
+  ],
+  "u": 0.9784747316412409
+ },
+ {
+  "correct": 6,
+  "greedy": "Falcon 2000",
+  "greedy_correct": true,
+  "id": "2090707",
+  "label": "Falcon 2000",
+  "p_gold": 0.8378624826411337,
+  "samples": [
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 900",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 900",
+   "Falcon 2000"
+  ],
+  "u": 0.75712500312439
+ },
+ {
+  "correct": 7,
+  "greedy": "737-400",
+  "greedy_correct": true,
+  "id": "0829999",
+  "label": "737-400",
+  "p_gold": 0.8730344266109202,
+  "samples": [
+   "737-300",
+   "737-400",
+   "737-400",
+   "737-400",
+   "737-400",
+   "737-400",
+   "737-400",
+   "737-400"
+  ],
+  "u": 0.6625176656093141
+ },
+ {
+  "correct": 6,
+  "greedy": "A318",
+  "greedy_correct": true,
+  "id": "1165384",
+  "label": "A318",
+  "p_gold": 0.800848862627899,
+  "samples": [
+   "A318",
+   "A318",
+   "A318",
+   "A318",
+   "A319",
+   "A318",
+   "A318",
+   "A319"
+  ],
+  "u": 0.8307959102475301
+ },
+ {
+  "correct": 3,
+  "greedy": null,
+  "greedy_correct": false,
+  "id": "0564624",
+  "label": "DC-6",
+  "p_gold": 0.2502576066851559,
+  "samples": [
+   null,
+   "DC-6",
+   "DC-6",
+   null,
+   null,
+   null,
+   "DC-6",
+   null
+  ],
+  "u": 0.900146460188177
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 525",
+  "greedy_correct": true,
+  "id": "1675548",
+  "label": "Cessna 525",
+  "p_gold": 0.9594500341667017,
+  "samples": [
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525",
+   "Cessna 525"
+  ],
+  "u": 0.28190996297187126
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 172",
+  "greedy_correct": true,
+  "id": "0974654",
+  "label": "Cessna 172",
+  "p_gold": 0.9966148505183348,
+  "samples": [
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172"
+  ],
+  "u": 0.026762500358707975
+ },
+ {
+  "correct": 0,
+  "greedy": "777-200",
+  "greedy_correct": false,
+  "id": "1913767",
+  "label": "767-400",
+  "p_gold": 0.00040171888435027223,
+  "samples": [
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200"
+  ],
+  "u": 0.003209236117644898
+ },
+ {
+  "correct": 7,
+  "greedy": "DR-400",
+  "greedy_correct": true,
+  "id": "1365858",
+  "label": "DR-400",
+  "p_gold": 0.86160483809601,
+  "samples": [
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   null,
+   "DR-400",
+   "DR-400",
+   "DR-400"
+  ],
+  "u": 0.6962857115648334
+ },
+ {
+  "correct": 8,
+  "greedy": "F/A-18",
+  "greedy_correct": true,
+  "id": "1254669",
+  "label": "F/A-18",
+  "p_gold": 0.994831970374212,
+  "samples": [
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18"
+  ],
+  "u": 0.04060407813868727
+ },
+ {
+  "correct": 0,
+  "greedy": "DC-10",
+  "greedy_correct": false,
+  "id": "0062260",
+  "label": "BAE 146-300",
+  "p_gold": 0.0017232167925311356,
+  "samples": [
+   null,
+   "DC-10",
+   null,
+   "DC-10",
+   null,
+   null,
+   null,
+   "DC-10"
+  ],
+  "u": 0.013702874947522536
+ },
+ {
+  "correct": 1,
+  "greedy": "767-200",
+  "greedy_correct": false,
+  "id": "0171401",
+  "label": "767-300",
+  "p_gold": 0.2191966876772264,
+  "samples": [
+   "767-300",
+   null,
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   null
+  ],
+  "u": 0.8618503051210437
+ },
+ {
+  "correct": 8,
+  "greedy": "Gulfstream IV",
+  "greedy_correct": true,
+  "id": "0514738",
+  "label": "Gulfstream IV",
+  "p_gold": 0.9212923559477162,
+  "samples": [
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV"
+  ],
+  "u": 0.4809851983173134
+ },
+ {
+  "correct": 4,
+  "greedy": "E-195",
+  "greedy_correct": true,
+  "id": "1682041",
+  "label": "E-195",
+  "p_gold": 0.5191844089042955,
+  "samples": [
+   "E-195",
+   "E-190",
+   "E-190",
+   "E-195",
+   "E-195",
+   "E-190",
+   "E-195",
+   "E-190"
+  ],
+  "u": 0.9918642777225762
+ },
+ {
+  "correct": 6,
+  "greedy": "Global Express",
+  "greedy_correct": true,
+  "id": "1311582",
+  "label": "Global Express",
+  "p_gold": 0.9192640686589322,
+  "samples": [
+   "Global Express",
+   "Global Express",
+   "Global Express",
+   "Global Express",
+   "Global Express",
+   "Global Express",
+   null,
+   null
+  ],
+  "u": 0.4900562389658621
+ },
+ {
+  "correct": 8,
+  "greedy": "727-200",
+  "greedy_correct": true,
+  "id": "1459191",
+  "label": "727-200",
+  "p_gold": 0.8157107606469053,
+  "samples": [
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200",
+   "727-200"
+  ],
+  "u": 0.8039835681466033
+ },
+ {
+  "correct": 0,
+  "greedy": "767-200",
+  "greedy_correct": false,
+  "id": "0716370",
+  "label": "767-300",
+  "p_gold": 0.08100926975184024,
+  "samples": [
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-400",
+   "767-400",
+   "767-200"
+  ],
+  "u": 0.4912680103450964
+ },
+ {
+  "correct": 0,
+  "greedy": "MD-11",
+  "greedy_correct": false,
+  "id": "0939608",
+  "label": "A321",
+  "p_gold": 0.0020482268415559007,
+  "samples": [
+   "A380",
+   null,
+   "747-400",
+   "Tu-134",
+   "MD-11",
+   "747-400",
+   "MD-11",
+   "MD-11"
+  ],
+  "u": 0.016268828169217375
+ },
+ {
+  "correct": 6,
+  "greedy": "Global Express",
+  "greedy_correct": true,
+  "id": "2188615",
+  "label": "Global Express",
+  "p_gold": 0.6245563271867174,
+  "samples": [
+   "Global Express",
+   "Challenger 600",
+   "Global Express",
+   "Global Express",
+   "Challenger 600",
+   "Global Express",
+   "Global Express",
+   "Global Express"
+  ],
+  "u": 0.9764540494948863
+ },
+ {
+  "correct": 7,
+  "greedy": "767-200",
+  "greedy_correct": true,
+  "id": "2197329",
+  "label": "767-200",
+  "p_gold": 0.6610368835594466,
+  "samples": [
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-200",
+   "767-300",
+   "767-200",
+   "767-200",
+   "767-200"
+  ],
+  "u": 0.9633666652808167
+ },
+ {
+  "correct": 3,
+  "greedy": "CRJ-700",
+  "greedy_correct": false,
+  "id": "1708263",
+  "label": "CRJ-900",
+  "p_gold": 0.28861306366681877,
+  "samples": [
+   "CRJ-700",
+   "CRJ-900",
+   "CRJ-900",
+   "CRJ-700",
+   "CRJ-900",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-700"
+  ],
+  "u": 0.9343604296734119
+ },
+ {
+  "correct": 8,
+  "greedy": "Tu-134",
+  "greedy_correct": true,
+  "id": "0062669",
+  "label": "Tu-134",
+  "p_gold": 0.8672745296973311,
+  "samples": [
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134",
+   "Tu-134"
+  ],
+  "u": 0.6799241793465418
+ },
+ {
+  "correct": 4,
+  "greedy": "DC-8",
+  "greedy_correct": true,
+  "id": "0967847",
+  "label": "DC-8",
+  "p_gold": 0.3763803729374761,
+  "samples": [
+   "DC-8",
+   "DC-8",
+   null,
+   "DC-8",
+   null,
+   null,
+   "DC-8",
+   "707-320"
+  ],
+  "u": 0.9767224211715628
+ },
+ {
+  "correct": 4,
+  "greedy": "E-190",
+  "greedy_correct": true,
+  "id": "1762097",
+  "label": "E-190",
+  "p_gold": 0.6547366267230825,
+  "samples": [
+   "E-190",
+   "E-190",
+   "E-170",
+   "E-190",
+   null,
+   "E-190",
+   "E-195",
+   "E-195"
+  ],
+  "u": 0.9660279105199029
+ },
+ {
+  "correct": 8,
+  "greedy": "L-1011",
+  "greedy_correct": true,
+  "id": "1200650",
+  "label": "L-1011",
+  "p_gold": 0.9960869193787629,
+  "samples": [
+   "L-1011",
+   "L-1011",
+   "L-1011",
+   "L-1011",
+   "L-1011",
+   "L-1011",
+   "L-1011",
+   "L-1011"
+  ],
+  "u": 0.030879242411061214
+ },
+ {
+  "correct": 8,
+  "greedy": "Falcon 2000",
+  "greedy_correct": true,
+  "id": "1906084",
+  "label": "Falcon 2000",
+  "p_gold": 0.9533682792126265,
+  "samples": [
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000"
+  ],
+  "u": 0.31752682989607445
+ },
+ {
+  "correct": 5,
+  "greedy": "MD-90",
+  "greedy_correct": true,
+  "id": "1570250",
+  "label": "MD-90",
+  "p_gold": 0.5392916265815791,
+  "samples": [
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-87",
+   "MD-90",
+   "MD-87",
+   null
+  ],
+  "u": 0.9908157406460973
+ },
+ {
+  "correct": 0,
+  "greedy": "777-200",
+  "greedy_correct": false,
+  "id": "1936431",
+  "label": "777-300",
+  "p_gold": 0.032600847028493994,
+  "samples": [
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200"
+  ],
+  "u": 0.2329112343332851
+ },
+ {
+  "correct": 6,
+  "greedy": "A300B4",
+  "greedy_correct": true,
+  "id": "1004164",
+  "label": "A300B4",
+  "p_gold": 0.8795570270886084,
+  "samples": [
+   "A300B4",
+   "A300B4",
+   "A300B4",
+   "A330-200",
+   "A300B4",
+   "A330-300",
+   "A300B4",
+   "A300B4"
+  ],
+  "u": 0.6418111396517038
+ },
+ {
+  "correct": 8,
+  "greedy": "MD-11",
+  "greedy_correct": true,
+  "id": "1610616",
+  "label": "MD-11",
+  "p_gold": 0.9952373100911054,
+  "samples": [
+   "MD-11",
+   "MD-11",
+   "MD-11",
+   "MD-11",
+   "MD-11",
+   "MD-11",
+   "MD-11",
+   "MD-11"
+  ],
+  "u": 0.037472403221090245
+ },
+ {
+  "correct": 2,
+  "greedy": "CRJ-200",
+  "greedy_correct": false,
+  "id": "0931743",
+  "label": "CRJ-700",
+  "p_gold": 0.12212711988871769,
+  "samples": [
+   "CRJ-700",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-700",
+   "CRJ-200"
+  ],
+  "u": 0.6472612898890104
+ },
+ {
+  "correct": 8,
+  "greedy": "A330-300",
+  "greedy_correct": true,
+  "id": "1753661",
+  "label": "A330-300",
+  "p_gold": 0.999492589445712,
+  "samples": [
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300",
+   "A330-300"
+  ],
+  "u": 0.004052082712368232
+ },
+ {
+  "correct": 0,
+  "greedy": "777-200",
+  "greedy_correct": false,
+  "id": "2047628",
+  "label": "737-900",
+  "p_gold": 0.001074642682018104,
+  "samples": [
+   "777-200",
+   null,
+   "777-200",
+   "777-200",
+   null,
+   null,
+   null,
+   "777-200"
+  ],
+  "u": 0.008564874869110284
+ },
+ {
+  "correct": 0,
+  "greedy": "Yak-42",
+  "greedy_correct": false,
+  "id": "0038598",
+  "label": "MD-11",
+  "p_gold": 0.02745480328607847,
+  "samples": [
+   "A320",
+   "Yak-42",
+   "Yak-42",
+   "Fokker 70",
+   "Tu-154",
+   "A321",
+   null,
+   null
+  ],
+  "u": 0.19965295441054465
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 208",
+  "greedy_correct": true,
+  "id": "0184369",
+  "label": "Cessna 208",
+  "p_gold": 0.9820480759671851,
+  "samples": [
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208",
+   "Cessna 208"
+  ],
+  "u": 0.13490860358317744
+ },
+ {
+  "correct": 6,
+  "greedy": "MD-90",
+  "greedy_correct": true,
+  "id": "1736105",
+  "label": "MD-90",
+  "p_gold": 0.7766573833333301,
+  "samples": [
+   "MD-90",
+   "MD-87",
+   "MD-90",
+   "MD-87",
+   "MD-90",
+   "MD-90",
+   "MD-90",
+   "MD-90"
+  ],
+  "u": 0.8676097165453942
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 560",
+  "greedy_correct": true,
+  "id": "1468804",
+  "label": "Cessna 560",
+  "p_gold": 0.9427669275662035,
+  "samples": [
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560",
+   "Cessna 560"
+  ],
+  "u": 0.37592797943258593
+ },
+ {
+  "correct": 7,
+  "greedy": "Falcon 900",
+  "greedy_correct": true,
+  "id": "1611166",
+  "label": "Falcon 900",
+  "p_gold": 0.878309835138829,
+  "samples": [
+   "Falcon 900",
+   "Falcon 900",
+   "Falcon 2000",
+   "Falcon 900",
+   "Falcon 900",
+   "Falcon 900",
+   "Falcon 900",
+   "Falcon 900"
+  ],
+  "u": 0.6458542565002933
+ },
+ {
+  "correct": 1,
+  "greedy": null,
+  "greedy_correct": false,
+  "id": "1281757",
+  "label": "SR-20",
+  "p_gold": 0.2208517130442423,
+  "samples": [
+   null,
+   "SR-20",
+   null,
+   null,
+   null,
+   null,
+   null,
+   null
+  ],
+  "u": 0.8641752048015812
+ },
+ {
+  "correct": 4,
+  "greedy": "ERJ 135",
+  "greedy_correct": true,
+  "id": "2153514",
+  "label": "ERJ 135",
+  "p_gold": 0.525003380392418,
+  "samples": [
+   "ERJ 145",
+   "ERJ 135",
+   "ERJ 145",
+   "Embraer Legacy 600",
+   "EMB-120",
+   "ERJ 135",
+   "ERJ 135",
+   "ERJ 135"
+  ],
+  "u": 0.9916370538590078
+ },
+ {
+  "correct": 8,
+  "greedy": "A320",
+  "greedy_correct": true,
+  "id": "0205775",
+  "label": "A320",
+  "p_gold": 0.9994064317831636,
+  "samples": [
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320"
+  ],
+  "u": 0.004738692386781929
+ },
+ {
+  "correct": 8,
+  "greedy": "F/A-18",
+  "greedy_correct": true,
+  "id": "1119461",
+  "label": "F/A-18",
+  "p_gold": 0.9952853135668509,
+  "samples": [
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18",
+   "F/A-18"
+  ],
+  "u": 0.03710093426166594
+ },
+ {
+  "correct": 8,
+  "greedy": "A318",
+  "greedy_correct": true,
+  "id": "1385121",
+  "label": "A318",
+  "p_gold": 0.980114723919727,
+  "samples": [
+   "A318",
+   "A318",
+   "A318",
+   "A318",
+   "A318",
+   "A318",
+   "A318",
+   "A318"
+  ],
+  "u": 0.14843989277549816
+ },
+ {
+  "correct": 0,
+  "greedy": "ERJ 135",
+  "greedy_correct": false,
+  "id": "0922520",
+  "label": "Saab 2000",
+  "p_gold": 0.0003527703370741389,
+  "samples": [
+   null,
+   null,
+   null,
+   null,
+   "ERJ 135",
+   "ERJ 135",
+   null,
+   null
+  ],
+  "u": 0.0028186806404753018
+ },
+ {
+  "correct": 5,
+  "greedy": "E-195",
+  "greedy_correct": true,
+  "id": "2058486",
+  "label": "E-195",
+  "p_gold": 0.5990911063152425,
+  "samples": [
+   "E-195",
+   "E-195",
+   "E-190",
+   "E-195",
+   "E-190",
+   "E-195",
+   "E-190",
+   "E-195"
+  ],
+  "u": 0.982738941513353
+ },
+ {
+  "correct": 3,
+  "greedy": "A340-200",
+  "greedy_correct": false,
+  "id": "0681536",
+  "label": "A340-300",
+  "p_gold": 0.12230870307715414,
+  "samples": [
+   "A340-200",
+   "A340-300",
+   "A340-300",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-300",
+   "A340-200"
+  ],
+  "u": 0.6478445633536561
+ },
+ {
+  "correct": 6,
+  "greedy": "CRJ-200",
+  "greedy_correct": true,
+  "id": "0870126",
+  "label": "CRJ-200",
+  "p_gold": 0.921794850025813,
+  "samples": [
+   "CRJ-200",
+   "CRJ-700",
+   "CRJ-700",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200",
+   "CRJ-200"
+  ],
+  "u": 0.4787162094338958
+ },
+ {
+  "correct": 8,
+  "greedy": "737-800",
+  "greedy_correct": true,
+  "id": "1470793",
+  "label": "737-800",
+  "p_gold": 0.9280651831852701,
+  "samples": [
+   "737-800",
+   "737-800",
+   "737-800",
+   "737-800",
+   "737-800",
+   "737-800",
+   "737-800",
+   "737-800"
+  ],
+  "u": 0.4496641022491186
+ },
+ {
+  "correct": 8,
+  "greedy": "Fokker 70",
+  "greedy_correct": true,
+  "id": "1379781",
+  "label": "Fokker 70",
+  "p_gold": 0.8331415145081454,
+  "samples": [
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70"
+  ],
+  "u": 0.7678592798019998
+ },
+ {
+  "correct": 8,
+  "greedy": "707-320",
+  "greedy_correct": true,
+  "id": "1427680",
+  "label": "707-320",
+  "p_gold": 0.9902988516469717,
+  "samples": [
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320"
+  ],
+  "u": 0.07502455563424396
+ },
+ {
+  "correct": 1,
+  "greedy": "A340-200",
+  "greedy_correct": false,
+  "id": "1462854",
+  "label": "A340-300",
+  "p_gold": 0.05313508083747383,
+  "samples": [
+   "A340-200",
+   "A340-200",
+   "A340-300",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200",
+   "A340-200"
+  ],
+  "u": 0.35389334878259593
+ },
+ {
+  "correct": 7,
+  "greedy": "Gulfstream IV",
+  "greedy_correct": true,
+  "id": "1680778",
+  "label": "Gulfstream IV",
+  "p_gold": 0.7128953213213101,
+  "samples": [
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream V",
+   "Gulfstream IV"
+  ],
+  "u": 0.9332415029770006
+ },
+ {
+  "correct": 8,
+  "greedy": "777-200",
+  "greedy_correct": true,
+  "id": "1146233",
+  "label": "777-200",
+  "p_gold": 0.967986901047006,
+  "samples": [
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200"
+  ],
+  "u": 0.22917490831226195
+ },
+ {
+  "correct": 8,
+  "greedy": "707-320",
+  "greedy_correct": true,
+  "id": "0687610",
+  "label": "707-320",
+  "p_gold": 0.9893155544693786,
+  "samples": [
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320",
+   "707-320"
+  ],
+  "u": 0.08234655689410147
+ },
+ {
+  "correct": 2,
+  "greedy": "737-400",
+  "greedy_correct": false,
+  "id": "0781150",
+  "label": "737-800",
+  "p_gold": 0.1222870196913189,
+  "samples": [
+   "737-300",
+   "737-300",
+   "737-400",
+   "737-800",
+   "737-300",
+   "737-800",
+   "737-300",
+   "737-400"
+  ],
+  "u": 0.6477749573438674
+ },
+ {
+  "correct": 8,
+  "greedy": "Cessna 172",
+  "greedy_correct": true,
+  "id": "0509496",
+  "label": "Cessna 172",
+  "p_gold": 0.997040461445716,
+  "samples": [
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172",
+   "Cessna 172"
+  ],
+  "u": 0.02343250640370076
+ },
+ {
+  "correct": 5,
+  "greedy": "757-200",
+  "greedy_correct": false,
+  "id": "0428735",
+  "label": "757-300",
+  "p_gold": 0.48730256781692083,
+  "samples": [
+   "757-300",
+   "757-300",
+   "757-200",
+   "757-300",
+   "757-200",
+   "757-300",
+   "757-200",
+   "757-300"
+  ],
+  "u": 0.9920462008127681
+ },
+ {
+  "correct": 8,
+  "greedy": "747-400",
+  "greedy_correct": true,
+  "id": "1088007",
+  "label": "747-400",
+  "p_gold": 0.9307426741567356,
+  "samples": [
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400",
+   "747-400"
+  ],
+  "u": 0.43683324033931953
+ },
+ {
+  "correct": 8,
+  "greedy": "PA-28",
+  "greedy_correct": true,
+  "id": "1626894",
+  "label": "PA-28",
+  "p_gold": 0.9776506859885165,
+  "samples": [
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28",
+   "PA-28"
+  ],
+  "u": 0.16541672979756897
+ },
+ {
+  "correct": 6,
+  "greedy": "757-200",
+  "greedy_correct": true,
+  "id": "0225217",
+  "label": "757-200",
+  "p_gold": 0.7674436075878052,
+  "samples": [
+   "757-300",
+   "757-200",
+   "757-300",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200",
+   "757-200"
+  ],
+  "u": 0.8796620358012047
+ },
+ {
+  "correct": 4,
+  "greedy": "DHC-6",
+  "greedy_correct": true,
+  "id": "1023007",
+  "label": "DHC-6",
+  "p_gold": 0.45773673424420164,
+  "samples": [
+   "DHC-6",
+   "DHC-6",
+   null,
+   "DHC-6",
+   null,
+   null,
+   "Dornier 328",
+   "DHC-6"
+  ],
+  "u": 0.9905965930643527
+ },
+ {
+  "correct": 0,
+  "greedy": "737-300",
+  "greedy_correct": false,
+  "id": "0357855",
+  "label": "737-700",
+  "p_gold": 0.0023197883423586663,
+  "samples": [
+   "737-300",
+   "737-300",
+   "737-400",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300",
+   "737-300"
+  ],
+  "u": 0.018408324102792917
+ },
+ {
+  "correct": 8,
+  "greedy": "A310",
+  "greedy_correct": true,
+  "id": "1906073",
+  "label": "A310",
+  "p_gold": 0.999793682239759,
+  "samples": [
+   "A310",
+   "A310",
+   "A310",
+   "A310",
+   "A310",
+   "A310",
+   "A310",
+   "A310"
+  ],
+  "u": 0.0016493506971028138
+ },
+ {
+  "correct": 8,
+  "greedy": "Metroliner",
+  "greedy_correct": true,
+  "id": "1146072",
+  "label": "Metroliner",
+  "p_gold": 0.9193153564053691,
+  "samples": [
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner",
+   "Metroliner"
+  ],
+  "u": 0.4898285875323766
+ },
+ {
+  "correct": 7,
+  "greedy": "Saab 2000",
+  "greedy_correct": true,
+  "id": "0067617",
+  "label": "Saab 2000",
+  "p_gold": 0.94515503196181,
+  "samples": [
+   "Saab 2000",
+   "Saab 2000",
+   "Saab 2000",
+   "Saab 2000",
+   "Saab 2000",
+   "Saab 2000",
+   null,
+   "Saab 2000"
+  ],
+  "u": 0.36316869101100696
+ },
+ {
+  "correct": 7,
+  "greedy": "Fokker 70",
+  "greedy_correct": true,
+  "id": "1299601",
+  "label": "Fokker 70",
+  "p_gold": 0.8972529527041818,
+  "samples": [
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 70",
+   "Fokker 100"
+  ],
+  "u": 0.579932402996107
+ },
+ {
+  "correct": 4,
+  "greedy": "DC-9-30",
+  "greedy_correct": true,
+  "id": "0750589",
+  "label": "DC-9-30",
+  "p_gold": 0.5129244565268595,
+  "samples": [
+   "DC-9-30",
+   "DC-9-30",
+   null,
+   null,
+   null,
+   "DC-9-30",
+   "DC-9-30",
+   null
+  ],
+  "u": 0.9920410944050224
+ },
+ {
+  "correct": 8,
+  "greedy": "A321",
+  "greedy_correct": true,
+  "id": "2221573",
+  "label": "A321",
+  "p_gold": 0.9998773015694835,
+  "samples": [
+   "A321",
+   "A321",
+   "A321",
+   "A321",
+   "A321",
+   "A321",
+   "A321",
+   "A321"
+  ],
+  "u": 0.0009811660102241326
+ },
+ {
+  "correct": 8,
+  "greedy": "Tu-154",
+  "greedy_correct": true,
+  "id": "0989278",
+  "label": "Tu-154",
+  "p_gold": 0.9797049203886589,
+  "samples": [
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154",
+   "Tu-154"
+  ],
+  "u": 0.15128414818051092
+ },
+ {
+  "correct": 8,
+  "greedy": "A330-200",
+  "greedy_correct": true,
+  "id": "1017290",
+  "label": "A330-200",
+  "p_gold": 0.9995249684029862,
+  "samples": [
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200"
+  ],
+  "u": 0.003793940434861476
+ },
+ {
+  "correct": 5,
+  "greedy": "DC-9-30",
+  "greedy_correct": true,
+  "id": "1196996",
+  "label": "DC-9-30",
+  "p_gold": 0.8816901812789462,
+  "samples": [
+   null,
+   "DC-9-30",
+   "DC-9-30",
+   null,
+   null,
+   "DC-9-30",
+   "DC-9-30",
+   "DC-9-30"
+  ],
+  "u": 0.6348022603020377
+ },
+ {
+  "correct": 2,
+  "greedy": "DC-9-30",
+  "greedy_correct": false,
+  "id": "0109457",
+  "label": "MD-87",
+  "p_gold": 0.11446330783861737,
+  "samples": [
+   "Fokker 100",
+   "DC-9-30",
+   "DC-9-30",
+   "DC-9-30",
+   "DC-9-30",
+   "MD-87",
+   "MD-87",
+   "DC-9-30"
+  ],
+  "u": 0.6218600862853791
+ },
+ {
+  "correct": 8,
+  "greedy": "A330-200",
+  "greedy_correct": true,
+  "id": "2183607",
+  "label": "A330-200",
+  "p_gold": 0.9987761585718021,
+  "samples": [
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200",
+   "A330-200"
+  ],
+  "u": 0.00974889586021177
+ },
+ {
+  "correct": 3,
+  "greedy": "DC-10",
+  "greedy_correct": false,
+  "id": "0901529",
+  "label": "L-1011",
+  "p_gold": 0.35379569655883947,
+  "samples": [
+   "DC-10",
+   "L-1011",
+   null,
+   "L-1011",
+   "DC-10",
+   null,
+   "DC-10",
+   "L-1011"
+  ],
+  "u": 0.9693485542773481
+ },
+ {
+  "correct": 6,
+  "greedy": "Model B200",
+  "greedy_correct": true,
+  "id": "1101613",
+  "label": "Model B200",
+  "p_gold": 0.7413636472921731,
+  "samples": [
+   "Model B200",
+   null,
+   "Model B200",
+   "Model B200",
+   null,
+   "Model B200",
+   "Model B200",
+   "Model B200"
+  ],
+  "u": 0.9087263174115524
+ },
+ {
+  "correct": 5,
+  "greedy": "Model B200",
+  "greedy_correct": true,
+  "id": "1620917",
+  "label": "Model B200",
+  "p_gold": 0.6145043114667146,
+  "samples": [
+   "Model B200",
+   "Model B200",
+   "Model B200",
+   "Model B200",
+   "Model B200",
+   null,
+   null,
+   null
+  ],
+  "u": 0.9791793891170896
+ },
+ {
+  "correct": 2,
+  "greedy": "Gulfstream IV",
+  "greedy_correct": false,
+  "id": "1215515",
+  "label": "Gulfstream V",
+  "p_gold": 0.20399000348378665,
+  "samples": [
+   "Gulfstream IV",
+   "Gulfstream V",
+   "Gulfstream IV",
+   "Gulfstream V",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV",
+   "Gulfstream IV"
+  ],
+  "u": 0.8388032608930783
+ },
+ {
+  "correct": 0,
+  "greedy": null,
+  "greedy_correct": false,
+  "id": "1623699",
+  "label": "Boeing 717",
+  "p_gold": 0.016533794221046186,
+  "samples": [
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null
+  ],
+  "u": 0.12486404135926488
+ },
+ {
+  "correct": 5,
+  "greedy": "767-400",
+  "greedy_correct": true,
+  "id": "1980188",
+  "label": "767-400",
+  "p_gold": 0.8213445341432861,
+  "samples": [
+   "767-400",
+   "767-400",
+   "767-400",
+   null,
+   "767-400",
+   null,
+   null,
+   "767-400"
+  ],
+  "u": 0.7928880550215195
+ },
+ {
+  "correct": 0,
+  "greedy": "Falcon 2000",
+  "greedy_correct": false,
+  "id": "1550113",
+  "label": "Falcon 900",
+  "p_gold": 0.05317893267632435,
+  "samples": [
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Falcon 2000",
+   "Fokker 70",
+   "Falcon 2000"
+  ],
+  "u": 0.35413269335592124
+ },
+ {
+  "correct": 2,
+  "greedy": "747-200",
+  "greedy_correct": false,
+  "id": "0766954",
+  "label": "747-300",
+  "p_gold": 0.1176552661389979,
+  "samples": [
+   "747-300",
+   "747-300",
+   "747-200",
+   "747-200",
+   null,
+   "747-200",
+   "747-200",
+   "747-200"
+  ],
+  "u": 0.632627682848364
+ },
+ {
+  "correct": 8,
+  "greedy": "777-200",
+  "greedy_correct": true,
+  "id": "2110536",
+  "label": "777-200",
+  "p_gold": 0.9950255922943786,
+  "samples": [
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200",
+   "777-200"
+  ],
+  "u": 0.03910925951897826
+ },
+ {
+  "correct": 8,
+  "greedy": "E-170",
+  "greedy_correct": true,
+  "id": "1132242",
+  "label": "E-170",
+  "p_gold": 0.9784052157764819,
+  "samples": [
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170",
+   "E-170"
+  ],
+  "u": 0.1602498816806266
+ },
+ {
+  "correct": 3,
+  "greedy": "747-200",
+  "greedy_correct": false,
+  "id": "0487374",
+  "label": "747-300",
+  "p_gold": 0.2921989711041933,
+  "samples": [
+   "747-300",
+   "747-100",
+   "747-100",
+   "747-200",
+   "747-300",
+   "747-300",
+   "747-200",
+   "747-200"
+  ],
+  "u": 0.9369542615230793
+ }
+]

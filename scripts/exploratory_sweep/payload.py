@@ -40,6 +40,28 @@ INITS = {
     "I": ("runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/final_adapter",
           "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"),
 }
+# GPU lane, root corrections M4 (dev800 calibration): the controlled400 endpoints that have
+# native VAL scores (reports/2026-10-17-controlled400-native-val; weights pinned in its
+# plan.json). I (sft-1e5-time) is already above. Assay-only inits.
+C400 = "runs/aircraft-controlled400-v1/setup/{}/published/final_adapter"
+INITS.update({
+    "RL400": (C400.format("rl-exposure"),
+              "83226668a3b765ea20eb5e625cd55bda56c463ace09e7091b37c9ce6afb37d1f"),
+    "SFT1e5E": (C400.format("sft-1e5-exposure"),
+                "148f9158a9c5053630f03307d046a304de7d5ac5709a1311a2e4485d913dea82"),
+    "SFT5e5E": (C400.format("sft-5e5-exposure"),
+                "be1d9cfc5fe8129c5f1b5ac9a365f14021b02e784e15f6837ca986056fd6c6d9"),
+    "SFT1e4E": (C400.format("sft-1e4-exposure"),
+                "456a4c3e1029463228ea50e532769e80f568b4719403a7ab0c15f3ef93aa3440"),
+    "SFT5e5T": (C400.format("sft-5e5-time"),
+                "6a29c6fb82f77236ed3df85e0c7c54ceda3b9b93bdb58cf08159e5edd79593dc"),
+    "SFT1e4T": (C400.format("sft-1e4-time"),
+                "ca762da20acba723e06b1246baa1707df6cdf5039ff0da0bb1ac619c18d70ed4"),
+})
+# The label trie (all tokenisations of the 100 labels): P0-I sums p(gold) over its paths.
+LABEL_TRIE = ("data/fgvc-aircraft-2013b/audit/label-trie-qwen2vl2b.json",
+              "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0")
+GPU_STUDY = "aircraft-exploratory-sweep-v2-gpu"
 MODEL = "data/models/Qwen2-VL-2B-Instruct-895c3a49"
 # The task data spec W and I were trained under (their control_identity.data_spec_sha256);
 # the trainer's TRAIN assay of a saved adapter refuses any other spec. Same 100 labels,
@@ -102,6 +124,11 @@ def build(out: Path, repo: Path) -> dict:
 
     design = WORKTREE / "docs" / STUDY
     manifests = sorted((design / "manifests").glob("*.jsonl"))
+    # GPU lane manifests (P0-I probe sets): TRAIN ids only, checked like the rest below.
+    gpu = sorted((WORKTREE / "docs" / GPU_STUDY / "manifests").glob("*.jsonl"))
+    if {m.name for m in gpu} & {m.name for m in manifests}:
+        raise SystemExit("refusing: a GPU-lane manifest name shadows a sweep manifest")
+    manifests += gpu
     if not manifests:
         raise SystemExit("refusing: no sweep manifests; run design.py first")
     wanted = set()
@@ -121,6 +148,9 @@ def build(out: Path, repo: Path) -> dict:
     if sha_file(repo / DATA_SPEC) != DATA_SPEC_SHA256:
         raise SystemExit("refusing: task data spec differs from the one W and I were trained under")
     place(repo / DATA_SPEC, out / "data/data_spec.json")
+    if sha_file(WORKTREE / LABEL_TRIE[0]) != LABEL_TRIE[1]:
+        raise SystemExit("refusing: label trie differs from its pin")
+    place(WORKTREE / LABEL_TRIE[0], out / "data/label-trie-qwen2vl2b.json")
     place(design / "splits.json", out / "data/splits.json")
     place(design / "arms-rung1.json", out / "data/arms-rung1.json")
     hier = {i: {k: audit[i][k] for k in ("manufacturer", "family", "variant")} for i in native}

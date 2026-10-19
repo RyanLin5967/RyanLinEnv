@@ -1,0 +1,59 @@
+{
+  "checkpoint": {
+    "path": "checkpoint-2",
+    "sha256": {
+      "active_time.json": "ac93e3c1510e8cd613c99f4689318d4e864e37c11d4dd8807ee0cb1fc93df59b",
+      "adapter_config.json": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+      "adapter_model.safetensors": "73089947aa42fc70661538dfb0fac7baf3703b6d96364ba3b0090910c718122a",
+      "exposure.json": "45670b4c3830f96e66d6b9d9aa1accc367555cd211b7f4f17fbfb61f130fb31b",
+      "optimizer.pt": "60633df218831c55f1de01232f72cba905ab3797ed0a5857646a99ec225f1621",
+      "rng_state.pth": "b0a73bb74451c147f617bf59803ba8cc5567dc8c8623e3450c694db6fb5dc703",
+      "scheduler.pt": "5c4effeb641c744a58d4bb44dafc4194c7c435d79efcd0562a920bef17cbd682",
+      "trainer_state.json": "1230f6d5e7b27026149ff6161383fc55889b900ebd3807a484b2b4ebb87dd523"
+    }
+  },
+  "committed_active_seconds": 40.31335948780179,
+  "committed_prompt_ids": [
+    "1999287",
+    "1223797",
+    "0509496",
+    "0842124"
+  ],
+  "committed_prompt_presentations": 4,
+  "control_identity_sha256": "399c2e6481bd7af90b102384cfc25357e65349b706a0c627de6a655d0de1fe23",
+  "final_adapter": {
+    "config_sha256": "a9fa4e7d42f0e815dbab64312ae512675fe5c0f2af5cd3a4bbb2e6b8723b9eac",
+    "path": "final_adapter",
+    "weights_sha256": "73089947aa42fc70661538dfb0fac7baf3703b6d96364ba3b0090910c718122a"
+  },
+  "global_step": 2,
+  "original_budgets": {
+    "max_active_seconds": null,
+    "max_steps": 2
+  },
+  "physical_work": {
+    "committed_active_seconds": 40.31335948780179,
+    "committed_global_step": 2,
+    "completed_not_checkpointed_active_seconds": 0.0,
+    "completed_state_active_seconds": 40.31335948780179,
+    "hard_total_physical_compute_cap": false,
+    "invocation_active_seconds": 40.31335948780179,
+    "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
+    "observed_physical_active_seconds": 40.31335948780179,
+    "observed_reward_journal_io_seconds": 0.0004954541800543666,
+    "resumed_committed_active_seconds": 0.0,
+    "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+    "total_budget_seconds": null,
+    "unknown_partial_invocations": 0
+  },
+  "reference_sha256": null,
+  "requested_boundary": {
+    "stop_after_active_seconds": null,
+    "stop_after_steps": null
+  },
+  "schema_version": 1,
+  "settings_sha256": "a74f7e9344dbec02e0dfa47df607c6f4f2b859dc680d4ba2d09d23ca04758483",
+  "source_sha256": "b5b6cae6035cc65d57d80646a261a70123b79cc15e50398bec0ead6385fa087a",
+  "stage_id": null,
+  "status": "total_budget_exhausted"
+}
