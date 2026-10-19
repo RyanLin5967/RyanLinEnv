@@ -4,20 +4,9 @@
 # State (last seen) in runs/aircraft-sft-ceiling-v1/wait_event.state. Read-only on the hosts.
 POLL=${1:-600}
 STATE=/Users/idide/wt/RyanLinEnv-agent-ae7d7eaaefb389497/runs/aircraft-sft-ceiling-v1/wait_event.state
-RUNS="sftceil-cont-all-lr3e-6-10:iccad11
-sftceil-cont-all-lr5e-6-10:iccad7
+RUNS="sftceil-cont-all-lr5e-6-10:iccad7
 sftceil-cont-all-lr1e-5-10:iccad11
-sftceil-cont-all-lr2e-5-10:iccad12
-sftceil-I-seed1-11:iccad8
-sftceil-I-seed2-10:iccad10
-sftceil-I-seed3-10:iccad13
-sftceil-I-seed4-10:iccad12
-sftceil-I-seed5-11:iccad7
-sftceil-I-seed42-10:iccad5
-sftceil-cont-all-lr1e-5-s314-1:iccad0
-sftceil-I-seed6-3:iccad7
-sftceil-cont-all-lr1e-5-s2718-1:iccad8
-sftceil-cont-all-lr5e-6-s314-2:iccad10"
+sftceil-cont-all-lr2e-5-10:iccad12"
 snapshot() {
   for pair in $RUNS; do
     run=${pair%%:*}; host=${pair##*:}

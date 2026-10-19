@@ -2,20 +2,9 @@
 # Per arm: host, uwrun status, last committed optimizer step, active seconds, sec/update over the
 # last 20 updates, endpoints assayed so far (with accuracy). Read-only.
 # arm:host:run-suffix (lr2e-5 moved off ecetesla1 at step 1, 2026-10-18 21:5xZ: ~120 s/update there)
-ARMS="sftceil-cont-all-lr3e-6:iccad11:10
-sftceil-cont-all-lr5e-6:iccad7:10
+ARMS="sftceil-cont-all-lr5e-6:iccad7:10
 sftceil-cont-all-lr1e-5:iccad11:10
-sftceil-cont-all-lr2e-5:iccad12:10
-sftceil-I-seed1:iccad8:11
-sftceil-I-seed2:iccad10:10
-sftceil-I-seed3:iccad13:10
-sftceil-I-seed4:iccad12:10
-sftceil-I-seed5:iccad7:11
-sftceil-I-seed42:iccad5:10
-sftceil-cont-all-lr1e-5-s314:iccad0:1
-sftceil-I-seed6:iccad7:3
-sftceil-cont-all-lr1e-5-s2718:iccad8:1
-sftceil-cont-all-lr5e-6-s314:iccad10:2"
+sftceil-cont-all-lr2e-5:iccad12:10"
 for triple in $ARMS; do
   arm=${triple%%:*}; rest=${triple#*:}; host=${rest%%:*}; n=${rest##*:}
   st=$(timeout 90 ~/.claude/bin/uwrun status "$arm-$n" 2>&1 | tail -1 | awk '{print $3, $4}')
