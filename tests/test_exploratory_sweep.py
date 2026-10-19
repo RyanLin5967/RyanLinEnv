@@ -332,7 +332,8 @@ def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, 
                             "features": ["exploratory_sweep"]}},
         "new": {"receipt": {"valid": True, "payload_sha256": "NEW", "root": "/r",
                             "features": ["exploratory_sweep"]}}},
-        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True}}
+        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True},
+        "d37_release": {"verified": True}}
     finish(tmp_path, state, "rl0", 0.5)
     state["arms"]["rl0"]["host"] = "old"
     path = setup(tmp_path, monkeypatch, state)
@@ -569,7 +570,8 @@ def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
     # amendment 5: the allowlisted family is the D37 table's; the old grpo-I is retired
     table = {"g": {"id": "g", "family": "d37-grpo-I"}, "w": {"id": "w", "family": "grpo-W"},
              "old": {"id": "old", "family": "grpo-I"}}
-    closed, opened = {}, {"gate0": {"passed": True}}
+    closed, opened = {}, {"gate0": {"passed": True}, "d37_release": {"verified": True}}
+    unverified = {"gate0": {"passed": True}}
     for state in (closed, opened):
         for spec in ({"id": "w", "family": "grpo-W", "track": "rl"},
                      {"id": "w~ctl", "family": "control", "track": "control", "control_of": "w"},
@@ -585,6 +587,8 @@ def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
     assert "GATE 0" in runner.launch_hold({"gate0": {"passed": "yes"}}, gc, table)
     assert runner.launch_hold(opened, g, table) is None
     assert runner.launch_hold(opened, gc, table) is None
+    assert "d37_release" in runner.launch_hold(unverified, g, table)
+    assert "d37_release" in runner.launch_hold(unverified, gc, table)
 
 
 def test_amendment3_promotion_never_ranks_w_init_units(tmp_path, monkeypatch):
@@ -790,6 +794,7 @@ def test_launch_places_an_avx512_arm_only_on_an_avx512_host(tmp_path, monkeypatc
     arm = dict(base_arm("d", "rl"), need_avx512=True)
     rec = {"valid": True, "payload_sha256": "P", "root": "/r", "features": ["exploratory_sweep"]}
     state = {"arms": {}, "uwrun_runs": [], "payload": {"sha256": "P"}, "gate0": {"passed": True},
+             "d37_release": {"verified": True},
              "hosts": {"iccad5": {"receipt": dict(rec)}, "iccad7": {"receipt": dict(rec)},
                        "iccad9": {"receipt": dict(rec)}}}
     path = setup(tmp_path, monkeypatch, state)

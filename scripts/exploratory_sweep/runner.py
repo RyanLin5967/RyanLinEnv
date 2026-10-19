@@ -434,6 +434,10 @@ def launch_hold(state: dict, spec: dict, table_by_id: dict):
         return f"held (amendment 3): family {family} is not on the launch allowlist"
     if not gate0_passed(state):
         return "held (amendment 3): GATE 0 has not passed"
+    if (state.get("d37_release") or {}).get("verified") is not True:
+        # coordinator 2026-10-19: D37 arms launch only after PR #36's control machinery
+        # (per-checkpoint time matching, scanned-row replay) is verified through this runner
+        return "held (amendment 5): d37_release.verified is not true"
     return None
 
 
