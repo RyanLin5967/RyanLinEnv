@@ -1031,8 +1031,46 @@ def write_summary(arm: Arm, summary: dict) -> None:
     write_json(arm.results / "summary.json", summary)
 
 
+def time_endpoints(spec: dict) -> list:
+    """[(label, active seconds)] to stop, keep and assay at after the step stops.
+
+    `time_budget_seconds` (one value; the plan's matched control) keeps its label "time".
+    `time_stops` (a strictly increasing list; a per-checkpoint time-matched control, D37)
+    gives "time1", "time2", ... Both at once refuse. Ported from the GPU lane with its fix
+    (6205487): the check read `not 0 < a < b`, which refused EVERY list (the first pair
+    compares against 0.0)."""
+    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
+    if one and many:
+        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
+    if one:
+        return [("time", float(one))]
+    if many is not None and not many:
+        raise SystemExit("REFUSE: time_stops is empty")
+    stops = [float(x) for x in many or []]
+    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
+        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
+    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
+
+
+# A trainer feature an arm declares and the extra flag that turns it on travel together
+# (review of PR #36): a row that declares dynamic_sampling without the flag would run plain
+# GRPO on a host gated for it, and a row with the flag but not the feature would skip the
+# receipt gate. Checked on the host before any stage.
+FEATURE_EXTRA_FLAGS = {"dynamic_sampling": "--dynamic-sampling-max-draws"}
+
+
+def check_feature_flags(spec: dict) -> None:
+    flags = {str(x) for x in spec.get("extra_trainer_args") or []}
+    features = set(spec.get("features") or [])
+    for feature, flag in FEATURE_EXTRA_FLAGS.items():
+        if (feature in features) != (flag in flags):
+            raise SystemExit(f"REFUSE: feature {feature} and extra {flag} must appear "
+                             f"together (features {sorted(features)})")
+
+
 def run(arm: Arm, final_check: bool) -> dict:
     s = arm.spec
+    check_feature_flags(s)
     arm.results.mkdir(parents=True, exist_ok=True)
     arm.work.mkdir(parents=True, exist_ok=True)
     write_json(arm.results / "arm.json", s)
@@ -1111,8 +1149,12 @@ def run(arm: Arm, final_check: bool) -> dict:
             break
     exhausted = bool(summary["endpoints"]) and (
         summary["endpoints"][-1].get("receipt_status") == "total_budget_exhausted")
+    # time-matched endpoints (port of the GPU lane's 6205487): `time_budget_seconds` gives
+    # one ("time"), `time_stops` one per RL checkpoint ("time1", "time2", ...), each resuming
+    # the previous stop's boundary checkpoint on the same SFT trajectory
+    wanted = time_endpoints(s)
     resume = arm.out / f"checkpoint-{previous}" if previous else None
-    for label, seconds in time_endpoints(s):
+    for label, seconds in wanted:
         if exhausted:
             break
         if resume is not None and not resume.is_dir():
@@ -1122,14 +1164,25 @@ def run(arm: Arm, final_check: bool) -> dict:
         arm.keep_adapter(label)
         summary["endpoints"].append({
             "label": label, "steps": receipt.get("global_step"),
-            "receipt_status": receipt["status"],
+            "receipt_status": receipt["status"], "target_active_seconds": seconds,
+            # matched only if the trainer stopped on the seconds, not on the update budget
+            "time_matched": receipt["status"] != "total_budget_exhausted",
             "active_seconds": receipt["committed_active_seconds"],
             "metrics": endpoint_assay(arm, label, holdout)})
         arm.copy_small()
-        write_json(arm.results / "summary.json", summary)
-        # every stop (step or active-time) saves its own boundary checkpoint
+        write_summary(arm, summary)
         resume = arm.out / f"checkpoint-{receipt['global_step']}"
         exhausted = receipt["status"] == "total_budget_exhausted"
+    matched = {e["label"] for e in summary["endpoints"] if e.get("time_matched", True)}
+    missing = [label for label, _ in wanted if label not in matched]
+    if missing and s.get("time_stops"):
+        # a per-checkpoint control (D37) that stopped on its update cap before an RL
+        # checkpoint's seconds is not time-matched there: fail loudly (summary kept). A plan
+        # control's single "time" endpoint stays, flagged time_matched false, beside its valid
+        # examples-matched endpoint; report never compares a flagged endpoint.
+        write_summary(arm, summary)
+        raise SystemExit(f"REFUSE: time-matched endpoints {missing} not reached (update "
+                         f"budget {total} exhausted first)")
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_summary(arm, summary)
