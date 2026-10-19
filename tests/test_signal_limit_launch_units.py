@@ -736,3 +736,24 @@ def test_uw_script_checks_the_checker_before_running_it(tmp_path, monkeypatch):
     digest = hashlib.sha256((PACKAGE / "uw_stage_a.py").read_bytes()).hexdigest()
     check = f"echo {digest}'  repo/scripts/freshpool_launch/uw_stage_a.py' | sha256sum -c"
     assert check in text and text.index(check) < text.index("remote-check")
+
+
+def test_uw_pick_host_needs_idle_threads_counting_our_own_running_stages(tmp_path, monkeypatch):
+    # (load1, nproc, availGB, uwruns, localGB, ready). busy: 28 threads at load 25, 3 idle
+    # < 10; ours: load1 1 of 24, but one of OUR 16-thread stages was just launched there
+    # (load1 lags it), so 24 - 16 = 8 idle < 10; idle: 24 at load 0.5 qualifies.
+    runner = _runner(tmp_path, monkeypatch, tmp_path)
+    runner.uw = {"min_free_ram_gb": 16, "min_local_gb": 5, "per_host": 4, "threads": 16,
+                 "min_idle_threads": 10}
+    monkeypatch.setattr(uw_stage_a.UWRunner, "hosts", lambda self: {
+        "busy": (25.0, 28, 100, 0, 100, True), "idle": (0.5, 24, 100, 0, 100, True),
+        "ours": (1.0, 24, 100, 1, 100, True)})
+    running = {"r1": {"host": "ours"}}
+    assert runner.pick_host(running) == "idle"
+    monkeypatch.setattr(uw_stage_a.UWRunner, "hosts", lambda self: {
+        "ours": (1.0, 24, 100, 1, 100, True)})
+    assert runner.pick_host(running) is None  # our own stage's threads count
+    assert runner.pick_host({}) == "ours"  # without it, 23 idle threads qualify
+    monkeypatch.setattr(uw_stage_a.UWRunner, "hosts", lambda self: {
+        "busy": (25.0, 28, 100, 0, 100, True)})
+    assert runner.pick_host({}) is None  # forced fire: the only host is too busy

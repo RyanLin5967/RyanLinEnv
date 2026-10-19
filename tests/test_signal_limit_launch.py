@@ -1601,12 +1601,13 @@ def test_uw_execution_refuses_a_dry_run_plan(make, capsys):
 # ---------------------------------------------------------------- every stage on UWaterloo
 
 
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make, device):
-    hosts = None
-    if device == "cuda":  # (load, nproc, availGB, uwruns, localGB, ready, avx2, free VRAM MiB)
-        hosts = {"gpua": [0.1, 20, 80, 0, 300, 1, 1, 11000]}
-    fixture = make(uw_all=device, hosts=hosts)
+def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make):
+    # One full sequence (CI time) covers: every stage remote, W and I shipped with their run
+    # records (init_in_run: the fake entry refuses an init adapter without
+    # <run>/local_training.json beside it), and this machine's quiet mode not waited out.
+    device = "cpu"
+    fixture = make(uw_all=device, init_in_run=True)
+    (fixture.tmp / "QUIET").write_text("")
     assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-3:]
     state = fixture.state()
     assert state["status"] == "completed"
@@ -1650,36 +1651,32 @@ def test_uw_every_stage_runs_on_the_hosts_and_nothing_here(make, device):
     raw = Path(rl_star["accepted_manifest"]).with_name("accepted_manifest.jsonl")
     assert all(str(fixture.uw_root) in json.loads(line)["image"]
                for line in raw.read_text().splitlines())
-    if device == "cuda":
-        finished = [e for e in journal if e["event"] == "stage_finished"]
-        assert finished and all(
-            e["remote_peak_cuda_allocated_bytes"] == 3 * 1024**3 for e in finished)
     # Quiet mode on this machine is not waited out: no stage runs here.
     assert not [e for e in journal if e["event"] == "quiet_mode_wait"]
-
-
-def test_uw_ships_an_adapter_with_its_run_record(make):
-    # W and I are final_adapter directories inside their trainer runs; the trainer reads
-    # <run>/local_training.json, so the run directory ships with the adapter (fake rule).
-    local = make(init_in_run=True)
-    assert signal_limit.main(local.argv) == 0  # the same layout passes here
-
-
-def test_uw_ships_an_adapter_with_its_run_record_remotely(make):
-    fixture = make(uw_all="cpu", init_in_run=True)
-    assert signal_limit.main(fixture.argv) == 0, fixture.journal()[-3:]
-    calls = {c["stage"]: c for c in fixture.stages_called()}
-    assert argv_value(calls["P0-I"]["argv"], "--adapter") == (
+    by_stage = {c["stage"]: c for c in calls}
+    assert argv_value(by_stage["P0-I"]["argv"], "--adapter") == (
         "inputs/init_adapter/run-i/final_adapter")
-    stage0 = calls["Stage-0"]["argv"]
-    assert argv_value(stage0, "--init") == "inputs/init_adapter/run-w/final_adapter"
+    assert argv_value(by_stage["Stage-0"]["argv"], "--init") == (
+        "inputs/init_adapter/run-w/final_adapter")
 
 
-def test_uw_every_stage_ignores_local_quiet_mode(make):
-    fixture = make(uw_all="cpu")
-    (fixture.tmp / "QUIET").write_text("")
-    assert signal_limit.main(fixture.argv) == 0
-    assert fixture.state()["status"] == "completed"
+def test_uw_cuda_runs_every_stage_through_gate_a_on_the_gpu_host(make):
+    # The CUDA path up to Gate A (the contract evaluator fails GA on purpose, to keep CI
+    # short): P0-I, Stage 0 and Stage A all on the one GPU host, one device visible.
+    hosts = {"gpua": [0.1, 20, 80, 0, 300, 1, 1, 11000]}  # ..., avx2, free VRAM MiB
+    fixture = make(uw_all="cuda", hosts=hosts, fail_at="GA")
+    assert signal_limit.main(fixture.argv) == 2
+    assert fixture.state()["stop_reason"] == "gate_failed"
+    calls = fixture.stages_called()
+    assert {c["stage"] for c in calls} == {"P0-I", "Stage-0", *uw_stage_a_stages()}
+    for call in calls:
+        assert call["cwd"].startswith(str(fixture.uw_root))
+        assert (call["device"], call["cuda_visible"]) == ("cuda", "0")
+        assert argv_value(call["argv"], "--device") == "cuda"
+    finished = [e for e in fixture.journal() if e["event"] == "stage_finished"]
+    assert finished and all(e["device"] == "cuda"
+                            and e["remote_peak_cuda_allocated_bytes"] == 3 * 1024**3
+                            for e in finished)
 
 
 def test_uw_manifest_translation_is_what_lets_sft_e_open_its_images(make, monkeypatch):
@@ -1729,14 +1726,6 @@ def test_uw_late_useful_mixed_window_stops_after_the_fetch(make):
     fixture.write()
     assert signal_limit.main(fixture.argv) == 2
     assert fixture.state()["stop_reason"] == "rolling_useful_mixed_below_0_40"
-
-
-def test_uw_busy_host_below_the_idle_thread_floor_is_not_used(make):
-    # 28 cores at load 25: 3 idle < 6 required; the other host (load 0.5 of 24) is used.
-    fixture = make(uw_all="cpu", uw_patch={"min_idle_threads": 6},
-                   hosts={"busy": [25.0, 28, 100, 0, 100, 1], "idle": [0.5, 24, 100, 0, 100, 1]})
-    assert signal_limit.main(fixture.argv) == 0
-    assert {e["host"] for e in fixture.uw_log() if e["event"] == "run"} == {"idle"}
 
 
 def test_uw_cuda_host_below_the_vram_floor_is_not_used(make):
