@@ -1,0 +1,42 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "assay": false,
+ "beta": 0.04,
+ "cycle": true,
+ "device": "cuda",
+ "device_class": "gtx1070-fp16",
+ "dtype": "float16",
+ "e0_updates": 4,
+ "extra_trainer_args": [],
+ "family": "e0",
+ "features": [
+  "cuda"
+ ],
+ "host": "eceubuntu4",
+ "id": "e0-gtx1070-fp16-sft",
+ "init": "I",
+ "kind": "e0",
+ "lr": 1e-05,
+ "max_active_seconds": 3600,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 4,
+ "min_pixels": 50176,
+ "mode": "sft",
+ "num_generations": 8,
+ "order": "sequential",
+ "response_format": "answer_only",
+ "rung": 1,
+ "save_steps": 2,
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  2,
+  4
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "e0",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}

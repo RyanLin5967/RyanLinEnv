@@ -1,0 +1,20 @@
+{
+ "arm": "e0-gtx1070-fp16-sft",
+ "e0": {
+  "adapter_sha256": {
+   "A": "0f775d2b59942a7c6a79ce2a4365b28c6b057ee862c413886bf981a8ca5f6c77",
+   "A2": "0f775d2b59942a7c6a79ce2a4365b28c6b057ee862c413886bf981a8ca5f6c77",
+   "B": "0f775d2b59942a7c6a79ce2a4365b28c6b057ee862c413886bf981a8ca5f6c77"
+  },
+  "device": "cuda",
+  "dtype": "float16",
+  "max_abs_diff_A_A2": 0.0,
+  "max_abs_diff_A_B": 0.0,
+  "passed": true,
+  "updates": 4
+ },
+ "endpoints": [],
+ "host": "ECEUBUNTU4",
+ "receipt_sha256": "e3e436796701a2e7f51bdcb203b51c2bfa9ffbf496b9634faa8892450ba9e7f5",
+ "root": "/var/tmp/r226lin-rlcampaign"
+}

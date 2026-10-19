@@ -194,7 +194,16 @@ def main(argv=None) -> int:
     if a.kind == "cuda":
         if not torch.cuda.is_available():
             refuse("nvidia-smi sees a GPU but torch.cuda is unavailable")
+        # is_available() is True even when the wheel has no kernels for this card (cu130 on
+        # a GTX 1070, sm_61): run one kernel so such a venv refuses here, not mid-arm.
+        try:
+            probe = torch.ones(64, 64, device="cuda")
+            if float((probe @ probe).sum()) != 64.0 ** 3:
+                refuse("CUDA matmul fire-check returned a wrong value")
+        except RuntimeError as exc:
+            refuse(f"CUDA kernels do not run on this card: {str(exc)[:200]}")
         device.update(gpu=torch.cuda.get_device_name(0),
+                      torch_cuda=torch.version.cuda,
                       capability=list(torch.cuda.get_device_capability(0)),
                       vram_bytes=torch.cuda.get_device_properties(0).total_memory)
     cpuinfo = Path("/proc/cpuinfo").read_text()

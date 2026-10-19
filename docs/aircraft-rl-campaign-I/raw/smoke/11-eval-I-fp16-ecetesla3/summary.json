@@ -1,0 +1,25 @@
+{
+ "arm": "eval-I-fp16-ecetesla3",
+ "endpoints": [
+  {
+   "label": "init",
+   "metrics": {
+    "accuracy": 0.7725,
+    "adapter_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7",
+    "assay_seconds": 3358.2,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.7725,
+    "label": "init",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "steps": 0
+  }
+ ],
+ "host": "ECETESLA3",
+ "receipt_sha256": "ba1b3c584679ac11b7eb130187070049e05d7f742392c7b8400fb79787a389c4",
+ "root": "/var/tmp/r226lin-rlcampaign"
+}

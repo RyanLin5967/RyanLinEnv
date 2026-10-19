@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -102,8 +103,21 @@ def _payload_file(name: str):
     return check
 
 
+def _payload_json(v: str):
+    """The RAW table value of a file flag: an `@payload/code/...json` asset that stays inside
+    payload/code (no `..`, `.`, empty or absolute parts, no manifest). Checked before
+    resolution; `_payload_file` checks the resolved path after Arm.payload_arg."""
+    rel = v[len("@payload/"):] if v.startswith("@payload/") else ""
+    parts = rel.split("/")
+    if (not rel.endswith(".json") or parts[0] != "code" or len(parts) < 2
+            or any(x in ("", ".", "..") for x in parts) or "manifests" in parts
+            or "\\" in rel or posixpath.normpath(rel) != rel):
+        raise SystemExit(f"REFUSE: expected an @payload/code/...json asset, got {v!r}")
+
+
+MIN_DYNAMIC_DRAWS = 8  # root correction C5: fewer draws leave most G8 groups uninformative
 EXTRA_FLAGS = {
-    "--dynamic-sampling-max-draws": _int_at_least(8),  # CORRECTIONS C5: >= 8 draws
+    "--dynamic-sampling-max-draws": _int_at_least(MIN_DYNAMIC_DRAWS),  # CORRECTIONS C5
     # wave-2 table (amendment 4); values are the plan's, ranges no wider than the trainer's
     "--loss-type": _one_of("grpo", "dr_grpo", "dapo"),
     "--scale-rewards": _one_of("group", "none"),
@@ -122,12 +136,15 @@ NEVER_EXTRA = {"--train", "--validation"}
 PAYLOAD_FLAGS = {"--label-hierarchy"}
 
 
-def checked_extras(extras, base_args) -> list[str]:
-    """`extras` as trainer argv, or refuse: only EXTRA_FLAGS, each once, as `--flag value`,
-    never a flag arm_exec already passes, never --train/--validation."""
+def checked_extras(extras, base_args, resolved: bool = True) -> list[str]:
+    """`extras` as trainer argv, or refuse: only EXTRA_FLAGS, each once, as `--flag value`
+    (or a bare flag whose validator is None), never a flag arm_exec already passes, never
+    --train/--validation. `resolved` False checks a table's RAW values (refuse_spec, before
+    any stage): a file flag (PAYLOAD_FLAGS) then passes `_payload_json` instead of the
+    resolved-path check."""
     own = {a for a in base_args if isinstance(a, str) and a.startswith("--")}
     out, seen, i = [], set(), 0
-    extras = [str(x) for x in extras]
+    extras = [str(x) for x in extras or []]
     while i < len(extras):
         flag = extras[i]
         if flag in NEVER_EXTRA or flag.split("=")[0] in NEVER_EXTRA:
@@ -139,11 +156,16 @@ def checked_extras(extras, base_args) -> list[str]:
             raise SystemExit(f"REFUSE: extra {flag} would override arm_exec's own value")
         if flag in seen:
             raise SystemExit(f"REFUSE: extra {flag} given twice")
+        seen.add(flag)
+        if EXTRA_FLAGS[flag] is None:
+            out.append(flag)
+            i += 1
+            continue
         if i + 1 >= len(extras):
             raise SystemExit(f"REFUSE: extra {flag} has no value")
-        EXTRA_FLAGS[flag](extras[i + 1])
+        check = _payload_json if (flag in PAYLOAD_FLAGS and not resolved) else EXTRA_FLAGS[flag]
+        check(extras[i + 1])
         out += [flag, extras[i + 1]]
-        seen.add(flag)
         i += 2
     return out
 
@@ -152,19 +174,148 @@ def save_steps_for(spec: dict, max_steps: int) -> int:
     """--save-steps for every stage of this arm's trajectory.
 
     save_steps is part of the trainer's resume identity (settings), so it must be the same in
-    every stage of one trajectory, across promotions too. A trajectory's first arm uses the
-    gcd of its declared stops (and resume_stop); a promoted arm carries the value its
-    trajectory started with in `save_steps` (runner.promoted_arms sets it), because the gcd
-    rule alone drifts across rungs (150 -> 600 -> 1500 gives 150, 150, then 300). A stage
-    boundary always saves its own checkpoint regardless. (It was `stop`, which changed between
-    stages and made every multi-stop arm refuse to resume: "resume must preserve exact
-    model/data/profile/settings"; ported from GPU lane acdab57.)
+    every stage of one trajectory, across continuations too. A trajectory's first arm uses the
+    gcd of its declared stops (and resume_stop); a continuation carries the value its
+    trajectory started with in `save_steps` (gpu_lane.continue_spec / runner.promoted_arms set
+    it), because the gcd rule alone drifts (resume 300 -> [600] gives 300; resume 600 ->
+    [1200] gives 600). A stage boundary always saves its own checkpoint regardless. (It was
+    `stop`, which changed between stages and made every multi-stop arm refuse to resume:
+    "resume must preserve exact model/data/profile/settings". Same rule as the CPU sweep's
+    exploratory-sweep-v2.noindex cb6d7ae.)
     """
     if spec.get("save_steps"):
         return int(spec["save_steps"])
     marks = [int(x) for x in spec.get("stops") or []] + (
         [int(spec["resume_stop"])] if spec.get("resume_stop") else [])
     return math.gcd(*marks) if marks else int(max_steps)
+
+
+COTENANCY_PERIOD = 15  # seconds between co-tenancy samples during a stage
+
+
+def refuse_spec(spec: dict) -> None:
+    """Binding RL rules (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md) checked before any
+    stage runs. RL (grpo, rft) trains only in float32: bf16 GRPO failed the sampler-teacher
+    parity gate on every RTX 3070 arm (0.028 > 0.02, C2). bf16/fp16 stay allowed for SFT and
+    eval. Dynamic sampling needs at least MIN_DYNAMIC_DRAWS draws per update (C5).
+    `extra_trainer_args` must pass the allowlist (checked_extras)."""
+    if spec["mode"] in ("grpo", "rft") and spec.get("dtype", "float32") != "float32":
+        raise SystemExit(f"REFUSE: {spec['mode']} runs only in float32 (C2), not "
+                         f"{spec.get('dtype')}")
+    checked_extras(spec.get("extra_trainer_args"), [], resolved=False)  # before any stage
+
+
+def refuse_repeated_flags(argv: list) -> None:
+    """Outcome guard on the argv that actually runs: no flag may appear twice (argparse keeps
+    the last value, so a repeat overrides what the launcher set or checked)."""
+    flags = [x for x in argv if str(x).startswith("--")]
+    seen = {f for f in flags if flags.count(f) > 1}
+    if seen:
+        raise SystemExit(f"REFUSE: trainer argv repeats {sorted(seen)}")
+
+
+def stage_record(record_path: Path, started: float | None = None,
+                 stage_id: str | None = None, float32: bool = True) -> dict:
+    """The trainer's local_training.json for THIS stage. Refuses a record older than the
+    stage's start (a stage that exited 0 without rewriting it), one whose stage_id is not
+    `stage_id` (the id arm_exec chose and passed as --stage-id), and, for RL, one whose
+    RECORDED dtype is not float32 (C2: the trainer's record decides, not the spec)."""
+    path = Path(record_path)
+    if started is not None and path.stat().st_mtime < started:
+        raise SystemExit(f"REFUSE: {path} predates this stage (stale record)")
+    record = json.loads(path.read_text())
+    if stage_id is not None and record.get("stage_id") != stage_id:
+        raise SystemExit(f"REFUSE: {path} stage_id {record.get('stage_id')!r} is not this "
+                         f"stage's {stage_id!r}")
+    dtype = ((record.get("control_identity") or {}).get("profile") or {}).get("dtype")
+    if float32 and dtype != "float32":
+        raise SystemExit(f"REFUSE: the RL stage recorded dtype {dtype!r}, not float32 (C2)")
+    return record
+
+
+def stage_id_for(work: Path, label: str) -> str:
+    """The id arm_exec chooses for one stage and passes as --stage-id."""
+    return f"{work.name}-{label}"
+
+
+def check_parity(record_path: Path, started: float | None = None,
+                 stage_id: str | None = None) -> dict:
+    """A GRPO stage must have run in float32 (stage_record) and record a sampler-teacher
+    log-prob parity inside tolerance (C2)."""
+    record = stage_record(record_path, started, stage_id)
+    parity = record.get("sampler_teacher_logprob_parity")
+    if not isinstance(parity, dict) or parity.get("within_tolerance") is not True:
+        raise SystemExit(f"REFUSE: sampler-teacher parity not within tolerance: {parity}")
+    return {k: parity.get(k) for k in ("within_tolerance", "tolerance",
+                                        "max_abs_raw_teacher_vs_sampler_logprob_error")}
+
+
+class CoTenancy:
+    """Who else used this machine while a stage ran (root correction C16).
+
+    CUDA: every `nvidia-smi --query-compute-apps` sample; a process not in the stage's own
+    process tree is a co-tenant. CPU: a sample is co-tenant when load1 exceeds the stage's own
+    threads + 1 (other work shows only as load). `shared` is True when any sample saw a
+    co-tenant, None when any CUDA sample could not be taken (unknown, never "alone");
+    the campaign report refuses
+    a time comparison between an RL arm and a control whose `shared` values differ.
+    Blind spot: a co-tenant that starts and ends between two samples is not seen."""
+
+    def __init__(self, cuda: bool, threads: int = 0):
+        self.cuda, self.samples, self.foreign, self.hits, self.load = cuda, 0, {}, 0, []
+        self.threads = int(threads)
+        self.unmeasured = 0  # CUDA samples where nvidia-smi could not be run
+
+    @staticmethod
+    def tree(root: int) -> set:
+        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True,
+                             text=True).stdout.split()
+        parent = dict(zip(map(int, out[0::2]), map(int, out[1::2])))
+        mine = {root}
+        for pid in parent:
+            p = pid
+            while p and p != 1:
+                if p == root:
+                    mine.add(pid)
+                    break
+                p = parent.get(p, 0)
+        return mine
+
+    def sample(self, root: int) -> None:
+        self.samples += 1
+        load1 = os.getloadavg()[0]
+        self.load.append(load1)
+        if not self.cuda:
+            self.hits += load1 > self.threads + 1
+            return
+        try:
+            q = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,"
+                                "process_name", "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            self.unmeasured += 1  # never abort the stage (its trainer is running)
+            return
+        if q.returncode != 0:
+            self.unmeasured += 1
+            return
+        mine, hit = self.tree(root), False
+        for line in q.stdout.splitlines():
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) not in mine:
+                hit = True
+                self.foreign[parts[0]] = {"used_mib": parts[1],
+                                          "name": parts[2] if len(parts) > 2 else ""}
+        self.hits += hit
+
+    def summary(self) -> dict:
+        load = sorted(self.load)
+        return {"device": "cuda" if self.cuda else "cpu", "samples": self.samples,
+                "period_seconds": COTENANCY_PERIOD, "samples_with_cotenant": self.hits,
+                "cotenant_gpu_processes": self.foreign,
+                "shared": None if self.unmeasured else self.hits > 0,
+                "samples_unmeasured": self.unmeasured,
+                "load1_median": load[len(load) // 2] if load else None,
+                "load1_max": load[-1] if load else None}
 
 
 class Arm:
@@ -217,6 +368,9 @@ class Arm:
         path = (self.payload / text.removeprefix("@payload/")).resolve()
         if not path.is_relative_to(self.payload.resolve()) or not path.is_file():
             raise SystemExit(f"REFUSE: {text} is not a file in the payload")
+        if text.startswith("@payload/code/") and not path.is_relative_to(
+                (self.payload / "code").resolve()):  # symlinks resolved first
+            raise SystemExit(f"REFUSE: {text} resolves outside payload/code")
         return str(path)
 
     def resolved_extras(self) -> list[str]:
@@ -269,8 +423,9 @@ class Arm:
             args += ["--rft-stop-after-steps", str(stop)]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
-        resolved = self.resolved_extras()
-        return args + checked_extras(resolved, args)
+        args = args + checked_extras(self.resolved_extras(), args)
+        refuse_repeated_flags(args)  # outcome guard on the argv that actually runs
+        return args
 
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
@@ -323,9 +478,9 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        # @payload/ values resolve first; then every extra must pass the allowlist
-        resolved = self.resolved_extras()
-        return args + checked_extras(resolved, args)
+        args = args + checked_extras(self.resolved_extras(), args)
+        refuse_repeated_flags(args)  # outcome guard on the argv that actually runs
+        return args
 
     def scanned_ids(self, receipt: dict) -> dict | None:
         """Every prompt the RL arm scored against its gold label, in scan order, for a
@@ -337,6 +492,8 @@ class Arm:
         - Dynamic sampling (DAPO): every drawn group, in draw order (the trainer's
           dynamic_sampling.jsonl). A resumed update is journaled again, so the LAST block
           per update counts; each block's kept draw must be that update's committed id.
+        - Screened GRPO: every candidate the screen SCORED, accepted or not, in scan
+          order (the checkpoint's committed screen entries).
         None for any other arm (its committed ids are already everything it scored).
         """
         if self.spec["mode"] == "rft":
@@ -375,6 +532,14 @@ class Arm:
                                      f"update {step}")
                 ids += [e["id"] for e in got]
             source = "dynamic_sampling.jsonl, every draw, last block per update"
+        elif self.spec["mode"] == "grpo" and self.spec.get("screen_threshold"):
+            sys.path.insert(0, str(self.payload / "code" / "src"))
+            from vision_rl import vlm_local_training as vlt
+
+            ckpt = self.out / f"checkpoint-{int(receipt['global_step'])}"
+            entries = vlt.committed_screen_entries(ckpt)
+            ids = [e["id"] for e in sorted(entries, key=lambda e: e["scan_position"])]
+            source = "committed screen entries, every scored candidate, scan order"
         else:
             return None
         doc = {"schema": "arm_exec-scanned-ids-v1", "global_step": receipt["global_step"],
@@ -442,6 +607,9 @@ class Arm:
 
     def run_stage(self, label: str, args: list[str], stop: int | None = None) -> dict:
         if self.rft_endpoint_done(stop):
+            # an earlier attempt's completed endpoint (its stage may have been refused after
+            # the trainer finished): it must still be float32 (C2) to be reused
+            stage_record(self.out / "local_training.json")
             self.log.append({"stage": label, "rc": 0, "reused_completed_endpoint": True,
                              "argv": args})
             receipt = self.rft_receipt()
@@ -451,28 +619,76 @@ class Arm:
                                 adapter_sha256=receipt["final_adapter"]["weights_sha256"])
             return receipt
         started = time.time()
+        args = list(args)
+        sid = None
+        flag = "--rft-stop-after-steps"
+        if self.spec["mode"] == "rft":
+            # the RFT CLI takes no --stage-id: the stop that runs (rft_args' round-granular
+            # boundary) is this stage's identity, so it must be the stop the caller declared
+            ran = int(args[args.index(flag) + 1]) if flag in args else None
+            if stop is not None and ran is not None and ran != stop:
+                raise SystemExit(f"REFUSE: RFT stage {label} ran with {flag} {ran}, not {stop}")
+        else:
+            if "--stage-id" in args:
+                raise SystemExit("REFUSE: --stage-id is arm_exec's, not the caller's")
+            sid = stage_id_for(self.work, label)
+            args += ["--stage-id", sid]
         log = self.work / f"{label}.log"
+        cuda = self.spec.get("device", "cpu") == "cuda"
+        watch = CoTenancy(cuda, int(self.spec.get("threads") or 0))
         with log.open("w") as handle:
-            rc = subprocess.run([str(self.python), "-s", "-P", *args], env=self.env, stdout=handle,
-                                stderr=subprocess.STDOUT).returncode
+            proc = subprocess.Popen([str(self.python), "-s", "-P", *args], env=self.env,
+                                    stdout=handle, stderr=subprocess.STDOUT)
+            while proc.poll() is None:
+                watch.sample(proc.pid)
+                try:
+                    proc.wait(timeout=COTENANCY_PERIOD)
+                except subprocess.TimeoutExpired:
+                    pass
+            rc = proc.returncode
         tail = log.read_text().splitlines()[-25:]
         shutil.copy2(log, self.results / f"{label}.log.txt")
         entry = {"stage": label, "rc": rc, "wall_seconds": round(time.time() - started, 1),
-                 "argv": args}
+                 "argv": args, "cotenancy": watch.summary()}
         self.log.append(entry)
         if rc != 0:
             write_json(self.results / "stages.json", self.log)
             print("\n".join(tail), file=sys.stderr)
             raise SystemExit(f"REFUSE: stage {label} rc={rc}")
-        receipt = (self.rft_receipt() if self.spec["mode"] == "rft" else
-                   json.loads((self.out / "endpoint_receipt.json").read_text()))
+        # freshness and identity first: every later check reads these files
+        record = self.out / "local_training.json"
+        if self.spec["mode"] == "rft":
+            # this stage's fresh float32 record (C2) must end at THIS stage's boundary, or
+            # end the run early (rounds / max_steps / max_active_seconds:
+            # total_budget_exhausted in rft_receipt)
+            rec = stage_record(record, started)
+            got = (rec.get("boundary") or {}).get("stop_after_steps")
+            if rec.get("stop_reason") == "stop_after_steps":
+                if ran is None or got != ran:
+                    raise SystemExit(f"REFUSE: RFT record boundary {got} is not this stage's "
+                                     f"stop {ran} (stale record)")
+            elif rec.get("stop_reason") not in ("rounds", "max_steps", "max_active_seconds"):
+                raise SystemExit(f"REFUSE: RFT stage {label} ended {rec.get('stop_reason')}")
+            receipt = self.rft_receipt()
+        else:
+            receipt_file = self.out / "endpoint_receipt.json"
+            if receipt_file.stat().st_mtime < started:
+                raise SystemExit(f"REFUSE: {receipt_file} predates this stage (stale receipt)")
+            receipt = json.loads(receipt_file.read_text())
+            if receipt.get("stage_id") != sid:
+                raise SystemExit(f"REFUSE: receipt stage_id {receipt.get('stage_id')!r} is not "
+                                 f"this stage's {sid!r}")
+            stage_record(record, started, sid, float32=self.spec["mode"] == "grpo")
         adapter = self.out / receipt["final_adapter"]["path"]
         weights = receipt["final_adapter"]["weights_sha256"]
         if sha_file(adapter / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
-        self.scanned_ids(receipt)
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+        if self.spec["mode"] == "grpo":
+            entry["sampler_parity"] = check_parity(record, started, sid)
+        self.scanned_ids(receipt)
+        write_json(self.results / "stages.json", self.log)
         return receipt
 
     def rft_receipt(self) -> dict:
@@ -694,6 +910,92 @@ def score(pred: dict, gold: dict) -> dict:
             "classes": len(by)}
 
 
+def endpoint_assay(arm: Arm, label: str, holdout: str):
+    """dev800 assay of the stage's adapter; `assay: false` (E0 and timing arms) keeps the
+    adapter and records no metrics."""
+    if arm.spec.get("assay", True) is False:
+        return None
+    return arm.assay_isolated(arm.out / "final_adapter", label, holdout)
+
+
+def record_scanned(arm: Arm, receipt: dict, label: str) -> None:
+    """results/scanned/<label>.json for an RL checkpoint (the campaign's controls and its
+    rows-read check): every row the arm scored (Arm.scanned_ids), else its committed ids."""
+    if arm.spec["mode"] in ("grpo", "rft"):
+        doc = arm.scanned_ids(receipt)
+        ids = (doc["scanned_prompt_ids"] if doc is not None
+               else list(receipt.get("committed_prompt_ids") or []))
+        write_json(arm.results / "scanned" / f"{label}.json",
+                   {"label": label, "global_step": receipt.get("global_step"), "ids": ids,
+                    "source": doc["source"] if doc else "committed_prompt_ids"})
+
+
+def adapter_max_abs_diff(a: Path, b: Path) -> float:
+    from safetensors.torch import load_file
+
+    x, y = load_file(str(a / "adapter_model.safetensors")), load_file(
+        str(b / "adapter_model.safetensors"))
+    if set(x) != set(y):
+        raise SystemExit("REFUSE: E0 adapters have different tensors")
+    return max(float((x[k].double() - y[k].double()).abs().max()) for k in x)
+
+
+def run_e0(arm: Arm, manifest: Path, summary: dict) -> dict:
+    """E0 resume check (root correction C19): N updates uninterrupted, twice (A, A2: the
+    device's own run-to-run floor), and N/2 + N/2 with a checkpoint resume (B), same seed.
+    Passes when |B - A| <= 2 |A2 - A| + 1e-7 elementwise-max over the LoRA tensors (on a
+    deterministic device all three are bit-identical). No assay."""
+    n = int(arm.spec.get("e0_updates", 4))
+    if n < 2 or n % 2:
+        raise SystemExit("REFUSE: e0_updates must be an even number >= 2")
+    finals = {}
+    for tag, stops in (("A", [n]), ("A2", [n]), ("B", [n // 2, n])):
+        spec = dict(arm.spec, kind="train", stops=stops, max_steps_total=n, save_steps=n // 2,
+                    assay=False, work_id=f"{arm.spec['id']}-{tag}")
+        sub = Arm(arm.root, spec, arm.results / tag)
+        sub.results.mkdir(parents=True, exist_ok=True)
+        sub.work.mkdir(parents=True, exist_ok=True)
+        previous = None
+        for stop in stops:
+            resume = sub.out / f"checkpoint-{previous}" if previous else None
+            sub.run_stage(f"train-{stop}", sub.trainer_args(manifest, n, stop, resume))
+            previous = stop
+        sub.copy_small()
+        arm.log += [dict(e, trajectory=tag) for e in sub.log]
+        finals[tag] = sub.out / "final_adapter"
+    floor = adapter_max_abs_diff(finals["A"], finals["A2"])
+    resumed = adapter_max_abs_diff(finals["A"], finals["B"])
+    sha = {t: sha_file(p / "adapter_model.safetensors") for t, p in finals.items()}
+    summary["e0"] = {"updates": n, "adapter_sha256": sha,
+                     "max_abs_diff_A_A2": floor, "max_abs_diff_A_B": resumed,
+                     "passed": resumed <= 2 * floor + 1e-7,
+                     "device": arm.spec.get("device", "cpu"), "dtype": arm.spec.get("dtype")}
+    write_json(arm.results / "stages.json", arm.log)
+    write_json(arm.results / "summary.json", summary)
+    if not summary["e0"]["passed"]:
+        raise SystemExit(f"REFUSE: E0 resume mismatch {resumed:.3g} > floor {floor:.3g}")
+    return summary
+
+
+def time_endpoints(spec: dict) -> list:
+    """[(label, active seconds)] to stop, keep and assay at after the step stops.
+
+    `time_budget_seconds` (one value; the CPU sweep's and GPU lane's matched control) keeps
+    its label "time". `time_stops` (a strictly increasing list; the RL campaign's per-
+    checkpoint time-matched control) gives "time1", "time2", ... Both at once refuse."""
+    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
+    if one and many:
+        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
+    if one:
+        return [("time", float(one))]
+    stops = [float(x) for x in many or []]
+    # (0, s1), (s1, s2), ...: each stop must exceed the one before it, the first exceed 0.
+    # It read `not 0 < a < b`, which refuses EVERY list (the first pair has a == 0).
+    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
+        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
+    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
+
+
 def write_summary(arm: Arm, summary: dict) -> None:
     """summary.json plus peak resident memory so far (the source for runner.py's --mem table):
     self = this process, which also runs the in-process assay; children = the largest
@@ -714,6 +1016,8 @@ def run(arm: Arm, final_check: bool) -> dict:
     arm.results.mkdir(parents=True, exist_ok=True)
     arm.work.mkdir(parents=True, exist_ok=True)
     write_json(arm.results / "arm.json", s)
+    if s["mode"] != "eval":
+        refuse_spec(s)
     holdout = "h_gate_final.jsonl" if final_check else "dev800.jsonl"
     summary = {"arm": s["id"], "host": os.uname().nodename, "root": str(arm.root),
                "receipt_sha256": sha_file(arm.root / "RECEIPT.json"),
@@ -727,6 +1031,8 @@ def run(arm: Arm, final_check: bool) -> dict:
         return summary
     manifest = arm.manifest()
     kind = s.get("kind", "train")
+    if kind == "e0":
+        return run_e0(arm, manifest, summary)
     if kind == "bench":
         load_start = os.getloadavg()[0]
         arm.run_stage("bench", arm.trainer_args(manifest, s["bench_steps"], None, None))
@@ -776,23 +1082,34 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay_isolated(arm.out / "final_adapter", f"step{stop}", holdout)})
+            "metrics": endpoint_assay(arm, f"step{stop}", holdout)})
+        record_scanned(arm, receipt, f"step{stop}")
         arm.copy_small()
         write_summary(arm, summary)
         previous = stop
         if receipt["status"] == "total_budget_exhausted":
             break
-    exhausted = summary["endpoints"][-1]["receipt_status"] == "total_budget_exhausted"
-    if s.get("time_budget_seconds") and not exhausted:
-        resume = arm.out / f"checkpoint-{previous}"
-        receipt = arm.run_stage("train-time", arm.trainer_args(
-            manifest, total, None, resume, stop_seconds=float(s["time_budget_seconds"])))
-        arm.keep_adapter("time")
+    exhausted = bool(summary["endpoints"]) and (
+        summary["endpoints"][-1].get("receipt_status") == "total_budget_exhausted")
+    resume = arm.out / f"checkpoint-{previous}" if previous else None
+    for label, seconds in time_endpoints(s):
+        if exhausted:
+            break
+        if resume is not None and not resume.is_dir():
+            raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
+        receipt = arm.run_stage(f"train-{label}", arm.trainer_args(
+            manifest, total, None, resume, stop_seconds=seconds))
+        arm.keep_adapter(label)
         summary["endpoints"].append({
-            "label": "time", "steps": receipt.get("global_step"),
+            "label": label, "steps": receipt.get("global_step"),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay_isolated(arm.out / "final_adapter", "time", holdout)})
+            "metrics": endpoint_assay(arm, label, holdout)})
+        arm.copy_small()
+        write_json(arm.results / "summary.json", summary)
+        # every stop (step or active-time) saves its own boundary checkpoint
+        resume = arm.out / f"checkpoint-{receipt['global_step']}"
+        exhausted = receipt["status"] == "total_budget_exhausted"
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_summary(arm, summary)
@@ -825,7 +1142,7 @@ def main(argv=None) -> int:
         return 0
     summary = run(Arm(a.root, spec, a.results), a.final_check)
     print(json.dumps({"arm": spec["id"], "endpoints": [
-        {k: e[k] for k in ("label", "steps")} | {"accuracy": e["metrics"]["accuracy"]}
+        {k: e[k] for k in ("label", "steps")} | {"accuracy": (e["metrics"] or {}).get("accuracy")}
         for e in summary.get("endpoints", [])], "bench": summary.get("bench")}))
     return 0
 

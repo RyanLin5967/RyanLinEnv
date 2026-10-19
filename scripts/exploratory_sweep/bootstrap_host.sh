@@ -43,7 +43,13 @@ PY=$(python3 -c 'import json;print(json.load(open("PAYLOAD.json"))["pins"]["pyth
      grep -o '"python": "[0-9.]*"' PAYLOAD.json | head -1 | grep -o '[0-9.]*$')
 export UV_CACHE_DIR=$ROOT/uvcache UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python
 V=$ROOT/venv
+# torch 2.14.1+cu130 ships kernels for sm_75..sm_120 only: on a GTX 1070 (sm_61) CUDA reads
+# as available but every kernel fails ("no kernel image"; measured on ecetesla3 2026-10-18,
+# uwrun run rlc-archprobe-ecetesla3-1). The cu126 build carries sm_50..sm_90 and runs there.
 if nvidia-smi -L >/dev/null 2>&1; then KIND=cuda; INDEX=https://download.pytorch.org/whl/cu130
+  CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d ' ')
+  if awk -v c="$CAP" 'BEGIN { exit !(c + 0 < 7.5) }'; then
+    INDEX=https://download.pytorch.org/whl/cu126; fi
 else KIND=cpu; INDEX=https://download.pytorch.org/whl/cpu; fi
 if [ ! -x $V/bin/python ] || ! $V/bin/python -c 'import torch,trl,transformers,peft' 2>/dev/null; then
   rm -rf "$V"; timeout 900 uv venv -q -p "$PY" "$V"

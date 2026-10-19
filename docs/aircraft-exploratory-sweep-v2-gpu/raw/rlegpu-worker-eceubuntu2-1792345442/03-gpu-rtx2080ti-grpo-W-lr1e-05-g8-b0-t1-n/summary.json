@@ -1,0 +1,27 @@
+{
+ "arm": "gpu-rtx2080ti-grpo-W-lr1e-05-g8-b0-t1-n",
+ "endpoints": [
+  {
+   "active_seconds": 2358.220466519939,
+   "label": "step150",
+   "metrics": {
+    "accuracy": 0.69625,
+    "adapter_sha256": "52e580909fd1ae1fa559250956b53fe0590e921cbb43385b584dbac93afb8ee3",
+    "assay_seconds": 1074.0,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.69625,
+    "label": "step150",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.98
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 150
+  }
+ ],
+ "host": "eceubuntu2",
+ "receipt_sha256": "6213aed26ee791d3e1a81fc8f049653f4eadd81c7b16f1d0de91059c79cb2691",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

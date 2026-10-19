@@ -633,7 +633,9 @@ def _rft_out(tmp_path, rounds, stop_reason="stop_after_steps", epochs=1):
         "active_seconds": 12.5, "settings": {"epochs_per_round": epochs},
         "final_adapter_sha256": arm_exec.sha_file(out / "final_adapter" /
                                                   "adapter_model.safetensors"),
-        "rounds": entries}))
+        "rounds": entries,
+        # the trainer records its profile; arm_exec reuses only a float32 endpoint (C2)
+        "control_identity": {"profile": {"dtype": "float32"}}}))
     return arm_exec.Arm(tmp_path / "root", {"id": "a", "mode": "rft"}, tmp_path / "r")
 
 
