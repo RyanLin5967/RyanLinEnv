@@ -19,6 +19,25 @@
    },
    "receipt_status": "boundary_reached",
    "steps": 300
+  },
+  {
+   "active_seconds": 13114.930167917162,
+   "label": "step600",
+   "metrics": {
+    "accuracy": 0.7675,
+    "adapter_sha256": "0e73058293660ddbd0e5dcab33026579df7ff8da98480509628d41875b8b99b2",
+    "assay_seconds": 6710.1,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.7675,
+    "label": "step600",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.9925
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 600
   }
  ],
  "host": "iccad12",

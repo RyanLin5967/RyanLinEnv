@@ -1,8 +1,8 @@
 {
   "after_train_diagnostic": {
-    "accuracy": 0.625,
+    "accuracy": 0.75,
     "invalid_answers": 1,
-    "mean_class_accuracy": 0.625,
+    "mean_class_accuracy": 0.75,
     "n": 8,
     "per_class_accuracy": {
       "A340-300": 0.0,
@@ -11,7 +11,7 @@
       "Dornier 328": 1.0,
       "E-190": 1.0,
       "Fokker 70": 0.0,
-      "Gulfstream IV": 0.0,
+      "Gulfstream IV": 1.0,
       "Tornado": 1.0
     },
     "protocol": "canonical-label-v2/optional-tags/greedy/pass@1"
@@ -64,7 +64,7 @@
     },
     "validation": null
   },
-  "created_at": "2026-10-18T22:43:29.665515+00:00",
+  "created_at": "2026-10-19T02:14:07.221041+00:00",
   "environment": {
     "adapter_source_sha256": "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0",
     "device": "cpu",
@@ -89,7 +89,7 @@
     }
   },
   "final_adapter": "/dev/shm/r226lin-sftceil/arms/sftceil-cont-all-lr2e-5/train/final_adapter",
-  "final_adapter_sha256": "2fbf90d5fd027962ac050b4689bc1503e0e05f0f1472a00bc0646cf8b74efb2d",
+  "final_adapter_sha256": "0e73058293660ddbd0e5dcab33026579df7ff8da98480509628d41875b8b99b2",
   "finalize_only": false,
   "held_out_benchmark_improvement": "unmeasured",
   "initial_adapter_tensor_audit": {
@@ -117,35 +117,35 @@
     "total_bytes": 4429621382
   },
   "optimizer_audit": {
-    "active_seconds": 6434.5792983062565,
+    "active_seconds": 6680.350869610906,
     "active_time": {
-      "committed_active_seconds": 6434.5792983062565,
-      "committed_global_step": 300,
+      "committed_active_seconds": 13114.930167917162,
+      "committed_global_step": 600,
       "completed_not_checkpointed_active_seconds": 0.0,
-      "completed_state_active_seconds": 6434.5792983062565,
+      "completed_state_active_seconds": 13114.930167917162,
       "hard_total_physical_compute_cap": false,
-      "invocation_active_seconds": 6434.5792983062565,
+      "invocation_active_seconds": 6680.350869610906,
       "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
-      "observed_physical_active_seconds": 6434.5792983062565,
-      "observed_reward_journal_io_seconds": 0.035957036539912224,
-      "resumed_committed_active_seconds": 0.0,
+      "observed_physical_active_seconds": 13114.930167917162,
+      "observed_reward_journal_io_seconds": 0.06855827942490578,
+      "resumed_committed_active_seconds": 6434.5792983062565,
       "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
       "total_budget_seconds": 172800.0,
       "unknown_partial_invocations": 0
     },
     "changed_tensors": 112,
-    "completed_state_active_seconds": 6434.5792983062565,
+    "completed_state_active_seconds": 13114.930167917162,
     "first_nonzero_update": {
       "changed_tensors_since_invocation_start": 112,
-      "global_step": 1,
-      "gradient_norm": 1.00000003188461,
-      "parameter_delta_l2_since_invocation_start": 0.02084809845227143
+      "global_step": 301,
+      "gradient_norm": 0.4188301522850423,
+      "parameter_delta_l2_since_invocation_start": 0.005473551844128856
     },
-    "latest_gradient_norm": 0.9999998174675799,
-    "max_gradient_norm_observed": 1.0000000684697146,
+    "latest_gradient_norm": 0.999999919019839,
+    "max_gradient_norm_observed": 1.0000001077535159,
     "nonzero_gradient_steps": 300,
     "optimizer_steps_observed": 300,
-    "parameter_delta_l2": 0.34414733867383135
+    "parameter_delta_l2": 0.29922020707712527
   },
   "parameter_dtypes": {
     "frozen": {
@@ -156,13 +156,13 @@
     }
   },
   "probe": {
-    "after_train_gold_nll": 0.20951554114951498,
-    "gold_nll_improved": false,
+    "after_train_gold_nll": 0.16332341793670574,
+    "gold_nll_improved": true,
     "gradient_and_weight_change": true,
     "held_out_benchmark_gain": "not measured by this diagnostic",
     "mixed_reward_groups": null,
     "reload_nll_agrees": true,
-    "reloaded_train_gold_nll": 0.20951554114951498,
+    "reloaded_train_gold_nll": 0.16332341793670574,
     "sampler_teacher_logprob_parity": null
   },
   "processor_audit": {
@@ -200,9 +200,9 @@
   "regularization_profile": "completion-only-SFT",
   "requested_boundary": {
     "stop_after_active_seconds": null,
-    "stop_after_steps": 300
+    "stop_after_steps": 600
   },
-  "resumed_from": null,
+  "resumed_from": "/dev/shm/r226lin-sftceil/arms/sftceil-cont-all-lr2e-5/train/checkpoint-300",
   "reward_audit": null,
   "schema_version": 1,
   "settings": {
@@ -1864,11 +1864,11 @@
     "0522914"
   ],
   "train_metrics": {
-    "epoch": 0.2066115702479339,
-    "train_loss": 0.12043782668858816,
-    "train_runtime": 6444.3819,
-    "train_samples_per_second": 0.047,
-    "train_steps_per_second": 0.047
+    "epoch": 0.4132231404958678,
+    "train_loss": 0.10544187631572868,
+    "train_runtime": 6691.1001,
+    "train_samples_per_second": 0.045,
+    "train_steps_per_second": 0.045
   },
   "trainable_parameters": {
     "count": 1089536,
