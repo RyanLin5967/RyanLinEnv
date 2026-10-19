@@ -668,7 +668,7 @@ def test_prompts_per_update_refuses_duplicate_train_ids(tmp_path, monkeypatch):
     data = tmp_path / "data"
     local.make_probe_data(data)
     rows = (data / "train.jsonl").read_text().splitlines()
-    replay = tmp_path / "replay.jsonl"
+    replay = data / "replay.jsonl"  # beside the images its relative paths name
     replay.write_text("\n".join(rows + rows[:1]) + "\n")  # one TRAIN id twice
     loader = local.load_classification
     monkeypatch.setattr(local, "load_classification",
