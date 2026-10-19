@@ -1,0 +1,995 @@
+{
+ "map": {
+  "707-320": {
+   "confusers": [
+    "DC-8"
+   ],
+   "family": [],
+   "observed": [
+    "DC-8"
+   ]
+  },
+  "727-200": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "737-200": {
+   "confusers": [
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "observed": []
+  },
+  "737-300": {
+   "confusers": [
+    "737-200",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "observed": [
+    "737-500"
+   ]
+  },
+  "737-400": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "observed": []
+  },
+  "737-500": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-600",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "observed": []
+  },
+  "737-600": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-700",
+    "737-800",
+    "737-900"
+   ],
+   "observed": [
+    "737-500",
+    "737-700"
+   ]
+  },
+  "737-700": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-800",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-800",
+    "737-900"
+   ],
+   "observed": [
+    "737-300",
+    "737-500"
+   ]
+  },
+  "737-800": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-900"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-900"
+   ],
+   "observed": [
+    "737-300",
+    "737-400"
+   ]
+  },
+  "737-900": {
+   "confusers": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800"
+   ],
+   "family": [
+    "737-200",
+    "737-300",
+    "737-400",
+    "737-500",
+    "737-600",
+    "737-700",
+    "737-800"
+   ],
+   "observed": []
+  },
+  "747-100": {
+   "confusers": [
+    "747-200",
+    "747-300",
+    "747-400"
+   ],
+   "family": [
+    "747-200",
+    "747-300",
+    "747-400"
+   ],
+   "observed": []
+  },
+  "747-200": {
+   "confusers": [
+    "747-100",
+    "747-300",
+    "747-400"
+   ],
+   "family": [
+    "747-100",
+    "747-300",
+    "747-400"
+   ],
+   "observed": []
+  },
+  "747-300": {
+   "confusers": [
+    "747-100",
+    "747-200",
+    "747-400"
+   ],
+   "family": [
+    "747-100",
+    "747-200",
+    "747-400"
+   ],
+   "observed": []
+  },
+  "747-400": {
+   "confusers": [
+    "747-100",
+    "747-200",
+    "747-300"
+   ],
+   "family": [
+    "747-100",
+    "747-200",
+    "747-300"
+   ],
+   "observed": []
+  },
+  "757-200": {
+   "confusers": [
+    "757-300"
+   ],
+   "family": [
+    "757-300"
+   ],
+   "observed": []
+  },
+  "757-300": {
+   "confusers": [
+    "757-200"
+   ],
+   "family": [
+    "757-200"
+   ],
+   "observed": []
+  },
+  "767-200": {
+   "confusers": [
+    "767-300",
+    "767-400"
+   ],
+   "family": [
+    "767-300",
+    "767-400"
+   ],
+   "observed": []
+  },
+  "767-300": {
+   "confusers": [
+    "747-400",
+    "757-200",
+    "767-200",
+    "767-400",
+    "777-200"
+   ],
+   "family": [
+    "767-200",
+    "767-400"
+   ],
+   "observed": [
+    "747-400",
+    "757-200",
+    "777-200"
+   ]
+  },
+  "767-400": {
+   "confusers": [
+    "767-200",
+    "767-300"
+   ],
+   "family": [
+    "767-200",
+    "767-300"
+   ],
+   "observed": []
+  },
+  "777-200": {
+   "confusers": [
+    "777-300"
+   ],
+   "family": [
+    "777-300"
+   ],
+   "observed": [
+    "777-300"
+   ]
+  },
+  "777-300": {
+   "confusers": [
+    "777-200"
+   ],
+   "family": [
+    "777-200"
+   ],
+   "observed": []
+  },
+  "A300B4": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "A310": {
+   "confusers": [
+    "A300B4"
+   ],
+   "family": [],
+   "observed": [
+    "A300B4"
+   ]
+  },
+  "A318": {
+   "confusers": [
+    "A319",
+    "A320",
+    "A321"
+   ],
+   "family": [
+    "A319",
+    "A320",
+    "A321"
+   ],
+   "observed": [
+    "A319"
+   ]
+  },
+  "A319": {
+   "confusers": [
+    "A318",
+    "A320",
+    "A321"
+   ],
+   "family": [
+    "A318",
+    "A320",
+    "A321"
+   ],
+   "observed": [
+    "A320"
+   ]
+  },
+  "A320": {
+   "confusers": [
+    "767-300",
+    "A318",
+    "A319",
+    "A321",
+    "DC-10",
+    "DC-8",
+    "E-195",
+    "Fokker 100",
+    "Metroliner",
+    "Model B200"
+   ],
+   "family": [
+    "A318",
+    "A319",
+    "A321"
+   ],
+   "observed": [
+    "767-300",
+    "DC-10",
+    "DC-8",
+    "E-195",
+    "Fokker 100",
+    "Metroliner",
+    "Model B200"
+   ]
+  },
+  "A321": {
+   "confusers": [
+    "A318",
+    "A319",
+    "A320"
+   ],
+   "family": [
+    "A318",
+    "A319",
+    "A320"
+   ],
+   "observed": []
+  },
+  "A330-200": {
+   "confusers": [
+    "A330-300"
+   ],
+   "family": [
+    "A330-300"
+   ],
+   "observed": []
+  },
+  "A330-300": {
+   "confusers": [
+    "A330-200"
+   ],
+   "family": [
+    "A330-200"
+   ],
+   "observed": []
+  },
+  "A340-200": {
+   "confusers": [
+    "A340-300",
+    "A340-500",
+    "A340-600"
+   ],
+   "family": [
+    "A340-300",
+    "A340-500",
+    "A340-600"
+   ],
+   "observed": []
+  },
+  "A340-300": {
+   "confusers": [
+    "A340-200",
+    "A340-500",
+    "A340-600"
+   ],
+   "family": [
+    "A340-200",
+    "A340-500",
+    "A340-600"
+   ],
+   "observed": []
+  },
+  "A340-500": {
+   "confusers": [
+    "A330-300",
+    "A340-200",
+    "A340-300",
+    "A340-600"
+   ],
+   "family": [
+    "A340-200",
+    "A340-300",
+    "A340-600"
+   ],
+   "observed": [
+    "A330-300"
+   ]
+  },
+  "A340-600": {
+   "confusers": [
+    "A340-200",
+    "A340-300",
+    "A340-500"
+   ],
+   "family": [
+    "A340-200",
+    "A340-300",
+    "A340-500"
+   ],
+   "observed": []
+  },
+  "A380": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "ATR-42": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "ATR-72": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "An-12": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "BAE 146-200": {
+   "confusers": [
+    "BAE 146-300",
+    "Beechcraft 1900"
+   ],
+   "family": [
+    "BAE 146-300"
+   ],
+   "observed": [
+    "BAE 146-300",
+    "Beechcraft 1900"
+   ]
+  },
+  "BAE 146-300": {
+   "confusers": [
+    "BAE 146-200"
+   ],
+   "family": [
+    "BAE 146-200"
+   ],
+   "observed": []
+  },
+  "BAE-125": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Beechcraft 1900": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Boeing 717": {
+   "confusers": [
+    "DC-9-30",
+    "Fokker 100",
+    "MD-87"
+   ],
+   "family": [],
+   "observed": [
+    "DC-9-30",
+    "Fokker 100",
+    "MD-87"
+   ]
+  },
+  "C-130": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "C-47": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "CRJ-200": {
+   "confusers": [
+    "CRJ-700"
+   ],
+   "family": [],
+   "observed": [
+    "CRJ-700"
+   ]
+  },
+  "CRJ-700": {
+   "confusers": [
+    "CRJ-900"
+   ],
+   "family": [
+    "CRJ-900"
+   ],
+   "observed": []
+  },
+  "CRJ-900": {
+   "confusers": [
+    "CRJ-700"
+   ],
+   "family": [
+    "CRJ-700"
+   ],
+   "observed": []
+  },
+  "Cessna 172": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Cessna 208": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Cessna 525": {
+   "confusers": [
+    "Cessna 560"
+   ],
+   "family": [
+    "Cessna 560"
+   ],
+   "observed": []
+  },
+  "Cessna 560": {
+   "confusers": [
+    "Cessna 525"
+   ],
+   "family": [
+    "Cessna 525"
+   ],
+   "observed": []
+  },
+  "Challenger 600": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DC-10": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DC-3": {
+   "confusers": [
+    "C-47"
+   ],
+   "family": [],
+   "observed": [
+    "C-47"
+   ]
+  },
+  "DC-6": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DC-8": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DC-9-30": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DH-82": {
+   "confusers": [
+    "Spitfire"
+   ],
+   "family": [],
+   "observed": [
+    "Spitfire"
+   ]
+  },
+  "DHC-1": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DHC-6": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "DHC-8-100": {
+   "confusers": [
+    "DHC-8-300",
+    "Dornier 328"
+   ],
+   "family": [
+    "DHC-8-300"
+   ],
+   "observed": [
+    "DHC-8-300",
+    "Dornier 328"
+   ]
+  },
+  "DHC-8-300": {
+   "confusers": [
+    "DHC-8-100"
+   ],
+   "family": [
+    "DHC-8-100"
+   ],
+   "observed": []
+  },
+  "DR-400": {
+   "confusers": [
+    "Cessna 208",
+    "DH-82",
+    "Dornier 328",
+    "PA-28",
+    "SR-20"
+   ],
+   "family": [],
+   "observed": [
+    "Cessna 208",
+    "DH-82",
+    "Dornier 328",
+    "PA-28",
+    "SR-20"
+   ]
+  },
+  "Dornier 328": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "E-170": {
+   "confusers": [
+    "E-190",
+    "E-195"
+   ],
+   "family": [
+    "E-190",
+    "E-195"
+   ],
+   "observed": []
+  },
+  "E-190": {
+   "confusers": [
+    "E-170",
+    "E-195"
+   ],
+   "family": [
+    "E-170",
+    "E-195"
+   ],
+   "observed": [
+    "E-170"
+   ]
+  },
+  "E-195": {
+   "confusers": [
+    "E-170",
+    "E-190"
+   ],
+   "family": [
+    "E-170",
+    "E-190"
+   ],
+   "observed": []
+  },
+  "EMB-120": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "ERJ 135": {
+   "confusers": [
+    "ERJ 145"
+   ],
+   "family": [
+    "ERJ 145"
+   ],
+   "observed": [
+    "ERJ 145"
+   ]
+  },
+  "ERJ 145": {
+   "confusers": [
+    "ERJ 135"
+   ],
+   "family": [
+    "ERJ 135"
+   ],
+   "observed": []
+  },
+  "Embraer Legacy 600": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Eurofighter Typhoon": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "F-16A/B": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "F/A-18": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Falcon 2000": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Falcon 900": {
+   "confusers": [
+    "Falcon 2000"
+   ],
+   "family": [],
+   "observed": [
+    "Falcon 2000"
+   ]
+  },
+  "Fokker 100": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Fokker 50": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Fokker 70": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Global Express": {
+   "confusers": [
+    "Challenger 600"
+   ],
+   "family": [],
+   "observed": [
+    "Challenger 600"
+   ]
+  },
+  "Gulfstream IV": {
+   "confusers": [
+    "Gulfstream V"
+   ],
+   "family": [
+    "Gulfstream V"
+   ],
+   "observed": [
+    "Gulfstream V"
+   ]
+  },
+  "Gulfstream V": {
+   "confusers": [
+    "Gulfstream IV"
+   ],
+   "family": [
+    "Gulfstream IV"
+   ],
+   "observed": []
+  },
+  "Hawk T1": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Il-76": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "L-1011": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "MD-11": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "MD-80": {
+   "confusers": [
+    "MD-87",
+    "MD-90"
+   ],
+   "family": [
+    "MD-87"
+   ],
+   "observed": [
+    "MD-87",
+    "MD-90"
+   ]
+  },
+  "MD-87": {
+   "confusers": [
+    "DC-9-30",
+    "MD-80",
+    "MD-90"
+   ],
+   "family": [
+    "MD-80"
+   ],
+   "observed": [
+    "DC-9-30",
+    "MD-90"
+   ]
+  },
+  "MD-90": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Metroliner": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Model B200": {
+   "confusers": [
+    "Beechcraft 1900"
+   ],
+   "family": [],
+   "observed": [
+    "Beechcraft 1900"
+   ]
+  },
+  "PA-28": {
+   "confusers": [
+    "SR-20"
+   ],
+   "family": [],
+   "observed": [
+    "SR-20"
+   ]
+  },
+  "SR-20": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Saab 2000": {
+   "confusers": [
+    "Saab 340"
+   ],
+   "family": [],
+   "observed": [
+    "Saab 340"
+   ]
+  },
+  "Saab 340": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Spitfire": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Tornado": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Tu-134": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Tu-154": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  },
+  "Yak-42": {
+   "confusers": [],
+   "family": [],
+   "observed": []
+  }
+ },
+ "rule": "confusers(gold) = taxonomy-train-only family siblings U valid wrong answers observed for that gold label in the freshpool P0 G4 rollouts (TRAIN images); invalid answers add nothing; frozen, no change after any output is seen",
+ "schema_version": 1,
+ "sources": {
+  "completions": 512,
+  "groups": 128,
+  "p0_reward_groups": [
+   {
+    "path": "runs/aircraft-freshpool-v1/stages/p0/instance-1/rollout-seed314-00/reward_groups.jsonl",
+    "sha256": "2cf2856f880fd0641335d1b0480136d18b6ed9a85c588b6c8cc4c2a291cf3a65"
+   },
+   {
+    "path": "runs/aircraft-freshpool-v1/stages/p0/instance-1/rollout-seed314-01/reward_groups.jsonl",
+    "sha256": "1e6e4ab73c37979ed5db244f5513880580c92c0413ab89e95191d4db7d78ee47"
+   },
+   {
+    "path": "runs/aircraft-freshpool-v1/stages/p0/instance-1/rollout-seed42-00/reward_groups.jsonl",
+    "sha256": "82d1cdb09292247b58d72f3fbd6ff2ef53f5f1e8232245877994d12eaa1c89d0"
+   },
+   {
+    "path": "runs/aircraft-freshpool-v1/stages/p0/instance-1/rollout-seed42-01/reward_groups.jsonl",
+    "sha256": "774d93b9d5dbc7d89f8bc9f8d767b8163fecbbe330c33280f2264d8e8c051cdb"
+   }
+  ],
+  "taxonomy": "taxonomy-train-only.json (sha256 in this file's pins)",
+  "taxonomy_sha256": "ac2ae10d096871ecabd12fdfddd803ff92d4bc5222dbb86310ed9c819cf3f2a9"
+ }
+}

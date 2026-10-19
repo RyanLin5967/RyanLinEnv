@@ -185,6 +185,31 @@ def jsonl_ids(path):
     return [row["id"] for row in rows]
 
 
+def init_endpoint(plan):
+    """The plan's init endpoint: ``init_endpoint`` (signal-limit name: the endpoint every
+    stage of this plan starts from and keeps as its reference), else the legacy
+    ``w_endpoint``. A plan naming both must name the same endpoint."""
+    init, w = plan.get("init_endpoint"), plan.get("w_endpoint")
+    if init is not None and w is not None and init != w:
+        raise Stop("init_endpoint_conflicts_with_w_endpoint")
+    return init if init is not None else (w or {})
+
+
+def update_counts(plan):
+    """Update counts from the plan's ``updates`` block ({"rl_screen": N, "final": N}), else the
+    module values (150, 600: the freshpool study, read at call time so the CPU dry run's
+    scaled counts still apply). Refuses a block that is not two positive integers with the
+    screen count below the final one."""
+    counts = plan.get("updates")
+    if counts is None:
+        return {"rl_screen": RL_SCREEN_UPDATES, "final": FINAL_UPDATES}
+    if (not isinstance(counts, dict) or any(
+            type(counts.get(k)) is not int or counts[k] < 1 for k in ("rl_screen", "final"))
+            or counts["rl_screen"] >= counts["final"]):
+        raise Stop("plan_update_counts_invalid", updates=counts)
+    return {"rl_screen": counts["rl_screen"], "final": counts["final"]}
+
+
 def free_bytes(path):
     return shutil.disk_usage(path).free
 
@@ -467,6 +492,14 @@ def verify_plan(plan_path, expected):
         if os.environ.get(name) != value:
             raise Stop("frozen_environment_differs", variable=name)
     verify_device(plan)
+    verify_limits(plan, FORECASTS)
+    templates = plan.get("templates") or {}
+    verify_template_shapes(templates, TEMPLATES)
+    verify_stage_templates(templates, update_counts(plan))
+    return verify_freshpool_rest(plan)
+
+
+def verify_limits(plan, forecast_names):
     limits = plan.get("limits") or {}
     reserve = limits.get("minimum_free_bytes")
     if type(reserve) is not int or reserve < DISK_RESERVE_BYTES:
@@ -476,12 +509,14 @@ def verify_plan(plan_path, expected):
         if not is_number(value) or value <= 0:
             raise Stop("limit_missing_or_invalid", limit=name)
     forecasts = plan.get("forecast_seconds") or {}
-    for name in FORECASTS:
+    for name in forecast_names:
         value = forecasts.get(name)
         if not is_number(value) or value <= 0:
             raise Stop("forecast_missing_or_invalid", forecast=name)
-    templates = plan.get("templates") or {}
-    for name in TEMPLATES:
+
+
+def verify_template_shapes(templates, names):
+    for name in names:
         template = templates.get(name)
         if (
             not isinstance(template, dict)
@@ -495,7 +530,9 @@ def verify_plan(plan_path, expected):
             # study.json budget_matching.caps: an interrupted arm is re-run from scratch,
             # never resumed and quoted, so a plan cannot even declare a resume command.
             raise Stop("template_declares_resume_argv", template=name)
-    verify_stage_templates(templates)
+
+
+def verify_freshpool_rest(plan):
     if type(plan.get("b4_edge_extension")) is not bool:
         raise Stop("b4_edge_extension_not_stated")
     grid = sorted([*GRID, *([B4_LR] if plan["b4_edge_extension"] else [])])
@@ -509,21 +546,26 @@ def verify_plan(plan_path, expected):
         raise Stop("grid_differs_from_evaluator", grid=grid, evaluator=expected_grid)
     if evaluator["COMPLETIONS"] != COMPLETIONS:
         raise Stop("completions_differ_from_evaluator", evaluator=evaluator["COMPLETIONS"])
-    w = plan.get("w_endpoint") or {}
+    w = init_endpoint(plan)
     if not HEX64.fullmatch(str(w.get("adapter_sha256"))) or not w.get("adapter_path"):
-        raise Stop("w_endpoint_identity_missing")
+        raise Stop("init_endpoint_identity_missing" if "init_endpoint" in plan
+                   else "w_endpoint_identity_missing")
     if not isinstance(plan.get("owner_patterns"), list) or not plan["owner_patterns"]:
         raise Stop("owner_patterns_missing")
     sources = plan.get("forecast_sources") or {}
     for name in ("grpo_seconds_per_update", "sft_seconds_per_update"):
         if not is_number(sources.get(name)) or sources[name] <= 0:
             raise Stop("forecast_source_missing_or_invalid", source=name)
+    verify_quiet_and_headroom(plan)
+    return plan, grid, evaluator
+
+
+def verify_quiet_and_headroom(plan):
     if not isinstance(plan.get("quiet_file"), str) or not plan["quiet_file"]:
         raise Stop("quiet_file_not_stated")
-    headroom = limits.get("stage_headroom_bytes")
+    headroom = (plan.get("limits") or {}).get("stage_headroom_bytes")
     if type(headroom) is not int or headroom < 0:
         raise Stop("limit_missing_or_invalid", limit="stage_headroom_bytes")
-    return plan, grid, evaluator
 
 
 def flag_values(argv, flag):
@@ -546,7 +588,7 @@ def wrapper_and_trainer(argv):
     return argv[:split], argv[split + 1:]
 
 
-def verify_stage_templates(templates):
+def verify_stage_templates(templates, counts=None, tokenized=TOKENIZED_TEMPLATES):
     """Checked at plan load, before any stage runs:
     - rl150/rl600 give the wrapper exactly one ``--output`` under ``{arm_dir}``, so the live
       useful-mixed tail can see the trainer's reward_groups.jsonl (otherwise the stage would
@@ -562,7 +604,11 @@ def verify_stage_templates(templates):
       ``--max-steps`` above 600, so SFT-E ends boundary_reached and SFT-T can continue it
       (otherwise every SFT-E arm would run and stop only at its fragment check), and
       ``--order sequential --cycle``, without which the trainer refuses that max_steps on
-      a 600-row manifest."""
+      a 600-row manifest.
+    ``counts`` is update_counts(plan): 150 and 600 above are its rl_screen and final values
+    (the freshpool values when the plan states none)."""
+    counts = counts or update_counts({})
+    final = counts["final"]
     for name in ("rl150", "rl600", "sft_e"):
         parts = wrapper_and_trainer(templates[name]["argv"])
         if parts is None or not all(isinstance(a, str) for a in templates[name]["argv"]):
@@ -575,17 +621,17 @@ def verify_stage_templates(templates):
                 or not (target == "{arm_dir}" or target.startswith("{arm_dir}/"))
                 or ".." in target.split("/")):
             raise Stop("template_output_not_under_arm_dir", template=name, output=outputs)
-    verify_rl_continuation_templates(templates)
-    for name in TOKENIZED_TEMPLATES:
+    verify_rl_continuation_templates(templates, counts["rl_screen"])
+    for name in tokenized:
         if flag_values(templates[name]["argv"], "--screen-tokenizations") != [
                 "{screen_tokenizations}"]:
             raise Stop("template_screen_tokenizations_missing", template=name)
     _, trainer = wrapper_and_trainer(templates["sft_e"]["argv"])
     stops, maxes = flag_values(trainer, "--stop-after-steps"), flag_values(trainer, "--max-steps")
-    if stops != [str(FINAL_UPDATES)]:
+    if stops != [str(final)]:
         raise Stop("sft_e_template_stop_after_steps_not_600", stop_after_steps=stops)
     if (len(maxes) != 1 or not isinstance(maxes[0], str) or not maxes[0].isdigit()
-            or int(maxes[0]) <= FINAL_UPDATES):
+            or int(maxes[0]) <= final):
         raise Stop("sft_e_template_max_steps_not_above_600", max_steps=maxes)
     # RL*'s accepted manifest holds exactly FINAL_UPDATES rows, and the trainer refuses a
     # sequential run whose max_steps exceeds its manifest unless it cycles
@@ -608,10 +654,11 @@ def without_flag(argv, flag):
     return result
 
 
-def verify_rl_continuation_templates(templates):
+def verify_rl_continuation_templates(templates, rl_screen=None):
+    rl_screen = RL_SCREEN_UPDATES if rl_screen is None else rl_screen
     _, first = wrapper_and_trainer(templates["rl150"]["argv"])
     _, second = wrapper_and_trainer(templates["rl600"]["argv"])
-    if flag_values(first, "--stop-after-steps") != [str(RL_SCREEN_UPDATES)]:
+    if flag_values(first, "--stop-after-steps") != [str(rl_screen)]:
         raise Stop("rl150_template_stop_after_steps_not_150",
                    stop_after_steps=flag_values(first, "--stop-after-steps"))
     if flag_values(second, "--stop-after-steps"):
@@ -728,18 +775,18 @@ def verify_manifest_content(directory, manifest, base, evaluator, images_sha256=
 IMAGE_MANIFESTS = ("h_select.jsonl", "h_gate.jsonl", "s_scan_seed42.jsonl")
 
 
-def images_digest(directory):
+def images_digest(directory, names=IMAGE_MANIFESTS):
     """SHA256 over ``<manifest>\\t<id>\\t<image file sha256>\\n`` for every row a stage reads,
     in manifest order: the image CONTENT the G0 manifests name, as one pin."""
     digest = hashlib.sha256()
-    for name in IMAGE_MANIFESTS:
+    for name in names:
         for row in read_jsonl(directory / name):
             digest.update(f"{name}\t{row['id']}\t{sha((directory / row['image']).resolve())}\n"
                           .encode())
     return digest.hexdigest()
 
 
-def verify_manifest_images(directory, expected_sha256):
+def verify_manifest_images(directory, expected_sha256, names=IMAGE_MANIFESTS):
     """Every row a stage reads (H-select, H-gate, S_scan_seed42) names an image file that
     exists, resolved the way the trainer and the assays resolve it: against the manifest's
     own directory, and the images' bytes hash to the plan's ``g0.images_sha256``. The G0
@@ -747,7 +794,7 @@ def verify_manifest_images(directory, expected_sha256):
     a launch would pass G0 and die at E0's first image; without the second a replaced image
     would be trained on unseen."""
     missing = []
-    for name in IMAGE_MANIFESTS:
+    for name in names:
         for row in read_jsonl(directory / name):
             image = row.get("image") if isinstance(row, dict) else None
             if not isinstance(image, str) or not (directory / image).resolve().is_file():
@@ -756,7 +803,7 @@ def verify_manifest_images(directory, expected_sha256):
         raise Stop("g0_manifest_image_missing", count=len(missing), first=missing[:5])
     if not HEX64.fullmatch(str(expected_sha256)):
         raise Stop("g0_images_not_pinned")
-    if images_digest(directory) != expected_sha256:
+    if images_digest(directory, names) != expected_sha256:
         raise Stop("g0_image_content_differs")
 
 
@@ -1115,8 +1162,31 @@ class Launcher:
         enforces the rolling useful-mixed standing stop live."""
         if stage_id in self.state["completed"]:
             return self.state["completed"][stage_id]["fragment"]
-        template = self.plan["templates"][template_name]
         self.wait_while_quiet(stage_id)
+        context = self.prepare(stage_id, template_name, arm, forecast, values,
+                               inherited_seconds=inherited_seconds, lineage=lineage)
+        command = [
+            self.plan["python"], "-B", str(HERE / "phase_worker.py"),
+            "--guard-dir", str(self.ledger.directory / "guards"), "--stage", stage_id,
+            "--kind", context["template"]["kind"], "--entry", context["template"]["entry"],
+            "--entry-sha256", context["template"]["entry_sha256"],
+            *(["--dry-run"] if self.plan.get("dry_run") is True else []), "--",
+            *context["forwarded"],
+        ]
+        self.start_instance(context, command=command, live_useful_mixed=watch_mixed)
+        monitor = MixedMonitor(context["arm_dir"]) if watch_mixed else None
+        outcome = self.supervise(stage_id, command, context["stage_dir"], context["used"],
+                                 context["cap"], monitor, instance=context["instance"])
+        return self.finish(context, outcome, validate, monitor)
+
+    def prepare(self, stage_id, template_name, arm, forecast, values, *,
+                inherited_seconds=0.0, lineage=(), owner_scan=True):
+        """Everything ``run`` does before a stage starts, for any executor: pins, disk
+        reserve and headroom, the owner scan, the void of an interrupted instance (charged to
+        the arm), the cap, the fresh instance directories and the formatted arguments.
+        ``owner_scan=False`` only for a stage that runs on another machine (uw_stage_a.py):
+        a local accelerator owner does not compete with it."""
+        template = self.plan["templates"][template_name]
         verify_pins(self.plan)
         self.verify_screen_tokenizations()
         free = self.check_disk()
@@ -1127,7 +1197,8 @@ class Launcher:
             # that would breach the reserve mid-run and end the study.
             raise Pause("disk_headroom_before_stage", stage=stage_id, free_bytes=free,
                         required_bytes=headroom)
-        self.check_owners()
+        if owner_scan:
+            self.check_owners()
         cap = CAP_FACTOR * forecast
         previous = self.state["attempts"].get(stage_id, 0)
         voids = self.state["void_seconds_by_arm"]
@@ -1162,8 +1233,9 @@ class Launcher:
             "python": self.plan["python"], "stage_id": stage_id, "arm": arm,
             "stage_dir": str(stage_dir), "arm_dir": str(arm_dir), "fragment": str(fragment),
             "seed": str(SEED), "active_cap": repr(cap - voided), "arm_cap": repr(cap),
-            "w_adapter": self.plan["w_endpoint"][
-                "adapter_path"], **self.g0["manifests"], **values,
+            "w_adapter": init_endpoint(self.plan).get("adapter_path"),
+            "init_adapter": init_endpoint(self.plan).get("adapter_path"),
+            **self.g0["manifests"], **values,
         }
         if "screen_tokenizations" in self.state:
             substitutions["screen_tokenizations"] = self.state["screen_tokenizations"]["path"]
@@ -1171,25 +1243,36 @@ class Launcher:
             forwarded = [part.format_map(substitutions) for part in template["argv"]]
         except (KeyError, ValueError, IndexError) as exc:
             raise Stop("template_placeholder_unresolved", stage=stage_id, error=str(exc)) from None
-        command = [
-            self.plan["python"], "-B", str(HERE / "phase_worker.py"),
-            "--guard-dir", str(self.ledger.directory / "guards"), "--stage", stage_id,
-            "--kind", template["kind"], "--entry", template["entry"],
-            "--entry-sha256", template["entry_sha256"],
-            *(["--dry-run"] if self.plan.get("dry_run") is True else []), "--", *forwarded,
-        ]
-        self.state["attempts"][stage_id] = instance
-        self.state["arm_wall_seconds"][stage_id] = used
-        self.state["instance_start_seconds"][stage_id] = used
+        return {"stage_id": stage_id, "arm": arm, "template": template, "instance": instance,
+                "stage_dir": stage_dir, "arm_dir": arm_dir, "fragment": fragment, "cap": cap,
+                "voided": voided, "used": used, "free": free, "forwarded": forwarded,
+                "substitutions": substitutions, "inherited_seconds": inherited_seconds,
+                "lineage": list(lineage)}
+
+    def start_instance(self, context, **journal):
+        """Record the instance as started (state, then the journal's stage_started)."""
+        stage_id = context["stage_id"]
+        self.state["attempts"][stage_id] = context["instance"]
+        self.state["arm_wall_seconds"][stage_id] = context["used"]
+        self.state["instance_start_seconds"][stage_id] = context["used"]
         self.state["next_action"] = stage_id
         self.ledger.save()
-        self.ledger.append("stage_started", stage=stage_id, arm=arm, instance=instance,
-                           command=command, cap_seconds=cap, inherited_seconds=inherited_seconds,
-                           void_seconds=voided, lineage=list(lineage), free_disk_bytes=free,
-                           owner_poll_seconds=OWNER_POLL_SECONDS, live_useful_mixed=watch_mixed)
-        monitor = MixedMonitor(arm_dir) if watch_mixed else None
-        outcome = self.supervise(stage_id, command, stage_dir, used, cap, monitor,
-                                 instance=instance)
+        command = journal.pop("command")
+        live = journal.pop("live_useful_mixed", False)
+        self.ledger.append("stage_started", stage=stage_id, arm=context["arm"],
+                           instance=context["instance"], command=command,
+                           cap_seconds=context["cap"],
+                           inherited_seconds=context["inherited_seconds"],
+                           void_seconds=context["voided"], lineage=context["lineage"],
+                           free_disk_bytes=context["free"],
+                           owner_poll_seconds=OWNER_POLL_SECONDS, live_useful_mixed=live,
+                           **journal)
+
+    def finish(self, context, outcome, validate, monitor=None):
+        """Everything ``run`` does after a stage ends, for any executor: the outcome, the
+        late useful-mixed read, the fragment validation and the completion record."""
+        stage_id, fragment = context["stage_id"], context["fragment"]
+        cap, voided = context["cap"], context["voided"]
         self.ledger.append("stage_finished", stage=stage_id, **outcome)
         if outcome["reason"]:
             raise Stop(outcome["reason"], stage=stage_id)
@@ -1303,8 +1386,11 @@ class Launcher:
                 "demoted": demoted}
 
     # -- fragment validation
-    def train_validator(self, run_id, arm_name, lr, updates=None, rl=False, check=None):
-        w = self.plan["w_endpoint"]["adapter_sha256"]
+    def train_validator(self, run_id, arm_name, lr, updates=None, rl=False, check=None,
+                        init_sha256=None):
+        # The stage's pinned init endpoint: the plan's (W for freshpool) unless the caller
+        # pins another (signal-limit Stage B starts from I*).
+        w = init_sha256 or init_endpoint(self.plan)["adapter_sha256"]
 
         def validate(f, cap):
             seconds = f.get("committed_active_seconds")
@@ -1401,7 +1487,7 @@ class Launcher:
         if not all(k in f for k in ("seed", "adapter_sha256", "scan_order", "journal",
                                     "rollouts")):
             return "p0_g1_document_incomplete"
-        if f["seed"] != SEED or f["adapter_sha256"] != self.plan["w_endpoint"]["adapter_sha256"]:
+        if f["seed"] != SEED or f["adapter_sha256"] != init_endpoint(self.plan)["adapter_sha256"]:
             return "p0_not_seed42_under_w"
         if f["scan_order"] != self.g0["scan_ids"]:
             return "p0_scan_order_differs_from_manifest"
@@ -1429,14 +1515,15 @@ class Launcher:
         return check
 
     @staticmethod
-    def exposure_check(manifest, then=None):
+    def exposure_check(manifest, then=None, updates=None):
         """SFT-E and EG-SFT: exactly RL*'s accepted presentations in order (study.json arms
         SFT-E / EG-SFT), read from the trainer receipt's committed prompt IDs, not from the
         manifest the template handed it."""
         expected = jsonl_ids(manifest)
 
         def check(f):
-            if expected is None or len(expected) != FINAL_UPDATES:
+            if expected is None or len(expected) != (
+                    FINAL_UPDATES if updates is None else updates):
                 return "rl_star_accepted_manifest_unreadable"
             if f.get("committed_prompt_ids") != expected:
                 return "exposure_differs_from_rl_star_accepted_sequence"
@@ -1489,7 +1576,7 @@ class Launcher:
 
     # -- evidence and gates
     def endpoints(self):
-        w = self.plan["w_endpoint"]
+        w = init_endpoint(self.plan)
         found = {"W": {"run_id": "W", "arm": "W", "lr": None, "seed": None, "updates": 0,
                        "committed_active_seconds": 0, "adapter_sha256": w["adapter_sha256"],
                        "reference_sha256": w["adapter_sha256"], "useful_mixed": [],
@@ -1581,7 +1668,9 @@ class Launcher:
 
     def sequence(self):
         forecast = self.plan["forecast_seconds"]
-        w = self.plan["w_endpoint"]
+        w = init_endpoint(self.plan)
+        counts = update_counts(self.plan)
+        RL_SCREEN_UPDATES, FINAL_UPDATES = counts["rl_screen"], counts["final"]  # noqa: N806
         self.run("e0", "e0", "e0", forecast["e0"], {}, self.e0_validator)
         for split in SPLITS:
             self.assay("W", split, w["adapter_path"], w["adapter_sha256"])
@@ -1634,7 +1723,8 @@ class Launcher:
                                      run_id, "SFT-E", lr, FINAL_UPDATES,
                                      check=self.exposure_check(
                                          rl_star["accepted_manifest"],
-                                         self.sft_e_boundary_check(FINAL_UPDATES))))
+                                         self.sft_e_boundary_check(FINAL_UPDATES),
+                                         FINAL_UPDATES)))
             self.assay_fragment(sft_e[lr], "h_select")
         _, sft_e_star, _ = self.study().select_sft_e()
         self.record_selection("sft_e_star", sft_e_star["run_id"])
@@ -1678,7 +1768,8 @@ class Launcher:
                        "accepted_manifest": rl_star["accepted_manifest"]},
                       self.train_validator(run_id, "EG-SFT", lr, FINAL_UPDATES,
                                            check=self.exposure_check(
-                                               rl_star["accepted_manifest"])))
+                                               rl_star["accepted_manifest"],
+                                               updates=FINAL_UPDATES)))
         self.assay_fragment(eg, "h_gate")
         self.final_check()
 
@@ -1761,6 +1852,7 @@ class Launcher:
                  for label, seqs in tokenizations["sequences"].items()}
         k = sum(1 + extra.get(label, 0) for label in labels.values()) / len(labels)
         sources = self.plan["forecast_sources"]
+        FINAL_UPDATES = update_counts(self.plan)["final"]  # noqa: N806
         frozen = {
             "rl": FINAL_UPDATES * (sources["grpo_seconds_per_update"] + s * k / a),
             "egsft": FINAL_UPDATES * (sources["sft_seconds_per_update"] + s * k),
@@ -1829,8 +1921,27 @@ def interrupt_once(_signum, _frame):
     raise KeyboardInterrupt
 
 
+def verify_freshpool(plan_path, expected):
+    """(plan, launcher factory, summary) for the freshpool study: the summary is what
+    --verify-only prints and launch_started journals."""
+    plan, grid, evaluator = verify_plan(plan_path, expected)
+    g0 = verify_g0(plan, evaluator)
+
+    def make(ledger):
+        return Launcher(plan, expected, grid, evaluator, ledger, g0)
+
+    return plan, make, {"g0": g0["checks"], "d_req": g0["d_req"], "grid": grid}
+
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    return launch_main(argv, verify_freshpool, first_action="e0",
+                       description=__doc__.splitlines()[0])
+
+
+def launch_main(argv, verify, *, first_action, description):
+    """The launcher entry, for any study: ``verify(plan_path, sha)`` returns the verified
+    plan, a ``make(ledger)`` launcher factory and the verification summary."""
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--expected-plan-sha256", required=True)
     mode = parser.add_mutually_exclusive_group()
@@ -1838,15 +1949,13 @@ def main(argv=None):
     mode.add_argument("--verify-only", action="store_true")
     args = parser.parse_args(argv)
     try:
-        plan, grid, evaluator = verify_plan(args.plan, args.expected_plan_sha256)
-        g0 = verify_g0(plan, evaluator)
+        plan, make, summary = verify(args.plan, args.expected_plan_sha256)
     except Stop as stop:
         return refused(stop.reason, **stop.detail)
     except Exception as exc:  # no state exists yet: refuse, never fall through
         return refused("verification_error", error=f"{type(exc).__name__}: {exc}")
     if args.verify_only:
-        print(json.dumps({"status": "verified", "g0": g0["checks"], "d_req": g0["d_req"],
-                          "grid": grid, "model_calls": 0}, indent=2))
+        print(json.dumps({"status": "verified", **summary, "model_calls": 0}, indent=2))
         return 0
     directory = resolve(plan["state_directory"])
     ledger = Ledger(directory)
@@ -1874,7 +1983,7 @@ def main(argv=None):
         ledger.state = {"plan_sha256": args.expected_plan_sha256, "status": "running",
                         "completed": {}, "attempts": {}, "arm_wall_seconds": {},
                         "void_instances": [], "gates": {}, "selections": {},
-                        "next_action": "e0", "journal_bytes": 0,
+                        "next_action": first_action, "journal_bytes": 0,
                         "journal_sha256": hashlib.sha256(b"").hexdigest()}
         ledger.save()
     try:
@@ -1908,9 +2017,8 @@ def main(argv=None):
     previous = {signum: signal.signal(signum, interrupt_once) for signum in INTERRUPTS}
     try:
         ledger.append("launch_resumed" if args.resume else "launch_started", pid=os.getpid(),
-                      plan_sha256=args.expected_plan_sha256, g0=g0["checks"],
-                      d_req=g0["d_req"], grid=grid)
-        Launcher(plan, args.expected_plan_sha256, grid, evaluator, ledger, g0).sequence()
+                      plan_sha256=args.expected_plan_sha256, **summary)
+        make(ledger).sequence()
         ledger.state.update(status="completed", next_action="native-VAL package (G4)")
         ledger.save()
         ledger.append("study_development_complete", awaiting="G4")

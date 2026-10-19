@@ -315,6 +315,138 @@ oversubscribed hosts (21–54 s per SFT update against the benched 11.3).
 - Freed cores stay idle for the GATE 0 SFT lane (iccad5/6/7/8/10/13, ecetesla0/1). While
   GATE 0 is open, `refresh` bootstraps only hosts that hold a continuable sftall arm.
 
+## Amendment 4 (2026-10-18, before any wave-2 arm ran): the concrete wave-2 arms
+
+The wave-2 rows of `arms-rung1.json` name a feature but no trainer arguments, so no runner
+can launch them. Three of the features have now been built and merged (branch
+`sweep-wave2-integration.noindex`): RFT / expert iteration, the format and DAPO-style GRPO
+knobs, and an invalid-answer penalty (the hierarchical-reward mechanism with zero credits).
+CUDA training has also been merged. The concrete arms are in a separate table,
+`aircraft-exploratory-sweep-v2/arms-wave2-rung1.json`, which
+`scripts/exploratory_sweep/wave2_arms.py` (`--check`) generates byte-reproducibly. The
+pre-registered `arms-rung1.json` is unchanged, and its abstract `w2-*` rows are never
+launched. The new ids start with `wave2-`, so they cannot collide with those rows.
+
+**Root RL corrections (binding, 2026-10-18 ~22:30Z).** The table follows
+`runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md` (root checkout; evidence in its
+`audit.md` C2–C7, C12, C17 and `critic.md` M6, M9).
+
+- **Init.** Every family starts from I, because GRPO-W loses to I by 5–9 pp on dev800.
+- **β and LR.** GRPO uses β 0 and LR {1e-5, 2e-5, 5e-5}. Dr-GRPO also gets 3e-5. One
+  3e-6 plain GRPO-I arm guards against forgetting.
+- **Precision.** GRPO runs only in fp32, on CPU or an RTX 2080 Ti: bf16 failed
+  sampler–teacher parity (0.028 against a 0.02 tolerance), and fp16 has no parity
+  evidence. RFT has no importance ratio and is SFT on the policy's own samples, so it keeps
+  bf16 on the RTX 3070. Each trajectory stays on one device class.
+- **Dropped families.** Hierarchical partial credit is refuted: it gave contrast in 1 of
+  30–50 groups. Both CoT formats are refuted: valid answers fell from 94.9% to 82.8%, and
+  accuracy from 70.7% to 55.5%.
+- **Dynamic sampling.** At least 8 draws.
+
+| family | device | trainer arguments | LR |
+|---|---|---|---|
+| wave2-fmtpen | CPU fp32 | exact reward, `--invalid-reward -0.5` (hierarchy file with both credits 0) | {1e-5, 2e-5, 5e-5} |
+| wave2-closedset | CPU fp32 | response format `closed_set_answer_only` | {1e-5, 2e-5, 5e-5} |
+| wave2-drgrpo | CPU fp32 | `--loss-type dr_grpo --scale-rewards none` | {1e-5, 2e-5, 3e-5, 5e-5} |
+| wave2-mu2 | CPU fp32 | `--num-iterations 2` | {1e-5, 2e-5, 5e-5} |
+| wave2-dapo | RTX 2080 Ti fp32 | `--loss-type dapo --epsilon-high 0.28 --dynamic-sampling-max-draws 8` | {1e-5, 2e-5, 5e-5} |
+| wave2-guard | CPU fp32 | plain GRPO-I | 3e-6 |
+| wave2-rft | RTX 3070 bf16 | RFT: K 8 at T 1.0, 32 prompts per round, keep 1 correct, 1 epoch, 400 rounds, cap 1,500 updates | {1e-5, 2e-5, 5e-5} |
+
+All arms use G 8 (RFT: K 8) and the plan's rung-1 budget: 150 updates, seed 42, declared
+total 1,500. Each arm declares its device (`device`, `dtype`, `gpu`, `device_class`).
+The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control evals.
+
+- **Matched controls.** Each RL arm has a matched SFT-from-I control on its own host and
+  device. Each family's controls use as many distinct LRs as its RL arms (C4). The family's
+  k-th smallest RL LR gets the k-th control LR:
+  - three LRs: {5e-6, 1e-5, 2e-5};
+  - Dr-GRPO's four: {5e-6, 1e-5, 2e-5, 3e-5};
+  - the guard's single 3e-6: 5e-6.
+
+  A family's best-of-k is therefore compared with its controls' best-of-k at the same k.
+  Each closed-set control trains and is assayed on the closed-set prompt, so the pair
+  isolates the RL effect. Promotion keeps each pairing (`matched_control_lr`,
+  `control_response_format`, `control_replays`).
+- **Every scored row is replayed (C4).** Two families score more rows than they commit
+  updates. A DAPO update draws up to 8 groups and keeps one; an RFT round scores all 32 of
+  its prompts against gold and trains only on the correct samples. Their controls
+  (`control_replays: "scanned"`) replay every scored row, in scan order. The rows are
+  taken from the trainer's own logs:
+  - DAPO: `dynamic_sampling.jsonl`, every draw. The last block per update counts, and its
+    kept draw must equal the committed id.
+  - RFT: `rounds[].prompt_ids` in `local_training.json`.
+
+  `arm_exec` writes them to `scanned_ids.json`. A missing or mismatched file refuses the
+  control and never falls back. The step caps of these controls are 12,000 (DAPO) and
+  12,800 (RFT).
+
+  The committed ids must lie within the scanned ids. For DAPO they must appear as an
+  in-order subsequence. For RFT they must be a subset, and each round's kept prompts must
+  be prompts that round sampled.
+- **Merged with main (2026-10-19).** Three decisions changed this table and the trainer:
+  - **Explicit loss aggregation.** Main requires every β-0 GRPO run to name its loss
+    aggregation, so fmtpen, closedset, mu2 and guard pass `--loss-type grpo`. This is the
+    legacy aggregation and leaves the settings identity unchanged. Dr-GRPO's
+    `--loss-type dr_grpo --scale-rewards none` now reaches main's explicit parameters.
+    DAPO's `--loss-type dapo` stays a GRPO knob, so one flag routes to either.
+  - **fp16 training is refused.** On every device, in `train_local` and RFT, per main's
+    rule and corrections C2. No wave-2 arm trains in fp16, and fp16 remains allowed for
+    inference.
+  - **Replay order is checked at run time.** Under `--replay-sequence` the trainer refuses
+    any train sampler that is not a SequentialSampler. It also refuses, before any endpoint
+    is published, if the committed exposure order differs from the manifest order.
+- **Replay sequences can repeat rows.** A replay list can present the same TRAIN row more
+  than once:
+  - DAPO redraws pick rows at random;
+  - the RFT pool wraps after about 45 rounds;
+  - a rung-3 control commits 1,500 ids from a 1,424-row pool.
+
+  The trainer used to refuse a manifest with a repeated id. It now has a default-off,
+  control-only `--replay-sequence` mode: sequential TRAIN-only SFT. In this mode each
+  repeat must exactly repeat its first row (same image and label). Rows train in manifest
+  order, and the row cap counts distinct images. `arm_exec` passes the flag only when a
+  control's list actually repeats an id. Every control declares the `replay_sequence`
+  feature, so it launches only where the trainer has it.
+- **Device controls.** W and I are each assayed on every device class
+  (`wave2-dev-eval-{W,I}-<class>`). A GPU arm is read against I measured under its own
+  numerics, and each GPU eval against the CPU fp32 eval.
+- **RFT stops.** An RFT rung stop is round-granular (`--rft-stop-after-steps`). The endpoint
+  is published at the first round boundary at or past 150 updates and records its true
+  update count. The trajectory does not depend on where it was stopped.
+- **Launch gate.** The runner launches an arm only on a host whose receipt reports the
+  arm's device kind and GPU model, with at most one GPU arm per host at a time.
+  `host_verify.FEATURE_FLAGS` now uses the built features' real flags.
+- **Gate 0 is enforced, not only stated.** Every wave-2 family (`WAVE2_FAMILIES`: the
+  seven RL families and the device-control evals) joins Amendment 3's launch allowlist
+  behind the same check. `runner.py launch` holds the family's arms, its controls and the
+  device-control evals until `state.json` `gate0.passed` is exactly `true`. That needs all
+  four Gate-0 measurements: P0-I headroom, the SFT-from-I curve, dev800 calibration and the
+  placebo. Wave-2 arms also sit behind Amendment 5's `d37_release.verified` hold, because
+  their controls depend on the same machinery from this PR.
+- **Table extras are an allowlist.** argparse keeps the last value of a repeated flag and
+  accepts abbreviations and `--flag=value`. Every `extra_trainer_args` entry, for GRPO and
+  RFT arms alike, therefore goes through `arm_exec.EXTRA_FLAGS`:
+  - Each flag the table uses has an exact-name entry with a value validator: `--loss-type`
+    {grpo, dr_grpo, dapo}, `--scale-rewards` {group, none}, `--epsilon-high` ≥ 0.2,
+    `--num-iterations` 1–8, `--label-hierarchy` (only the payload's
+    `label-hierarchy-train-v1.json`), `--family-credit` and `--manufacturer-credit` in
+    [0, 1), `--invalid-reward` in [−1, 0], and `--dynamic-sampling-max-draws` ≥ 8.
+  - A flag that arm_exec itself passes, `--train`, `--validation`, an `=` form, an
+    abbreviation or a repeated flag is refused.
+- **Promotion.** Wave-2 arms rank at rung 1 in the `rl` track together with wave 1, under
+  the plan's late-entrant rule. That ranking mixes device classes, so it is read against
+  the device-control offsets. A paired comparison (arm against its matched control, or
+  against I) never crosses device classes.
+- **Not in this table.** The multi-image-update family (M3: P images per optimizer step)
+  needs a trainer feature (`prompts_per_update`) that is not built. The receipt check
+  refuses it until it is.
+- **Known limits.** First, with `--num-iterations 1` DAPO's clip-higher term never binds,
+  because every update is on-policy. The dapo family is therefore effectively token-level
+  loss plus dynamic sampling. wave2-mu2 is the arm where clipping is active. Second, C5
+  requires discarded generation seconds to be charged to RL time; whether the trainer's
+  active-time audit charges them for dynamic sampling is unverified.
+
 ## Engineering fix 3 (2026-10-18, plan-neutral): assay profile, feature gate, kept-stop continuation
 
 - **Assay profile.** Every matched control would have died at its first assay with KeyError
@@ -380,3 +512,15 @@ Checked on 2026-10-19:
   `arm.json` (38) carries extras.
 - The 7 D37 RL rows carry only `--dynamic-sampling-max-draws 8`. It is allowlisted with an
   integer ≥ 8 check (C5) and overrides nothing.
+
+## Engineering fix 3 (2026-10-19, plan-neutral): D37 rows name their loss aggregation
+
+After main was merged into PR #36, its trainer refuses β-0 GRPO unless `loss_type` is given
+explicitly. All 7 D37 RL rows are β 0 and carried only `--dynamic-sampling-max-draws 8`, so
+every one would have been refused at launch (found by the PR #36 review of 56c3dce).
+`d37_arms.py` now adds `--loss-type grpo`. This is the legacy aggregation the arms were
+designed with, and it leaves the trainer's settings identity unchanged; the table is
+regenerated. A test now runs every non-eval row of both tables (D37 and wave-2) through
+`arm_exec`'s argv and the trainer's own `main()` validation, so a row the trainer would refuse
+fails CI. `d37_arms.py` refuses to generate, and `--check` refuses, any row with fewer than 8
+dynamic-sampling draws (C5).

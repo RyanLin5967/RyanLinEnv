@@ -22,14 +22,18 @@ PAY=$(pwd)
 HOST=$(hostname -s | tr 'A-Z' 'a-z')
 NEED_GB=14
 free_gb() { df -P -BG "$1" 2>/dev/null | awk 'NR==2{gsub("G","",$4); print $4}'; }
+# RLE_ROOT_NAME / RLE_RECEIPTS let a separate lane (the GPU lane) keep its own root and
+# receipts, so the CPU sweep's runner never sees, or overwrites, a GPU-lane receipt.
+NAME=${RLE_ROOT_NAME:-r226lin-rlesweep}
+RECEIPTS=${RLE_RECEIPTS:-$HOME/rlesweep/receipts}
 pick_root() {
-  for r in /var/tmp/r226lin-rlesweep /dev/shm/r226lin-rlesweep; do
+  for r in /var/tmp/$NAME /dev/shm/$NAME; do
     [ -f "$r/RECEIPT.json" ] && { echo "$r"; return; }
   done
-  if [ "$(free_gb /var/tmp)" -ge $NEED_GB ]; then echo /var/tmp/r226lin-rlesweep; return; fi
+  if [ "$(free_gb /var/tmp)" -ge $NEED_GB ]; then echo /var/tmp/$NAME; return; fi
   local avail; avail=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)
   if [ -d /dev/shm ] && [ "$(free_gb /dev/shm)" -ge $NEED_GB ] && [ "$avail" -ge 64 ]; then
-    echo /dev/shm/r226lin-rlesweep; return; fi
+    echo /dev/shm/$NAME; return; fi
   echo "REFUSE: no local root with ${NEED_GB} GB free on $HOST" >&2; exit 3
 }
 ROOT=$(pick_root); mkdir -p "$ROOT"; echo "ROOT=$ROOT host=$HOST"
@@ -53,6 +57,6 @@ rsync -a --delete --exclude '__pycache__' "$PAY"/ "$ROOT/payload"/
 rm -f "$ROOT/payload"/{cmd,rc,pid,started,ended,host,launch.sh,run.log} 2>/dev/null || true
 timeout 3600 $V/bin/python -I "$ROOT/payload/code/scripts/exploratory_sweep/host_verify.py" \
   --root "$ROOT" --kind $KIND --host "$HOST"
-mkdir -p "$HOME/rlesweep/receipts"
-cp "$ROOT/RECEIPT.json" "$HOME/rlesweep/receipts/$HOST.json"
+mkdir -p "$RECEIPTS"
+cp "$ROOT/RECEIPT.json" "$RECEIPTS/$HOST.json"
 echo "BOOTSTRAP OK $HOST $ROOT"

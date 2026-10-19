@@ -1,0 +1,29 @@
+host=ICCAD3 start=2026-10-19T00:15:23Z model name	: Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz
+EWENGINE_DONE ok=200 crash=0 2026-10-19T00:24:48Z
+MODEL run 1 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 311.27188314986415, "wall_seconds": 336.9610997061245}
+MODEL run 2 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 379.2257670268882, "wall_seconds": 394.8732232609764}
+MODEL run 3 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 399.30325634405017, "wall_seconds": 415.2258385492023}
+MODEL run 4 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 632.1032245939132, "wall_seconds": 648.0618455600925}
+MODEL run 5 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 259.4543005360756, "wall_seconds": 275.31800099415705}
+MODEL run 6 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 384.48238747613505, "wall_seconds": 399.88485346292146}
+MODEL run 7 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 290.94439854077064, "wall_seconds": 306.8410668990109}
+MODEL run 8 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 1725.6025050219614, "wall_seconds": 1741.4830817140173}
+MODEL run 9 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 749.2908748309128, "wall_seconds": 767.6561872919556}
+MODEL run 10 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 760.1017793358769, "wall_seconds": 775.8816796459723}
+MODEL run 11 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 917.7375462609343, "wall_seconds": 934.6733627389185}
+MODEL run 12 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 499.5404210148845, "wall_seconds": 516.7245041250717}
+MODEL run 13 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 197.87386811105534, "wall_seconds": 213.10612516081892}
+MODEL run 14 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 207.05966976704076, "wall_seconds": 221.9142876130063}
+MODEL run 15 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 220.0750825270079, "wall_seconds": 235.17324250889942}
+MODEL run 16 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 370.7546794419177, "wall_seconds": 385.6786315459758}
+MODEL run 17 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 171.73871698393486, "wall_seconds": 186.79762611794285}
+MODEL run 18 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 216.78202687506564, "wall_seconds": 231.7586554090958}
+MODEL run 19 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 213.7466385110747, "wall_seconds": 228.79873910686}
+MODEL run 20 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 396.53338809194975, "wall_seconds": 411.543621329125}
+MODEL run 21 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 164.95343402703293, "wall_seconds": 180.03811955009587}
+MODEL run 22 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 233.56863557710312, "wall_seconds": 248.32978637493216}
+MODEL run 23 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 214.27511084196158, "wall_seconds": 229.29060508101247}
+MODEL run 24 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 400.3787444939371, "wall_seconds": 415.4274108330719}
+MODEL run 25 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [5449], "prefill_seconds": 165.2178886588663, "wall_seconds": 180.28752495883964}
+MODEL run 26 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [37], "prefill_seconds": 205.06744880392216, "wall_seconds": 219.83520699781366}
+MODEL run 27 ok {"ok": true, "warmup": true, "fingerprint_matches": true, "tokens": [230127], "prefill_seconds": 233.41112394002266, "wall_seconds": 248.4429348569829}

@@ -36,6 +36,23 @@
    "why": "RL lessons audit 2026-10-18 (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md, C8 and C11): GRPO-from-W loses to I by 5-9 pp on dev800, and the GATE 0 SFT runs are starved on our own oversubscribed hosts (21-54 s per SFT update against the benched 11.3)"
   },
   {
+   "at": "2026-10-18T21:00Z",
+   "before_any_wave2_arm": true,
+   "corrections": {
+    "beta_lr": "beta 0; LR {1e-5,2e-5,5e-5}, Dr-GRPO also 3e-5, one 3e-6 guard",
+    "controls": "C4: same count of distinct control LRs as RL LRs per family; DAPO/RFT controls replay every scored row (dynamic_sampling.jsonl draws; RFT rounds[].prompt_ids)",
+    "dropped": "hierarchical partial credit (contrast in 1 of 30-50 groups); both CoT formats (valid 94.9% -> 82.8%, accuracy 70.7% -> 55.5%)",
+    "gate0": "enforced: WAVE2_FAMILIES join amendment 3's launch allowlist behind gate0.passed is True",
+    "init": "I for every family (GRPO-W loses to I by 5-9 pp on dev800)",
+    "precision": "GRPO fp32 only (bf16 parity 0.028 vs 0.02 tolerance; fp16 no parity evidence); RFT bf16 allowed (SFT on own samples, no importance ratio)",
+    "source": "runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (root checkout), binding 2026-10-18 ~22:30Z"
+   },
+   "effect": "wave 1 unchanged; wave-2 arms launch only on a host whose receipt lists their features and has their device kind and GPU model; they rank at rung 1 in the rl track (late-entrant rule); an RFT rung stop is round-granular and records its true update count",
+   "kind": "amendment 4: concrete wave-2 arms (new design file; arms-rung1.json unchanged)",
+   "what": "arms-wave2-rung1.json (scripts/exploratory_sweep/wave2_arms.py --check), 46 arms, all from I: GRPO-I beta 0 fmtpen, closedset, mu2 at LR {1e-5,2e-5,5e-5}, drgrpo also 3e-5, one 3e-6 guard (cpu-float32); dapo with dynamic sampling 8 draws (rtx2080ti-float32); RFT at LR {1e-5,2e-5,5e-5} (rtx3070-bfloat16); 20 matched SFT-from-I controls, distinct LRs per family by rank ({5e-6,1e-5,2e-5}, Dr-GRPO {5e-6,1e-5,2e-5,3e-5}), closed-set controls on the closed-set prompt, DAPO and RFT controls replaying every scored row in scan order (scanned_ids.json); 6 W/I device-control evals; every wave-2 family held by runner.py launch until state.json gate0.passed is exactly true",
+   "why": "the pre-registered wave-2 rows name features without trainer arguments; three features (RFT, format+DAPO knobs, invalid-answer penalty) and CUDA training were built and merged on sweep-wave2-integration.noindex"
+  },
+  {
    "at": "2026-10-19T01:30Z",
    "effect": "until the payload's trainer has dynamic_sampling and replay_sequence (PR #36's trainer), valid_receipt refuses every host for these arms, so none launches; after that, they launch only on AVX-512 hosts as wave-1 arms free them",
    "kind": "amendment 5 (exploratory, before any corrected GRPO-I result, before any VAL use)",
@@ -101,7 +118,9 @@
  },
  "design_files_sha256": {
   "arms-rung1.json": "cfdbf2c872b307af8216335f2f8507829696363023e8bc33d94ef934b3e9cabc",
+  "arms-wave2-rung1.json": "f5c97cadbc0ea2fabc120c2ddd7addb8c075240d9ba951649b1e16b282539722",
   "scripts/exploratory_sweep/design.py": "adc155dd4c72ff4f4dc1fcd296099fb791dab9ad9e322d24cf179e0dc1f38a12",
+  "scripts/exploratory_sweep/wave2_arms.py": "40ed669b955bc492fd536a808060990959683cd0515be237919d272d308b6105",
   "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
  },
  "design_reproduce": "python3 -I scripts/exploratory_sweep/design.py --check",

@@ -63,10 +63,58 @@ def _int_at_least(n: int):
 # silently override --dtype, --learning-rate, --train, ... while the spec-field guards
 # pass (PR #38 review). Extend this map only with a validator; never add a flag arm_exec
 # sets itself. Blind spot: a validator checks the value's form, not the trainer's semantics.
+def _float_in(lo: float, hi: float, *, lo_open: bool = False, hi_open: bool = False):
+    def check(v: str):
+        try:
+            x = float(v)
+        except ValueError:
+            raise SystemExit(f"REFUSE: expected a number, got {v!r}") from None
+        ok = (x > lo if lo_open else x >= lo) and (x < hi if hi_open else x <= hi)
+        if not ok or x != x:
+            raise SystemExit(f"REFUSE: {v!r} is outside {'(' if lo_open else '['}{lo}, {hi}"
+                             f"{')' if hi_open else ']'}")
+    return check
+
+
+def _one_of(*values: str):
+    def check(v: str):
+        if v not in values:
+            raise SystemExit(f"REFUSE: expected one of {list(values)}, got {v!r}")
+    return check
+
+
+def _int_between(lo: int, hi: int):
+    def check(v: str):
+        if not v.isdigit() or not lo <= int(v) <= hi:
+            raise SystemExit(f"REFUSE: expected an integer in {lo}..{hi}, got {v!r}")
+    return check
+
+
+def _payload_file(name: str):
+    """A resolved @payload/ path (arm_exec.payload_arg ran first) to exactly this file."""
+    def check(v: str):
+        path = Path(v)
+        if (not path.is_absolute() or path.resolve() != path or path.name != name
+                or not path.is_file()):
+            raise SystemExit(f"REFUSE: expected the payload's {name}, got {v!r}")
+    return check
+
+
 EXTRA_FLAGS = {
     "--dynamic-sampling-max-draws": _int_at_least(8),  # CORRECTIONS C5: >= 8 draws
+    # wave-2 table (amendment 4); values are the plan's, ranges no wider than the trainer's
+    "--loss-type": _one_of("grpo", "dr_grpo", "dapo"),
+    "--scale-rewards": _one_of("group", "none"),
+    "--epsilon-high": _float_in(0.2, 10.0),  # clip-higher: >= epsilon 0.2
+    "--num-iterations": _int_between(1, 8),
+    "--label-hierarchy": _payload_file("label-hierarchy-train-v1.json"),
+    "--family-credit": _float_in(0.0, 1.0, hi_open=True),
+    "--manufacturer-credit": _float_in(0.0, 1.0, hi_open=True),
+    "--invalid-reward": _float_in(-1.0, 0.0),
 }
 NEVER_EXTRA = {"--train", "--validation"}
+# extras whose value is a file: given as @payload/<rel> only (Arm.resolved_extras)
+PAYLOAD_FLAGS = {"--label-hierarchy"}
 
 
 def checked_extras(extras, base_args) -> list[str]:
@@ -155,9 +203,77 @@ class Arm:
         return self.payload / "data" / "manifests" / name
 
     # ---- training --------------------------------------------------------------------
+    def payload_arg(self, value) -> str:
+        """`@payload/<rel>` names a file shipped in this host's payload (e.g. the TRAIN
+        label hierarchy); it may not escape the payload directory."""
+        text = str(value)
+        if not text.startswith("@payload/"):
+            return text
+        path = (self.payload / text.removeprefix("@payload/")).resolve()
+        if not path.is_relative_to(self.payload.resolve()) or not path.is_file():
+            raise SystemExit(f"REFUSE: {text} is not a file in the payload")
+        return str(path)
+
+    def resolved_extras(self) -> list[str]:
+        """The table's extras with @payload/ values resolved. A file-valued extra
+        (PAYLOAD_FLAGS) must be given as @payload/<rel>, so payload_arg confines it to this
+        host's payload: an absolute path elsewhere, even with the right file name, refuses."""
+        raw = [str(x) for x in self.spec.get("extra_trainer_args") or []]
+        for i, flag in enumerate(raw):
+            if flag in PAYLOAD_FLAGS and (i + 1 >= len(raw)
+                                          or not raw[i + 1].startswith("@payload/")):
+                raise SystemExit(f"REFUSE: {flag} must name a payload file as @payload/<rel>")
+        return [self.payload_arg(x) for x in raw]
+
+    def cuda_args(self) -> list[str]:
+        if self.spec.get("device", "cpu") != "cuda":
+            return []
+        # CUDA lane: explicit torch CPU threads (the GPU does the math), and a W/I init
+        # trained in float32 needs its declared base-precision transfer.
+        args = ["--threads", str(self.spec.get("threads", 4))]
+        transfer = self.precision_transfer(self.init_adapter())
+        if transfer:  # repeated on resume so the run's settings identity is unchanged
+            args += ["--initial-adapter-precision-transfer", transfer]
+        return args
+
+    def rft_args(self, manifest: Path, max_steps: int, stop: int | None) -> list[str]:
+        """--mode rft: rounds of K samples per prompt, keep exact-EOS correct, SFT on them.
+        A rung stop is the trainer's round-granular --rft-stop-after-steps boundary (never
+        part of the run's identity), so a promoted arm continues the same output dir."""
+        s, r = self.spec, self.spec["rft"]
+        args = ["-m", "vision_rl.vlm_local_training", "--mode", "rft",
+                "--train", str(manifest), "--data-spec", str(self.spec_path),
+                "--output", str(self.out), "--model-directory", str(self.model),
+                "--device", s.get("device", "cpu"), "--dtype", s.get("dtype", "float32"),
+                "--init-adapter", str(self.init_adapter()),
+                "--learning-rate", repr(float(s["lr"])), "--seed", str(s["seed"]),
+                "--max-steps", str(max_steps), "--lora-rank", "8",
+                "--response-format", s["response_format"],
+                "--num-generations", str(s["num_generations"]),
+                "--temperature", repr(float(s["temperature"])),
+                "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
+                "--max-completion-length", str(s["max_completion_length"]),
+                "--rft-rounds", str(int(r["rounds"])),
+                "--rft-prompts-per-round", str(int(r["prompts_per_round"])),
+                "--rft-epochs-per-round", str(int(r.get("epochs_per_round", 1))),
+                "--rft-max-keep-per-prompt", str(int(r.get("max_keep_per_prompt", 1)))]
+        if r.get("skip_all_correct"):
+            args += ["--rft-skip-all-correct"]
+        args += self.cuda_args()
+        if stop and stop < max_steps:
+            args += ["--rft-stop-after-steps", str(stop)]
+        if s.get("max_active_seconds"):
+            args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
+        resolved = self.resolved_extras()
+        return args + checked_extras(resolved, args)
+
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
         s = self.spec
+        if s["mode"] == "rft":
+            if resume is not None or stop_seconds is not None:
+                raise SystemExit("REFUSE: RFT resumes its own output dir and has no time stop")
+            return self.rft_args(manifest, max_steps, stop)
         mode = "sft" if s["mode"] == "sft" else s["mode"]
         args = ["-m", "vision_rl.vlm_local_training", "--mode", mode,
                 "--train", str(manifest), "--data-spec", str(self.spec_path),
@@ -171,6 +287,7 @@ class Arm:
                 "--num-generations", str(s["num_generations"]),
                 "--min-pixels", str(s["min_pixels"]), "--max-pixels", str(s["max_pixels"]),
                 "--max-completion-length", str(s["max_completion_length"])]
+        args += self.cuda_args()
         args += ["--save-steps", str(save_steps_for(s, max_steps))]
         if stop and stop < max_steps:
             args += ["--stop-after-steps", str(stop)]
@@ -185,6 +302,12 @@ class Arm:
             args += ["--order", s.get("order", "random")]
             if s.get("cycle"):
                 args += ["--cycle"]
+            ids = s.get("train_ids") or []
+            if len(set(ids)) < len(ids):
+                # a control replaying a sequence that presents a row again (dynamic-sampling
+                # redraws, an RFT pool wrap, more committed ids than distinct rows): the
+                # trainer loads the repeats and trains them in this order
+                args += ["--replay-sequence"]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
         if stop_seconds is not None:
@@ -193,9 +316,90 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        return args + checked_extras(s.get("extra_trainer_args") or [], args)
+        # @payload/ values resolve first; then every extra must pass the allowlist
+        resolved = self.resolved_extras()
+        return args + checked_extras(resolved, args)
 
-    def run_stage(self, label: str, args: list[str]) -> dict:
+    def scanned_ids(self, receipt: dict) -> dict | None:
+        """Every prompt the RL arm scored against its gold label, in scan order, for a
+        control that must replay ALL of them (CORRECTIONS C4), not just the committed ones.
+
+        - RFT: every prompt sampled in each committed round (local_training.json
+          rounds[].prompt_ids, the trainer's own bound record); K samples of each were
+          scored against gold, kept or not.
+        - Dynamic sampling (DAPO): every drawn group, in draw order (the trainer's
+          dynamic_sampling.jsonl). A resumed update is journaled again, so the LAST block
+          per update counts; each block's kept draw must be that update's committed id.
+        None for any other arm (its committed ids are already everything it scored).
+        """
+        if self.spec["mode"] == "rft":
+            rec = json.loads((self.out / "local_training.json").read_text())
+            ids = [pid for entry in rec["rounds"] for pid in entry["prompt_ids"]]
+            for entry in rec["rounds"]:  # what a round kept must be prompts it sampled
+                kept = json.loads((self.out / f"round-{entry['round']:02d}" / "kept.json")
+                                  .read_text())["kept"]
+                if not set(kept) <= set(entry["prompt_ids"]):
+                    raise SystemExit(f"REFUSE: RFT round {entry['round']} kept prompts it "
+                                     f"did not sample")
+            source = "local_training.json rounds[].prompt_ids"
+        elif (self.out / "dynamic_sampling.jsonl").is_file():
+            steps, committed = int(receipt["global_step"]), receipt["committed_prompt_ids"]
+            if len(committed) != steps:
+                raise SystemExit("REFUSE: dynamic sampling with reused updates is not replayable")
+            blocks, block = {}, []
+            lines = (self.out / "dynamic_sampling.jsonl").read_text().splitlines()
+            for number, line in enumerate(lines, 1):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    raise SystemExit(f"REFUSE: dynamic_sampling.jsonl line {number} of "
+                                     f"{len(lines)} is not JSON (truncated write?)") from None
+                block.append(entry)
+                if entry.get("kept"):
+                    blocks[int(entry["global_step"])] = block
+                    block = []
+            ids = []
+            for step in range(1, steps + 1):
+                got = blocks.get(step)
+                if (not got or [e["global_step"] for e in got] != [step] * len(got)
+                        or [e["draw"] for e in got] != list(range(len(got)))
+                        or got[-1]["id"] != committed[step - 1]):
+                    raise SystemExit(f"REFUSE: dynamic_sampling.jsonl does not account for "
+                                     f"update {step}")
+                ids += [e["id"] for e in got]
+            source = "dynamic_sampling.jsonl, every draw, last block per update"
+        else:
+            return None
+        doc = {"schema": "arm_exec-scanned-ids-v1", "global_step": receipt["global_step"],
+               "scanned_prompt_ids": ids, "source": source}
+        write_json(self.out / "scanned_ids.json", doc)
+        return doc
+
+    def rft_endpoint_done(self, stop: int | None) -> bool:
+        """An RFT run whose bound endpoint already covers this stage (e.g. the arm died in
+        the assay after training): the trainer refuses to re-enter a completed run, so the
+        stage reuses that endpoint instead of training again. A boundary endpoint counts
+        only for its own stop; any other completed stop reason ends the run."""
+        path = self.out / "local_training.json"
+        if self.spec["mode"] != "rft" or not path.is_file():
+            return False
+        rec = json.loads(path.read_text())
+        if rec.get("status") != "completed":
+            return False
+        if rec.get("stop_reason") == "stop_after_steps":
+            return (rec.get("boundary") or {}).get("stop_after_steps") == stop
+        return True
+
+    def run_stage(self, label: str, args: list[str], stop: int | None = None) -> dict:
+        if self.rft_endpoint_done(stop):
+            self.log.append({"stage": label, "rc": 0, "reused_completed_endpoint": True,
+                             "argv": args})
+            receipt = self.rft_receipt()
+            self.scanned_ids(receipt)
+            self.log[-1].update(receipt_status=receipt["status"],
+                                global_step=receipt["global_step"],
+                                adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+            return receipt
         started = time.time()
         log = self.work / f"{label}.log"
         with log.open("w") as handle:
@@ -210,13 +414,54 @@ class Arm:
             write_json(self.results / "stages.json", self.log)
             print("\n".join(tail), file=sys.stderr)
             raise SystemExit(f"REFUSE: stage {label} rc={rc}")
-        receipt = json.loads((self.out / "endpoint_receipt.json").read_text())
+        receipt = (self.rft_receipt() if self.spec["mode"] == "rft" else
+                   json.loads((self.out / "endpoint_receipt.json").read_text()))
         adapter = self.out / receipt["final_adapter"]["path"]
         weights = receipt["final_adapter"]["weights_sha256"]
         if sha_file(adapter / "adapter_model.safetensors") != weights:
             raise SystemExit(f"REFUSE: stage {label} adapter differs from its receipt")
+        self.scanned_ids(receipt)
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
+        return receipt
+
+    def rft_receipt(self) -> dict:
+        """The runner-facing endpoint of an RFT stage, derived from the trainer's own bound
+        record (local_training.json: status completed, final_adapter_sha256) and its
+        committed rounds (round-NN/kept.json). `committed_prompt_ids` lists the prompt of
+        every SFT example in round order, one per optimizer update: what an
+        examples-matched SFT control replays. Within a round the trainer shuffles its
+        examples, so the order is canonical, not the trainer's; the per-round multiset is
+        exact unless the update cap or the active-seconds budget cut the last round, where
+        the first k entries of kept.json (sorted by prompt id) stand in for the trained k.
+        A rung boundary never cuts a round."""
+        rec = json.loads((self.out / "local_training.json").read_text())
+        reasons = ("stop_after_steps", "max_steps", "max_active_seconds", "rounds")
+        if rec.get("status") != "completed" or rec.get("stop_reason") not in reasons:
+            raise SystemExit(f"REFUSE: RFT stage ended {rec.get('status')}/"
+                             f"{rec.get('stop_reason')}")
+        sha = sha_file(self.out / "final_adapter" / "adapter_model.safetensors")
+        if sha != rec["final_adapter_sha256"]:
+            raise SystemExit("REFUSE: RFT final adapter differs from its record")
+        epochs = int(rec["settings"]["epochs_per_round"])
+        ids = []
+        for entry in rec["rounds"]:
+            kept = json.loads((self.out / f"round-{entry['round']:02d}" / "kept.json")
+                              .read_text())["kept"]
+            one_pass = [pid for pid, texts in kept.items() for _ in texts]
+            ids += (one_pass * epochs)[:entry["optimizer_steps"]]
+        if len(ids) != rec["optimizer_steps"]:
+            raise SystemExit("REFUSE: RFT kept examples do not account for its updates")
+        receipt = {
+            "schema": "arm_exec-rft-endpoint-v1",
+            "derived_from": "local_training.json rounds + round-NN/kept.json",
+            "status": ("boundary_reached" if rec["stop_reason"] == "stop_after_steps"
+                       else "total_budget_exhausted"),
+            "stop_reason": rec["stop_reason"], "global_step": rec["optimizer_steps"],
+            "committed_active_seconds": rec["active_seconds"],
+            "committed_prompt_ids": ids, "rounds": len(rec["rounds"]),
+            "final_adapter": {"path": "final_adapter", "weights_sha256": sha}}
+        write_json(self.out / "rft_endpoint_receipt.json", receipt)
         return receipt
 
     def init_adapter(self) -> Path:
@@ -233,6 +478,13 @@ class Arm:
             raise SystemExit(f"REFUSE: kept init {path} differs from its endpoint receipt")
         return path
 
+    def precision_transfer(self, adapter: Path) -> str | None:
+        """'<parent base dtype>-to-<this arm's dtype>' when they differ, else None."""
+        parent = json.loads((adapter.parent / "local_training.json").read_text())
+        source = parent["control_identity"]["profile"]["dtype"]
+        dtype = self.spec.get("dtype", "float32")
+        return None if source == dtype else f"{source}-to-{dtype}"
+
     def keep_adapter(self, label: str) -> Path:
         # kept/<label>/{final_adapter, local_training.json, endpoint_receipt.json}: the
         # trainer binds an init adapter to the run record beside it, so a kept endpoint can
@@ -241,19 +493,65 @@ class Arm:
         if dst.exists():
             shutil.rmtree(dst)
         shutil.copytree(self.out / "final_adapter", dst / "final_adapter")
-        for name in ("local_training.json", "endpoint_receipt.json"):
-            shutil.copy2(self.out / name, dst / name)
+        for name in ("local_training.json", "endpoint_receipt.json",
+                     "rft_endpoint_receipt.json"):
+            if (self.out / name).is_file():
+                shutil.copy2(self.out / name, dst / name)
         return self.out / "final_adapter"
 
     def copy_small(self) -> None:
         for name in ("local_training.json", "endpoint_receipt.json", "optimizer_audit.jsonl",
                      "physical_prompt_events.jsonl", "reward_groups.jsonl",
-                     "screen_journal.jsonl", "egsft_weights.jsonl", "trainer_state.json"):
+                     "screen_journal.jsonl", "egsft_weights.jsonl", "trainer_state.json",
+                     "dynamic_sampling.jsonl", "rft_endpoint_receipt.json",
+                     "scanned_ids.json"):
             src = self.out / name
             if src.is_file() and src.stat().st_size < 64 * 1024**2:
                 shutil.copy2(src, self.results / name)
 
     # ---- assay -----------------------------------------------------------------------
+    def assay_isolated(self, adapter: Path, label: str, manifest_name: str) -> dict:
+        """CUDA: assay in a child process, so this process never holds GPU memory (the
+        caching allocator and CUDA context) while the next training stage runs. CPU: in-process."""
+        if self.spec.get("device", "cpu") != "cuda":
+            return self.assay(adapter, label, manifest_name)
+        spec_file = self.results / "arm.json"
+        log = self.work / f"assay-{label}.log"
+        with log.open("w") as handle:
+            rc = subprocess.run(
+                [str(self.python), "-I", str(Path(__file__).resolve()), "--root", str(self.root),
+                 "--arm-json", str(spec_file), "--results", str(self.results),
+                 "--assay-adapter", str(adapter), "--assay-label", label,
+                 "--assay-manifest", manifest_name],
+                stdout=handle, stderr=subprocess.STDOUT).returncode
+        shutil.copy2(log, self.results / f"assay-{label}.log.txt")
+        if rc != 0:
+            raise SystemExit(f"REFUSE: assay {label} rc={rc}")
+        doc = json.loads((self.results / "assays" / f"{label}.json").read_text())
+        if doc["metrics"]["adapter_sha256"] != sha_file(adapter / "adapter_model.safetensors"):
+            raise SystemExit(f"REFUSE: assay {label} scored a different adapter")
+        return doc["metrics"]
+
+    def assay_profile(self, vlt):
+        """The assay's Profile from the spec. Only `temperature` (any mode) and
+        `num_generations` (SFT and eval, which never sample) may be absent or None; they then
+        take the Profile default. Table controls have no `temperature` (s[k] raised
+        KeyError), and SFT arms and promoted controls (runner.control_for) set it to None,
+        which Profile.validate() refuses with a TypeError inside predict_train_subset, so
+        every such arm crashed at its first assay, after training. The assay is greedy, so
+        neither key changes a prediction. Any other key absent or None refuses: e.g. a None
+        response_format would silently assay under the wrong prompt."""
+        s = self.spec
+        optional = {"temperature"} | ({"num_generations"} if s.get("mode") in (
+            "sft", "egsft", "eval") else set())
+        missing = [k for k in PROFILE_KEYS if s.get(k) is None and k not in optional]
+        if missing:
+            raise SystemExit(f"REFUSE: {s.get('id')} has no {missing} for its assay profile")
+        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
+                              dtype=s.get("dtype", "float32"))
+        profile.validate()
+        return profile
+
     def kept_endpoint(self, stop: int):
         """(receipt, adapter) of kept/step<stop> when its endpoint receipt is exactly this stop
         and no endpoint for it was recorded in this run, else None (then the stop trains)."""
@@ -272,19 +570,6 @@ class Arm:
             raise SystemExit(f"REFUSE: kept step{stop} adapter sha {got[:12]} != receipt "
                              f"{str(want)[:12]}")
         return receipt, kept / "final_adapter"
-
-    def assay_profile(self, vlt):
-        """The greedy assay's Profile. A key the spec lacks OR sets to None takes the Profile
-        default: matched controls have no `temperature` (KeyError at their first assay, found
-        by the wave-2 integration, ce099a3) and every SFT-family arm sets temperature None,
-        which Profile.validate() rejects (math.isfinite(None): TypeError) inside
-        predict_train_subset. Greedy decoding does not sample, so temperature cannot change
-        an assay. Any other present value passes exactly as before."""
-        s = self.spec
-        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
-                              dtype=s.get("dtype", "float32"))
-        profile.validate()
-        return profile
 
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:
         sys.path.insert(0, str(self.payload / "code" / "src"))
@@ -309,10 +594,16 @@ class Arm:
             cm.parent.mkdir(parents=True, exist_ok=True)
             cm.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in chunk))
             out = stage / f"greedy-{n // CHUNK:02d}"
+            extra = {}
+            if s.get("device", "cpu") == "cuda":
+                extra["threads"] = int(s.get("threads", 4))
+                transfer = self.precision_transfer(adapter)
+                if transfer:
+                    extra["precision_transfer"] = transfer
             record = vlt.predict_train_subset(cm, data_spec=self.spec_path, output=out,
                                               model_directory=self.model,
                                               device=s.get("device", "cpu"), profile=profile,
-                                              init_adapter=adapter)
+                                              init_adapter=adapter, **extra)
             if record.get("status") != "completed":
                 raise SystemExit(f"REFUSE: assay chunk {n // CHUNK} did not complete")
             if (record.get("initial_adapter") or {}).get("weights_sha256") != adapter_sha:
@@ -324,8 +615,11 @@ class Arm:
                     raise SystemExit(f"REFUSE: no prediction for {r['id']}")
                 ended = bool(c.get("terminated"))
                 terminated += ended
-                predictions[r["id"]] = (vlt.parse_label(c.get("response", ""), labels,
-                                                        allow_reasoning=True) if ended else None)
+                # Legacy formats: _format_kwargs is {} and parse_answer is parse_label.
+                predictions[r["id"]] = (vlt.parse_answer(c.get("response", ""), labels,
+                                                         allow_reasoning=True,
+                                                         **vlt._format_kwargs(profile))
+                                        if ended else None)
         if len(predictions) != len(rows):
             raise SystemExit("REFUSE: assay row count differs from its manifest")
         gold = {r["id"]: r["label"] for r in rows}
@@ -355,7 +649,10 @@ def write_summary(arm: Arm, summary: dict) -> None:
     self = this process, which also runs the in-process assay; children = the largest
     trainer subprocess that has exited. Linux ru_maxrss is in KiB."""
     import resource
-    gib = lambda kib: round(kib / 1048576, 3)
+
+    def gib(kib):
+        return round(kib / 1048576, 3)
+
     summary["resources"] = {
         "self_maxrss_gib": gib(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
         "children_maxrss_gib": gib(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)}
@@ -414,16 +711,22 @@ def run(arm: Arm, final_check: bool) -> dict:
             write_summary(arm, summary)
             previous = stop
             continue
-        resume = arm.out / f"checkpoint-{previous}" if previous else None
+        # RFT continues its own output dir (round-level resume), never a checkpoint.
+        resume = (arm.out / f"checkpoint-{previous}" if previous and s["mode"] != "rft"
+                  else None)
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
-        receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume))
+        stage_args = arm.trainer_args(manifest, total, stop, resume)
+        # only RFT needs the stop (to reuse a completed boundary endpoint); every other mode
+        # keeps run_stage's two-argument call
+        receipt = (arm.run_stage(f"train-{stop}", stage_args, stop) if s["mode"] == "rft"
+                   else arm.run_stage(f"train-{stop}", stage_args))
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay(arm.out / "final_adapter", f"step{stop}", holdout)})
+            "metrics": arm.assay_isolated(arm.out / "final_adapter", f"step{stop}", holdout)})
         arm.copy_small()
         write_summary(arm, summary)
         previous = stop
@@ -439,7 +742,7 @@ def run(arm: Arm, final_check: bool) -> dict:
             "label": "time", "steps": receipt.get("global_step"),
             "receipt_status": receipt["status"],
             "active_seconds": receipt["committed_active_seconds"],
-            "metrics": arm.assay(arm.out / "final_adapter", "time", holdout)})
+            "metrics": arm.assay_isolated(arm.out / "final_adapter", "time", holdout)})
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_summary(arm, summary)
@@ -454,10 +757,22 @@ def main(argv=None) -> int:
     src.add_argument("--arm-json", type=Path, help="arm spec file (runner.py syncs it)")
     p.add_argument("--results", type=Path, required=True)
     p.add_argument("--final-check", action="store_true")
+    # Internal (assay_isolated): assay one saved adapter in this process and exit.
+    p.add_argument("--assay-adapter", type=Path)
+    p.add_argument("--assay-label")
+    p.add_argument("--assay-manifest", choices=("dev800.jsonl", "h_gate_final.jsonl"))
     a = p.parse_args(argv)
     if not (a.root / "RECEIPT.json").is_file():
         raise SystemExit(f"REFUSE: {a.root} has no bootstrap RECEIPT.json")
     spec = json.loads(a.arm_json.read_text() if a.arm_json else base64.b64decode(a.arm_b64))
+    if a.assay_adapter is not None:
+        if not (a.assay_label and a.assay_manifest):
+            raise SystemExit("REFUSE: --assay-adapter needs --assay-label and --assay-manifest")
+        arm = Arm(a.root, spec, a.results)
+        metrics = arm.assay(a.assay_adapter, a.assay_label, a.assay_manifest)
+        print(json.dumps({"arm": spec["id"], "label": a.assay_label,
+                          "accuracy": metrics["accuracy"]}))
+        return 0
     summary = run(Arm(a.root, spec, a.results), a.final_check)
     print(json.dumps({"arm": spec["id"], "endpoints": [
         {k: e[k] for k in ("label", "steps")} | {"accuracy": e["metrics"]["accuracy"]}

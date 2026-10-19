@@ -337,3 +337,116 @@ The GPU became free when the freshpool study stopped. `runs/aircraft-named-basel
 (copy of chain.sh: discovery skipped, full invocations 2..32) relaunched against the unchanged root checkout
 (main da4e401, clean), so run 2 stays under one code identity (D23). The pause after full-inv-1 was for Ryan's
 machine lag, not a run defect. Root checkout must not move until chain_end.
+
+## D27 — Freshpool confirmatory phase pre-registered, then withdrawn not run (PR #21; 2026-10-18)
+- docs/aircraft-freshpool-confirmatory-v1.json/.md pre-register G5 (seeds 314 and 2718; RL at RL*'s frozen LR; SFT-E and SFT-T at every LR in Q) and a once-only sealed native TEST (G6) for exactly four allowlisted roles: RL* seed 42, the protocol-pool strongest SFT, W, and Qwen3.8-27B-8bit @815b83c0 (native-instruct profile).
+- There is one primary endpoint: RL* minus the strongest SFT under the unchanged substantial_rl gates, with the class-stratified bootstrap (20,000 draws, seed 2718). Multiplicity is a fixed sequence of conjunctive (intersection-union) families, G4 -> G5 -> G6a -> G6b. Secondary measures are descriptive only. The plan names 17 refusal conditions.
+- scripts/validate_freshpool_confirmatory.py works as follows. validate refuses a malformed plan, drift in any pin or inherited block, and an envelope receipt that exists now or ever existed in git history. authorize derives the contenders from the pinned evaluator on committed pre-TEST evidence, then writes and commits the receipt by exclusive create. claim allows one committed look per role. The 55 tests use hand-coded expected values.
+- Status: the parent study stopped at G1 (D25), so under the plan's own development_stop_before_G4 outcome it is never activated and is to be marked WITHDRAWN_NOT_RUN.
+Withdrawn in the same breath: the freshpool study stopped at G1 (D25), so per the plan's own development_stop_before_G4 rule it is never activated; status set to UNACTIVATED_WITHDRAWN_NOT_RUN. TEST stays sealed.
+
+## D28 — Freshpool results report tool (PR #22)
+gate results for aircraft-freshpool-screened-grpo-v1 are reported with scripts/freshpool_report.py. Every gate and every journal selection is recomputed by the pinned evaluator (scripts/evaluate_freshpool_gates.py, run via runpy after its bytes, launch.py's and classification_comparison.py's are hashed against the plan's pins) from journal-admitted fragments only, and must agree with the launcher's own evidence, report and selection records; any disagreement, missing fragment, or unreproducible selection is a refusal (exit 2, one JSON line), never a warning. Only H-select / H-gate assays are admitted, so VAL and TEST are never scored; H uncertainty is the protocol's paired within-class bootstrap (20,000 draws, seed 2718). The VAL target 0.8039 = a* 0.7539 + D_req 0.05 is a lower bound (G4 also needs +0.05 over the strongest SFT on VAL). Live run aircraft-freshpool-v1 stopped at G1 gate_failed (acceptance 0.2975 < 0.30, valid 0.8926 < 0.90, per gates/G1-report-1.json). Known launcher window (state.json saved before stage_completed is appended) fails closed with gate_evidence_differs_from_fragments; launch.py is unchanged because the live plan pins it.
+## D29 — Pretrained Harbor dogfood reproduction on a GitHub-hosted runner (PR #25)
+We add a manual workflow, `aircraft-harbor-dogfood.yml`, that re-runs the passing local plan `62fe9ff1…` byte-for-byte on a free `ubuntu-24.04` runner. Plan files come from the tracked archive checked against `plan-SHA256SUMS`. Host and build files come from source commit `1323eb1`. Inputs come from `setup_runtime`. The trial is `local_run.execute`, with only its Mac/Colima launch gate swapped for a first-attempt GitHub-runner gate. Pass means C1–C4 from `local_run` hold **and** the driver's `dogfood-local-result.json` exists with `pass: true` and `driver_error: null`. There are three deviations from the plan, all disclosed in `docs/aircraft-harbor-dogfood-ci.md`:
+- The outer timeout is `timeout -s INT -k 120 15300` instead of the plan's 14600 s with TERM.
+- The README step 3 cgroup read runs in the runtime image.
+- The runner recreates `/Users/idide/RyanLinEnv` rather than editing pinned plan bytes.
+
+The scope stays integration-only (TRAIN fixtures, not held-out, not RL-vs-SFT). Known risks, all unmeasured on x86:
+- About 0.2 GiB of headroom over the 14 GiB preflight.
+- SFT tree RSS has never been measured on x86.
+- C2 can fail through a uniform-reward GRPO group.
+
+A failure is reported as a result and is never retried. The status is not yet dispatched.
+
+Review check at head 9e31db3 (read-only, nothing run locally): both blocking findings are resolved and every CI check passes.
+1. The PR body now describes this PR. It lists the same four files as the diff (`.github/workflows/aircraft-harbor-dogfood.yml`, `scripts/harbor_dogfood_ci.py`, `docs/aircraft-harbor-dogfood-ci.md`, `tests/test_harbor_dogfood_ci.py`). The named-baseline plan text is gone.
+2. `criteria()` now calls `driver_record_error(root/output/local_run.RESULT_NAME)`, and `RESULT_NAME` is `dogfood-local-result.json` in the v4 `local_run.py`. That function returns an error if the file is missing or unreadable, if `driver_error` is non-null, or if `pass` is not true. The error is passed into `local_run.evaluate`, which sets pass to `driver_error is None and all(criteria)`. A new parametrized planted test, `test_driver_failure_fails_although_evidence_passes`, covers a CalledProcessError, the wall guard, `pass: false` and a missing file. In each case C1–C4 still pass, but the receipt fails and the exit code is 1.
+
+CI (`gh pr checks 25`): cpu, detection, harbor and local-vlm passed in both runs.
+## D30 — Named open-weight baseline Qwen2.5-VL-3B on free CI, pre-registered unactivated (PR #27)
+named open-weight baseline on free CI, pre-registered and UNACTIVATED. Adds plan aircraft-named-baseline-ci-qwen2.5-vl-3b-v1 (docs/aircraft-named-baseline-ci-plan-v1.json): Qwen/Qwen2.5-VL-3B-Instruct@66285546d2b821cf421d4f5eb2576359d3770cd3, all 13 files pinned by SHA256. It runs zero-shot in bf16 on free ubuntu-24.04 CPU runners as a sharded workflow_dispatch matrix. Prompt, greedy predict, the EOS-terminated parse_label(allow_reasoning=True) and the metrics/bootstrap (20,000 draws, seed 2718) come from the frozen evaluator at 85f0865. All 41 sources are materialised and hash-checked against reports/2026-10-17-controlled400-native-val/plan.json (cf871cfb...).
+
+Disclosed deviations: bf16 on CPU, repetition_penalty 1.0, 4 threads, and ATen AVX2 with oneDNN off on every host. The pinned kernel path was added because an AVX-512 bf16 host changed one greedy TRAIN answer. The PR plumbing canary requires the pre-registered answers.
+
+Stages: plumbing (3 TRAIN images, never scored), discovery (the D13 100-ID sample, exactly 4 shards) and full VAL (3,333 images). Full VAL is gated on a committed discovery receipt from one first-attempt run on main, made by the same runner and workflow SHA256, with at least 90% valid answers. Its shard count must satisfy N >= ceil(3333 / floor((19800-900-max fixed setup) / max(330, 3.0 x (slowest discovery shard mean latency + mean fetch)))).
+
+VAL is dispatched only from refs/heads/main. The merge refuses any missing, duplicate or misplaced image, any non-completed outcome, any re-run shard, any foreign run and any identity mismatch. No TEST data is touched.
+
+Activation requires root to commit an activated copy, which may differ only in activated, activation and status, and to pass its SHA256.
+
+Review (2026-10-18), against head fca62ef with read-only checks: all three blocking findings are resolved. (1) Merge gaps and duplicates: verify_shards and read_shard_records refuse every case. (2) Prompt and parse drift: the frozen Backend.predict, _deadline, the run_chunk output checks and the terminated-only parse were reused unchanged, and the merge re-parses every response. (3) Pinning: the model revision is the full hash and equals the frozen MODEL_REVISIONS, with per-file SHA256 and hashed torch locks. CI is green on fca62ef: runs 39124910292, 39124907507 and 39124910205.
+## D31 — Housekeeping and compute (2026-10-18)
+- Closed unmerged (branches kept): #20 and #23 (duplicates from agents that died; superseded by reviewed #25 and #27); #19 contingency draft (fresh verification found unresolved blocking issues; superseded by PR #26 and the exploratory sweep PR #29).
+- 27B MLX baseline run 2 paused permanently on the Mac after full invocations 1-3 (37.5 GB wired memory lagged Ryan's Mac). Replacement: v2 plan on UWaterloo big-RAM CPU hosts (PR #28), a different engine identity; v1 run-2 partial results are not merged with v2.
+- Heavy compute moved to UWaterloo Engineering hosts via uwrun (Ryan's order). Exploratory sweeps there use TRAIN-derived holdouts only; native VAL and sealed TEST are untouched until a recipe is pre-registered.
+
+## D32 — Harbor dogfood reproduced on a free GitHub runner (run 39126983510, 2026-10-18)
+- Workflow from PR #25, dispatched on main against plan sha256 62fe9ff1d71ba6c50a183ed1ffecdc2318be2fe5b31c521b3079e6aedc494901 (the local v4 PASS plan). Every step succeeded; ci-criteria.json reports C1-C4 all pass, missing_criteria [], driver_error null, native VAL and TEST unused.
+- C2 delta L2 0.0104217 matches local v4 (0.01042); 112 changed tensors. Final adapter sha 2a4964bd... differs from local ee0e7d0f... (x86 runner vs aarch64 Colima; floating-point order differs). C3 verifier hash equals the RL adapter hash in the same run, which is the criterion.
+- Evidence downloaded to runs/harbor-ci-dogfood-39126983510/ (local, ignored). Integration only: not learning, not held-out, not an RL-vs-SFT result. The real-pretrained Harbor dogfood requirement now holds locally (v4) and on CI.
+
+## D33 — Qwen2.5-VL-3B free-CI named baseline activated (discovery first)
+- Activated copy docs/aircraft-named-baseline-ci-plan-v1-activated.json, sha256 8ae93e9969f636084329a875801e50c73f6cb149b1603dcf78bd0addd71e0901, from source plan 6914b1ad... (PR #27). Differs only in activated, status and activation. Plumbing passed on PR #27 head fca62ef, and every pipeline file is byte-identical on main.
+- Next: dispatch discovery (exactly 4 shards) from main with this copy. Commit the merged discovery-receipt.json before full VAL. Native VAL only; sealed TEST untouched.
+
+## D34 — Qwen2.5-VL-3B CI discovery receipt (run 39133341093)
+- Discovery completed 100/100 on 4 first-attempt shards from main (sha e8c4dd0), plan sha 8ae93e99. Accuracy 25/100 (Hoeffding 95% [0.114, 0.386]), valid 0.98, unterminated 0. Not a benchmark score. Slowest shard mean latency 298.19 s/image, fetch 0.585 s, max fixed setup 64.33 s (all AMD EPYC 7763).
+- Shard rule: per-image budget max(330, 3.0 x (298.19 + 0.585)) = 896.3 s; floor((19800 - 900 - 64.33) / 896.3) = 21 images per shard; N >= ceil(3333 / 21) = 159. Full VAL dispatched with N = 159 after this receipt is on main. TEST untouched.
+
+## D35 — RL-from-I corrections adopted; confirmatory pre-registration written, unactivated (2026-10-18)
+- Adopted as binding for every RL-from-I lane: `docs/aircraft-rl-lessons-audit-2026-10-18/CORRECTIONS.md` (sha256 cc392fa0…1dcf), a byte copy of the gitignored `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`. Its evidence, `audit.md` bfc3dd1b… (C1–C19) and `critic.md` ed9c3845… (M1–M12), is copied beside it. It has two parts:
+  - **GATE 0.** No new GRPO-I arm launches until four things are measured: P0-I, the SFT-from-I curve on the same labels, the dev800 calibration against native VAL, and the placebo pairs. P0-I is a no-go below about 5% pass@8 headroom.
+  - **Arm design rules.** These cover:
+    - fp32 GRPO unless a bf16 waiver is earned, and one device class per trajectory;
+    - the LR grid, β, dynamic sampling, the screened target and multi-image updates;
+    - controls with the same LR count and best-of-k, full label access, and time matching at each checkpoint;
+    - dropped families;
+    - pool rules that exclude the 477 near-duplicates and train400, and a rebuilt confusion map;
+    - the RL-from-sftall\* family;
+    - co-tenancy, the CUDA resume E0, a fixed rung schedule, and one shared look ledger.
+- Pre-registered before any dev800 winner exists, status UNACTIVATED: `docs/aircraft-rl-from-I-confirmatory-v1.{json,md}`. It fixes:
+  - **Intake.** At most K = 3 dev800-screened arms. Each must have passed GATE 0 and the arm rules, beaten a placebo-adjusted bar B = max(0.03, placebo max), and passed an h_gate sign check. Each is frozen by adapter sha256 before replicates or VAL.
+  - **Comparator pool.** One global pool: I re-scored, every SFT-from-I control LR with E and T endpoints, and sftall\* with its LR siblings, all scored in one look.
+  - **VAL gates.** Inherited from `substantial_rl`: ≥ 0.80, +0.05 over I, +0.05 over the strongest SFT, RER ≥ 0.20, and a lower bound > 0 on a Bonferroni 98.33% interval across K.
+  - **Replicates.** Seeds 314 and 2718, run from the same frozen I. I is never retrained.
+  - **One native-VAL scoring event**, with an append-only look ledger that discloses that VAL already selected I.
+  - **Evaluator.** The frozen 85f0865 evaluator on MPS fp32, or one validated fp32 equivalent.
+  - **Disclosures.** The 477 near-duplicates; the relabel from 4-shot to about 23 labelled images per class; the confusion-map/dev600 overlap.
+  - **Prerequisite.** A full-VAL named baseline: 3B CI run 39144098450 or 27B v2.
+  - **TEST.** A once-only sealed TEST for an allowlist of roles, opened only after a VAL pass.
+- Not activated. Activation needs, among other things, a committed GATE 0 go, `splits.json` on main, a completed full-VAL named baseline, and a reviewed validator with fire tests for every refusal id.
+
+## D36 (PR #31) — 27B v2 CPU baseline: oneDNN capped at AVX, 6-host pool, 60 full shards (unactivated)
+- Kernel pin changed from oneDNN off to oneDNN on with ONEDNN_MAX_CPU_ISA=AVX (plus ATEN_CPU_CAPABILITY=default, MKL_CBWR=AVX). Measured back to back on iccad3: oneDNN off made decode 61.7 s/token (13.7 alone) vs 2.1 with oneDNN on; cores busy 25-32 throughout, so the pin, not host load. Under the new pin the first-step score rows of 4 TRAIN canary images are bit-identical on iccad1/2/3, iccad5 and iccad10/12/13 (3 CPU families). The expected kernel fingerprint 9d149dab... (measured on iccad1/3/5/6/9/10/12/13) is pinned in the plan and refused otherwise before any image. Source: reports/2026-10-18-named-baseline-v2-kernel-probe.
+- Pool = 6 hosts (allowlist in the plan): iccad1, iccad3, iccad5, iccad10, iccad12, iccad13. Excluded: iccad2 (canary matched, but ~130 GB available with the snapshot loaded cannot take uwrun --mem 170); ecetesla0/1, iccad4, iccad6 (RAM); iccad0/7/8 (free RAM beside the sweep); iccad9/11 (saturated by the sweep, canary unfinished). Shards: 10 discovery, 60 full; gate projects at the slowest discovery host. Projection about 65-73 h for full VAL (was about 170 h). Plan remains UNACTIVATED; no VAL or TEST image touched.
+- Operation: the staging path left the run identity (each uwrun run syncs to a new directory; image hashes remain); the machine preflight (snapshot incl. unlisted files, runtime lock, kernel pin, fingerprint, host/ledger binding) runs before the ledger charges an invocation; tree, venv and --output live at fixed /var/tmp/r226lin-nbv2/ paths; every launch uses --threads 32 --mem 170 and a timeout of wall cap + 3600 s; an oom-guard or --mem stop is a charged, killed invocation whose reserved image is unknown and never quoted.
+- Lost processes: a stall watchdog ends an invocation after 3 h without journal or progress writes; a shard that lost its process (unfinished invocation, no hard stop) may be re-run from scratch once on another host (lost.json + shard-k-of-N-rerun/), scored only from the rerun, which must reproduce every answer the lost attempt completed (else the merge refuses). A second loss still stops the stage.
+- SIGILL: torch 2.14.1's MKL intermittently runs its AVX-512 VML cosine kernel on non-AVX-512 CPUs (rc 132; 5/200, 1/200, 3/200 elementwise runs cold on iccad3/1/6). The engine's pin now runs a single-threaded VML warm-up first (0/200 on iccad1/3/5 after it) and records it in the run identity; iccad1/3/5 stay allowlisted only with >= 15 warm-up engine forwards each and 0 SIGILL (rule pre-registered before the outcome).
+
+## D37 — GATE 0 passed; corrected RL-from-I arms released (2026-10-19, before any corrected GRPO-I result)
+D36 is reserved by open PR #31.
+- **E0 (CUDA resume): PASS.** Resume L2 1.51e-5 is below the run-to-run floor of 1.77e-5. Source: branch exploratory-sweep-v2-gpu.noindex, docs/aircraft-exploratory-sweep-v2-gpu/raw/rlegpu-worker-eceubuntu2-1792360733/00-*/e0.json.
+- **dev800 calibration: PASS.** Spearman with native VAL is +0.929 over 8 endpoints, and the RL400−SFT sign is reproduced (−1.25 pp against −1.27 pp native). Source: calibration-rtx3070-bfloat16.json.
+- **P0-I: GO (pool A, 200 images, fp32 2080 Ti, G8).** Among I-greedy-wrong images, pass@8 is 20/49 at T 1.0 and 22/49 at T 1.3, which is 10.0% and 11.0% of all images against the 5% no-go bar. The mixed-group fraction is 0.33 at T 1.0 and 0.465 at T 1.3. Source: p0-p0_poolA200-T1.0.json and -T1.3.json. Pools B, `mixed` and `hard` keep running as diagnostics. If the pooled pass@8 falls below 5%, new GRPO-I launches go back on hold.
+- **SFT-from-I ceiling (M1): measured.** On s_train (bf16 3070; clean all_train = s_train + 15 rows), every LR in {5e-6, 1e-5, 2e-5} and seeds 42/314 land between 0.7575 and 0.785 on dev800 across 150–4800 updates; I itself scores 0.775. The best tuned SFT-from-I is 0.785, so the comparator is max(I, best SFT-from-I) = 0.785 for now. CPU all_train curves and the I-seed retrains continue as comparator and noise measurements, not as a gate.
+- **Placebo / noise (M5): measured.** Same LR, different seed (lr1e-5 s42 vs s314) differs by up to 1.75 pp at one stop, and best-of-6 differs by 0.25 pp. The promotion bar stays B = max(0.03, placebo max), which is 0.03 now.
+- **Released:** GRPO-I arms under runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md: fp32 only (2080 Ti and AVX-512 CPU hosts), LR {1e-5, 2e-5, 5e-5} plus one 3e-6 guard, β 0, dynamic sampling ≥ 8, T 1.0 and 1.3, with LR-gridded controls trained on all scanned rows and time-matched per checkpoint. bf16 GRPO on the 3070s waits for the M9 replicate.
+- **Not quotable:** the exploratory GRPO-I arm 21 (lr1e-5, no dynamic sampling) scored 0.78125 at step 150. It predates these rules and is not a candidate.
+
+## D38 — CPU moved from SFT measurement to RL arms (2026-10-19)
+- **Measured:** corrected GRPO-I fp32 arms on CPU run at about 290–380 s/update (iccad13 lr5e-5: 869 s for 3 updates; iccad0 lr2e-5: 758 s for 2), from each arm's optimizer_audit active seconds. 600 updates is therefore about 48–63 h, not the 22 h estimated from the uncontended benchmark (134 s). Dynamic-sampling redraws and our own oversubscription of the AVX-512 hosts both add to the cost; the split between them is not yet measured.
+- **Why now:** GATE 0's SFT questions are answered (D37). SFT-from-I plateaus at 0.785 best-of-6 across LR {5e-6, 1e-5, 2e-5}, and the seed placebo spread (best-of-6) is about 0.25 pp.
+- **Stopped, partial results kept and labelled:** the CPU SFT-ceiling lane's I-seed retrains (seeds 1–6 and seed42-cpu; the confirmatory plan never retrains I), the all_train comparator replicates (lr1e-5 s314 and s2718, lr5e-6 s314), and lr3e-6.
+- **Kept:** all_train lr5e-6, lr1e-5 and lr2e-5 at seed 42, to 2400; the leader continues to 7200 as the long-horizon comparator.
+- **Freed AVX-512 cores** go to corrected GRPO-I workers. The M9 test (bf16 GRPO on the 3070s, about 6 s/update) is first in line, because it is the largest throughput lever.
+
+## D39 — Named baseline v2 (Qwen3.8-27B, UW CPU) activated for discovery (2026-10-19)
+- Activated copy docs/aircraft-named-baseline-plan-v2-activated.json, sha256 96b38f209c015205ee8b594ab452a040c3a0c50bb89486dabd61073a8ae2505a, from source docs/aircraft-named-baseline-plan-v2.json sha256 9f4ec53aeb0b5d33018b0818797837d8993cf4bc2726bb3286b4635e75c7b971 (main 70f2add, PR #31). Approved by root (Claude session) after a clean fresh review. Differs from the source only in activated, status, the activation record and the six null sources_pinned entries, filled with the file SHA256s at 70f2add as the plan requires (the runner refuses an activated plan with a null pin).
+- Allowlist: iccad1, iccad3, iccad5, iccad10, iccad12, iccad13 (iccad1/3/5 admitted under the pre-registered SIGILL rule: 21/27/16 warm-up forwards, 0 SIGILL). Discovery first (10 shards of the D13 100 ids, shard-pull, uwrun --threads 32 --mem 170, --need none on iccad1/3); full VAL only after the committed discovery receipt and the gate. Native VAL only; sealed TEST untouched.
+
+## D40 — Signal-limit v1 study shelved, not activated (2026-10-19)
+- PR #34 (activation and UW package) is complete and green, but its own audit lists 16 conflicts with the binding RL corrections (D35, CORRECTIONS.md). Among them: the LR grid {1e-5, 5e-5, 1e-4} for every arm; SFT-E control LRs that don't match RL's, with unequal best-of-k; time matching only at RL*'s final time; none of the four GATE 0 measurements; no dynamic sampling; p canonical-only; the old confusion map. Gate A would land about 7 days in, and A4 alone costs about 669 s/update. The pre-registered p_substantial was about 0.02.
+- The RL-from-I program (D35, D37, D38), running under the corrections, answers the same question at lower cost. The signal-limit study is therefore shelved. Activating it would need a new version that resolves the 16 conflicts. PR #34 is closed unmerged, and its branch can be restored from the PR page.
+- Kept from PR #34: on the AVX-512 host ecetesla0, two identical 1+1 resumes gave different p for one rejected candidate (0.9964093 vs 0.9964060), while adapter bytes, sampled tokens and exposure matched. So resume on that CPU class is not byte-identical, though the difference is far below any assay resolution. The finding is logged in ~/uwaterloo-access/FINDINGS.md.

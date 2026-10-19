@@ -54,6 +54,7 @@ UWRUN = Path.home() / ".claude" / "bin" / "uwrun"
 HERE = Path(__file__).resolve()
 DESIGN = HERE.parents[2] / "docs" / STUDY
 ARM_EXEC = "payload/code/scripts/exploratory_sweep/arm_exec.py"
+WAVE2_TABLE = "arms-wave2-rung1.json"  # scripts/exploratory_sweep/wave2_arms.py
 RECEIPTS = "~/rlesweep/receipts"
 HEADROOM = 0.75  # leave a quarter of every host's cores and memory free
 ARM_RSS_GB = 16.0  # measured max RSS of one fp32 2B LoRA trainer was ~13.6 GB (iccad1, GNU time)
@@ -156,7 +157,8 @@ def safe_name(text: str) -> str:
 
 
 # ---- bootstrap and receipts ------------------------------------------------------------
-MIN_LOCAL_GB = 3.0  # uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+# uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+MIN_LOCAL_GB = 3.0
 
 
 def low_disk_hosts(hosts: dict, names) -> list:
@@ -295,7 +297,19 @@ def cmd_refresh(a, state_path: Path) -> int:
                                             repin=False), state_path)
 
 
-def valid_receipt(state: dict, host: str, features) -> dict:
+def receipt_gpu(device: dict) -> str | None:
+    """The GPU model class a receipt's device names (None for a CPU receipt)."""
+    if device.get("kind") != "cuda":
+        return None
+    name = str(device.get("gpu", "")).replace(" ", "").lower()
+    for model in ("3070", "2080ti", "3090", "4090", "a100", "a6000", "a4000", "a40", "l40"):
+        # whole model number only: "a40" must not match an RTX A4000, nor "3070" a 3070ti
+        if re.search(re.escape(model) + r"(?![0-9a-z])", name):
+            return "rtx" + model if model[0].isdigit() else model
+    return name or "unknown"
+
+
+def valid_receipt(state: dict, host: str, features, spec: dict | None = None) -> dict:
     h = state["hosts"].get(host) or {}
     r = h.get("receipt")
     if not r or not r.get("valid"):
@@ -307,6 +321,16 @@ def valid_receipt(state: dict, host: str, features) -> dict:
     missing = sorted((set(features) | {"exploratory_sweep"}) - set(r["features"]))
     if missing:
         raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
+    if spec is not None:
+        # The trainer feature "cuda" only says the code supports it; the host's device is
+        # the receipt's. An arm runs only where its declared device (and GPU model) is.
+        want = spec.get("device", "cpu")
+        have = (r.get("device") or {}).get("kind", "cpu")
+        if want != have:
+            raise SystemExit(f"REFUSE: {spec['id']} declares {want}, {host} is {have}")
+        if want == "cuda" and spec.get("gpu") != receipt_gpu(r.get("device") or {}):
+            raise SystemExit(f"REFUSE: {spec['id']} declares GPU {spec.get('gpu')}, {host} "
+                             f"has {receipt_gpu(r.get('device') or {})}")
     return r
 
 
@@ -331,13 +355,15 @@ def mem_gb(spec: dict):
 
 
 def capacity(state: dict, hosts: dict, host: str, threads: int,
-             mem: float = ARM_RSS_GB) -> int:
+             mem: float = ARM_RSS_GB, device: str = "cpu") -> int:
     """Arms of `threads` threads `host` can take now, keeping 25% of physical cores and memory."""
     t = hosts.get(host)
     if t is None:
         return 0
     ours = [x for x in state["arms"].values()
             if x.get("host") == host and x.get("status") in ("LAUNCHED", "RUNNING")]
+    if device == "cuda" and any(x.get("device") == "cuda" for x in ours):
+        return 0  # one GPU arm per host at a time (one GPU each)
     our_threads = sum(x.get("threads", 16) for x in ours)
     # load1 lags a fresh launch; count our own arms at full weight until load reflects them
     busy = max(t["load1"], our_threads)
@@ -352,16 +378,41 @@ def control_spec(state: dict, ctl: dict) -> dict:
     rl = state["arms"].get(ctl["control_of"]) or {}
     summary_path = Path(rl.get("results_dir", "")) / "summary.json"
     receipt_path = Path(rl.get("results_dir", "")) / "endpoint_receipt.json"
+    if not receipt_path.is_file():  # an RFT arm: arm_exec's derived endpoint receipt
+        receipt_path = receipt_path.with_name("rft_endpoint_receipt.json")
     if rl.get("status") != "DONE" or not summary_path.is_file() or not receipt_path.is_file():
         raise SystemExit(f"REFUSE: control {ctl['id']} needs a finished {ctl['control_of']}")
     summary = json.loads(summary_path.read_text())
     receipt = json.loads(receipt_path.read_text())
     last = [e for e in summary["endpoints"] if e["label"].startswith("step")][-1]
     ids = receipt["committed_prompt_ids"]
+    if ctl.get("control_replays") == "scanned":
+        # CORRECTIONS C4: replay EVERY row the RL arm scored, in scan order (arm_exec's
+        # scanned_ids.json). Missing is a refusal, never a fall back to the committed ids.
+        scanned_path = summary_path.with_name("scanned_ids.json")
+        if not scanned_path.is_file():
+            raise SystemExit(f"REFUSE: control {ctl['id']} replays every scanned id; "
+                             f"{ctl['control_of']} has no scanned_ids.json")
+        scanned = json.loads(scanned_path.read_text())
+        if scanned.get("global_step") != receipt["global_step"]:
+            raise SystemExit(f"REFUSE: {ctl['control_of']} scanned ids are for another step")
+        ids = scanned["scanned_prompt_ids"]
+        committed = receipt["committed_prompt_ids"]
+        if receipt.get("schema") == "arm_exec-rft-endpoint-v1":
+            # RFT trains on kept samples of prompts it scored (the per-round order of kept
+            # examples is canonical, not scan order): every committed id was scanned
+            ok = set(committed) <= set(ids)
+        else:  # every committed update's prompt is one scanned draw, in scan order
+            stream = iter(ids)
+            ok = all(any(x == c for x in stream) for c in committed)
+        if not ok:
+            raise SystemExit(f"REFUSE: {ctl['control_of']} committed ids are not within its "
+                             f"scanned ids in order")
     if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
-    # examples-matched: one SFT update per prompt the RL arm committed, in its order
+    # examples-matched: one SFT update per prompt the RL arm committed (or, for a
+    # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
                 time_budget_seconds=float(last["active_seconds"]))
     return spec
@@ -398,6 +449,7 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
         state["arms"][spec["id"]] = {
             "status": "LAUNCHED", "host": host, "run": name, "launched_at": now(),
             "launched_ts": time.time(), "threads": spec.get("threads", 16), "mem_gb": mem,
+            "device": spec.get("device", "cpu"),
             "spec_path": str(launch_dir / "arm.json"), "kind": spec.get("kind", "train"),
             "wave": spec.get("wave"), "rung": spec.get("rung"), "track": spec.get("track"),
             "family": spec.get("family"), "control_of": spec.get("control_of"),
@@ -415,9 +467,16 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
 # (state["gate0"]["passed"] is True, written by whoever records GATE 0). `continue` is
 # allowed only for the sftall families. No W-init unit is promoted. Freed cores stay idle
 # for the GATE 0 SFT lane, so `refresh` bootstraps only hosts holding a continuable arm.
-# Amendment 5 (root D37; amendment 4 is the wave-2 table, PR #36): the corrected GRPO-from-I table arms-d37-grpo-I.json replaces the
-# rung-1 grpo-I arms, which are retired (its `retires` map records why) and never launch.
+# Amendment 5 (root D37; amendment 4 is the wave-2 table, PR #36): the corrected
+# GRPO-from-I table arms-d37-grpo-I.json replaces the rung-1 grpo-I arms, which are retired
+# (its `retires` map records why) and never launch.
 LAUNCH_FAMILIES = {"d37-grpo-I", "d37-guard"}
+# Plan amendment 4 (arms-wave2-rung1.json): every wave-2 family starts from I and goes
+# through the same GATE 0 check, and the same d37_release hold (its controls are this PR's
+# machinery), matched controls and device evals included.
+WAVE2_FAMILIES = {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo", "wave2-mu2",
+                  "wave2-dapo", "wave2-guard", "wave2-rft", "device-control"}
+LAUNCH_FAMILIES = LAUNCH_FAMILIES | WAVE2_FAMILIES
 CONTINUE_FAMILIES = {"sftall-I", "sftall-W"}
 
 
@@ -453,12 +512,18 @@ def continuation_spec(spec: dict, summary: dict, first_stage_ran: bool = False) 
     Refuses unless the completed `step` endpoints are exactly a proper prefix of the stops."""
     # a continuation keeps the arm's full stop list, so it can itself be continued
     stops = [int(x) for x in spec.get("stops_all") or spec.get("stops") or []]
-    done = [int(e["steps"]) for e in summary.get("endpoints", [])
-            if str(e.get("label", "")).startswith("step")]
+    # the stop each endpoint was cut at (label stepN). Its `steps` must equal that stop, except
+    # RFT, whose round-granular boundary may pass it (never fall short)
+    ends = [e for e in summary.get("endpoints", []) if str(e.get("label", "")).startswith("step")]
+    done = [int(str(e["label"])[4:]) for e in ends]
+    rft = spec.get("mode") == "rft"
+    reached = all(int(e["steps"]) >= d if rft else int(e["steps"]) == d
+                  for e, d in zip(ends, done))
     # an arm whose first stage ran but recorded no endpoint (it died in that stop's assay)
     # continues too: arm_exec re-assays a kept adapter that is exactly that stop, verified on
     # the host (reuse_kept), and otherwise refuses to retrain into the non-empty work dir
-    if (not done and not first_stage_ran) or done != stops[:len(done)] or len(done) >= len(stops):
+    if (not reached or (not done and not first_stage_ran) or done != stops[:len(done)]
+            or len(done) >= len(stops)):
         raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
     cont = dict(spec)
     cont.update(stops=stops[len(done):], stops_all=stops, reuse_kept=True,
@@ -483,9 +548,10 @@ def cmd_continue(a, state_path: Path) -> int:
     cont = continuation_spec(spec, summary, first_stage_ran=first_stage_ran(spec, x))
     cont["continued_from_run"] = x["run"]
     host = x["host"]
-    r = valid_receipt(state, host, cont.get("features", []))
-    if capacity(state, host_table(), host, cont.get("threads", 16),
-                mem_gb(cont) or ARM_RSS_GB) < 1 and not a.dry_run:
+    r = valid_receipt(state, host, cont.get("features", []), cont)
+    # a dry run never queries uwrun's host table (it launches nothing)
+    if not a.dry_run and capacity(state, host_table(), host, cont.get("threads", 16),
+                                  mem_gb(cont) or ARM_RSS_GB, cont.get("device", "cpu")) < 1:
         raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
     if a.dry_run:
         launch_one(state_path, cont, host, r["root"], a.timeout, True)
@@ -566,7 +632,7 @@ def cmd_launch(a, state_path: Path) -> int:
         best = None
         for host in choices:
             try:
-                r = valid_receipt(st, host, spec.get("features", []))
+                r = valid_receipt(st, host, spec.get("features", []), spec)
             except SystemExit as exc:
                 # a control waits for its RL arm's host (refreshed once drained); skipping
                 # it still refuses that launch without aborting every other arm's
@@ -577,7 +643,7 @@ def cmd_launch(a, state_path: Path) -> int:
                 skipped.append(f"{spec['id']}: {host} has no AVX-512 (uwrun hosts avx)")
                 continue
             free = capacity(st, hosts, host, spec.get("threads", 16),
-                            mem_gb(spec) or ARM_RSS_GB)
+                            mem_gb(spec) or ARM_RSS_GB, spec.get("device", "cpu"))
             if free > 0 and (best is None or free > best[1]):
                 best = (host, free, r["root"])
         if best is None:
@@ -710,18 +776,29 @@ def last_step_accuracy(state: dict, arm_id: str):
 
 
 def control_for(rl: dict, control_lr: dict) -> dict:
-    keep = ("init", "seed", "threads", "device", "dtype", "max_pixels", "min_pixels",
-            "max_completion_length", "adapter_profile", "num_generations", "wave", "rung",
-            "max_steps_total")
+    keep = ("init", "seed", "threads", "device", "dtype", "gpu", "device_class", "max_pixels",
+            "min_pixels", "max_completion_length", "adapter_profile", "num_generations", "wave",
+            "rung", "max_steps_total")
     ctl = {k: rl[k] for k in keep if k in rl}
     lr = control_lr.get(rl["init"], 5e-6) if isinstance(rl["init"], str) else 5e-6
+    if rl.get("matched_control_lr"):  # wave 2: each family's controls span its LR count
+        lr = float(rl["matched_control_lr"])
+    extra = {k: rl[k] for k in ("control_replays", "control_response_format") if rl.get(k)}
     ctl.update(id=f"{rl['id']}~ctl", track="control", family="control", mode="sft", lr=lr,
                control_of=rl["id"], depends_on=[rl["id"]], same_host_as=rl["id"],
                order="sequential", cycle=True, train_manifest=f"@consumed:{rl['id']}",
-               response_format="answer_only", beta=None, temperature=None,
+               # wave 2: a closed-set RL arm's control trains and assays on the same prompt
+               response_format=extra.get("control_response_format", "answer_only"),
+               beta=None, temperature=None,
+               # a promoted control can replay more ids than s_train has rows (rung 3:
+               # 1,500 > 1,424) or repeated draws, so its host needs --replay-sequence
                screen_threshold=None, features=[f for f in rl.get("features", [])
-                                                if f == "cuda"],
-               max_active_seconds=SFT_ACTIVE_CAP_SECONDS)
+                                                if f == "cuda"] + ["replay_sequence"],
+               max_active_seconds=SFT_ACTIVE_CAP_SECONDS,
+               # a scanned-replay control trains on every scored row, more than RL updates
+               max_steps_total=int(rl.get("control_max_steps_total", rl["max_steps_total"])))
+    if "control_replays" in extra:
+        ctl["control_replays"] = extra["control_replays"]
     return ctl
 
 
@@ -780,6 +857,9 @@ def cmd_promote(a, state_path: Path) -> int:
     r = a.from_rung
     src = DESIGN / "arms-rung1.json" if r == 1 else SWEEP_DIR / f"arms-rung{r}.json"
     table = json.loads(src.read_text())
+    if r == 1 and (DESIGN / WAVE2_TABLE).is_file():
+        # The concrete wave-2 arms (plan amendment 4) rank in the same tracks at rung 1.
+        table["arms"] = table["arms"] + json.loads((DESIGN / WAVE2_TABLE).read_text())["arms"]
     units = {}
     for x in table["arms"]:
         if x["track"] in ("sft", "rl") and x["rung"] == r:
@@ -1071,8 +1151,9 @@ def main(argv=None) -> int:
     r = sub.add_parser("report")
     r.add_argument("--resamples", type=int, default=20000)
     a = p.parse_args(argv)
-    fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "refresh": cmd_refresh, "continue": cmd_continue, "launch": cmd_launch,
-          "bench": cmd_bench, "poll": cmd_poll, "report": cmd_report,
+    fn = {"bootstrap": cmd_bootstrap, "receipts": cmd_receipts, "refresh": cmd_refresh,
+          "continue": cmd_continue, "launch": cmd_launch, "bench": cmd_bench,
+          "poll": cmd_poll, "report": cmd_report,
           "promote": cmd_promote, "derive": cmd_derive}[a.cmd]
     return fn(a, a.state)
 

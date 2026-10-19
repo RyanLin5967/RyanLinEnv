@@ -455,6 +455,310 @@ def test_continue_restores_the_failed_record_when_the_launch_fails(tmp_path, mon
     assert "retired_reason" not in arms["s"]
 
 
+# ---- wave 2 (plan amendment 4): concrete arms reach the trainer with their features ------
+wave2 = load("wave2_arms")
+HIERARCHY_ASSET = ROOT / "scripts/exploratory_sweep/label-hierarchy-train-v1.json"
+
+
+def _fake_root(tmp_path):
+    root = tmp_path / "root"
+    for init in ("W", "I"):
+        adapter = root / "payload" / "adapters" / init / "final_adapter"
+        adapter.mkdir(parents=True)
+        (adapter.parent / "local_training.json").write_text(
+            json.dumps({"control_identity": {"profile": {"dtype": "float32"}}}))
+    asset = root / "payload/code/scripts/exploratory_sweep" / HIERARCHY_ASSET.name
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(HIERARCHY_ASSET.read_bytes())
+    return root, asset
+
+
+def _trainer_call(local, monkeypatch, argv):
+    """Run the trainer's own CLI on arm_exec's argv; return (function, kwargs) it would call."""
+    seen = []
+    monkeypatch.setattr(local, "train_local", lambda **k: seen.append(("train", k)) or {})
+    monkeypatch.setattr(local, "rft_local", lambda *a, **k: seen.append(("rft", k)) or {})
+    assert argv[:2] == ["-m", "vision_rl.vlm_local_training"]
+    assert local.main(argv[2:]) == 0
+    assert len(seen) == 1
+    return seen[0]
+
+
+def test_wave2_table_is_reproducible_and_every_arm_declares_its_device():
+    assert wave2.OUT.read_bytes() == wave2.render()
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    # 5 GRPO families x 3 LRs + Dr-GRPO's 3e-5 + the 3e-6 guard + RFT x 3 = 20 RL arms,
+    # 20 matched controls, W and I evaluated on each of the 3 device classes = 6
+    assert len(arms) == 46
+    for a in arms:
+        assert a["device"] in ("cpu", "cuda") and a["device_class"] in wave2.DEVICES
+        assert (a["device"] == "cuda") == ("cuda" in a["features"]) == ("gpu" in a)
+        assert a["wave"] == 2 and a["id"].startswith("wave2-")
+    rl = [a for a in arms if a["track"] == "rl"]
+    assert {a["updates"] for a in rl} == {150} and {tuple(a["stops"]) for a in rl} == {(150,)}
+    by_id = {a["id"]: a for a in arms}
+    for c in (a for a in arms if a["track"] == "control"):
+        parent = by_id[c["control_of"]]
+        assert (c["device"], c["dtype"], c.get("gpu")) == (
+            parent["device"], parent["dtype"], parent.get("gpu"))
+    used = {a["device_class"] for a in rl}
+    evals = {(a["init"], a["device_class"]) for a in arms if a["mode"] == "eval"}
+    assert evals == {(i, c) for i in ("W", "I") for c in used}  # W/I control per device
+
+
+def test_wave2_table_follows_the_root_rl_corrections():
+    """runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (root checkout), binding 2026-10-18."""
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    trained = [a for a in arms if a["mode"] != "eval"]
+    assert {a["init"] for a in trained} == {"I"}  # GRPO-W loses to I by 5-9 pp
+    fams = {a["family"] for a in arms if a["track"] == "rl"}
+    assert fams == {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo", "wave2-mu2",
+                    "wave2-dapo", "wave2-guard", "wave2-rft"}  # hier and both CoT dropped
+    assert not any("think" in a["response_format"] for a in arms)
+    grpo = [a for a in arms if a["mode"] == "grpo"]
+    assert {a["beta"] for a in grpo} == {0.0}
+    assert {a["dtype"] for a in grpo} == {"float32"}  # GRPO in fp32 only
+    lrs = {}
+    for a in grpo + [a for a in arms if a["mode"] == "rft"]:
+        lrs.setdefault(a["family"], set()).add(a["lr"])
+    main = {1e-5, 2e-5, 5e-5}
+    assert lrs == {"wave2-fmtpen": main, "wave2-closedset": main, "wave2-mu2": main,
+                   "wave2-dapo": main, "wave2-rft": main, "wave2-drgrpo": main | {3e-5},
+                   "wave2-guard": {3e-6}}
+    dapo = [a for a in grpo if a["family"] == "wave2-dapo"]
+    assert all(a["extra_trainer_args"][-2:] == ["--dynamic-sampling-max-draws", "8"]
+               for a in dapo)
+    by_id = {a["id"]: a for a in arms}
+    # per family, rank for rank and all DISTINCT: same LR count as the RL arms (C4)
+    three = {1e-5: 5e-6, 2e-5: 1e-5, 5e-5: 2e-5}
+    want = {f: three for f in ("wave2-fmtpen", "wave2-closedset", "wave2-mu2", "wave2-dapo",
+                               "wave2-rft")}
+    want["wave2-drgrpo"] = {1e-5: 5e-6, 2e-5: 1e-5, 3e-5: 2e-5, 5e-5: 3e-5}
+    want["wave2-guard"] = {3e-6: 5e-6}
+    per_family = {}
+    for c in (a for a in arms if a["track"] == "control"):
+        rl = by_id[c["control_of"]]
+        expected = want[rl["family"]][rl["lr"]]
+        assert c["init"] == "I" and c["mode"] == "sft" and c["lr"] == expected
+        per_family.setdefault(rl["family"], []).append(c["lr"])
+        promoted = runner.control_for(rl, {"W": 1e-5, "I": 5e-6})  # rung 2/3 control
+        assert promoted["lr"] == expected
+        for key in ("response_format", "max_steps_total"):
+            assert promoted[key] == c[key], key
+        assert promoted.get("control_replays") == c.get("control_replays")
+    assert all(len(set(v)) == len(v) for v in per_family.values())  # distinct per family
+    assert len(per_family["wave2-drgrpo"]) == 4
+    # the closed-set pair isolates RL: its control trains and assays on the closed-set prompt
+    for c in (a for a in arms if a["track"] == "control"):
+        rl = by_id[c["control_of"]]
+        assert c["response_format"] == rl["response_format"]
+    # every scored row is replayed (C4) where RL scores more rows than it commits
+    replay = {by_id[c["control_of"]]["family"] for c in arms
+              if c["track"] == "control" and c.get("control_replays") == "scanned"}
+    assert replay == {"wave2-dapo", "wave2-rft"}
+
+
+def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch):
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    checked = 0
+    for a in arms:
+        if a["mode"] == "eval":
+            continue
+        arm = arm_exec.Arm(root, a, tmp_path / "r")
+        argv = arm.trainer_args(tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
+        kind, kw = _trainer_call(local, monkeypatch, argv)
+        assert kw["device"] == a["device"] and kw["profile"].dtype == a["dtype"]
+        assert kw["profile"].response_format == a["response_format"]
+        if a["device"] == "cuda":
+            assert kw["threads"] == 4
+            assert kw["initial_adapter_precision_transfer"] == (
+                None if a["dtype"] == "float32" else f"float32-to-{a['dtype']}")
+        if a["mode"] == "rft":
+            assert kind == "rft" and kw["stop_after_steps"] == 150 and kw["max_steps"] == 1500
+            assert (kw["rounds"], kw["prompts_per_round"]) == (400, 32)
+            assert kw["profile"].num_generations == 8 and kw["profile"].temperature == 1.0
+        else:
+            assert kind == "train" and kw["stop_after_steps"] == 150
+        fam = a["family"]
+        if fam == "wave2-fmtpen":
+            assert kw["label_hierarchy"] == asset.resolve()
+            assert (kw["family_credit"], kw["invalid_reward"]) == (0.0, -0.5)
+        if fam == "wave2-dapo":
+            assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
+            assert kw["dynamic_sampling_max_draws"] == 8
+        if fam == "wave2-drgrpo":  # main's explicit Dr-GRPO parameters
+            assert (kw["loss_type"], kw["scale_rewards"]) == ("dr_grpo", "none")
+            assert "grpo_overrides" not in kw
+        if fam == "wave2-mu2":
+            assert kw["grpo_overrides"] == {"num_iterations": 2}
+        if fam in ("wave2-fmtpen", "wave2-closedset", "wave2-mu2", "wave2-guard"):
+            # beta 0 names its aggregation: the legacy "grpo" (settings unchanged)
+            assert kw["loss_type"] == "grpo" and kw["scale_rewards"] == "group"
+        if fam == "wave2-dapo":
+            assert kw["loss_type"] is None  # DAPO's loss_type is the knob above
+        if a["mode"] == "grpo":
+            assert kw["beta"] == 0.0 and kw["profile"].dtype == "float32"
+        if a["track"] == "control" or fam in ("wave2-closedset", "wave2-guard"):
+            assert "grpo_overrides" not in kw and kw.get("label_hierarchy") is None
+        checked += 1
+    assert checked == 40  # 20 RL arms + 20 controls
+
+
+def test_payload_args_refuse_paths_outside_the_payload(tmp_path):
+    root, _ = _fake_root(tmp_path)
+    arm = arm_exec.Arm(root, {"id": "a"}, tmp_path / "r")
+    (root / "outside.json").write_text("{}")
+    for bad in ("@payload/../outside.json", "@payload/code/missing.json"):
+        with pytest.raises(SystemExit, match="not a file in the payload"):
+            arm.payload_arg(bad)
+    assert arm.payload_arg("--x") == "--x"
+
+
+def _rft_out(tmp_path, rounds, stop_reason="stop_after_steps", epochs=1):
+    out = tmp_path / "root" / "arms" / "a" / "train"
+    (out / "final_adapter").mkdir(parents=True)
+    (out / "final_adapter" / "adapter_model.safetensors").write_bytes(b"w")
+    entries = []
+    for i, (kept, steps) in enumerate(rounds):
+        (out / f"round-{i:02d}").mkdir()
+        (out / f"round-{i:02d}" / "kept.json").write_text(json.dumps({"kept": kept}))
+        # every real round record lists all the prompts it sampled (kept or not)
+        entries.append({"round": i, "optimizer_steps": steps, "prompt_ids": list(kept)})
+    total = sum(s for _, s in rounds)
+    (out / "local_training.json").write_text(json.dumps({
+        "status": "completed", "stop_reason": stop_reason, "optimizer_steps": total,
+        "active_seconds": 12.5, "settings": {"epochs_per_round": epochs},
+        "final_adapter_sha256": arm_exec.sha_file(out / "final_adapter" /
+                                                  "adapter_model.safetensors"),
+        "rounds": entries}))
+    return arm_exec.Arm(tmp_path / "root", {"id": "a", "mode": "rft"}, tmp_path / "r")
+
+
+def test_rft_receipt_lists_one_prompt_per_update_in_round_order(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"], "p2": ["y", "z"]}, 3), ({"p3": ["x"]}, 1)])
+    r = arm.rft_receipt()
+    assert r["committed_prompt_ids"] == ["p1", "p2", "p2", "p3"]
+    assert r["global_step"] == 4 and r["status"] == "boundary_reached"
+    assert r["committed_active_seconds"] == 12.5
+    two = _rft_out(tmp_path / "e", [({"p1": ["x"], "p2": ["y"]}, 3)], "max_steps", epochs=2)
+    got = two.rft_receipt()
+    assert got["committed_prompt_ids"] == ["p1", "p2", "p1"]  # 2 epochs, capped at 3 updates
+    assert got["status"] == "total_budget_exhausted"
+
+
+def test_rft_receipt_refuses_unbound_or_unaccounted_endpoints(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 2)])  # 2 updates, 1 kept example, 1 epoch
+    with pytest.raises(SystemExit, match="do not account"):
+        arm.rft_receipt()
+    arm = _rft_out(tmp_path / "b", [({"p1": ["x"]}, 1)])
+    (arm.out / "final_adapter" / "adapter_model.safetensors").write_bytes(b"changed")
+    with pytest.raises(SystemExit, match="differs from its record"):
+        arm.rft_receipt()
+    arm = _rft_out(tmp_path / "c", [({"p1": ["x"]}, 1)], stop_reason="stop_after_rounds")
+    with pytest.raises(SystemExit, match="RFT stage ended"):
+        arm.rft_receipt()
+
+
+def test_launch_refuses_a_host_whose_device_differs_from_the_arm(tmp_path):
+    def state(device):
+        return {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": {
+            "valid": True, "payload_sha256": "P", "features": ["exploratory_sweep", "cuda"],
+            "device": device}}}}
+
+    cpu = {"kind": "cpu"}
+    ampere = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 3070"}
+    turing = {"kind": "cuda", "gpu": "NVIDIA GeForce RTX 2080 Ti"}
+    gpu_arm = {"id": "g", "device": "cuda", "gpu": "rtx3070"}
+    runner.valid_receipt(state(ampere), "h", ["cuda"], gpu_arm)  # listed feature: accepted
+    with pytest.raises(SystemExit, match=r"lacks features \['dapo'\]"):  # only the absent one
+        runner.valid_receipt(state(ampere), "h", ["cuda", "dapo"], gpu_arm)
+    for device, match in ((cpu, "declares cuda"), (turing, "declares GPU rtx3070")):
+        with pytest.raises(SystemExit, match=match):
+            runner.valid_receipt(state(device), "h", ["cuda"], gpu_arm)
+    with pytest.raises(SystemExit, match="declares cpu"):
+        runner.valid_receipt(state(ampere), "h", [], {"id": "c", "device": "cpu"})
+    runner.valid_receipt(state(cpu), "h", [], {"id": "c"})  # a wave-1 arm: cpu by default
+
+
+def test_rft_continuation_accepts_a_round_boundary_past_its_stop_never_short():
+    spec = {"id": "r", "mode": "rft", "stops": [150, 600], "max_steps_total": 1500}
+    past = {"label": "step150", "steps": 163}
+    cont = runner.continuation_spec(spec, {"endpoints": [past]})
+    assert (cont["stops"], cont["resume_stop"]) == ([600], 150)
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(spec, {"endpoints": [dict(past, steps=140)]})
+    sft = dict(spec, mode="sft")  # every other mode: steps must equal the stop
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(sft, {"endpoints": [past]})
+
+
+def _assay_specs():
+    """Every arm the runner can hand to arm_exec: both tables, plus every rung-2 arm and
+    promoted control (runner.promoted_arms -> control_for) built from their RL units."""
+    tables = [json.loads((ROOT / "docs/aircraft-exploratory-sweep-v2/arms-rung1.json")
+                         .read_text()), json.loads(wave2.OUT.read_text())]
+    specs = []
+    for table in tables:
+        specs += table["arms"]
+        for a in table["arms"]:
+            if a["track"] in ("rl", "sft") and a["mode"] != "eval":
+                specs += runner.promoted_arms(a["id"], [a], a["track"], 1, table)
+    return specs
+
+
+def test_every_arm_and_promoted_control_builds_a_valid_assay_profile(tmp_path):
+    from vision_rl import vlm_local_training as local
+
+    specs = _assay_specs()
+    promoted_controls = [a for a in specs if "@r2" in a["id"] and a["track"] == "control"]
+    assert promoted_controls and all(a["temperature"] is None for a in promoted_controls)
+    for a in specs:
+        profile = arm_exec.Arm(tmp_path, a, tmp_path / "r").assay_profile(local)
+        profile.validate()  # predict_train_subset runs this first; None raised TypeError
+        # literal Profile defaults (never read from the subject): temperature 1.0, G 4
+        defaults = {"temperature": 1.0, "num_generations": 4}
+        for k in arm_exec.PROFILE_KEYS:  # the spec's value, or the default if absent/None
+            want = a.get(k)
+            assert getattr(profile, k) == (defaults[k] if want is None else want), (a["id"], k)
+    controls = sum(a["track"] == "control" and "@r" not in a["id"] for a in specs)
+    assert controls == 40 + 29 + 20  # wave-1 and pre-registered wave-2 controls, and ours
+
+
+def test_receipt_gpu_matches_whole_model_numbers():
+    names = {"NVIDIA GeForce RTX 3070": "rtx3070", "NVIDIA GeForce RTX 2080 Ti": "rtx2080ti",
+             "NVIDIA A40": "a40", "NVIDIA RTX A4000": "a4000", "NVIDIA A100-SXM4-40GB": "a100"}
+    for name, want in names.items():
+        assert runner.receipt_gpu({"kind": "cuda", "gpu": name}) == want
+    assert runner.receipt_gpu({"kind": "cuda", "gpu": "RTX 3070 Ti"}) != "rtx3070"
+    assert runner.receipt_gpu({"kind": "cpu"}) is None
+
+
+def test_rft_stage_reuses_a_completed_endpoint_only_for_its_own_stop(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1)])  # boundary endpoint, boundary unset
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    (arm.out / "local_training.json").write_text(json.dumps(
+        dict(rec, boundary={"stop_after_steps": 150})))
+    assert arm.rft_endpoint_done(150) and not arm.rft_endpoint_done(600)
+    got = arm.run_stage("train-150", ["-m", "x"], 150)  # no trainer subprocess is started
+    assert got["global_step"] == 1 and arm.log[-1]["reused_completed_endpoint"] is True
+    done = _rft_out(tmp_path / "t", [({"p1": ["x"]}, 1)], stop_reason="max_steps")
+    assert done.rft_endpoint_done(600)  # a terminal endpoint ends the run at any stop
+    (done.out / "local_training.json").write_text(json.dumps(dict(rec, status="failed")))
+    assert not done.rft_endpoint_done(600)
+
+
+def test_one_gpu_arm_per_host():
+    hosts = {"h": {"load1": 0.0, "nproc": 72, "cores": 36, "avail_gb": 200.0}}
+    busy = {"arms": {"g": {"host": "h", "status": "RUNNING", "device": "cuda", "threads": 4,
+                           "launched_ts": 0}}}
+    assert runner.capacity(busy, hosts, "h", 4, device="cuda") == 0
+    assert runner.capacity(busy, hosts, "h", 4, device="cpu") > 0
+    assert runner.capacity({"arms": {}}, hosts, "h", 4, device="cuda") > 0
+
+
 # uwrun v5.4's own marker line (~/.claude/bin/uwrun memory guard), values planted
 HOST_OOM = ("uwrun: memory guard: the run holds 14000 MB (--mem 19 GB), host RAM free 3000 MB "
             "(floor 4096 MB): stopped")
@@ -512,7 +816,8 @@ def test_host_oom_with_a_completed_stop_stays_failed_for_continue(tmp_path):
         {"endpoints": [{"label": "step2329", "steps": 2329}]}))
     state = {"arms": {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
                             "results_dir": str(tmp_path)}}}
-    assert runner.retire_if_host_oom(state, "s") is None and state["arms"]["s"]["status"] == "FAILED"
+    assert runner.retire_if_host_oom(state, "s") is None
+    assert state["arms"]["s"]["status"] == "FAILED"
 
 
 def test_fresh_work_id_only_for_from_scratch_relaunches():
@@ -635,6 +940,245 @@ def test_amendment3_refresh_targets_only_continuable_hosts_while_gate0_open(tmp_
         "g": {"status": "FAILED", "host": "iccad8", "spec_path": str(tmp_path / "b.json"),
               "results_dir": str(res)}}}
     assert runner.continuable_hosts(state) == {"iccad13"}
+
+
+# ---- review fixes (PR #36 at f6b95d6): each test fails on that code -------------------
+def _dapo_out(tmp_path, lines, committed):
+    arm = arm_exec.Arm(tmp_path / "root", {"id": "d", "mode": "grpo"}, tmp_path / "r")
+    arm.out.mkdir(parents=True)
+    (arm.out / "dynamic_sampling.jsonl").write_text(
+        "".join(json.dumps(x) + "\n" for x in lines))
+    return arm, {"global_step": len(committed), "committed_prompt_ids": committed}
+
+
+def _draws(step, ids):
+    return [{"global_step": step, "draw": k, "informative": k == len(ids) - 1, "id": i,
+             "kept": k == len(ids) - 1} for k, i in enumerate(ids)]
+
+
+def test_dynamic_sampling_control_replays_every_scored_group_in_scan_order(tmp_path):
+    # update 2 ran twice (a resume): its LAST block counts; update 3 was never committed
+    lines = (_draws(1, ["a", "b", "c"]) + _draws(2, ["d", "e"]) + _draws(2, ["d", "f", "g"])
+             + _draws(3, ["h"]))
+    arm, receipt = _dapo_out(tmp_path, lines, ["c", "g"])
+    doc = arm.scanned_ids(receipt)
+    assert doc["scanned_prompt_ids"] == ["a", "b", "c", "d", "f", "g"]
+    assert json.loads((arm.out / "scanned_ids.json").read_text()) == doc
+    for committed in (["c", "e"], ["c", "g", "h", "i"]):  # kept id differs / update 4 missing
+        bad, receipt = _dapo_out(tmp_path / str(len(committed)) / committed[-1], lines,
+                                 committed)
+        with pytest.raises(SystemExit, match="does not account"):
+            bad.scanned_ids(receipt)
+
+
+def test_rft_control_replays_every_sampled_prompt_not_only_kept_completions(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1), ({"p3": ["y"]}, 1)])
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    rec["rounds"][0]["prompt_ids"] = ["p1", "p2"]
+    rec["rounds"][1]["prompt_ids"] = ["p3", "p4"]
+    (arm.out / "local_training.json").write_text(json.dumps(rec))
+    receipt = arm.rft_receipt()
+    assert receipt["committed_prompt_ids"] == ["p1", "p3"]  # kept examples only
+    assert arm.scanned_ids(receipt)["scanned_prompt_ids"] == ["p1", "p2", "p3", "p4"]
+    plain = arm_exec.Arm(tmp_path / "x", {"id": "g", "mode": "grpo"}, tmp_path / "r")
+    assert plain.scanned_ids({"global_step": 1, "committed_prompt_ids": ["a"]}) is None
+
+
+def test_scanned_replay_control_uses_scanned_ids_and_refuses_without_them(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step2", "steps": 2, "active_seconds": 9.0}]}))
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": 2, "committed_prompt_ids": ["c", "g"]}))
+    state = {"arms": {"d": {"status": "DONE", "results_dir": str(res)}}}
+    ctl = {"id": "d~ctl", "control_of": "d", "max_steps_total": 100,
+           "control_replays": "scanned"}
+    with pytest.raises(SystemExit, match="no scanned_ids.json"):
+        runner.control_spec(state, ctl)
+    (res / "scanned_ids.json").write_text(json.dumps(
+        {"global_step": 1, "scanned_prompt_ids": ["a", "c"]}))
+    with pytest.raises(SystemExit, match="another step"):
+        runner.control_spec(state, ctl)
+    (res / "scanned_ids.json").write_text(json.dumps(
+        {"global_step": 2, "scanned_prompt_ids": ["a", "b", "c", "d", "f", "g"]}))
+    spec = runner.control_spec(state, ctl)
+    assert spec["train_ids"] == ["a", "b", "c", "d", "f", "g"] and spec["stops"] == [6]
+    plain = runner.control_spec(state, {"id": "d~ctl", "control_of": "d", "max_steps_total": 100})
+    assert plain["train_ids"] == ["c", "g"]  # every other control: unchanged
+
+
+def test_wave2_launch_refuses_until_gate0_passed(tmp_path, monkeypatch):
+    receipt = {"valid": True, "payload_sha256": "P", "root": "/r", "device": {"kind": "cpu"},
+               "features": sorted(set(f for a in json.loads(wave2.OUT.read_text())["arms"]
+                                      for f in a["features"]) | {"exploratory_sweep"})}
+    rows = runner.host_table(
+        "host load1 nproc cores availGB ourThr localGB\nh 0 72 36 500 0 50\n")
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+
+    class A:
+        table, ids, wave, rung, hosts = str(wave2.OUT), None, None, None, None
+        max_launch, timeout, dry_run = 100, 60, False
+
+    # n 0-5 vary GATE 0 with d37_release verified (the gate is the only variable); n 6 has
+    # GATE 0 passed but d37_release unverified: wave-2 controls are PR #36's machinery too
+    for n, gate in enumerate((None, {}, {"passed": False}, {"passed": "true"}, {"passed": 1},
+                              {"passed": True}, {"passed": True})):
+        calls = []
+        monkeypatch.setattr(runner, "launch_one",
+                            lambda path, spec, *a, **k: calls.append(spec["id"]) or "run")
+        state = {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": receipt}},
+                 "arms": {}, "uwrun_runs": []}
+        if n < 6:
+            state["d37_release"] = {"verified": True}
+        if gate is not None:
+            state["gate0"] = gate
+        (tmp_path / f"g{n}").mkdir()
+        path = setup(tmp_path / f"g{n}", monkeypatch, state)
+        runner.cmd_launch(A, path)
+        if n == 5:  # {"passed": True}; not `gate == ...`: {"passed": 1} == {"passed": True}
+            # the gate, not the allowlist, was the only thing holding them: CPU arms launch
+            assert any(i.startswith("wave2-") and "cpu-float32" in i and "~ctl" not in i
+                       for i in calls), calls
+        else:
+            assert calls == [], (gate, calls)
+    held = runner.launch_hold({}, {"id": "x", "family": "wave2-rft", "track": "rl"}, {})
+    assert "GATE 0" in held
+
+
+# ---- delta review of 0f0f430: replay manifests with repeated ids, stricter checks ------
+def _replay_payload(tmp_path):
+    """A probe TRAIN pool of 8 real images, placed as a payload's training manifest."""
+    from vision_rl import vlm_local_training as local
+
+    data = tmp_path / "probe"
+    local.make_probe_data(data)
+    manifests = tmp_path / "root" / "payload" / "data" / "manifests"
+    manifests.mkdir(parents=True)
+    rows = [json.loads(x) for x in (data / "train.jsonl").read_text().splitlines()]
+    for r in rows:
+        r["image"] = str((data / r["image"]).resolve())
+    (manifests / "s_train_probe.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows))
+    return local, data, [r["id"] for r in rows]
+
+
+@pytest.mark.parametrize("kind", ["dapo-repeats", "rung3-1500", "dapo-rung3-4000"])
+def test_replay_manifest_with_repeats_loads_and_trains_in_order(tmp_path, monkeypatch, kind):
+    local, data, pool = _replay_payload(tmp_path)
+    if kind == "dapo-repeats":  # replacement draws pick the same row again
+        ids = [pool[0], pool[3], pool[3], pool[1], pool[0], pool[5], pool[3]]
+    else:  # a rung-3 control (1,500 committed ids) or a DAPO one past the 3,334-row cap
+        n = 1500 if kind == "rung3-1500" else 4000
+        ids = [pool[(k * 3) % len(pool)] for k in range(n)]
+    spec = {"id": f"x~ctl-{kind}", "mode": "sft", "train_ids": ids, "lr": 1e-5, "seed": 42,
+            "init": "I", "order": "sequential", "cycle": True, "response_format": "answer_only",
+            "num_generations": 4, "min_pixels": 1, "max_pixels": 2, "max_completion_length": 8,
+            "max_active_seconds": 100.0}
+    arm = arm_exec.Arm(tmp_path / "root", spec, tmp_path / "r")
+    path = arm.manifest()
+    argv = arm.trainer_args(path, 12000, len(ids), None)
+    assert "--replay-sequence" in argv
+    with pytest.raises(ValueError, match="must be unique"):  # the crash this fixes
+        local.load_classification(path, "train", ["blue", "red"], require_all_classes=False)
+    rows = local.load_classification(path, "train", ["blue", "red"], require_all_classes=False,
+                                     allow_repeated_ids=True)
+    assert [r["id"] for r in rows] == ids  # every presentation, in replay order
+    # train_local accepts it (past loader, row cap and validation) and reaches preflight
+    monkeypatch.setattr(local, "preflight", lambda *_: (_ for _ in ()).throw(
+        RuntimeError("reached preflight")))
+    common = dict(mode="sft", train_only=True, exploratory_sweep=local.EXPLORATORY_SWEEP_ID,
+                  order="sequential", cycle=True, max_steps=12000, max_active_seconds=100.0,
+                  learning_rate=1e-5, model_directory=tmp_path / "model")
+    with pytest.raises(RuntimeError, match="reached preflight"):
+        local.train_local(path, None, data / "data_spec.json", tmp_path / "out",
+                          replay_sequence=True, **common)
+    with pytest.raises(ValueError, match="must be unique"):
+        local.train_local(path, None, data / "data_spec.json", tmp_path / "out2", **common)
+
+
+def test_replay_sequence_is_control_only_and_repeats_must_be_exact(tmp_path):
+    local, data, pool = _replay_payload(tmp_path)
+    with pytest.raises(ValueError, match="sequential SFT control"):
+        local.train_local(data / "train.jsonl", None, data / "data_spec.json", tmp_path / "o",
+                          mode="grpo", train_only=True, replay_sequence=True)
+    rows = [json.loads(x) for x in (data / "train.jsonl").read_text().splitlines()]
+    bad = dict(rows[0], label="red" if rows[0]["label"] == "blue" else "blue")
+    (data / "bad.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [rows[0], bad]))
+    with pytest.raises(ValueError, match="must repeat its row"):
+        local.load_classification(data / "bad.jsonl", "train", ["blue", "red"],
+                                  require_all_classes=False, allow_repeated_ids=True)
+    distinct = arm_exec.Arm(tmp_path / "root", {"id": "c", "mode": "sft", "train_ids": pool,
+                                                "lr": 1e-5, "seed": 1, "init": "I",
+                                                "response_format": "answer_only",
+                                                "num_generations": 4, "min_pixels": 1,
+                                                "max_pixels": 2, "max_completion_length": 8},
+                            tmp_path / "r")
+    assert "--replay-sequence" not in distinct.trainer_args(tmp_path / "m", 8, 8, None)
+
+
+def test_assay_profile_refuses_a_missing_key_other_than_temperature(tmp_path):
+    from vision_rl import vlm_local_training as local
+
+    # the sweep's real pixel bounds: assay_profile now also runs Profile.validate()
+    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 50176,
+            "max_pixels": 200704, "max_completion_length": 8, "num_generations": 8,
+            "temperature": None}
+    assert arm_exec.Arm(tmp_path, base, tmp_path / "r").assay_profile(local).temperature == 1.0
+    for key in ("response_format", "max_pixels", "num_generations"):
+        with pytest.raises(SystemExit, match=key):
+            arm_exec.Arm(tmp_path, dict(base, **{key: None}), tmp_path / "r").assay_profile(local)
+    sft = dict(base, mode="sft", num_generations=None)  # SFT never samples: default 4
+    assert arm_exec.Arm(tmp_path, sft, tmp_path / "r").assay_profile(local).num_generations == 4
+
+
+def test_scanned_replay_refuses_committed_ids_outside_the_scan_order(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": "step2", "steps": 2, "active_seconds": 9.0}]}))
+    state = {"arms": {"d": {"status": "DONE", "results_dir": str(res)}}}
+    ctl = {"id": "d~ctl", "control_of": "d", "max_steps_total": 100,
+           "control_replays": "scanned"}
+
+    def write(committed, scanned, schema=None):
+        (res / "endpoint_receipt.json").write_text(json.dumps(
+            {"global_step": 2, "committed_prompt_ids": committed,
+             **({"schema": schema} if schema else {})}))
+        (res / "scanned_ids.json").write_text(json.dumps(
+            {"global_step": 2, "scanned_prompt_ids": scanned}))
+
+    write(["c", "g"], ["a", "c", "d", "g"])
+    assert runner.control_spec(state, ctl)["train_ids"] == ["a", "c", "d", "g"]
+    for committed in (["g", "c"], ["c", "z"]):  # out of order / never scanned
+        write(committed, ["a", "c", "d", "g"])
+        with pytest.raises(SystemExit, match="not within its scanned ids"):
+            runner.control_spec(state, ctl)
+    rft = "arm_exec-rft-endpoint-v1"
+    write(["g", "c"], ["a", "c", "d", "g"], rft)  # RFT: kept order is canonical, subset
+    assert runner.control_spec(state, ctl)["train_ids"] == ["a", "c", "d", "g"]
+    write(["c", "z"], ["a", "c", "d", "g"], rft)
+    with pytest.raises(SystemExit, match="not within its scanned ids"):
+        runner.control_spec(state, ctl)
+
+
+def test_rft_scan_refuses_a_kept_prompt_the_round_never_sampled(tmp_path):
+    arm = _rft_out(tmp_path, [({"p1": ["x"]}, 1)])
+    rec = json.loads((arm.out / "local_training.json").read_text())
+    rec["rounds"][0]["prompt_ids"] = ["p2", "p3"]
+    (arm.out / "local_training.json").write_text(json.dumps(rec))
+    with pytest.raises(SystemExit, match="did not sample"):
+        arm.scanned_ids({"global_step": 1, "committed_prompt_ids": ["p1"]})
+
+
+def test_truncated_dynamic_sampling_journal_refuses_clearly(tmp_path):
+    lines = _draws(1, ["a", "b"])
+    arm, receipt = _dapo_out(tmp_path, lines, ["b"])
+    with (arm.out / "dynamic_sampling.jsonl").open("a") as handle:
+        handle.write('{"global_step": 2, "dra')  # a crash mid-write
+    with pytest.raises(SystemExit, match="line 3 of 3 is not JSON"):
+        arm.scanned_ids(receipt)
 
 
 def _vlt():
@@ -895,9 +1439,187 @@ def test_trainer_args_end_with_the_checked_d37_extras_and_refuse_a_bad_table_row
     rl = next(a for a in t["arms"] if a["track"] == "rl")
     arm = arm_exec.Arm(tmp_path, rl, tmp_path / "r")
     argv = arm.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
-    assert argv[-2:] == ["--dynamic-sampling-max-draws", "8"]
+    # beta 0 names its loss aggregation explicitly (main's trainer refuses it otherwise)
+    assert argv[-4:] == ["--loss-type", "grpo", "--dynamic-sampling-max-draws", "8"]
     assert argv.count("--dtype") == 1 and argv.count("--learning-rate") == 1
     bad = arm_exec.Arm(tmp_path, dict(rl, extra_trainer_args=["--dtype", "bfloat16"]),
                        tmp_path / "r")
     with pytest.raises(SystemExit, match="not allowlisted"):
         bad.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
+
+
+# ---- wave-2 extras (amendment 4): each table flag has an exact-name entry and a validator
+@pytest.mark.parametrize("extras,why", [
+    (["--loss-type", "cispo"], "one of"),                       # outside the plan's values
+    (["--loss-type=dapo"], "not allowlisted"),                  # `=` form
+    (["--loss", "dapo"], "not allowlisted"),                    # argparse abbreviation
+    (["--loss-type", "dapo", "--loss-type", "grpo"], "twice"),  # last value would win
+    (["--scale-rewards", "batch"], "one of"),
+    (["--epsilon-high", "0.1"], "outside"),                     # below epsilon 0.2
+    (["--epsilon-high", "nan"], "outside"),
+    (["--num-iterations", "9"], "1..8"),
+    (["--family-credit", "1"], "outside"),
+    (["--manufacturer-credit", "-0.1"], "outside"),
+    (["--invalid-reward", "0.5"], "outside"),
+    (["--invalid-reward", "x"], "a number"),
+    (["--label-hierarchy", "/etc/passwd"], "label-hierarchy-train-v1.json"),
+    (["--label-hierarchy", "label-hierarchy-train-v1.json"], "label-hierarchy-train-v1.json"),
+    (["--beta", "0.04"], "not allowlisted"),                    # arm_exec's own GRPO flag
+    (["--response-format", "think_answer"], "not allowlisted"),
+])
+def test_wave2_extra_trainer_args_refuse_bad_values_and_forms(extras, why):
+    with pytest.raises(SystemExit, match=why):
+        arm_exec.checked_extras(extras, GUARDED_BASE)
+
+
+def test_every_wave2_table_extra_passes_the_allowlist_and_a_tampered_row_refuses(tmp_path):
+    root, asset = _fake_root(tmp_path)
+    arms = [a for a in json.loads(wave2.OUT.read_text())["arms"] if a.get("extra_trainer_args")]
+    assert {a["family"] for a in arms} == {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo",
+                                           "wave2-mu2", "wave2-dapo", "wave2-guard"}
+    for a in arms:  # resolved @payload/ path, then the allowlist: every row passes as is
+        argv = arm_exec.Arm(root, a, tmp_path / "r").trainer_args(
+            tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
+        assert argv[-len(a["extra_trainer_args"]):][::2] == a["extra_trainer_args"][::2]
+    dapo = next(a for a in arms if a["family"] == "wave2-dapo")
+    for tamper in (["--learning-rate", "1e-2"], ["--train", "x.jsonl"],
+                   ["--dynamic-sampling-max-draws", "4"]):
+        bad = arm_exec.Arm(root, dict(dapo, extra_trainer_args=dapo["extra_trainer_args"]
+                                      + tamper), tmp_path / "r")
+        with pytest.raises(SystemExit, match="REFUSE"):
+            bad.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+    rft = next(a for a in json.loads(wave2.OUT.read_text())["arms"] if a["mode"] == "rft")
+    bad = arm_exec.Arm(root, dict(rft, extra_trainer_args=["--learning-rate", "1"]),
+                       tmp_path / "r")
+    with pytest.raises(SystemExit, match="not allowlisted"):  # RFT argv is checked too
+        bad.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+
+
+def test_wave2_table_dapo_rows_draw_at_least_8_and_check_refuses_fewer(tmp_path, monkeypatch,
+                                                                      capsys):
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    draws = [a["extra_trainer_args"][a["extra_trainer_args"].index(
+        "--dynamic-sampling-max-draws") + 1] for a in arms
+        if "--dynamic-sampling-max-draws" in (a.get("extra_trainer_args") or [])]
+    assert draws == ["8", "8", "8"]  # the three DAPO rows, literal
+    # a generator family below 8 never renders
+    families = [f if f[0] != "dapo" else f[:4] + (
+        [x if x != "8" else "4" for x in f[4]],) + f[5:] for f in wave2.GRPO_FAMILIES]
+    monkeypatch.setattr(wave2, "GRPO_FAMILIES", families)
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        wave2.render()
+    monkeypatch.undo()
+    # a table on disk edited to 4 fails --check with the C5 refusal, not only as drift
+    table = json.loads(wave2.OUT.read_text())
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-wave2-rung1.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(wave2, "OUT", edited)
+    assert wave2.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+    for bad in (["--dynamic-sampling-max-draws=4"], ["--dynamic-sampling-max-draws"]):
+        with pytest.raises(ValueError, match="CORRECTIONS C5"):
+            wave2.check_dynamic_draws([{"id": "x", "extra_trainer_args": bad}])
+
+
+def test_d37_generator_and_check_refuse_fewer_than_8_draws(tmp_path, monkeypatch, capsys):
+    d37 = load("d37_arms")
+    assert d37.main(["--check"]) == 0
+    monkeypatch.setattr(d37, "DYNAMIC_DRAWS", 4)  # a generator below C5 never renders
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        d37.main(["--check"])
+    monkeypatch.undo()
+    table = json.loads(D37_TABLE.read_text())  # a table on disk edited to 4 fails --check
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-d37-grpo-I.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(d37, "OUT", edited)
+    assert d37.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+
+
+def test_label_hierarchy_extra_must_be_a_payload_file(tmp_path):
+    root, asset = _fake_root(tmp_path)
+    outside = tmp_path / "elsewhere" / asset.name  # the right name, outside the payload
+    outside.parent.mkdir()
+    outside.write_bytes(asset.read_bytes())
+    fmtpen = next(a for a in json.loads(wave2.OUT.read_text())["arms"]
+                  if a["family"] == "wave2-fmtpen")
+    for value in (str(outside), str(outside.resolve()), "@payload/../elsewhere/x.json"):
+        extras = list(fmtpen["extra_trainer_args"])
+        extras[extras.index("--label-hierarchy") + 1] = value
+        arm = arm_exec.Arm(root, dict(fmtpen, extra_trainer_args=extras), tmp_path / "r")
+        with pytest.raises(SystemExit, match="REFUSE"):
+            arm.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+    ok = arm_exec.Arm(root, fmtpen, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 1500,
+                                                                 150, None)
+    assert ok[ok.index("--label-hierarchy") + 1] == str(asset.resolve())
+
+
+# ---- every launchable table row passes the trainer's own argument parsing and validation
+D37_TABLE = ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json"
+
+
+def _rows_the_trainer_must_accept():
+    rows = []
+    for path in (D37_TABLE, wave2.OUT):
+        for a in json.loads(path.read_text())["arms"]:
+            if a["mode"] != "eval":
+                rows.append(pytest.param(a, id=a["id"]))
+    return rows
+
+
+@pytest.mark.parametrize("arm", _rows_the_trainer_must_accept())
+def test_every_table_row_passes_the_trainers_argument_validation(arm, tmp_path, monkeypatch,
+                                                                 capsys):
+    """arm_exec's argv for the row, through vlm_local_training.main() and train_local /
+    rft_local, up to the point where the TRAIN manifest would load. Every argument-only and
+    spec-level refusal comes before that point (e.g. beta-0 GRPO without an explicit
+    loss_type, a knob outside its range, the label hierarchy against the 100 labels), and
+    main() turns a refusal into rc 2, so a row the trainer would refuse fails here, in CI,
+    not at launch. Only the data spec (the hierarchy's TRAIN labels) and the manifest load
+    are stubbed."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+
+    def reached(*_, **__):
+        raise RuntimeError("reached the TRAIN manifest")
+
+    monkeypatch.setattr(local, "load_classification", reached)
+    # a control's stops come from control_spec at launch (its RL arm's committed count);
+    # any stop below the declared total exercises the same flags
+    stop = int((arm.get("stops") or [150])[0])
+    argv = arm_exec.Arm(root, arm, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", int(arm["max_steps_total"]), stop, None)
+    assert argv[:2] == ["-m", "vision_rl.vlm_local_training"]
+    with pytest.raises(RuntimeError, match="reached the TRAIN manifest"):
+        local.main(argv[2:])
+    capsys.readouterr()
+
+
+def test_a_beta0_row_without_a_loss_type_is_refused_by_the_trainer(tmp_path, monkeypatch,
+                                                                   capsys):
+    """The forced fire for the test above: the D37 rows as they were at 56c3dce (beta 0,
+    only --dynamic-sampling-max-draws) never reach the manifest; main() refuses with rc 2."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+    monkeypatch.setattr(local, "load_classification",
+                        lambda *_, **__: pytest.fail("refusal must come first"))
+    rl = next(a for a in json.loads(D37_TABLE.read_text())["arms"] if a["track"] == "rl")
+    old = dict(rl, extra_trainer_args=["--dynamic-sampling-max-draws", "8"])
+    argv = arm_exec.Arm(root, old, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 600, 150,
+                                                                 None)
+    assert local.main(argv[2:]) == 2
+    assert "explicit loss_type" in capsys.readouterr().err

@@ -1,0 +1,815 @@
+{
+ "families": {
+  "A300": [
+   "A300B4"
+  ],
+  "A310": [
+   "A310"
+  ],
+  "A320": [
+   "A318",
+   "A319",
+   "A320",
+   "A321"
+  ],
+  "A330": [
+   "A330-200",
+   "A330-300"
+  ],
+  "A340": [
+   "A340-200",
+   "A340-300",
+   "A340-500",
+   "A340-600"
+  ],
+  "A380": [
+   "A380"
+  ],
+  "ATR-42": [
+   "ATR-42"
+  ],
+  "ATR-72": [
+   "ATR-72"
+  ],
+  "An-12": [
+   "An-12"
+  ],
+  "BAE 146": [
+   "BAE 146-200",
+   "BAE 146-300"
+  ],
+  "BAE-125": [
+   "BAE-125"
+  ],
+  "Beechcraft 1900": [
+   "Beechcraft 1900"
+  ],
+  "Boeing 707": [
+   "707-320"
+  ],
+  "Boeing 717": [
+   "Boeing 717"
+  ],
+  "Boeing 727": [
+   "727-200"
+  ],
+  "Boeing 737": [
+   "737-200",
+   "737-300",
+   "737-400",
+   "737-500",
+   "737-600",
+   "737-700",
+   "737-800",
+   "737-900"
+  ],
+  "Boeing 747": [
+   "747-100",
+   "747-200",
+   "747-300",
+   "747-400"
+  ],
+  "Boeing 757": [
+   "757-200",
+   "757-300"
+  ],
+  "Boeing 767": [
+   "767-200",
+   "767-300",
+   "767-400"
+  ],
+  "Boeing 777": [
+   "777-200",
+   "777-300"
+  ],
+  "C-130": [
+   "C-130"
+  ],
+  "C-47": [
+   "C-47"
+  ],
+  "CRJ-200": [
+   "CRJ-200"
+  ],
+  "CRJ-700": [
+   "CRJ-700",
+   "CRJ-900"
+  ],
+  "Cessna 172": [
+   "Cessna 172"
+  ],
+  "Cessna 208": [
+   "Cessna 208"
+  ],
+  "Cessna Citation": [
+   "Cessna 525",
+   "Cessna 560"
+  ],
+  "Challenger 600": [
+   "Challenger 600"
+  ],
+  "DC-10": [
+   "DC-10"
+  ],
+  "DC-3": [
+   "DC-3"
+  ],
+  "DC-6": [
+   "DC-6"
+  ],
+  "DC-8": [
+   "DC-8"
+  ],
+  "DC-9": [
+   "DC-9-30"
+  ],
+  "DH-82": [
+   "DH-82"
+  ],
+  "DHC-1": [
+   "DHC-1"
+  ],
+  "DHC-6": [
+   "DHC-6"
+  ],
+  "DR-400": [
+   "DR-400"
+  ],
+  "Dash 8": [
+   "DHC-8-100",
+   "DHC-8-300"
+  ],
+  "Dornier 328": [
+   "Dornier 328"
+  ],
+  "EMB-120": [
+   "EMB-120"
+  ],
+  "Embraer E-Jet": [
+   "E-170",
+   "E-190",
+   "E-195"
+  ],
+  "Embraer ERJ 145": [
+   "ERJ 135",
+   "ERJ 145"
+  ],
+  "Embraer Legacy 600": [
+   "Embraer Legacy 600"
+  ],
+  "Eurofighter Typhoon": [
+   "Eurofighter Typhoon"
+  ],
+  "F-16": [
+   "F-16A/B"
+  ],
+  "F/A-18": [
+   "F/A-18"
+  ],
+  "Falcon 2000": [
+   "Falcon 2000"
+  ],
+  "Falcon 900": [
+   "Falcon 900"
+  ],
+  "Fokker 100": [
+   "Fokker 100"
+  ],
+  "Fokker 50": [
+   "Fokker 50"
+  ],
+  "Fokker 70": [
+   "Fokker 70"
+  ],
+  "Global Express": [
+   "Global Express"
+  ],
+  "Gulfstream": [
+   "Gulfstream IV",
+   "Gulfstream V"
+  ],
+  "Hawk T1": [
+   "Hawk T1"
+  ],
+  "Il-76": [
+   "Il-76"
+  ],
+  "King Air": [
+   "Model B200"
+  ],
+  "L-1011": [
+   "L-1011"
+  ],
+  "MD-11": [
+   "MD-11"
+  ],
+  "MD-80": [
+   "MD-80",
+   "MD-87"
+  ],
+  "MD-90": [
+   "MD-90"
+  ],
+  "Metroliner": [
+   "Metroliner"
+  ],
+  "PA-28": [
+   "PA-28"
+  ],
+  "SR-20": [
+   "SR-20"
+  ],
+  "Saab 2000": [
+   "Saab 2000"
+  ],
+  "Saab 340": [
+   "Saab 340"
+  ],
+  "Spitfire": [
+   "Spitfire"
+  ],
+  "Tornado": [
+   "Tornado"
+  ],
+  "Tu-134": [
+   "Tu-134"
+  ],
+  "Tu-154": [
+   "Tu-154"
+  ],
+  "Yak-42": [
+   "Yak-42"
+  ]
+ },
+ "manufacturers": {
+  "ATR": [
+   "ATR-42",
+   "ATR-72"
+  ],
+  "Airbus": [
+   "A300B4",
+   "A310",
+   "A318",
+   "A319",
+   "A320",
+   "A321",
+   "A330-200",
+   "A330-300",
+   "A340-200",
+   "A340-300",
+   "A340-500",
+   "A340-600",
+   "A380"
+  ],
+  "Antonov": [
+   "An-12"
+  ],
+  "Beechcraft": [
+   "Beechcraft 1900",
+   "Model B200"
+  ],
+  "Boeing": [
+   "707-320",
+   "727-200",
+   "737-200",
+   "737-300",
+   "737-400",
+   "737-500",
+   "737-600",
+   "737-700",
+   "737-800",
+   "737-900",
+   "747-100",
+   "747-200",
+   "747-300",
+   "747-400",
+   "757-200",
+   "757-300",
+   "767-200",
+   "767-300",
+   "767-400",
+   "777-200",
+   "777-300",
+   "Boeing 717"
+  ],
+  "Bombardier Aerospace": [
+   "Global Express"
+  ],
+  "British Aerospace": [
+   "BAE 146-200",
+   "BAE 146-300",
+   "BAE-125",
+   "Hawk T1"
+  ],
+  "Canadair": [
+   "CRJ-200",
+   "CRJ-700",
+   "CRJ-900",
+   "Challenger 600"
+  ],
+  "Cessna": [
+   "Cessna 172",
+   "Cessna 208",
+   "Cessna 525",
+   "Cessna 560"
+  ],
+  "Cirrus Aircraft": [
+   "SR-20"
+  ],
+  "Dassault Aviation": [
+   "Falcon 2000",
+   "Falcon 900"
+  ],
+  "Dornier": [
+   "Dornier 328"
+  ],
+  "Douglas Aircraft Company": [
+   "C-47",
+   "DC-3",
+   "DC-6",
+   "DC-8"
+  ],
+  "Embraer": [
+   "E-170",
+   "E-190",
+   "E-195",
+   "EMB-120",
+   "ERJ 135",
+   "ERJ 145",
+   "Embraer Legacy 600"
+  ],
+  "Eurofighter": [
+   "Eurofighter Typhoon"
+  ],
+  "Fairchild": [
+   "Metroliner"
+  ],
+  "Fokker": [
+   "Fokker 100",
+   "Fokker 50",
+   "Fokker 70"
+  ],
+  "Gulfstream Aerospace": [
+   "Gulfstream IV",
+   "Gulfstream V"
+  ],
+  "Ilyushin": [
+   "Il-76"
+  ],
+  "Lockheed Corporation": [
+   "C-130",
+   "L-1011"
+  ],
+  "Lockheed Martin": [
+   "F-16A/B"
+  ],
+  "McDonnell Douglas": [
+   "DC-10",
+   "DC-9-30",
+   "F/A-18",
+   "MD-11",
+   "MD-80",
+   "MD-87",
+   "MD-90"
+  ],
+  "Panavia": [
+   "Tornado"
+  ],
+  "Piper": [
+   "PA-28"
+  ],
+  "Robin": [
+   "DR-400"
+  ],
+  "Saab": [
+   "Saab 2000",
+   "Saab 340"
+  ],
+  "Supermarine": [
+   "Spitfire"
+  ],
+  "Tupolev": [
+   "Tu-134",
+   "Tu-154"
+  ],
+  "Yakovlev": [
+   "Yak-42"
+  ],
+  "de Havilland": [
+   "DH-82",
+   "DHC-1",
+   "DHC-6",
+   "DHC-8-100",
+   "DHC-8-300"
+  ]
+ },
+ "schema_version": 1,
+ "source": {
+  "path": "data/fgvc-aircraft-2013b/audit/train-images.json",
+  "rule": "split == 'train' rows only; refuse any other split",
+  "sha256": "62f146b99b82ff78b518b2fe0aec48bfa199f1e3a738d56b1bc7529499c2c9e1"
+ },
+ "train_rows": 3334,
+ "variants": {
+  "707-320": {
+   "family": "Boeing 707",
+   "manufacturer": "Boeing"
+  },
+  "727-200": {
+   "family": "Boeing 727",
+   "manufacturer": "Boeing"
+  },
+  "737-200": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-300": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-400": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-500": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-600": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-700": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-800": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "737-900": {
+   "family": "Boeing 737",
+   "manufacturer": "Boeing"
+  },
+  "747-100": {
+   "family": "Boeing 747",
+   "manufacturer": "Boeing"
+  },
+  "747-200": {
+   "family": "Boeing 747",
+   "manufacturer": "Boeing"
+  },
+  "747-300": {
+   "family": "Boeing 747",
+   "manufacturer": "Boeing"
+  },
+  "747-400": {
+   "family": "Boeing 747",
+   "manufacturer": "Boeing"
+  },
+  "757-200": {
+   "family": "Boeing 757",
+   "manufacturer": "Boeing"
+  },
+  "757-300": {
+   "family": "Boeing 757",
+   "manufacturer": "Boeing"
+  },
+  "767-200": {
+   "family": "Boeing 767",
+   "manufacturer": "Boeing"
+  },
+  "767-300": {
+   "family": "Boeing 767",
+   "manufacturer": "Boeing"
+  },
+  "767-400": {
+   "family": "Boeing 767",
+   "manufacturer": "Boeing"
+  },
+  "777-200": {
+   "family": "Boeing 777",
+   "manufacturer": "Boeing"
+  },
+  "777-300": {
+   "family": "Boeing 777",
+   "manufacturer": "Boeing"
+  },
+  "A300B4": {
+   "family": "A300",
+   "manufacturer": "Airbus"
+  },
+  "A310": {
+   "family": "A310",
+   "manufacturer": "Airbus"
+  },
+  "A318": {
+   "family": "A320",
+   "manufacturer": "Airbus"
+  },
+  "A319": {
+   "family": "A320",
+   "manufacturer": "Airbus"
+  },
+  "A320": {
+   "family": "A320",
+   "manufacturer": "Airbus"
+  },
+  "A321": {
+   "family": "A320",
+   "manufacturer": "Airbus"
+  },
+  "A330-200": {
+   "family": "A330",
+   "manufacturer": "Airbus"
+  },
+  "A330-300": {
+   "family": "A330",
+   "manufacturer": "Airbus"
+  },
+  "A340-200": {
+   "family": "A340",
+   "manufacturer": "Airbus"
+  },
+  "A340-300": {
+   "family": "A340",
+   "manufacturer": "Airbus"
+  },
+  "A340-500": {
+   "family": "A340",
+   "manufacturer": "Airbus"
+  },
+  "A340-600": {
+   "family": "A340",
+   "manufacturer": "Airbus"
+  },
+  "A380": {
+   "family": "A380",
+   "manufacturer": "Airbus"
+  },
+  "ATR-42": {
+   "family": "ATR-42",
+   "manufacturer": "ATR"
+  },
+  "ATR-72": {
+   "family": "ATR-72",
+   "manufacturer": "ATR"
+  },
+  "An-12": {
+   "family": "An-12",
+   "manufacturer": "Antonov"
+  },
+  "BAE 146-200": {
+   "family": "BAE 146",
+   "manufacturer": "British Aerospace"
+  },
+  "BAE 146-300": {
+   "family": "BAE 146",
+   "manufacturer": "British Aerospace"
+  },
+  "BAE-125": {
+   "family": "BAE-125",
+   "manufacturer": "British Aerospace"
+  },
+  "Beechcraft 1900": {
+   "family": "Beechcraft 1900",
+   "manufacturer": "Beechcraft"
+  },
+  "Boeing 717": {
+   "family": "Boeing 717",
+   "manufacturer": "Boeing"
+  },
+  "C-130": {
+   "family": "C-130",
+   "manufacturer": "Lockheed Corporation"
+  },
+  "C-47": {
+   "family": "C-47",
+   "manufacturer": "Douglas Aircraft Company"
+  },
+  "CRJ-200": {
+   "family": "CRJ-200",
+   "manufacturer": "Canadair"
+  },
+  "CRJ-700": {
+   "family": "CRJ-700",
+   "manufacturer": "Canadair"
+  },
+  "CRJ-900": {
+   "family": "CRJ-700",
+   "manufacturer": "Canadair"
+  },
+  "Cessna 172": {
+   "family": "Cessna 172",
+   "manufacturer": "Cessna"
+  },
+  "Cessna 208": {
+   "family": "Cessna 208",
+   "manufacturer": "Cessna"
+  },
+  "Cessna 525": {
+   "family": "Cessna Citation",
+   "manufacturer": "Cessna"
+  },
+  "Cessna 560": {
+   "family": "Cessna Citation",
+   "manufacturer": "Cessna"
+  },
+  "Challenger 600": {
+   "family": "Challenger 600",
+   "manufacturer": "Canadair"
+  },
+  "DC-10": {
+   "family": "DC-10",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "DC-3": {
+   "family": "DC-3",
+   "manufacturer": "Douglas Aircraft Company"
+  },
+  "DC-6": {
+   "family": "DC-6",
+   "manufacturer": "Douglas Aircraft Company"
+  },
+  "DC-8": {
+   "family": "DC-8",
+   "manufacturer": "Douglas Aircraft Company"
+  },
+  "DC-9-30": {
+   "family": "DC-9",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "DH-82": {
+   "family": "DH-82",
+   "manufacturer": "de Havilland"
+  },
+  "DHC-1": {
+   "family": "DHC-1",
+   "manufacturer": "de Havilland"
+  },
+  "DHC-6": {
+   "family": "DHC-6",
+   "manufacturer": "de Havilland"
+  },
+  "DHC-8-100": {
+   "family": "Dash 8",
+   "manufacturer": "de Havilland"
+  },
+  "DHC-8-300": {
+   "family": "Dash 8",
+   "manufacturer": "de Havilland"
+  },
+  "DR-400": {
+   "family": "DR-400",
+   "manufacturer": "Robin"
+  },
+  "Dornier 328": {
+   "family": "Dornier 328",
+   "manufacturer": "Dornier"
+  },
+  "E-170": {
+   "family": "Embraer E-Jet",
+   "manufacturer": "Embraer"
+  },
+  "E-190": {
+   "family": "Embraer E-Jet",
+   "manufacturer": "Embraer"
+  },
+  "E-195": {
+   "family": "Embraer E-Jet",
+   "manufacturer": "Embraer"
+  },
+  "EMB-120": {
+   "family": "EMB-120",
+   "manufacturer": "Embraer"
+  },
+  "ERJ 135": {
+   "family": "Embraer ERJ 145",
+   "manufacturer": "Embraer"
+  },
+  "ERJ 145": {
+   "family": "Embraer ERJ 145",
+   "manufacturer": "Embraer"
+  },
+  "Embraer Legacy 600": {
+   "family": "Embraer Legacy 600",
+   "manufacturer": "Embraer"
+  },
+  "Eurofighter Typhoon": {
+   "family": "Eurofighter Typhoon",
+   "manufacturer": "Eurofighter"
+  },
+  "F-16A/B": {
+   "family": "F-16",
+   "manufacturer": "Lockheed Martin"
+  },
+  "F/A-18": {
+   "family": "F/A-18",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "Falcon 2000": {
+   "family": "Falcon 2000",
+   "manufacturer": "Dassault Aviation"
+  },
+  "Falcon 900": {
+   "family": "Falcon 900",
+   "manufacturer": "Dassault Aviation"
+  },
+  "Fokker 100": {
+   "family": "Fokker 100",
+   "manufacturer": "Fokker"
+  },
+  "Fokker 50": {
+   "family": "Fokker 50",
+   "manufacturer": "Fokker"
+  },
+  "Fokker 70": {
+   "family": "Fokker 70",
+   "manufacturer": "Fokker"
+  },
+  "Global Express": {
+   "family": "Global Express",
+   "manufacturer": "Bombardier Aerospace"
+  },
+  "Gulfstream IV": {
+   "family": "Gulfstream",
+   "manufacturer": "Gulfstream Aerospace"
+  },
+  "Gulfstream V": {
+   "family": "Gulfstream",
+   "manufacturer": "Gulfstream Aerospace"
+  },
+  "Hawk T1": {
+   "family": "Hawk T1",
+   "manufacturer": "British Aerospace"
+  },
+  "Il-76": {
+   "family": "Il-76",
+   "manufacturer": "Ilyushin"
+  },
+  "L-1011": {
+   "family": "L-1011",
+   "manufacturer": "Lockheed Corporation"
+  },
+  "MD-11": {
+   "family": "MD-11",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "MD-80": {
+   "family": "MD-80",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "MD-87": {
+   "family": "MD-80",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "MD-90": {
+   "family": "MD-90",
+   "manufacturer": "McDonnell Douglas"
+  },
+  "Metroliner": {
+   "family": "Metroliner",
+   "manufacturer": "Fairchild"
+  },
+  "Model B200": {
+   "family": "King Air",
+   "manufacturer": "Beechcraft"
+  },
+  "PA-28": {
+   "family": "PA-28",
+   "manufacturer": "Piper"
+  },
+  "SR-20": {
+   "family": "SR-20",
+   "manufacturer": "Cirrus Aircraft"
+  },
+  "Saab 2000": {
+   "family": "Saab 2000",
+   "manufacturer": "Saab"
+  },
+  "Saab 340": {
+   "family": "Saab 340",
+   "manufacturer": "Saab"
+  },
+  "Spitfire": {
+   "family": "Spitfire",
+   "manufacturer": "Supermarine"
+  },
+  "Tornado": {
+   "family": "Tornado",
+   "manufacturer": "Panavia"
+  },
+  "Tu-134": {
+   "family": "Tu-134",
+   "manufacturer": "Tupolev"
+  },
+  "Tu-154": {
+   "family": "Tu-154",
+   "manufacturer": "Tupolev"
+  },
+  "Yak-42": {
+   "family": "Yak-42",
+   "manufacturer": "Yakovlev"
+  }
+ }
+}

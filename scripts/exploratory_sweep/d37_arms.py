@@ -87,7 +87,10 @@ def rl_arm(family, lr, temperature, ctl_lr):
               init=INIT, mode="grpo", lr=lr, num_generations=GENERATIONS, beta=BETA,
               temperature=temperature, updates=UPDATES, max_steps_total=UPDATES,
               stops=list(STOPS), features=["dynamic_sampling"],
-              extra_trainer_args=["--dynamic-sampling-max-draws", str(DYNAMIC_DRAWS)],
+              # beta 0 must name its aggregation (main's trainer rule): "grpo" is the legacy
+              # aggregation and leaves the settings identity unchanged
+              extra_trainer_args=["--loss-type", "grpo",
+                                  "--dynamic-sampling-max-draws", str(DYNAMIC_DRAWS)],
               matched_control_lr=ctl_lr, control_replays="scanned",
               control_max_steps_total=UPDATES * DYNAMIC_DRAWS, amendment=5, **DEVICE)
     return a
@@ -129,12 +132,29 @@ def render() -> bytes:
     return (json.dumps(table(), indent=1, sort_keys=True) + "\n").encode()
 
 
+def _check_dynamic_draws():
+    """wave2_arms.check_dynamic_draws (CORRECTIONS C5: >= 8 draws), one implementation."""
+    spec = importlib.util.spec_from_file_location("sweep_wave2_arms",
+                                                  HERE.parent / "wave2_arms.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.check_dynamic_draws
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--check", action="store_true")
     a = p.parse_args(argv)
+    check_draws = _check_dynamic_draws()
     raw = render()
+    check_draws(json.loads(raw)["arms"])  # never write or accept a row below 8 draws
     if a.check:
+        if OUT.is_file():  # the file on disk, not only the rebuilt one, must satisfy C5
+            try:
+                check_draws(json.loads(OUT.read_text())["arms"])
+            except ValueError as exc:
+                print(f"D37 table refused: {exc}", file=sys.stderr)
+                return 1
         if not OUT.is_file() or OUT.read_bytes() != raw:
             print(f"D37 table drift: {OUT}", file=sys.stderr)
             return 1

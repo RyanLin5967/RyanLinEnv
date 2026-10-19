@@ -1,0 +1,9 @@
+ew2.sh: line 16: 1776943 Illegal instruction     (core dumped) env "$@" "$VENV/bin/python" -I ew_probe.py "$threads" "${SEED:-$i}" ${WARM:-} > /dev/null 2>&1
+VARIANT seed4-fixed threads=32 crashes=1/100 00:08:19
+VARIANT same-seed-4 threads=32 crashes=0/100 00:13:34
+VARIANT threads1 threads=1 crashes=0/100 00:18:36
+ew2.sh: line 16: 1920626 Illegal instruction     (core dumped) env "$@" "$VENV/bin/python" -I ew_probe.py "$threads" "${SEED:-$i}" ${WARM:-} > /dev/null 2>&1
+ew2.sh: line 16: 1924408 Illegal instruction     (core dumped) env "$@" "$VENV/bin/python" -I ew_probe.py "$threads" "${SEED:-$i}" ${WARM:-} > /dev/null 2>&1
+VARIANT mkl-threads1 threads=32 crashes=2/100 00:23:38
+VARIANT warm-up threads=32 crashes=0/100 00:28:44
+ALL_DONE

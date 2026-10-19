@@ -23,6 +23,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from importlib import import_module, metadata
 from pathlib import Path
+from types import MethodType
 from typing import Any
 
 from . import expanded_contract as _expanded
@@ -31,7 +32,134 @@ from .data import assert_disjoint, image_hash
 from .vlm import _completion_text, _dataset_identity, _file_sha256, _validated_lora_config
 
 DEFAULT_MODEL = "Qwen/Qwen2-VL-2B-Instruct"
+DEVICES = ("mps", "cpu", "cuda")
+GRPO_LOSS_TYPES = ("grpo", "dr_grpo")  # the explicit train_local/trainer_kwargs loss_type
+GRPO_REWARD_SCALES = ("group", "none")
+REWARDS = ("exact", "exact_hn")
+CONSTRAINED_GREEDY = "label-trie-constrained-greedy/pass@1"
 OUTPUT_GRAMMAR = "canonical-label-v2/optional-tags"
+# Exploratory sweep options (default-off: the legacy formats keep their exact prompt,
+# grammar and identity). `closed_set_*` lists the labels grouped by manufacturer and
+# family with an explicit closed-set instruction; `*think_answer` asks for
+# <think>...</think><answer>LABEL</answer> and is scored on the answer tag only.
+LEGACY_RESPONSE_FORMATS = ("answer_only", "think_then_answer")
+TAGGED_RESPONSE_FORMATS = ("think_answer", "closed_set_think_answer")
+CLOSED_SET_RESPONSE_FORMATS = ("closed_set_answer_only", "closed_set_think_answer")
+RESPONSE_FORMATS = LEGACY_RESPONSE_FORMATS + ("closed_set_answer_only",) + TAGGED_RESPONSE_FORMATS
+TAGGED_OUTPUT_GRAMMAR = "think-answer-tags-v1/answer-only"
+# DAPO/Dr.GRPO/GSPO knobs that released TRL 1.16 GRPOConfig implements, with their
+# legacy values in `trainer_kwargs`. Only explicitly passed knobs enter settings.
+GRPO_KNOBS = {
+    "epsilon": 0.2,
+    "epsilon_high": None,
+    "delta": None,
+    "loss_type": "grpo",
+    "scale_rewards": "group",
+    "importance_sampling_level": "token",
+    "mask_truncated_completions": True,
+    "num_iterations": 1,
+    "top_entropy_quantile": 1.0,
+}
+KNOB_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
+# GRPO knobs with one shared CLI flag (--loss-type, --scale-rewards): see main().
+ROUTED_KNOBS = ("loss_type", "scale_rewards")
+# FGVC-Aircraft 2013b taxonomy for the closed-set prompt. Every (manufacturer, family,
+# variants) row was derived from the author release's native TRAIN annotations only
+# (images_{variant,family,manufacturer}_train.txt, SHA-256 29ac66fb..., 9bc9b649...,
+# ff5d8c11...): each of the 100 variants maps to exactly one family and manufacturer
+# there. No VAL or TEST file was read. Rows follow the data spec's label order. It lives
+# here, not in a new module, because frozen study plans pin every vision_rl module.
+AIRCRAFT_TAXONOMY_ID = "fgvc-aircraft-2013b-train-taxonomy-v1"
+AIRCRAFT_FAMILY_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ('Boeing', 'Boeing 707', ('707-320',)),
+    ('Boeing', 'Boeing 727', ('727-200',)),
+    ('Boeing', 'Boeing 737', (
+        '737-200', '737-300', '737-400', '737-500', '737-600', '737-700', '737-800', '737-900',
+    )),
+    ('Boeing', 'Boeing 747', ('747-100', '747-200', '747-300', '747-400')),
+    ('Boeing', 'Boeing 757', ('757-200', '757-300')),
+    ('Boeing', 'Boeing 767', ('767-200', '767-300', '767-400')),
+    ('Boeing', 'Boeing 777', ('777-200', '777-300')),
+    ('Airbus', 'A300', ('A300B4',)),
+    ('Airbus', 'A310', ('A310',)),
+    ('Airbus', 'A320', ('A318', 'A319', 'A320', 'A321')),
+    ('Airbus', 'A330', ('A330-200', 'A330-300')),
+    ('Airbus', 'A340', ('A340-200', 'A340-300', 'A340-500', 'A340-600')),
+    ('Airbus', 'A380', ('A380',)),
+    ('ATR', 'ATR-42', ('ATR-42',)),
+    ('ATR', 'ATR-72', ('ATR-72',)),
+    ('Antonov', 'An-12', ('An-12',)),
+    ('British Aerospace', 'BAE 146', ('BAE 146-200', 'BAE 146-300')),
+    ('British Aerospace', 'BAE-125', ('BAE-125',)),
+    ('Beechcraft', 'Beechcraft 1900', ('Beechcraft 1900',)),
+    ('Boeing', 'Boeing 717', ('Boeing 717',)),
+    ('Lockheed Corporation', 'C-130', ('C-130',)),
+    ('Douglas Aircraft Company', 'C-47', ('C-47',)),
+    ('Canadair', 'CRJ-200', ('CRJ-200',)),
+    ('Canadair', 'CRJ-700', ('CRJ-700', 'CRJ-900')),
+    ('Cessna', 'Cessna 172', ('Cessna 172',)),
+    ('Cessna', 'Cessna 208', ('Cessna 208',)),
+    ('Cessna', 'Cessna Citation', ('Cessna 525', 'Cessna 560')),
+    ('Canadair', 'Challenger 600', ('Challenger 600',)),
+    ('McDonnell Douglas', 'DC-10', ('DC-10',)),
+    ('Douglas Aircraft Company', 'DC-3', ('DC-3',)),
+    ('Douglas Aircraft Company', 'DC-6', ('DC-6',)),
+    ('Douglas Aircraft Company', 'DC-8', ('DC-8',)),
+    ('McDonnell Douglas', 'DC-9', ('DC-9-30',)),
+    ('de Havilland', 'DH-82', ('DH-82',)),
+    ('de Havilland', 'DHC-1', ('DHC-1',)),
+    ('de Havilland', 'DHC-6', ('DHC-6',)),
+    ('de Havilland', 'Dash 8', ('DHC-8-100', 'DHC-8-300')),
+    ('Robin', 'DR-400', ('DR-400',)),
+    ('Dornier', 'Dornier 328', ('Dornier 328',)),
+    ('Embraer', 'Embraer E-Jet', ('E-170', 'E-190', 'E-195')),
+    ('Embraer', 'EMB-120', ('EMB-120',)),
+    ('Embraer', 'Embraer ERJ 145', ('ERJ 135', 'ERJ 145')),
+    ('Embraer', 'Embraer Legacy 600', ('Embraer Legacy 600',)),
+    ('Eurofighter', 'Eurofighter Typhoon', ('Eurofighter Typhoon',)),
+    ('Lockheed Martin', 'F-16', ('F-16A/B',)),
+    ('McDonnell Douglas', 'F/A-18', ('F/A-18',)),
+    ('Dassault Aviation', 'Falcon 2000', ('Falcon 2000',)),
+    ('Dassault Aviation', 'Falcon 900', ('Falcon 900',)),
+    ('Fokker', 'Fokker 100', ('Fokker 100',)),
+    ('Fokker', 'Fokker 50', ('Fokker 50',)),
+    ('Fokker', 'Fokker 70', ('Fokker 70',)),
+    ('Bombardier Aerospace', 'Global Express', ('Global Express',)),
+    ('Gulfstream Aerospace', 'Gulfstream', ('Gulfstream IV', 'Gulfstream V')),
+    ('British Aerospace', 'Hawk T1', ('Hawk T1',)),
+    ('Ilyushin', 'Il-76', ('Il-76',)),
+    ('Lockheed Corporation', 'L-1011', ('L-1011',)),
+    ('McDonnell Douglas', 'MD-11', ('MD-11',)),
+    ('McDonnell Douglas', 'MD-80', ('MD-80', 'MD-87')),
+    ('McDonnell Douglas', 'MD-90', ('MD-90',)),
+    ('Fairchild', 'Metroliner', ('Metroliner',)),
+    ('Beechcraft', 'King Air', ('Model B200',)),
+    ('Piper', 'PA-28', ('PA-28',)),
+    ('Cirrus Aircraft', 'SR-20', ('SR-20',)),
+    ('Saab', 'Saab 2000', ('Saab 2000',)),
+    ('Saab', 'Saab 340', ('Saab 340',)),
+    ('Supermarine', 'Spitfire', ('Spitfire',)),
+    ('Panavia', 'Tornado', ('Tornado',)),
+    ('Tupolev', 'Tu-134', ('Tu-134',)),
+    ('Tupolev', 'Tu-154', ('Tu-154',)),
+    ('Yakovlev', 'Yak-42', ('Yak-42',)),
+)
+
+
+def aircraft_grouped_label_lines(spec_labels: list[str]) -> list[str]:
+    """One line per family, manufacturers in first-appearance order; refuses other label sets."""
+    known = [label for _, _, variants in AIRCRAFT_FAMILY_GROUPS for label in variants]
+    if len(set(spec_labels)) != len(spec_labels) or sorted(spec_labels) != sorted(known):
+        raise ValueError("closed-set grouping requires exactly the 100 FGVC-Aircraft variants")
+    order: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
+    for manufacturer, family, variants in AIRCRAFT_FAMILY_GROUPS:
+        order.setdefault(manufacturer, []).append((family, variants))
+    return [
+        f"{manufacturer} / {family}: " + " | ".join(variants)
+        for manufacturer, families in order.items()
+        for family, variants in families
+    ]
+
 # Study controllers freeze finite original budgets before execution. The TRAIN
 # diagnostic bounds RL updates, while a matched-time SFT trajectory may need
 # more updates. None means no additional step cap, not an unbounded run.
@@ -46,14 +174,6 @@ EXPLORATORY_SWEEP_ID = "aircraft-exploratory-sweep-v2"
 NATIVE_TRAIN_ROWS = 3334
 
 
-def _torch_threads() -> int:
-    """Intra-op threads: VLM_TORCH_THREADS when set (1..256), else the historical 2."""
-    raw = os.environ.get("VLM_TORCH_THREADS")
-    if raw is None:
-        return 2
-    if not raw.isdigit() or not 1 <= int(raw) <= 256:
-        raise ValueError("VLM_TORCH_THREADS must be an integer in 1..256")
-    return int(raw)
 MODEL_REVISIONS = {
     DEFAULT_MODEL: "895c3a49bc3fa70a340399125c650a463535e71c",
     "Qwen/Qwen2.5-VL-3B-Instruct": "66285546d2b821cf421d4f5eb2576359d3770cd3",
@@ -76,6 +196,24 @@ TRL_SOURCES = {
 }
 
 
+DEFAULT_THREADS = 2
+PRECISION_TRANSFERS = ("float32-to-bfloat16", "float32-to-float16")  # warm-start training
+BASE_DTYPES = ("float32", "bfloat16", "float16")
+# Frozen-adapter TRAIN inference may declare any parent->target base precision change.
+INFERENCE_PRECISION_TRANSFERS = tuple(
+    f"{a}-to-{b}" for a in BASE_DTYPES for b in BASE_DTYPES if a != b
+)
+DEFAULT_LOSS_SCALE_INIT = 65536.0  # torch.amp.GradScaler's own default
+LOSS_SCALE_GROWTH_INTERVAL = 2000  # torch.amp.GradScaler's own default
+# 2**16 / 2**16 = 1: past this many back-to-back overflows the scale has fallen below 1,
+# so the overflow is not scaling but a nonfinite forward/backward.
+MAX_CONSECUTIVE_LOSS_SCALE_SKIPS = 16
+
+
+# RFT runs on every trainer device (CUDA from sweep-feat-cuda.noindex).
+RFT_DEVICES = DEVICES
+
+
 class LocalVLMError(RuntimeError):
     """An offline dependency, data, or device contract failed."""
 
@@ -93,10 +231,10 @@ class Profile:
     temperature: float = 1.0
 
     def validate(self) -> None:
-        if self.response_format not in {"answer_only", "think_then_answer"}:
-            raise ValueError("response_format must be answer_only or think_then_answer")
-        if self.dtype not in {"float32", "bfloat16"}:
-            raise ValueError("dtype must be float32 or bfloat16")
+        if self.response_format not in RESPONSE_FORMATS:
+            raise ValueError("response_format must be one of " + ", ".join(RESPONSE_FORMATS))
+        if self.dtype not in {"float32", "bfloat16", "float16"}:
+            raise ValueError("dtype must be float32, bfloat16 or float16")
         for name, value in asdict(self).items():
             if name not in {"dtype", "temperature", "response_format", "adapter_profile"}:
                 if type(value) is not int or value < 1:
@@ -140,10 +278,36 @@ def _archive_source(output: Path, expected_sha256: str) -> None:
     (output / "adapter-source.py").write_bytes(source)
 
 
+def _torch_threads() -> int:
+    """Torch CPU threads: 2, unless an environment override (1..256) says otherwise.
+
+    Two launchers set one each, merged from parallel branches:
+    - VISION_RL_TORCH_THREADS: the UWaterloo CPU execution path
+      (scripts/freshpool_launch/uw_stage_a.py); an invalid value raises LocalVLMError.
+    - VLM_TORCH_THREADS: the exploratory sweep's arm executor
+      (scripts/exploratory_sweep/arm_exec.py); an invalid value raises ValueError.
+    Both set to different values refuses rather than picking one.
+    """
+    found = {}
+    raw = os.environ.get("VISION_RL_TORCH_THREADS")
+    if raw is not None:
+        if not raw.isdigit() or not 1 <= int(raw) <= 256:
+            raise LocalVLMError(f"VISION_RL_TORCH_THREADS must be 1..256, got {raw!r}")
+        found["VISION_RL_TORCH_THREADS"] = int(raw)
+    raw = os.environ.get("VLM_TORCH_THREADS")
+    if raw is not None:
+        if not raw.isdigit() or not 1 <= int(raw) <= 256:
+            raise ValueError("VLM_TORCH_THREADS must be an integer in 1..256")
+        found["VLM_TORCH_THREADS"] = int(raw)
+    if len(set(found.values())) > 1:
+        raise LocalVLMError(f"conflicting torch thread overrides: {found}")
+    return next(iter(found.values()), 2)
+
+
 def preflight(device: str = "mps") -> dict[str, Any]:
     """Import the pinned stack and inspect availability; no tensors/model/hub IO."""
-    if device not in {"mps", "cpu"} or os.environ.get("WORLD_SIZE", "1") != "1":
-        raise LocalVLMError("Use one local process with --device mps or cpu")
+    if device not in DEVICES or os.environ.get("WORLD_SIZE", "1") != "1":
+        raise LocalVLMError("Use one local process with --device mps, cpu or cuda")
     if device == "mps" and os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise LocalVLMError("Disable PYTORCH_ENABLE_MPS_FALLBACK to expose unsupported operations")
     try:
@@ -170,6 +334,19 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         raise LocalVLMError("Installed TRL trainer/config source differs from reviewed v1.16.0")
     if device == "mps" and not torch.backends.mps.is_available():
         raise LocalVLMError("MPS is unavailable; no model files have been opened")
+    cuda = {}
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise LocalVLMError("CUDA is unavailable; no model files have been opened")
+        # Hugging Face Trainer wraps a multi-GPU process in DataParallel, which would split
+        # the one-prompt update; one visible device keeps the single-device contract.
+        if torch.cuda.device_count() != 1:
+            raise LocalVLMError("CUDA needs exactly one visible device; set CUDA_VISIBLE_DEVICES")
+        cuda["cuda_device"] = {
+            "name": torch.cuda.get_device_name(0),
+            "capability": list(torch.cuda.get_device_capability(0)),
+            "native_bfloat16": bool(torch.cuda.is_bf16_supported(including_emulation=False)),
+        }
     return {
         "device": device,
         "python": sys.version.split()[0],
@@ -178,7 +355,65 @@ def preflight(device: str = "mps") -> dict[str, Any]:
         "adapter_source_sha256": _file_sha256(Path(__file__)),
         "model_execution": "not tested by preflight",
         "model_downloads": False,
+        **cuda,
     }
+
+
+def check_device_dtype(device: str, dtype: str, environment: dict, *, training: bool) -> None:
+    """Refuse device/precision pairs that cannot run here, before any output is written.
+
+    float16 is CUDA-only: its training path depends on CUDA autocast and GradScaler loss
+    scaling. bfloat16 training needs compute capability >= 8.0, because TRL 1.16's
+    chunked log-prob kernel (`torch.addmm(..., out_dtype=float32)` on bf16 inputs) refuses
+    older GPUs (measured on an RTX 2080 Ti, sm_75, 2026-10-18).
+    """
+    if device not in DEVICES or dtype not in {"float32", "bfloat16", "float16"}:
+        raise ValueError("unknown device or dtype")
+    if dtype == "float16" and device != "cuda":
+        raise ValueError("float16 runs only on --device cuda (CUDA loss scaling)")
+    if device == "cuda" and dtype == "bfloat16" and training:
+        # preflight's CUDA record (merged from main): cuda_device.native_bfloat16
+        if not environment.get("cuda_device", {}).get("native_bfloat16"):
+            raise ValueError(
+                "bfloat16 training needs CUDA compute capability >= 8.0; use float16 here"
+            )
+
+
+def _set_threads(torch, threads: int) -> None:
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    torch.set_num_threads(threads)
+
+
+def _cuda_memory(device: str) -> dict | None:
+    if device != "cuda":
+        return None
+    torch = import_module("torch")
+    return {
+        "max_memory_allocated_bytes": torch.cuda.max_memory_allocated(),
+        "max_memory_reserved_bytes": torch.cuda.max_memory_reserved(),
+        "total_memory_bytes": torch.cuda.get_device_properties(0).total_memory,
+        "scope": "torch caching allocator peaks for this process; excludes CUDA context",
+    }
+
+
+def _refuse_unsupported_dtype(environment: dict, profile: Profile, training: bool = False) -> None:
+    """A CUDA card without native bfloat16 (e.g. RTX 2080 Ti) must run float16 or float32.
+
+    float16 is inference-only. Training refuses it on every device (train_local and RFT);
+    train in float32. (The merged sweep-feat-cuda branch brought a GradScaler fp16 training
+    path, `_trainer_with_loss_scaling`; main's rule wins, per the root RL corrections C2:
+    GRPO runs in fp32 only and fp16 has no sampler-teacher parity evidence. That path is
+    unreachable from training until a parity measurement and a decision lift this.)
+    """
+    if training and profile.dtype == "float16":
+        raise LocalVLMError(
+            "float16 training is refused (no parity evidence; corrections C2); train in float32"
+        )
+    device = environment.get("cuda_device")
+    if device is not None and profile.dtype == "bfloat16" and not device["native_bfloat16"]:
+        fallback = "float32" if training else "float16 or float32"
+        raise LocalVLMError(f"{device['name']} has no native bfloat16; use {fallback}")
 
 
 def load_spec(path: Path) -> dict[str, Any]:
@@ -222,12 +457,18 @@ def load_classification(
     *,
     preprocessing_id: str | None = None,
     require_all_classes: bool = True,
+    allow_repeated_ids: bool = False,
 ) -> list[dict[str, Any]]:
-    """Only immutable task-wide text enters the prompt; rows cannot override it."""
+    """Only immutable task-wide text enters the prompt; rows cannot override it.
+
+    `allow_repeated_ids` (default off; a matched control's replay sequence only) accepts an
+    id more than once, as an exact repeat (same image and label) of its first row, so a
+    sequential replay can present a row again in order.
+    """
     path = Path(path).resolve()
     if preprocessing_id not in (None, PREPROCESSING_ID):
         raise ValueError("unknown preprocessing_id")
-    rows, seen = [], set()
+    rows, seen, first = [], set(), {}
     for number, line in enumerate(path.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -236,17 +477,25 @@ def load_classification(
             raise ValueError(f"{path.name}:{number}: require only id, split, image, label")
         if row["split"] != split or split not in {"train", "validation"}:
             raise ValueError(f"expected {split} split; training adapter never opens test")
-        if not isinstance(row["id"], str) or not row["id"] or row["id"] in seen:
+        repeat = isinstance(row["id"], str) and row["id"] in seen
+        if not isinstance(row["id"], str) or not row["id"] or (repeat and not allow_repeated_ids):
             raise ValueError("classification IDs must be unique nonempty strings")
         if row["label"] not in labels or not isinstance(row["image"], str):
             raise ValueError("unknown canonical label or invalid image path")
         row["image"] = str((path.parent / row["image"]).resolve())
+        if repeat:
+            original = first[row["id"]]
+            if (row["image"], row["label"]) != (original["image"], original["label"]):
+                raise ValueError(f"{path.name}:{number}: a repeated id must repeat its row")
+            rows.append(dict(original))
+            continue
         row["image_sha256"] = (
             aircraft_pixel_sha256(row["image"])
             if preprocessing_id == PREPROCESSING_ID
             else image_hash(row["image"])
         )
         seen.add(row["id"])
+        first[row["id"]] = row
         rows.append(row)
     if not rows:
         raise ValueError("manifest is empty")
@@ -256,6 +505,8 @@ def load_classification(
 
 
 def prompt_text(spec: dict[str, Any], response_format: str = "think_then_answer") -> str:
+    if response_format in CLOSED_SET_RESPONSE_FORMATS or response_format == "think_answer":
+        return _sweep_prompt_text(spec, response_format)
     if response_format == "answer_only":
         instruction = (
             "Return one label copied exactly from the allowed list on its own line. "
@@ -277,6 +528,64 @@ def prompt_text(spec: dict[str, Any], response_format: str = "think_then_answer"
         + "\n"
         + instruction
     )
+
+
+def _sweep_prompt_text(spec: dict[str, Any], response_format: str) -> str:
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        instruction = (
+            "Inspect the aircraft's visible distinguishing features. First reason briefly "
+            "inside <think> and </think>. Then give the final answer as <answer>LABEL</answer>, "
+            "where LABEL is one label copied exactly from the allowed list. Write nothing "
+            "after </answer>."
+        )
+    else:
+        instruction = (
+            "Return one label copied exactly from the allowed list on its own line. "
+            "Do not add a prefix, quotes, explanations, or any text after that label."
+        )
+    if response_format in CLOSED_SET_RESPONSE_FORMATS:
+        listing = (
+            f"This is a closed-set task: the answer must be exactly one of the "
+            f"{len(spec['labels'])} labels below, copied character for character. Labels are "
+            "grouped as 'manufacturer / family: label | label'. A manufacturer name, a family "
+            "name, or any aircraft name not in the list is never a valid answer; if the "
+            "aircraft looks like an unlisted model or version, answer with the closest listed "
+            "label.\nAllowed labels by manufacturer and family:\n"
+            + "\n".join(aircraft_grouped_label_lines(spec["labels"]))
+        )
+    else:
+        listing = "Allowed labels (the complete class list):\n" + "\n".join(spec["labels"])
+    return spec["question"] + "\n" + listing + "\n" + instruction
+
+
+def _parse_tagged_answer(text: str, labels: list[str]) -> str | None:
+    """Answer-only grammar: free text, then exactly one final <answer>LABEL</answer>."""
+    if text.count("<answer>") != 1 or text.count("</answer>") != 1:
+        return None
+    match = re.fullmatch(r"(?s)(.*)<answer>([^<>\r\n]{1,256})</answer>", text)
+    answer = match[2].strip() if match else None
+    return answer if answer in labels else None
+
+
+def output_grammar(response_format: str | None) -> str:
+    return TAGGED_OUTPUT_GRAMMAR if response_format in TAGGED_RESPONSE_FORMATS else OUTPUT_GRAMMAR
+
+
+def parse_answer(
+    completion: Any,
+    labels: list[str],
+    *,
+    allow_reasoning: bool = True,
+    response_format: str | None = None,
+) -> str | None:
+    """`response_format=None` or a non-tagged format is exactly `parse_label` (whose
+    source the named-baseline plan pins, so it stays untouched); a tagged format scores
+    only its single final answer tag."""
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        return _parse_tagged_answer(_completion_text(completion).strip(), labels)
+    if response_format is not None and response_format not in RESPONSE_FORMATS:
+        raise ValueError("unknown response_format")
+    return parse_label(completion, labels, allow_reasoning=allow_reasoning)
 
 
 def parse_label(completion: Any, labels: list[str], *, allow_reasoning: bool = True) -> str | None:
@@ -304,7 +613,12 @@ def training_records(
             "prompt": [{"role": "user", "content": prompt}],
         }
         if mode == "sft":
-            record["completion"] = [{"role": "assistant", "content": row["label"]}]
+            target = (
+                f"<answer>{row['label']}</answer>"
+                if response_format in TAGGED_RESPONSE_FORMATS
+                else row["label"]
+            )
+            record["completion"] = [{"role": "assistant", "content": target}]
         records.append(record)
     return records
 
@@ -342,6 +656,129 @@ def _classification_identity(path: Path, rows: list[dict]) -> dict:
     return identity
 
 
+LABEL_HIERARCHY_SCHEMA = "vision-rl-label-hierarchy-v1"
+
+
+def load_label_hierarchy(path: Path, labels: list[str]) -> dict[str, Any]:
+    """TRAIN-derived variant -> family -> manufacturer map for partial-credit rewards.
+
+    Refuses anything not built from the TRAIN split alone, any label set that differs
+    from the task vocabulary, and any family claimed by two manufacturers.
+    """
+    path = Path(path)
+    value = json.loads(path.read_text())
+    if value.get("schema") != LABEL_HIERARCHY_SCHEMA:
+        raise ValueError(f"label hierarchy requires schema {LABEL_HIERARCHY_SCHEMA}")
+    source = value.get("source")
+    if not isinstance(source, dict) or source.get("split") != "train":
+        raise ValueError("label hierarchy must be derived from TRAIN annotations only")
+    if value.get("levels") != ["variant", "family", "manufacturer"]:
+        raise ValueError("label hierarchy levels must be variant, family, manufacturer")
+    mapping = value.get("labels")
+    if not isinstance(mapping, dict) or set(mapping) != set(labels):
+        raise ValueError("label hierarchy must cover exactly the task's label vocabulary")
+    family_owner: dict[str, str] = {}
+    for label in labels:
+        entry = mapping[label]
+        if not isinstance(entry, dict) or set(entry) != {"family", "manufacturer"}:
+            raise ValueError("each hierarchy entry requires exactly family and manufacturer")
+        family, manufacturer = entry["family"], entry["manufacturer"]
+        if not all(isinstance(x, str) and x.strip() == x and x for x in (family, manufacturer)):
+            raise ValueError("hierarchy family/manufacturer must be trimmed nonempty strings")
+        if family_owner.setdefault(family, manufacturer) != manufacturer:
+            raise ValueError(f"family {family!r} belongs to more than one manufacturer")
+    return {
+        "family": {label: mapping[label]["family"] for label in labels},
+        "manufacturer": {label: mapping[label]["manufacturer"] for label in labels},
+        "sha256": _file_sha256(path),
+    }
+
+
+def reward_shaping(
+    hierarchy: dict[str, Any],
+    *,
+    family_credit: float,
+    manufacturer_credit: float,
+    invalid_reward: float = 0.0,
+) -> dict[str, Any]:
+    """Hierarchical partial credit: exact 1, same family, same manufacturer, wrong 0, invalid."""
+    for name, value in (
+        ("family_credit", family_credit),
+        ("manufacturer_credit", manufacturer_credit),
+        ("invalid_reward", invalid_reward),
+    ):
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite number")
+    if not 0 <= manufacturer_credit <= family_credit < 1:
+        raise ValueError("require 0 <= manufacturer_credit <= family_credit < 1")
+    if not -1 <= invalid_reward <= 0:
+        raise ValueError("invalid_reward must be in [-1, 0]")
+    return {
+        "kind": "hierarchical-partial-credit-v1",
+        "family": hierarchy["family"],
+        "manufacturer": hierarchy["manufacturer"],
+        "hierarchy_sha256": hierarchy["sha256"],
+        "family_credit": float(family_credit),
+        "manufacturer_credit": float(manufacturer_credit),
+        "invalid_reward": float(invalid_reward),
+    }
+
+
+def shaping_identity(shaping: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The settings-identity view of a shaping (no per-label maps; the file hash binds them)."""
+    if shaping is None:
+        return None
+    return {
+        key: shaping[key]
+        for key in (
+            "kind",
+            "hierarchy_sha256",
+            "family_credit",
+            "manufacturer_credit",
+            "invalid_reward",
+        )
+    }
+
+
+def _shaping_from_options(
+    spec, label_hierarchy, family_credit, manufacturer_credit, invalid_reward, *, mode
+) -> dict[str, Any] | None:
+    if label_hierarchy is None:
+        if (family_credit, manufacturer_credit, invalid_reward) != (None, None, None):
+            raise ValueError("reward credits require label_hierarchy")
+        return None
+    if mode != "grpo":
+        raise ValueError("hierarchical reward shaping applies only to GRPO")
+    if family_credit is None or manufacturer_credit is None:
+        raise ValueError("label_hierarchy requires explicit family_credit and manufacturer_credit")
+    return reward_shaping(
+        load_label_hierarchy(Path(label_hierarchy), spec["labels"]),
+        family_credit=family_credit,
+        manufacturer_credit=manufacturer_credit,
+        invalid_reward=0.0 if invalid_reward is None else invalid_reward,
+    )
+
+
+def shaped_reward(predicted: str | None, expected: str, shaping: dict[str, Any]) -> float:
+    """Partial credit for one completion; ``predicted`` is the exact-EOS canonical answer."""
+    if predicted is None:
+        return shaping["invalid_reward"]
+    if predicted == expected:
+        return 1.0
+    if shaping["family"][predicted] == shaping["family"][expected]:
+        return shaping["family_credit"]
+    if shaping["manufacturer"][predicted] == shaping["manufacturer"][expected]:
+        return shaping["manufacturer_credit"]
+    return 0.0
+
+
+def _complete_think_block(text: str, response_format: str | None) -> bool:
+    if response_format in TAGGED_RESPONSE_FORMATS:
+        text = text.strip()
+        return text.startswith("<think>") and 0 <= text.find("</think>") < text.find("<answer>")
+    return bool(re.match(r"<think>[^<>]{0,32768}</think>", text.strip()))
+
+
 def make_reward(
     labels: list[str],
     group_size: int,
@@ -351,8 +788,32 @@ def make_reward(
     allow_reasoning: bool = True,
     journal_io_context=None,
     observe_prompt=None,
+    shaping: dict[str, Any] | None = None,
+    response_format: str | None = None,
+    reward: str = "exact",
+    confusers: dict[str, list[str]] | None = None,
 ):
-    """Exact task reward with journaled groups; never inject synthetic variance."""
+    """Exact task reward with journaled groups; never inject synthetic variance.
+
+    Two default-off reward variants, never combined:
+    - ``shaping`` replaces the returned reward with hierarchical partial credit (see
+      ``shaped_reward``); the journal adds ``exact_rewards``.
+    - ``reward="exact_hn"`` is a separately named reward: 1 for the exact gold + EOS,
+      HN_CONFUSER_REWARD (-0.5) for a terminated canonical answer that is one of the gold's
+      confusers in the frozen ``confusers`` map, 0 otherwise (invalid answers included); the
+      journal adds ``exact`` and ``confuser``.
+    Correctness statistics always count exact gold only; ``mixed`` (and ``mixed_groups``)
+    follows the returned rewards, i.e. whether the group carries a GRPO advantage.
+    ``response_format`` (exploratory formats only; None for the legacy ones) selects the
+    answer grammar; for a legacy format ``parse_answer`` is exactly ``parse_label``.
+    """
+    if reward not in REWARDS or (reward == "exact_hn") != (confusers is not None):
+        raise ValueError("reward must be exact, or exact_hn with a frozen confusion map")
+    if shaping is not None and confusers is not None:
+        raise ValueError("hierarchical shaping and the exact_hn reward cannot combine")
+    if shaping is not None:
+        if set(shaping["family"]) != set(labels):
+            raise ValueError("reward shaping hierarchy must cover exactly the labels")
     stats = {"groups": 0, "mixed_groups": 0, "all_correct_groups": 0, "all_zero_groups": 0}
     stats.update(
         unique_prompt_ids=0,
@@ -367,21 +828,50 @@ def make_reward(
         canonical_completions=0,
         recognition_mixed_groups=0,
     )
+    if shaping is not None:
+        stats.update(exact_mixed_groups=0, shaped_reward_sum=0.0)
+    if reward == "exact_hn":
+        stats["confuser_completions"] = 0
     seen_ids = set()
+
+    def answer(text):
+        return parse_answer(
+            text, labels, allow_reasoning=allow_reasoning, response_format=response_format
+        )
 
     def exact_label_accuracy(completions, label, id, completion_ids, **_):
         if not len(completions) == len(label) == len(id) == len(completion_ids):
             raise ValueError("reward batch lengths differ")
         if len(completions) % group_size:
             raise ValueError("reward batch does not contain complete groups")
-        rewards = [
-            float(
-                bool(tokens)
-                and tokens[-1] in eos_ids
-                and parse_label(text, labels, allow_reasoning=allow_reasoning) == expected
-            )
+        exact = [
+            float(bool(tokens) and tokens[-1] in eos_ids and answer(text) == expected)
             for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
         ]
+        rewards = exact
+        if shaping is not None:
+            rewards = [
+                shaped_reward(
+                    answer(text) if tokens and tokens[-1] in eos_ids else None,
+                    expected,
+                    shaping,
+                )
+                for text, expected, tokens in zip(completions, label, completion_ids, strict=True)
+            ]
+        if confusers is not None:
+            confused = [
+                not correct
+                and bool(tokens)
+                and tokens[-1] in eos_ids
+                and answer(text) in confusers.get(expected, ())
+                for text, expected, tokens, correct in zip(
+                    completions, label, completion_ids, exact, strict=True
+                )
+            ]
+            rewards = [
+                HN_CONFUSER_REWARD if hit else correct
+                for hit, correct in zip(confused, exact, strict=True)
+            ]
         serialized = []
         for start in range(0, len(rewards), group_size):
             stop = start + group_size
@@ -391,26 +881,26 @@ def make_reward(
                 observe_prompt(id[start])
             group = rewards[start:stop]
             mixed = min(group) != max(group)
+            # Correctness counts read exact gold only; for "exact" this is `group` itself.
+            correct = exact[start:stop]
             texts = [_completion_text(x) for x in completions[start:stop]]
             terminated = [
                 bool(tokens) and tokens[-1] in eos_ids for tokens in completion_ids[start:stop]
             ]
-            thinking = [
-                bool(re.match(r"<think>[^<>]{0,32768}</think>", text.strip())) for text in texts
-            ]
+            thinking = [_complete_think_block(text, response_format) for text in texts]
             canonical = [
-                parse_label(text, labels, allow_reasoning=allow_reasoning) if ended else None
+                answer(text) if ended else None
                 for text, ended in zip(texts, terminated, strict=True)
             ]
-            recognition_mixed = any(group) and any(
+            recognition_mixed = any(correct) and any(
                 value is not None and value != label[start] for value in canonical
             )
             lengths = [len(tokens) for tokens in completion_ids[start:stop]]
             seen_ids.add(id[start])
             stats["groups"] += 1
             stats["mixed_groups"] += int(mixed)
-            stats["all_correct_groups"] += int(all(group))
-            stats["all_zero_groups"] += int(not any(group))
+            stats["all_correct_groups"] += int(all(correct))
+            stats["all_zero_groups"] += int(not any(correct))
             stats["unique_prompt_ids"] = len(seen_ids)
             stats["prompt_presentations"] += 1
             stats["sampled_completions"] += len(group)
@@ -421,11 +911,19 @@ def make_reward(
             stats["canonical_completions"] += sum(value is not None for value in canonical)
             stats["recognition_mixed_groups"] += int(recognition_mixed)
             stats["task_correct_with_think"] += sum(
-                int(value) for value, thought in zip(group, thinking, strict=True) if thought
+                int(value) for value, thought in zip(correct, thinking, strict=True) if thought
             )
             stats["task_correct_without_think"] += sum(
-                int(value) for value, thought in zip(group, thinking, strict=True) if not thought
+                int(value) for value, thought in zip(correct, thinking, strict=True) if not thought
             )
+            extra = {}
+            if shaping is not None:
+                stats["exact_mixed_groups"] += int(min(correct) != max(correct))
+                stats["shaped_reward_sum"] += sum(group)
+                extra = {"exact_rewards": correct}
+            if confusers is not None:
+                stats["confuser_completions"] += sum(confused[start:stop])
+                extra = {"exact": correct, "confuser": confused[start:stop]}
             serialized.append(
                 json.dumps(
                     {
@@ -440,6 +938,7 @@ def make_reward(
                         "completion_tokens": lengths,
                         "terminated": terminated,
                         "complete_think_block": thinking,
+                        **extra,
                     }
                 )
                 + "\n"
@@ -453,7 +952,65 @@ def make_reward(
         return rewards
 
     exact_label_accuracy.stats = stats
-    return exact_label_accuracy
+    if reward == "exact":
+        return exact_label_accuracy
+
+    def exact_hn_reward(completions, label, id, completion_ids, **kwargs):
+        return exact_label_accuracy(completions, label, id, completion_ids, **kwargs)
+
+    # TRL logs each reward under its function name: the HN reward never reads as "exact".
+    exact_hn_reward.stats = stats
+    return exact_hn_reward
+
+
+def _finite(value) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def validate_grpo_overrides(overrides: dict | None) -> dict:
+    """Allowlisted TRL 1.16 GRPOConfig knobs; refuse unknown names and unsafe values.
+
+    Note: with num_iterations == 1 every update is on-policy (ratio == 1), so
+    epsilon/epsilon_high/delta clipping only binds when num_iterations > 1.
+    """
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict) or not overrides:
+        raise ValueError("grpo_overrides must be a nonempty dict or None")
+    unknown = sorted(set(overrides) - set(GRPO_KNOBS))
+    if unknown:
+        raise ValueError("unknown GRPO knob(s): " + ", ".join(unknown))
+    merged = {**GRPO_KNOBS, **overrides}
+    epsilon = merged["epsilon"]
+    if not _finite(epsilon) or not 0 < epsilon < 1:
+        raise ValueError("epsilon must be finite and in (0, 1)")
+    high = merged["epsilon_high"]
+    if high is not None and (
+        not _finite(high)
+        or not 0 < high <= 10
+        or (merged["loss_type"] != "cispo" and high < epsilon)
+    ):
+        raise ValueError("epsilon_high must be finite, in (0, 10] and >= epsilon (clip-higher)")
+    if merged["delta"] is not None and (not _finite(merged["delta"]) or merged["delta"] <= 1):
+        raise ValueError("delta must be finite and > 1")
+    if merged["loss_type"] not in KNOB_LOSS_TYPES:
+        raise ValueError("loss_type must be one of " + ", ".join(KNOB_LOSS_TYPES))
+    if merged["scale_rewards"] not in ("group", "batch", "none"):
+        raise ValueError("scale_rewards must be group, batch or none")
+    if merged["importance_sampling_level"] not in ("token", "sequence"):
+        raise ValueError("importance_sampling_level must be token or sequence")
+    if merged["loss_type"] == "luspo" and merged["importance_sampling_level"] != "sequence":
+        raise ValueError("luspo requires importance_sampling_level=sequence")
+    if merged["loss_type"] == "vespo" and merged["importance_sampling_level"] != "token":
+        raise ValueError("vespo requires importance_sampling_level=token")
+    if type(merged["mask_truncated_completions"]) is not bool:
+        raise ValueError("mask_truncated_completions must be a bool")
+    if type(merged["num_iterations"]) is not int or not 1 <= merged["num_iterations"] <= 8:
+        raise ValueError("num_iterations must be an integer in 1..8")
+    quantile = merged["top_entropy_quantile"]
+    if not _finite(quantile) or not 0 < quantile <= 1:
+        raise ValueError("top_entropy_quantile must be finite and in (0, 1]")
+    return {key: overrides[key] for key in sorted(overrides)}
 
 
 def trainer_kwargs(
@@ -468,10 +1025,32 @@ def trainer_kwargs(
     save_steps: int,
     beta: float = 0.04,
     order: str = "random",
+    grpo_overrides: dict | None = None,
+    loss_type: str | None = None,
+    scale_rewards: str = "group",
 ) -> dict:
-    """Explicit comparable defaults; one unique prompt per optimizer update."""
+    """Explicit comparable defaults; one unique prompt per optimizer update.
+
+    `loss_type` None is the legacy "grpo" (per-sequence length normalisation); "dr_grpo"
+    divides by the constant max_completion_length. `scale_rewards` "none" drops the
+    group-std advantage scaling (Dr-GRPO). Both are GRPO-only.
+    `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS), e.g. a DAPO
+    loss_type. A knob may come from one route only: an explicit `loss_type` or non-default
+    `scale_rewards` together with the same knob in `grpo_overrides` refuses.
+    """
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
+    overrides = validate_grpo_overrides(grpo_overrides)
+    if overrides and mode != "grpo":
+        raise ValueError("grpo_overrides apply only to GRPO")
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
+    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
+        raise ValueError("loss_type and scale_rewards apply only to GRPO")
+    if (loss_type is not None and "loss_type" in overrides) or (
+        scale_rewards != "group" and "scale_rewards" in overrides
+    ):
+        raise ValueError("loss_type/scale_rewards given both explicitly and in grpo_overrides")
     common = dict(
         output_dir=str(output),
         max_steps=max_steps,
@@ -486,7 +1065,8 @@ def trainer_kwargs(
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         bf16=False,
-        fp16=False,
+        # float16 (CUDA only) turns on accelerate's fp16 autocast + GradScaler loss scaling.
+        fp16=profile.dtype == "float16",
         use_cpu=device == "cpu",
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={"use_reentrant": False},
@@ -519,13 +1099,14 @@ def trainer_kwargs(
             use_transformers_continuous_batching=False,
             beta=beta,
             sync_ref_model=False,
-            loss_type="grpo",
-            scale_rewards="group",
+            loss_type=loss_type or "grpo",
+            scale_rewards=scale_rewards,
             epsilon=0.2,
             importance_sampling_level="token",
             mask_truncated_completions=True,
             disable_dropout=True,
         )
+        common.update(overrides)
     elif mode == "sft":
         common.update(
             gradient_accumulation_steps=1,
@@ -645,6 +1226,7 @@ def classification_metrics(
     *,
     allow_reasoning: bool = True,
     decoding_protocol: str = "greedy/pass@1",
+    response_format: str | None = None,
 ) -> dict:
     if not rows or len({row["id"] for row in rows}) != len(rows):
         raise ValueError("evaluation requires nonempty unique IDs")
@@ -660,12 +1242,19 @@ def classification_metrics(
         response = predictions[row["id"]]
         if isinstance(response, dict):
             predicted = (
-                parse_label(response["response"], labels, allow_reasoning=allow_reasoning)
+                parse_answer(
+                    response["response"],
+                    labels,
+                    allow_reasoning=allow_reasoning,
+                    response_format=response_format,
+                )
                 if response["terminated"]
                 else None
             )
         else:
-            predicted = parse_label(response, labels, allow_reasoning=allow_reasoning)
+            predicted = parse_answer(
+                response, labels, allow_reasoning=allow_reasoning, response_format=response_format
+            )
         counts[row["label"]] += 1
         correct[row["label"]] += int(predicted == row["label"])
         invalid += int(predicted is None)
@@ -676,11 +1265,21 @@ def classification_metrics(
         "mean_class_accuracy": sum(per_class.values()) / len(per_class),
         "invalid_answers": invalid,
         "per_class_accuracy": per_class,
-        "protocol": OUTPUT_GRAMMAR + "/" + decoding_protocol,
+        "protocol": output_grammar(response_format) + "/" + decoding_protocol,
     }
 
 
-def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -> tuple[dict, dict]:
+def _format_kwargs(profile: Profile) -> dict:
+    """Legacy formats pass nothing, so their calls stay exactly as before."""
+    if profile.response_format in LEGACY_RESPONSE_FORMATS:
+        return {}
+    return {"response_format": profile.response_format}
+
+
+def _evaluate(
+    policy, processor, rows, spec, profile, device, *, journal=None, trie=None
+) -> tuple[dict, dict]:
+    """Greedy pass@1; `trie` adds the assay-only label-trie constrained-greedy mask."""
     torch = import_module("torch")
     predictions = {}
     was_training = policy.training
@@ -692,11 +1291,19 @@ def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -
         for row in rows:
             started = time.monotonic()
             inputs = _inputs(processor, row, spec, profile).to(device)
+            constrained = {}
+            if trie is not None:
+                constrained["logits_processor"] = import_module(
+                    "transformers"
+                ).LogitsProcessorList(
+                    [label_trie_logits_processor(trie, int(inputs["input_ids"].shape[1]))]
+                )
             tokens = policy.generate(
                 **inputs,
                 max_new_tokens=profile.max_completion_length,
                 do_sample=False,
                 use_cache=True,
+                **constrained,
             )
             tail = tokens[:, inputs["input_ids"].shape[1] :]
             predictions[row["id"]] = {
@@ -716,6 +1323,8 @@ def _evaluate(policy, processor, rows, spec, profile, device, *, journal=None) -
         predictions,
         spec["labels"],
         allow_reasoning=True,
+        **_format_kwargs(profile),
+        **({"decoding_protocol": CONSTRAINED_GREEDY} if trie is not None else {}),
     ), predictions
 
 
@@ -795,8 +1404,14 @@ def predict_train_subset(
     seed: int = 42,
     init_adapter: Path | None = None,
     expanded_initial_path: Path | None = None,
+    threads: int = DEFAULT_THREADS,
+    precision_transfer: str | None = None,
+    label_trie: Path | None = None,
 ) -> dict:
     """Frozen-policy pass@1 or sampled groups on <=32 TRAIN images; no fit/test.
+
+    `label_trie` makes the greedy pass the secondary label-trie constrained decoder
+    (assays only; never sampling), with the trie file's sha256 in the record.
 
     This permits a prospectively selected subset of classes while retaining the
     complete task vocabulary. Its mean-class score covers only represented
@@ -810,6 +1425,8 @@ def predict_train_subset(
         raise ValueError("expanded_initial_path applies only to the expanded profile")
     if type(sample_groups) is not bool or type(seed) is not int or seed < 0:
         raise ValueError("sample_groups must be boolean and seed a nonnegative integer")
+    if label_trie is not None and sample_groups:
+        raise ValueError("label-trie constrained decoding is greedy-only")
     if model not in MODEL_REVISIONS:
         raise ValueError("choose one of the explicitly pinned Qwen models")
     spec = load_spec(data_spec)
@@ -822,10 +1439,18 @@ def predict_train_subset(
     )
     if len(rows) > 32:
         raise ValueError("TRAIN feasibility inference is limited to 32 images")
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    if precision_transfer is not None and (
+        not init_adapter or precision_transfer not in INFERENCE_PRECISION_TRANSFERS
+    ):
+        raise ValueError("precision_transfer needs a saved adapter and a known transfer")
     output = Path(output).resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("output is not empty; use a new directory")
     environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile)
+    check_device_dtype(device, profile.dtype, environment, training=False)
     model_directory = Path(model_directory).resolve()
     output.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -839,7 +1464,7 @@ def predict_train_subset(
         "processor_model": model,
         "processor_revision": MODEL_REVISIONS[model],
         "profile": asdict(profile),
-        "output_grammar": OUTPUT_GRAMMAR,
+        "output_grammar": output_grammar(profile.response_format),
         "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
         "data_spec_sha256": _file_sha256(Path(data_spec)),
         "data_identity": _classification_identity(Path(manifest), rows),
@@ -862,11 +1487,25 @@ def predict_train_subset(
         "claim_scope": "TRAIN subset feasibility only; no training or held-out benchmark claim",
         "optimizer_steps": 0,
     }
+    if threads != DEFAULT_THREADS:
+        record["torch_threads"] = threads
+    trie = None
+    if label_trie is not None:
+        _, trie, trie_sha256 = load_label_trie(label_trie)
+        record["constrained_decoding"] = {
+            "label_trie_sha256": trie_sha256,
+            "protocol": CONSTRAINED_GREEDY,
+            "scope": LabelTrieLogitsProcessor.scope,
+        }
     if _expanded.is_expanded(profile) and not init_adapter:
         raise ValueError("expanded inference requires an approved numeric artifact")
     initial = (
         _inference_adapter_identity(
-            Path(init_adapter).resolve(), record, profile, initial_path=expanded_initial_path
+            Path(init_adapter).resolve(),
+            record,
+            profile,
+            initial_path=expanded_initial_path,
+            **({"precision_transfer": precision_transfer} if precision_transfer else {}),
         )
         if init_adapter
         else None
@@ -882,7 +1521,8 @@ def predict_train_subset(
     reward = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(_torch_threads())
+        # An explicit --threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
+        _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
         transformers = import_module("transformers")
         if sample_groups:
             transformers.set_seed(seed)
@@ -929,6 +1569,7 @@ def predict_train_subset(
                 config.eos_token_id,
                 output / "reward_groups.jsonl",
                 allow_reasoning=True,
+                **_format_kwargs(profile),
             )
             _sample_task_groups(
                 policy, processor, rows, spec, profile, device, output, reward, config
@@ -943,6 +1584,7 @@ def predict_train_subset(
                 profile,
                 device,
                 journal=output / "predictions.json",
+                trie=trie,
             )
             record["metrics"] = metrics
         record.update(status="completed", elapsed_seconds=time.monotonic() - started)
@@ -1026,7 +1668,11 @@ def group_useful_probability(p: float, group_size: int = 4) -> float:
 
 
 def expected_gradient_weight(
-    p: float, group_size: int = 4, eps: float = TRL_ADVANTAGE_EPS
+    p: float,
+    group_size: int = 4,
+    eps: float = TRL_ADVANTAGE_EPS,
+    *,
+    scale_rewards: str = "group",
 ) -> float:
     """w_G(p): expected GRPO update on an exact-match reward as a multiple of the gold SFT gradient.
 
@@ -1036,9 +1682,23 @@ def expected_gradient_weight(
     C(G,k) p^k (1-p)^(G-k-1) k (G-k) / (G (s_k + eps)); k = 0 and k = G have zero
     advantage. KL, token-length normalization and the 1/G loss mean are ignored; the
     last cancels in the EG-SFT ratio w_G(p) / w_G(0.5).
+
+    `scale_rewards="none"` (Dr-GRPO) drops the std: the same enumeration over k = 0..G
+    without the 1 / (s_k + eps) factor, which equals (G - 1) p for every G.
     """
     if not math.isfinite(p) or not 0 <= p <= 1 or type(group_size) is not int or group_size < 2:
         raise ValueError("p must be in [0, 1] and group_size an integer >= 2")
+    if scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("scale_rewards must be group or none")
+    if scale_rewards == "none":
+        # Per k: correct samples carry (1 - k/G) g each, wrong ones (-k/G)(-p g / (1 - p));
+        # the sum is C(G,k) p^k (1-p)^(G-k-1) k (G-k) / G. k = 0 and k = G contribute zero.
+        return sum(
+            math.comb(group_size, k) * p**k * (1 - p) ** (group_size - k - 1) * k * (group_size - k)
+            / group_size
+            for k in range(group_size + 1)
+            if 0 < k < group_size
+        )
     total = 0.0
     for k in range(1, group_size):
         mean = k / group_size
@@ -1054,16 +1714,81 @@ def expected_gradient_weight(
     return total
 
 
-def egsft_weight(p: float, group_size: int = 4) -> float:
-    """EG-SFT per-sample loss multiplier w_G(p) / w_G(0.5); a constant, never differentiated."""
-    return expected_gradient_weight(p, group_size) / expected_gradient_weight(0.5, group_size)
+def egsft_weight(p: float, group_size: int = 4, *, scale_rewards: str = "group") -> float:
+    """EG-SFT per-sample loss multiplier w_G(p) / w_G(0.5); a constant, never differentiated.
+
+    With `scale_rewards="none"` this is (G-1)p / ((G-1)/2) = 2p for every G.
+    """
+    if scale_rewards == "group":
+        return expected_gradient_weight(p, group_size) / expected_gradient_weight(0.5, group_size)
+    return expected_gradient_weight(
+        p, group_size, scale_rewards=scale_rewards
+    ) / expected_gradient_weight(0.5, group_size, scale_rewards=scale_rewards)
 
 
-def _completion_logprob(policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens):
-    """Sum log-probability of one completion under the sampler's logit transforms.
+# The screened sampler accepts u_G(p) >= 0.5; the EG-SFT band B_G is that same set of p.
+EGSFT_BAND_THRESHOLD = 0.5
+EGSFT_BAND_GROUPS = (4, 8, 16)
+
+
+def egsft_in_band(p: float, band_group: int, threshold: float = EGSFT_BAND_THRESHOLD) -> bool:
+    """1[p in B_G]: the image a G-sample screen would accept, u_G(p) >= threshold."""
+    return group_useful_probability(p, band_group) >= threshold
+
+
+def _skip_flagged_optimizer_steps(trainer, optimizer) -> None:
+    """Make `optimizer.step` a no-op while `trainer._vision_rl_skip_step` is true.
+
+    The EG-SFT band (signal-limit A2/LIM-T): an image outside B_G must not move the adapter.
+    A zero loss alone is not enough, because constant AdamW still steps on its momentum,
+    and the screened RL sampler it stands in for takes no optimizer step on a rejected
+    candidate. Skipping `step` leaves parameters and AdamW state (moments and step count)
+    untouched; the presentation still counts toward `max_steps`. The wrapper is a bound
+    method so torch's LR-scheduler step tracking (which rebinds `step.__func__`) still works.
+    """
+    if getattr(optimizer.step, "_vision_rl_band_guard", False):
+        return
+    original = optimizer.step
+
+    def step(_optimizer, *args, **kwargs):
+        if getattr(trainer, "_vision_rl_skip_step", False):
+            return None
+        return original(*args, **kwargs)
+
+    step._vision_rl_band_guard = True
+    optimizer.step = MethodType(step, optimizer)
+
+
+def _restrict_logits(logits, allowed_tokens):
+    """Set every token outside `allowed_tokens[i]` to -inf at completion position i.
+
+    `logits` is [1, L, V]; `allowed_tokens` has one entry per position, each a collection
+    of token ids or None (that position is left unrestricted). Returns a new tensor.
+    """
+    torch = import_module("torch")
+    if len(allowed_tokens) != logits.shape[1]:
+        raise LocalVLMError("allowed-token mask must have one entry per completion position")
+    keep = torch.ones(logits.shape[1:], dtype=torch.bool, device=logits.device)
+    for position, allowed in enumerate(allowed_tokens):
+        if allowed is None:
+            continue
+        allowed = sorted({int(token) for token in allowed})
+        if not allowed or allowed[0] < 0 or allowed[-1] >= logits.shape[-1]:
+            raise LocalVLMError("allowed-token mask holds an empty or out-of-vocabulary row")
+        keep[position] = False
+        keep[position, allowed] = True
+    return logits.masked_fill(~keep.unsqueeze(0), -torch.inf)
+
+
+def _completion_token_logps(
+    policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens, allowed_tokens=None
+):
+    """Per-token log-probabilities [1, L] of one completion, with the autograd graph.
 
     Same order as `_sampler_parity`: divide by temperature, then remove suppressed
-    tokens (TRL suppresses the image token while sampling) and renormalize.
+    tokens (TRL suppresses the image token while sampling) and renormalize. An
+    `allowed_tokens` mask (one entry per position, see `_restrict_logits`) then
+    renormalises over the allowed set only: the label trie's constrained softmax.
     """
     torch = import_module("torch")
     prompt_ids = prompt_inputs["input_ids"]
@@ -1084,21 +1809,38 @@ def _completion_logprob(policy, prompt_inputs, completion_ids, *, temperature, s
     logits = logits[:, :-1].float() / temperature
     for token in suppress_tokens:
         logits[..., token] = -torch.inf
-    logps = logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
+    if allowed_tokens is not None:
+        logits = _restrict_logits(logits, allowed_tokens)
+    return logits.log_softmax(-1).gather(-1, completion.unsqueeze(-1)).squeeze(-1)
+
+
+def _completion_logprob(
+    policy, prompt_inputs, completion_ids, *, temperature, suppress_tokens, allowed_tokens=None
+):
+    """Sum log-probability of one completion under the sampler's logit transforms.
+
+    `allowed_tokens` (trie mask, see `_completion_token_logps`) scores constrained
+    decoding; None is the unmasked legacy path. A completion off the mask scores -inf.
+    """
+    logps = _completion_token_logps(
+        policy,
+        prompt_inputs,
+        completion_ids,
+        temperature=temperature,
+        suppress_tokens=suppress_tokens,
+        allowed_tokens=allowed_tokens,
+    )
     value = float(logps.sum().item())
     if math.isnan(value) or value > 0:
         raise LocalVLMError("invalid gold completion log-probability")
     return value
 
 
-def _batch_gold_probability(
-    policy, batch, *, eos_token_ids, suppress_tokens, temperature, alternatives=()
-) -> tuple[float, list[int]]:
-    """P(gold through its first EOS) from one collated completion-only SFT batch.
+def _supervised_completion(batch, eos_token_ids) -> tuple[dict, list[int], list[int]]:
+    """(prompt inputs, full supervised suffix, canonical gold through its first EOS).
 
     The collator supervises the chat template's tokens after the assistant EOS too;
     sampling stops at the first EOS, so the canonical sequence is cut there.
-    `alternatives` adds other exact token sequences (each ending at its only EOS).
     """
     torch = import_module("torch")
     ids, labels = batch["input_ids"], batch["labels"]
@@ -1115,7 +1857,25 @@ def _batch_gold_probability(
     stop = next((i for i, token in enumerate(completion) if token in eos), None)
     if stop is None:
         raise LocalVLMError("gold completion has no EOS token")
-    canonical = completion[: stop + 1]
+    prompt = {
+        key: value[:, :first] if key in _TOKEN_ALIGNED_KEYS else value
+        for key, value in batch.items()
+        if key not in _NOT_MODEL_INPUT_KEYS
+    }
+    return prompt, completion, completion[: stop + 1]
+
+
+def _batch_gold_probability(
+    policy, batch, *, eos_token_ids, suppress_tokens, temperature, alternatives=()
+) -> tuple[float, list[int]]:
+    """P(gold through its first EOS) from one collated completion-only SFT batch.
+
+    The collator supervises the chat template's tokens after the assistant EOS too;
+    sampling stops at the first EOS, so the canonical sequence is cut there.
+    `alternatives` adds other exact token sequences (each ending at its only EOS).
+    """
+    prompt, _, canonical = _supervised_completion(batch, eos_token_ids)
+    eos = set(eos_token_ids)
     sequences = [canonical]
     for sequence in alternatives:
         sequence = [int(token) for token in sequence]
@@ -1123,11 +1883,6 @@ def _batch_gold_probability(
             raise LocalVLMError("alternative gold tokenization must end at its only EOS")
         if sequence not in sequences:
             sequences.append(sequence)
-    prompt = {
-        key: value[:, :first] if key in _TOKEN_ALIGNED_KEYS else value
-        for key, value in batch.items()
-        if key not in _NOT_MODEL_INPUT_KEYS
-    }
     probability = sum(
         math.exp(
             _completion_logprob(
@@ -1213,6 +1968,252 @@ def _load_tokenizations(path: Path | None) -> dict[str, list[list[int]]]:
             "screen tokenizations require schema_version 1 and label -> token-id lists"
         )
     return sequences
+
+
+def label_trie(sequences: dict[str, list[list[int]]]) -> dict:
+    """Prefix tree T over every allowed label tokenisation (each ends at its only EOS).
+
+    Input is the `_load_tokenizations` format's `sequences` (the label-trie file built by
+    scripts/build_label_trie.py). Nodes are {token: child}; a complete sequence ends at
+    an empty node. Refuses a sequence that is a proper prefix of another, since an
+    EOS-terminated path must be a leaf.
+    """
+    root: dict = {}
+    for label, options in sequences.items():
+        if not options:
+            raise ValueError(f"label trie has no tokenisation for {label!r}")
+        for option in options:
+            if not option or any(type(token) is not int or token < 0 for token in option):
+                raise ValueError("label trie sequences must be nonempty token-id lists")
+            node = root
+            for index, token in enumerate(option):
+                if index == len(option) - 1 and node.get(token):
+                    raise ValueError("a label tokenisation is a proper prefix of another")
+                if index < len(option) - 1 and token in node and not node[token]:
+                    raise ValueError("a label tokenisation is a proper prefix of another")
+                node = node.setdefault(token, {})
+    if not root:
+        raise ValueError("label trie is empty")
+    return root
+
+
+def trie_allowed(trie: dict, prefix) -> list[int] | None:
+    """Next tokens T allows after `prefix`; None once the prefix is complete or off T."""
+    node = trie
+    for token in prefix:
+        node = node.get(int(token))
+        if node is None:
+            return None
+    return sorted(node) or None
+
+
+def trie_position_mask(trie: dict, completion_ids, *, require_on_trie: bool = True) -> list:
+    """Per-position allowed sets for teacher forcing `completion_ids` under T.
+
+    Positions after the trie path completes (the chat template's post-EOS tail) are
+    None, i.e. unrestricted. With `require_on_trie`, a completion that leaves T before
+    completing a path refuses (a gold label must be a path of T).
+    """
+    mask, node = [], trie
+    for token in completion_ids:
+        if node is None or not node:
+            mask.append(None)
+            node = None
+            continue
+        mask.append(sorted(node))
+        node = node.get(int(token))
+        if node is None and require_on_trie:
+            raise LocalVLMError("completion leaves the label trie before completing a label")
+    if require_on_trie and node:
+        raise LocalVLMError("completion ends inside the label trie, before its EOS")
+    return mask
+
+
+def _label_trie_content_sha256(document: dict) -> str:
+    """The builder's content hash (scripts/label_trie.py trie_sha256): SHA256 of the compact,
+    key-sorted, ASCII JSON of the document without its ``sha256`` and ``provenance``."""
+    body = {key: value for key, value in document.items() if key not in ("sha256", "provenance")}
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    ).hexdigest()
+
+
+def load_label_trie(path: Path) -> tuple[dict, dict, str]:
+    """(sequences, trie, sha256 of the file) from the label-trie file that
+    scripts/build_label_trie.py writes (data/fgvc-aircraft-2013b/audit/label-trie-*.json).
+
+    Format: {"schema_version": 1, "eos_ids": [...], "labels": [...], "entries": {label:
+    {"paths": [[token ids, EOS excluded], ...], ...}}, "sha256": content hash, ...}. Every
+    path is expanded with each EOS ID, so a sequence ends at its only EOS. Refuses a file
+    whose content no longer hashes to its own ``sha256`` or whose labels and entries differ.
+    """
+    document = json.loads(Path(path).read_text())
+    entries = document.get("entries") if isinstance(document, dict) else None
+    eos_ids = document.get("eos_ids") if isinstance(document, dict) else None
+    if (
+        not isinstance(entries, dict)
+        or document.get("schema_version") != 1
+        or not isinstance(eos_ids, list)
+        or not eos_ids
+        or any(type(token) is not int or token < 0 for token in eos_ids)
+        or document.get("labels") != list(entries)
+        or any(
+            not isinstance(entry, dict) or not isinstance(entry.get("paths"), list)
+            for entry in entries.values()
+        )
+    ):
+        raise ValueError(
+            "label trie requires schema_version 1, eos_ids, and labels matching entries"
+        )
+    if document.get("sha256") != _label_trie_content_sha256(document):
+        raise ValueError("label trie content does not hash to its recorded sha256")
+    sequences = {}
+    for label, entry in entries.items():
+        if any(
+            not isinstance(option, list) or set(option) & set(eos_ids) for option in entry["paths"]
+        ):
+            raise ValueError(f"label trie paths of {label!r} must be EOS-free token-id lists")
+        sequences[label] = [[*option, eos] for option in entry["paths"] for eos in eos_ids]
+    if not sequences:
+        raise ValueError("label trie file holds no sequences")
+    return sequences, label_trie(sequences), _file_sha256(Path(path))
+
+
+class LabelTrieLogitsProcessor:
+    """Generation-time trie mask for constrained greedy in ASSAYS ONLY.
+
+    It is a secondary decoder, never the primary evaluator, and is never passed to GRPO
+    sampling: the trainer builds TRL's own generation config and no code path hands it
+    this processor. Rows whose generated suffix completed (or left) a trie path are left
+    unrestricted; generation stops at that EOS anyway.
+    """
+
+    scope = "assay-only constrained greedy"
+
+    def __init__(self, trie: dict, prompt_length: int):
+        if type(prompt_length) is not int or prompt_length < 1:
+            raise ValueError("prompt_length must be a positive integer")
+        self.trie = trie
+        self.prompt_length = prompt_length
+
+    def __call__(self, input_ids, scores):
+        torch = import_module("torch")
+        allowed = [
+            trie_allowed(self.trie, row[self.prompt_length :].tolist()) for row in input_ids
+        ]
+        keep = torch.ones_like(scores, dtype=torch.bool)
+        for index, tokens in enumerate(allowed):
+            if tokens is not None:
+                keep[index] = False
+                keep[index, tokens] = True
+        return scores.masked_fill(~keep, -torch.inf)
+
+
+def label_trie_logits_processor(trie: dict, prompt_length: int) -> LabelTrieLogitsProcessor:
+    """Constrained-greedy mask for `generate(logits_processor=[...])`; assays only."""
+    return LabelTrieLogitsProcessor(trie, prompt_length)
+
+
+def load_confusion_map(path: Path, labels: list[str]) -> dict[str, list[str]]:
+    """Frozen confuser map as scripts/build_label_trie.py writes it
+    (data/fgvc-aircraft-2013b/audit/p0-confusion-map.json): {"schema_version": 1, "map":
+    {gold: {"confusers": [...], "family": [...], "observed": [...]}}}; returns
+    {gold: confusers}.
+
+    Every key and confuser is a declared label; a gold label never confuses itself.
+    """
+    value = json.loads(Path(path).read_text())
+    entries = value.get("map") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or not isinstance(entries, dict)
+        or any(not isinstance(entry, dict) for entry in entries.values())
+    ):
+        raise ValueError("confusion map requires schema_version 1 and gold -> confuser lists")
+    confusers = {gold: entry.get("confusers") for gold, entry in entries.items()}
+    for gold, options in confusers.items():
+        if (
+            gold not in labels
+            or not isinstance(options, list)
+            or any(option not in labels for option in options)
+            or len(set(options)) != len(options)
+        ):
+            raise ValueError("confusion map entries must be unique declared labels")
+        if gold in options:
+            raise ValueError(f"confusion map lists {gold!r} as its own confuser")
+    return confusers
+
+
+def load_taxonomy(path: Path, labels: list[str]) -> dict[str, dict[str, str]]:
+    """TRAIN-annotation taxonomy file as scripts/build_label_trie.py writes it
+    (data/fgvc-aircraft-2013b/audit/taxonomy-train-only.json).
+
+    Format: {"schema_version": 1, "variants": {label: {"family": f, "manufacturer": m}},
+    ...}; the builder's "families"/"manufacturers" groupings are derived and not read.
+    """
+    value = json.loads(Path(path).read_text())
+    entries = value.get("variants") if isinstance(value, dict) else None
+    if (
+        not isinstance(value, dict)
+        or value.get("schema_version") != 1
+        or not isinstance(entries, dict)
+        or set(entries) != set(labels)
+        or any(
+            not isinstance(entry, dict)
+            or set(entry) != {"family", "manufacturer"}
+            or not all(isinstance(entry[key], str) and entry[key] for key in entry)
+            for entry in entries.values()
+        )
+    ):
+        raise ValueError("taxonomy must give every declared label one family and manufacturer")
+    return entries
+
+
+HN_CONFUSER_REWARD = -0.5
+HN_SFT_COEFFICIENT = 0.5
+HLS_EPSILON = {"family": 0.05, "manufacturer": 0.05}
+
+
+def hls_targets(gold: str, taxonomy: dict, epsilon: dict = HLS_EPSILON) -> dict[str, float]:
+    """Hierarchical label-smoothing target q over the label sequences.
+
+    eps_family is spread uniformly over the gold's family siblings and eps_manufacturer
+    over same-manufacturer labels of other families; a tier with no siblings returns its
+    mass to the gold. q sums to 1 over the declared labels.
+    """
+    family, manufacturer = taxonomy[gold]["family"], taxonomy[gold]["manufacturer"]
+    tiers = {
+        "family": sorted(
+            label for label, entry in taxonomy.items()
+            if label != gold and entry["family"] == family
+        ),
+        "manufacturer": sorted(
+            label for label, entry in taxonomy.items()
+            if entry["manufacturer"] == manufacturer and entry["family"] != family
+        ),
+    }
+    targets = {gold: 1.0}
+    for tier, siblings in tiers.items():
+        if siblings:
+            targets[gold] -= epsilon[tier]
+            for label in siblings:
+                targets[label] = targets.get(label, 0.0) + epsilon[tier] / len(siblings)
+    return targets
+
+
+def unlikelihood_term(sequence_logprob):
+    """-log(1 - pi(c)) from log pi(c), stable as pi(c) -> 0 or 1 (a torch scalar)."""
+    torch = import_module("torch")
+    # pi(c) = 1 exactly would make the term infinite; cap it just below 1.
+    return -torch.log(-torch.expm1(sequence_logprob.clamp(max=-1e-12)))
+
+
+def constrained_nll(token_logps, count: int):
+    """Mean NLL over `count` supervised tokens from (already masked) per-token log-probs."""
+    if type(count) is not int or count < 1 or token_logps.numel() != count:
+        raise LocalVLMError("constrained loss needs one log-probability per supervised token")
+    return -token_logps.sum() / count
 
 
 SCREEN_SCOPE = (
@@ -1664,8 +2665,20 @@ def _trainer_with_egsft(
     labels_by_id=None,
     journal_io_context=None,
     resume_state=None,
+    scale_rewards="group",
+    band_group=None,
 ):
     """EG-SFT: completion-only SFT loss times stopgrad[w_G(p) / w_G(0.5)].
+
+    `scale_rewards="none"` is the Dr-GRPO limit, stopgrad[2p]; `band_group` G_B multiplies
+    by 1[u_{G_B}(p) >= 0.5], the screened sampler's band: an image outside it contributes
+    zero loss and takes NO optimizer step (no AdamW momentum step either; design review
+    of the signal-limit study, finding 4), while its presentation still counts toward
+    max_steps. Both are recorded per row only when used (`in_band`, `optimizer_step`).
+    An out-of-band training step also skips TRL's CE forward and backward (its loss is a
+    gradient-free zero leaf): like the screened sampler, which pays only the scorer forward
+    for a rejected candidate, it costs only the p scoring, so LIM-T's T_RL budget is not
+    spent on a pass whose gradient is multiplied by zero.
 
     Rows carry an invocation_id. The physical `journal` is append-only and keeps rows
     of steps a resume later discarded and re-ran; the canonical weights are the
@@ -1687,6 +2700,13 @@ def _trainer_with_egsft(
 
     class ExpectedGradientTrainer(base):
         _vision_rl_egsft_entries = committed
+        _vision_rl_skip_step = False
+
+        def create_optimizer(self, *args, **kwargs):
+            optimizer = super().create_optimizer(*args, **kwargs)
+            if band_group is not None:
+                _skip_flagged_optimizer_steps(self, self.optimizer)
+            return optimizer
 
         def _save_checkpoint(self, model, trial):
             super()._save_checkpoint(model, trial)
@@ -1714,12 +2734,26 @@ def _trainer_with_egsft(
                     temperature=temperature,
                     alternatives=(tokenizations or {}).get(label, ()),
                 )
-            weight = egsft_weight(probability, group_size)
-            # Pass return_outputs through: TRL recomputes full logits with an extra
-            # forward whenever outputs are requested.
-            result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
-            loss, outputs = result if return_outputs else (result, None)
-            loss = loss * torch.tensor(weight, dtype=loss.dtype, device=loss.device)
+            weight = egsft_weight(probability, group_size, scale_rewards=scale_rewards)
+            in_band = None
+            if band_group is not None:
+                in_band = egsft_in_band(probability, band_group)
+                weight = weight if in_band else 0.0
+            if in_band is False and torch.is_grad_enabled() and not return_outputs:
+                # Out of band: no CE pass at all (its gradient would be x 0 and the band guard
+                # skips the step anyway). A zero leaf keeps backward() valid; every parameter
+                # gradient stays None, which the gradient audit reads as norm 0.
+                loss = torch.zeros(
+                    (), dtype=torch.float32, device=inputs["input_ids"].device,
+                    requires_grad=True,
+                )
+                outputs = None
+            else:
+                # Pass return_outputs through: TRL recomputes full logits with an extra
+                # forward whenever outputs are requested.
+                result = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+                loss, outputs = result if return_outputs else (result, None)
+                loss = loss * torch.tensor(weight, dtype=loss.dtype, device=loss.device)
             if loss.requires_grad is False and torch.is_grad_enabled():
                 raise LocalVLMError("EG-SFT loss lost its gradient path")
             row = {
@@ -1729,7 +2763,13 @@ def _trainer_with_egsft(
                 "weight": weight,
                 "invocation_id": invocation_id,
             }
+            if in_band is not None:
+                row["in_band"] = in_band
+                row["optimizer_step"] = in_band
             if torch.is_grad_enabled():
+                # Read by the band guard on this update's optimizer.step (one prompt per
+                # update, no gradient accumulation).
+                self._vision_rl_skip_step = in_band is False
                 # Checkpoint save refuses anything but one row per committed step.
                 self._vision_rl_egsft_entries.append(row)
             with journal_io_context() if journal_io_context else nullcontext():
@@ -1738,6 +2778,130 @@ def _trainer_with_egsft(
             return (loss, outputs) if return_outputs else loss
 
     return ExpectedGradientTrainer
+
+
+LABEL_LOSS_MODES = ("hn_sft", "hls_sft", "cce_sft")
+
+
+def _trainer_with_label_loss(
+    base,
+    *,
+    mode,
+    journal,
+    labels_by_id,
+    eos_token_ids,
+    label_token_ids=None,
+    confusers=None,
+    taxonomy=None,
+    trie=None,
+    journal_io_context=None,
+):
+    """Answer-only supervised objectives over label sequences (Stage A arms A3-A5).
+
+    - hn_sft: TRL's CE + HN_SFT_COEFFICIENT * -log(1 - pi(c)); c is the gold's frozen-map
+      confuser with the highest live sequence probability (no-grad scoring), then one
+      teacher-forced pass with gradient for c. No confuser in the map: CE only.
+    - hls_sft: sum_l q_l * mean-token NLL(label l + EOS) over the gold and its smoothing
+      targets, q from `hls_targets`: every term, the gold's included, is the same measure
+      on the same kind of sequence (TRL's CE would also average the post-EOS template
+      tail into the gold term only), so the declared smoothing mass is what is optimised.
+    - cce_sft: replaces TRL's CE with the mean over supervised tokens of the log-softmax
+      restricted to the label trie's allowed next tokens; the post-EOS template tail is
+      unrestricted, so with no trie restriction it equals TRL's completion-only CE.
+
+    Sibling/confuser sequences are `label_token_ids[label]` + the gold's own EOS token; the
+    gold's tokenizer sequence must equal the collated canonical gold or the step refuses.
+    The physical `journal` is append-only, one row per loss call (diagnostic, not resumable
+    state). Sequence probabilities use the raw policy (temperature 1, no suppression).
+    """
+    torch = import_module("torch")
+    if mode not in LABEL_LOSS_MODES:
+        raise ValueError("label-loss mode must be hn_sft, hls_sft or cce_sft")
+    required = {"hn_sft": confusers, "hls_sft": taxonomy, "cce_sft": trie}[mode]
+    if required is None or (mode != "cce_sft" and label_token_ids is None):
+        raise ValueError(f"{mode} requires its frozen label resource")
+    invocation_id = str(time.time_ns())
+    score = dict(temperature=1.0, suppress_tokens=())
+
+    class LabelLossTrainer(base):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            identifier = getattr(self, "_vision_rl_prompt_id", None)
+            gold = labels_by_id[identifier]
+            prompt, completion, canonical = _supervised_completion(inputs, eos_token_ids)
+            row = {
+                "global_step": self.state.global_step + 1,
+                "id": identifier,
+                "mode": mode,
+                "invocation_id": invocation_id,
+            }
+            outputs = None
+            if mode == "cce_sft":
+                mask = trie_position_mask(trie, completion)
+                logps = _completion_token_logps(
+                    model, prompt, completion, allowed_tokens=mask, **score
+                )
+                loss = constrained_nll(logps[0], len(completion))
+                row["constrained_positions"] = sum(entry is not None for entry in mask)
+            else:
+                if list(label_token_ids[gold]) + [canonical[-1]] != canonical:
+                    raise LocalVLMError("tokenizer label sequence differs from collated gold")
+
+                def sequence(label):
+                    return list(label_token_ids[label]) + [canonical[-1]]
+
+                if mode == "hn_sft":
+                    result = super().compute_loss(
+                        model, inputs, return_outputs, num_items_in_batch
+                    )
+                    loss, outputs = result if return_outputs else (result, None)
+                    candidates = list(confusers.get(gold, ()))
+                    if gold in candidates:
+                        raise LocalVLMError("hn_sft confuser equals the gold label")
+                    if candidates:
+                        # The pick is a deterministic argmax of pi: scored in eval mode (no
+                        # LoRA dropout), then back to train mode for the gradient pass.
+                        was_training = model.training
+                        model.eval()
+                        try:
+                            with torch.no_grad():
+                                scored = [
+                                    _completion_logprob(model, prompt, sequence(c), **score)
+                                    for c in candidates
+                                ]
+                        finally:
+                            model.train(was_training)
+                        best = max(range(len(scored)), key=scored.__getitem__)
+                        confuser = candidates[best]
+                        logp = _completion_token_logps(
+                            model, prompt, sequence(confuser), **score
+                        ).sum()
+                        term = unlikelihood_term(logp)
+                        loss = loss + HN_SFT_COEFFICIENT * term
+                        row.update(
+                            confuser=confuser,
+                            confuser_probability=math.exp(scored[best]),
+                            unlikelihood=float(term.detach()),
+                        )
+                    else:
+                        row["confuser"] = None
+                else:
+                    targets = hls_targets(gold, taxonomy)
+                    loss = None
+                    for label, weight in sorted(targets.items()):
+                        tokens = sequence(label)
+                        logps = _completion_token_logps(model, prompt, tokens, **score)
+                        term = weight * constrained_nll(logps[0], len(tokens))
+                        loss = term if loss is None else loss + term
+                    row.update(gold_weight=targets[gold], smoothed_labels=len(targets) - 1)
+            if not torch.isfinite(loss.detach()).all():
+                raise LocalVLMError(f"nonfinite {mode} loss")
+            row["loss"] = float(loss.detach())
+            with journal_io_context() if journal_io_context else nullcontext():
+                with Path(journal).open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(row) + "\n")
+            return (loss, outputs) if return_outputs else loss
+
+    return LabelLossTrainer
 
 
 class _ActiveStepTimer:
@@ -1768,6 +2932,8 @@ class _ActiveStepTimer:
     def _sync(self):
         if self.device == "mps":
             import_module("torch").mps.synchronize()
+        elif self.device == "cuda":
+            import_module("torch").cuda.synchronize()
 
     def _persist(self):
         value = {
@@ -1922,6 +3088,7 @@ def _audit_callback(
     stop_after_steps: int | None = None,
     stop_after_active_seconds: float | None = None,
     screen: _ScreenedScan | None = None,
+    loss_scaled: bool = False,
 ):
     torch = import_module("torch")
     base = import_module("transformers").TrainerCallback
@@ -1942,6 +3109,12 @@ def _audit_callback(
                 "active_seconds": 0.0,
                 "max_gradient_norm_observed": 0.0,
             }
+            if loss_scaled:
+                # float16 only: a GradScaler overflow skips the optimizer step, so the
+                # prompt is consumed without an update. Counted, never silent.
+                self.summary.update(loss_scale_skipped_steps=0, loss_scale=None)
+                self.overflow = False
+                self.consecutive_skips = 0
 
         def on_train_begin(self, args, state, control, model=None, **kwargs):
             self.timer.check_remaining()
@@ -1978,7 +3151,13 @@ def _audit_callback(
                 if parameter.requires_grad and parameter.grad is not None:
                     norm_sq += float(parameter.grad.detach().float().square().sum().item())
             if not math.isfinite(norm_sq):
-                raise LocalVLMError("nonfinite gradient; optimizer step rejected")
+                if not loss_scaled:
+                    raise LocalVLMError("nonfinite gradient; optimizer step rejected")
+                self.overflow = True
+                self.summary["latest_gradient_norm"] = 0.0
+                return
+            if loss_scaled:
+                self.overflow = False
             norm = math.sqrt(norm_sq)
             self.summary["latest_gradient_norm"] = norm
             self.summary["nonzero_gradient_steps"] += int(norm > 0)
@@ -1990,6 +3169,22 @@ def _audit_callback(
             self.timer.end()
             if exposure is not None:
                 exposure.end(state.global_step)
+            if loss_scaled:
+                optimizer = kwargs.get("optimizer")
+                scaler = getattr(optimizer, "scaler", None)
+                if scaler is None:
+                    raise LocalVLMError("float16 training lacks an active GradScaler")
+                skipped = bool(getattr(optimizer, "step_was_skipped", False))
+                if self.overflow != skipped:
+                    raise LocalVLMError("loss-scaler skip disagrees with the observed gradients")
+                self.consecutive_skips = self.consecutive_skips + 1 if skipped else 0
+                self.summary["loss_scale_skipped_steps"] += int(skipped)
+                self.summary["loss_scale"] = float(scaler.get_scale())
+                if self.consecutive_skips > MAX_CONSECUTIVE_LOSS_SCALE_SKIPS:
+                    raise LocalVLMError(
+                        "float16 gradients overflowed on every recent step; not loss-scale "
+                        "underflow but a nonfinite forward/backward"
+                    )
             self.summary["optimizer_steps_observed"] += 1
             self.summary["active_seconds"] = self.timer.completed
             self.summary["completed_state_active_seconds"] = self.timer.committed
@@ -2059,7 +3254,12 @@ def _audit_callback(
 
 
 def _adapter_identity(
-    path: Path, identity: dict, profile: Profile, *, precision_transfer: str | None = None
+    path: Path,
+    identity: dict,
+    profile: Profile,
+    *,
+    precision_transfer: str | None = None,
+    inference: bool = False,
 ) -> dict:
     if _expanded.is_expanded(profile):
         if precision_transfer is not None:
@@ -2071,19 +3271,28 @@ def _adapter_identity(
     profile_keys = ("dtype", "min_pixels", "max_pixels", "lora_rank")
     transfer = None
     if precision_transfer is not None:
-        if (
-            precision_transfer != "float32-to-bfloat16"
+        if inference:
+            if (
+                precision_transfer not in INFERENCE_PRECISION_TRANSFERS
+                or precision_transfer != f"{source['profile']['dtype']}-to-{profile.dtype}"
+            ):
+                raise ValueError(
+                    "inference precision transfer must name the parent's and this profile's "
+                    "base dtypes"
+                )
+        elif (
+            precision_transfer not in PRECISION_TRANSFERS
             or source["profile"]["dtype"] != "float32"
-            or profile.dtype != "bfloat16"
+            or profile.dtype != precision_transfer.removeprefix("float32-to-")
         ):
             raise ValueError(
-                "only explicit float32-to-bfloat16 base precision transfer is supported"
+                "only explicit float32-to-bfloat16/float16 base precision transfer is supported"
             )
         profile_keys = tuple(key for key in profile_keys if key != "dtype")
         transfer = {
             "profile": precision_transfer,
-            "parent_base_dtype": "float32",
-            "target_base_dtype": "bfloat16",
+            "parent_base_dtype": source["profile"]["dtype"],
+            "target_base_dtype": profile.dtype,
             "adapter_dtype": "float32",
             "adapter_weights_changed": False,
             "initial_policy_numerics_changed": True,
@@ -2134,16 +3343,29 @@ def _verify_initial_adapter_tensors(policy, path: Path) -> dict:
 
 
 def _inference_adapter_identity(
-    path: Path, identity: dict, profile: Profile, *, initial_path: Path | None = None
+    path: Path,
+    identity: dict,
+    profile: Profile,
+    *,
+    initial_path: Path | None = None,
+    precision_transfer: str | None = None,
 ) -> dict:
-    """Only a hash-bound completed endpoint may be used for a TRAIN assay."""
+    """Only a hash-bound completed endpoint may be used for a TRAIN assay.
+
+    `precision_transfer` ("<parent dtype>-to-<this dtype>") explicitly runs the frozen
+    adapter on a different base precision than it was trained with; it is recorded.
+    """
     if _expanded.is_expanded(profile):
+        if precision_transfer is not None:
+            raise ValueError("expanded FP32 profile does not permit precision transfer")
         return _expanded.artifact_identity(
             path, identity, profile, inference=True, initial_path=initial_path
         )
     if initial_path is not None:
         raise ValueError("initial_path applies only to the expanded profile")
-    initial = _adapter_identity(path, identity, profile)
+    initial = _adapter_identity(
+        path, identity, profile, precision_transfer=precision_transfer, inference=True
+    )
     parent = json.loads((path.parent / "local_training.json").read_text())
     if initial["parent_data_identity"]["data_spec_sha256"] != identity["data_spec_sha256"]:
         raise ValueError("saved-adapter TRAIN inference requires the same pinned task data spec")
@@ -2153,6 +3375,28 @@ def _inference_adapter_identity(
     ):
         raise ValueError("saved adapter differs from the completed endpoint identity")
     return initial
+
+
+def _trainer_with_loss_scaling(base, init_scale: float):
+    """Start accelerate's fp16 GradScaler at `init_scale` instead of torch's 2**16."""
+    grad_scaler_kwargs = import_module("accelerate.utils").GradScalerKwargs
+
+    class LossScaledTrainer(base):
+        def _build_accelerator_args(self, **kwargs):
+            args = super()._build_accelerator_args(**kwargs)
+            if args.get("mixed_precision") != "fp16":
+                raise LocalVLMError("float16 training must use accelerate fp16 mixed precision")
+            handlers = [
+                h for h in args.get("kwargs_handlers", []) if not isinstance(h, grad_scaler_kwargs)
+            ]
+            args["kwargs_handlers"] = handlers + [
+                grad_scaler_kwargs(
+                    init_scale=init_scale, growth_interval=LOSS_SCALE_GROWTH_INTERVAL
+                )
+            ]
+            return args
+
+    return LossScaledTrainer
 
 
 def _trainer_with_mps_rng(base, device: str):
@@ -2323,6 +3567,132 @@ def _trainer_with_screening(base, screen: _ScreenedScan, records):
     return ScreenedTrainer
 
 
+class _PromptRelay:
+    """The one route from the reward's per-group observation to the exposure ledger.
+
+    Dynamic sampling defers observations until it keeps a group, then commits only the
+    kept prompt; policy reuse (num_iterations > 1) re-observes that kept prompt for the
+    updates that optimize on the same buffered generation.
+    """
+
+    def __init__(self, observe):
+        self.observe = observe
+        self.last_id = None
+        self.deferred = None
+
+    def note(self, identifier):
+        self.last_id = identifier
+        if self.deferred is None:
+            self.observe(identifier)
+        else:
+            self.deferred.append(identifier)
+
+    def defer(self):
+        if self.deferred is not None:
+            raise LocalVLMError("prompt relay is already deferring")
+        self.deferred = []
+
+    def abandon(self):
+        self.deferred = None
+
+    def commit(self):
+        identifiers, self.deferred = self.deferred, None
+        if not identifiers:
+            raise LocalVLMError("dynamic sampling scored no group")
+        self.last_id = identifiers[-1]
+        self.observe(identifiers[-1])
+        return identifiers
+
+
+def dynamic_replacement_index(seed: int, global_step: int, draw: int, size: int) -> int:
+    """Deterministic replacement prompt for draw >= 1 of an update (resume-stable, no RNG state)."""
+    import random
+
+    if draw < 1 or size < 1:
+        raise ValueError("replacement draws start at 1 over a nonempty pool")
+    return random.Random(f"dynamic-sampling:{seed}:{global_step}:{draw}").randrange(size)
+
+
+def _trainer_with_dynamic_sampling(
+    base, relay, records, *, max_draws, seed, journal, journal_io_context=None, summary=None
+):
+    """DAPO dynamic sampling, which released TRL 1.16 lacks, for one prompt per update.
+
+    A generated group whose advantages are all zero (every reward equal) is dropped and
+    replaced by a deterministic draw from the TRAIN pool, up to `max_draws` groups per
+    update. If every draw is uninformative the last one is kept (it carries only the KL
+    term) and the update is journaled as exhausted. Every draw's generation runs inside
+    the active step span, so its cost is charged to active time. Only the kept prompt
+    enters the exposure ledger; every draw is journaled.
+    """
+    torch = import_module("torch")
+    summary = summary if summary is not None else {}
+    summary.update(updates=0, draws=0, dropped_groups=0, exhausted_updates=0)
+
+    class DynamicSamplingTrainer(base):
+        def _generate_and_score_completions(self, inputs):
+            if not self.model.training:
+                return super()._generate_and_score_completions(inputs)
+            step = self.state.global_step + 1
+            entries = []
+            relay.defer()
+            try:
+                for draw in range(max_draws):
+                    if draw:
+                        index = dynamic_replacement_index(seed, step, draw, len(records))
+                        inputs = [dict(records[index]) for _ in inputs]
+                    output = super()._generate_and_score_completions(inputs)
+                    informative = bool(torch.count_nonzero(output["advantages"]).item())
+                    entries.append({"global_step": step, "draw": draw, "informative": informative})
+                    if informative:
+                        break
+            except BaseException:
+                relay.abandon()
+                raise
+            identifiers = relay.commit()
+            if len(identifiers) != len(entries):
+                raise LocalVLMError("dynamic sampling expected one reward group per draw")
+            for entry, identifier in zip(entries, identifiers, strict=True):
+                entry["id"] = identifier
+                entry["kept"] = entry is entries[-1]
+            exhausted = not entries[-1]["informative"]
+            entries[-1]["exhausted"] = exhausted
+            with journal_io_context() if journal_io_context else nullcontext():
+                with Path(journal).open("a", encoding="utf-8") as handle:
+                    handle.write("".join(json.dumps(entry) + "\n" for entry in entries))
+            summary["updates"] += 1
+            summary["draws"] += len(entries)
+            summary["dropped_groups"] += len(entries) - 1
+            summary["exhausted_updates"] += int(exhausted)
+            return output
+
+    return DynamicSamplingTrainer
+
+
+def _trainer_with_policy_reuse(base, relay):
+    """num_iterations > 1: TRL optimizes several updates on one buffered generation.
+
+    Those reuse updates generate nothing, so the reward never observes a prompt; observe
+    the buffered (kept) prompt at the first micro-step of each reuse update instead.
+    """
+
+    class PolicyReuseTrainer(base):
+        def _prepare_inputs(self, generation_batch):
+            if self.model.training:
+                every = self.args.steps_per_generation
+                regenerate = (
+                    self._step % (every * self.num_iterations) == 0
+                    or self._buffered_inputs is None
+                )
+                if not regenerate and self._step % every == 0:
+                    if relay.last_id is None:
+                        raise LocalVLMError("policy reuse has no buffered prompt to observe")
+                    relay.observe(relay.last_id)
+            return super()._prepare_inputs(generation_batch)
+
+    return PolicyReuseTrainer
+
+
 def _restore_endpoint_without_training(trainer, checkpoint, audit):
     """Restore an already-complete optimization boundary; never call train or step."""
     trainer._load_from_checkpoint(str(checkpoint))
@@ -2358,6 +3728,7 @@ def _checkpoint_receipt_files(checkpoint):
         "screen.json",
         "egsft.json",
         "mps_rng_state.pth",
+        "scaler.pt",
         "ref/adapter_model.safetensors",
         "ref/adapter_config.json",
     ):
@@ -2604,6 +3975,49 @@ def gold_nll_improved(record: dict, after_nll: float) -> bool | None:
     return None if before is None else after_nll < before
 
 
+def _trainer_with_replay_order(base, sequence_ids, committed_entries):
+    """--replay-sequence: prove at run time that rows trained in manifest order.
+
+    The order rests on Hugging Face Trainer choosing a SequentialSampler for
+    train_sampling_strategy="sequential"; a library change that shuffled instead would be
+    silent. So `_get_train_sampler` refuses anything but a SequentialSampler with one-row
+    updates, and after training the exposure ledger (one committed prompt id per update,
+    resumes included) must equal the manifest's ids in order, cycling. Either mismatch
+    refuses before an endpoint is published.
+    """
+    torch = import_module("torch")
+    sequence_ids = list(sequence_ids)
+    if not sequence_ids:
+        raise ValueError("replay sequence is empty")
+
+    class ReplayOrderTrainer(base):
+        def _get_train_sampler(self, *args, **kwargs):
+            sampler = super()._get_train_sampler(*args, **kwargs)
+            if not isinstance(sampler, torch.utils.data.SequentialSampler) or (
+                self.args.per_device_train_batch_size * self.args.gradient_accumulation_steps
+                != 1
+            ):
+                raise LocalVLMError(
+                    "replay_sequence requires a SequentialSampler with one-row updates; got "
+                    f"{type(sampler).__name__}"
+                )
+            return sampler
+
+        def train(self, *args, **kwargs):
+            result = super().train(*args, **kwargs)
+            got = [entry["id"] for entry in committed_entries()]
+            want = [sequence_ids[i % len(sequence_ids)] for i in range(len(got))]
+            if got != want:
+                first = next(i for i, (a, b) in enumerate(zip(got, want)) if a != b)
+                raise LocalVLMError(
+                    f"replay order differs from the manifest at update {first + 1}: "
+                    f"trained {got[first]!r}, manifest {want[first]!r}"
+                )
+            return result
+
+    return ReplayOrderTrainer
+
+
 def _trainer_with_continuation(base, parent_global_step: int):
     """Replay the new TRAIN from row 0 at the parent's next step, across resumes.
 
@@ -2670,8 +4084,42 @@ def train_local(
     screen_tokenizations: Path | None = None,
     continue_from_checkpoint: Path | None = None,
     exploratory_sweep: str | None = None,
+    threads: int = DEFAULT_THREADS,
+    loss_scale_init: float | None = None,
+    label_hierarchy: Path | None = None,
+    family_credit: float | None = None,
+    manufacturer_credit: float | None = None,
+    invalid_reward: float | None = None,
+    grpo_overrides: dict | None = None,
+    dynamic_sampling_max_draws: int | None = None,
+    replay_sequence: bool = False,
+    loss_type: str | None = None,
+    scale_rewards: str = "group",
+    reward: str = "exact",
+    confusion_map: Path | None = None,
+    taxonomy: Path | None = None,
+    label_trie: Path | None = None,
+    egsft_scale: str = "group",
+    egsft_band_group: int | None = None,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
+
+    `device="cuda"` runs on one CUDA GPU. `profile.dtype="float16"` (CUDA only) trains with
+    fp16 autocast and a dynamic GradScaler starting at `loss_scale_init` (default 2**16);
+    an overflowed step is skipped by the scaler and counted in the optimizer audit.
+    `threads` sets torch's intra-op CPU threads (default 2).
+
+    Signal-limit options (each enters settings only when it differs from its default):
+    `loss_type`/`scale_rewards` select TRL's GRPO aggregation and advantage scaling
+    ("dr_grpo"/"none" is Dr-GRPO); beta=0 GRPO refuses unless loss_type is passed
+    explicitly. That refusal is a deliberate legacy change: before these options a beta=0
+    GRPO call silently ran TRL's default aggregation; no committed plan or template passes
+    beta 0, and a caller that wants the old behaviour passes loss_type="grpo".
+    `reward="exact_hn"` with a frozen `confusion_map` adds -0.5 for a confuser answer.
+    `egsft_scale="none"` makes EG-SFT the Dr-GRPO limit stopgrad[2p] and
+    `egsft_band_group` masks it to the G-sample screen's band. Modes hn_sft (needs
+    `confusion_map`), hls_sft (`taxonomy`) and cce_sft (`label_trie`) are the answer-only
+    supervised limits of `_trainer_with_label_loss`.
 
     `mode="egsft"` is SFT weighted by stopgrad[w_G(p) / w_G(0.5)]. `order="sequential"`
     replays the TRAIN manifest order for SFT/EG-SFT, and `cycle` lets further epochs
@@ -2686,19 +4134,91 @@ def train_local(
     `max_steps` and `max_active_seconds` stay cumulative over the parent's lineage. The
     old and new identities and the restored file hashes enter settings["continuation"];
     resuming the continuation itself passes the same continue_from_checkpoint.
+
+    `label_hierarchy` (GRPO only, default off) swaps the exact reward for hierarchical
+    partial credit; `family_credit` and `manufacturer_credit` must then be explicit, and
+    `invalid_reward` (default 0) scores a non-EOS or out-of-vocabulary answer.
+
+    Exploratory GRPO options (default-off; absent from settings unless passed):
+    `grpo_overrides` sets allowlisted TRL GRPOConfig knobs (GRPO_KNOBS: clip-higher
+    epsilon_high, loss_type, scale_rewards, mask_truncated_completions, num_iterations,
+    ...). `dynamic_sampling_max_draws` drops all-same reward groups and redraws a
+    deterministic TRAIN replacement, up to that many groups per update.
     """
     profile.validate()
     if exploratory_sweep is not None and (
         exploratory_sweep != EXPLORATORY_SWEEP_ID or train_only is not True
     ):
         raise ValueError(f"exploratory_sweep must be {EXPLORATORY_SWEEP_ID!r} with train_only")
+    if type(replay_sequence) is not bool:
+        raise ValueError("replay_sequence must be boolean")
+    if replay_sequence and (mode != "sft" or order != "sequential" or train_only is not True):
+        raise ValueError("replay_sequence is a TRAIN-only sequential SFT control mode")
+    if replay_sequence and continue_from_checkpoint is not None:
+        raise ValueError("replay_sequence cannot combine with a continuation's rotated order")
+    if replay_sequence and finalize_only:
+        # finalize_only publishes a checkpoint without calling train(), so the end-of-run
+        # exposure-order check (_trainer_with_replay_order) would never run
+        raise ValueError("replay_sequence cannot finalize without training (order unchecked)")
+    overrides = validate_grpo_overrides(grpo_overrides)
+    if (overrides or dynamic_sampling_max_draws is not None) and mode != "grpo":
+        raise ValueError("grpo_overrides and dynamic sampling apply only to GRPO")
+    if dynamic_sampling_max_draws is not None and (
+        type(dynamic_sampling_max_draws) is not int or not 2 <= dynamic_sampling_max_draws <= 64
+    ):
+        raise ValueError("dynamic_sampling_max_draws must be an integer in 2..64")
+    policy_reuse = overrides.get("num_iterations", 1) > 1
+    if screen_journal is not None and (policy_reuse or dynamic_sampling_max_draws is not None):
+        raise ValueError("screening cannot combine with dynamic sampling or num_iterations > 1")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    if profile.dtype == "float16":
+        loss_scale_init = DEFAULT_LOSS_SCALE_INIT if loss_scale_init is None else loss_scale_init
+        if (
+            type(loss_scale_init) not in (int, float)
+            or not math.isfinite(loss_scale_init)
+            or loss_scale_init < 1
+        ):
+            raise ValueError("loss_scale_init must be a finite number >= 1")
+        loss_scale_init = float(loss_scale_init)
+    elif loss_scale_init is not None:
+        raise ValueError("loss_scale_init applies only to float16 training")
     for name, value in (("max_steps", max_steps), ("save_steps", save_steps)):
         if type(value) is not int or value <= 0:
             raise ValueError(f"{name} must be a valid nonnegative/positive integer")
-    if mode not in {"grpo", "sft", "egsft"} or model not in MODEL_REVISIONS:
-        raise ValueError("choose sft/egsft/grpo and one of the explicitly pinned Qwen models")
+    if mode not in {"grpo", "sft", "egsft", *LABEL_LOSS_MODES} or model not in MODEL_REVISIONS:
+        raise ValueError(
+            "choose sft/egsft/grpo (or hn_sft/hls_sft/cce_sft) and one of the explicitly "
+            "pinned Qwen models"
+        )
+    if loss_type not in (None, *GRPO_LOSS_TYPES) or scale_rewards not in GRPO_REWARD_SCALES:
+        raise ValueError("loss_type must be grpo or dr_grpo and scale_rewards group or none")
+    if mode != "grpo" and (loss_type is not None or scale_rewards != "group"):
+        raise ValueError("loss_type and scale_rewards apply only to GRPO")
+    # a loss_type chosen through grpo_overrides (e.g. DAPO) is explicit too
+    if mode == "grpo" and beta == 0 and loss_type is None and "loss_type" not in overrides:
+        raise ValueError("beta=0 GRPO requires an explicit loss_type (grpo or dr_grpo)")
+    if (loss_type is not None and "loss_type" in overrides) or (
+        scale_rewards != "group" and "scale_rewards" in overrides
+    ):
+        raise ValueError("loss_type/scale_rewards given both explicitly and in grpo_overrides")
+    if reward not in REWARDS or (reward != "exact" and mode != "grpo"):
+        raise ValueError("reward must be exact, or exact_hn for GRPO")
+    if (confusion_map is not None) != (reward == "exact_hn" or mode == "hn_sft"):
+        raise ValueError("confusion_map is required by, and only by, exact_hn or hn_sft")
+    if (taxonomy is not None) != (mode == "hls_sft"):
+        raise ValueError("taxonomy is required by, and only by, hls_sft")
+    if (label_trie is not None) != (mode == "cce_sft"):
+        raise ValueError("label_trie is required by, and only by, cce_sft")
+    if egsft_scale not in GRPO_REWARD_SCALES or egsft_band_group not in (
+        None,
+        *EGSFT_BAND_GROUPS,
+    ):
+        raise ValueError("egsft_scale must be group or none and egsft_band_group 4, 8 or 16")
+    if mode != "egsft" and (egsft_scale != "group" or egsft_band_group is not None):
+        raise ValueError("egsft_scale and egsft_band_group apply only to EG-SFT")
     if order not in {"random", "sequential"} or (order == "sequential" and mode == "grpo"):
         raise ValueError("order must be random, or sequential for sft/egsft")
     if type(cycle) is not bool or (cycle and order != "sequential"):
@@ -2752,6 +4272,14 @@ def train_local(
     if initial_adapter_precision_transfer is not None and not init_adapter:
         raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
     spec = load_spec(data_spec)
+    shaping = _shaping_from_options(
+        spec,
+        label_hierarchy,
+        family_credit,
+        manufacturer_credit,
+        invalid_reward,
+        mode=mode,
+    )
     if type(train_only) is not bool:
         raise ValueError("train_only must be boolean")
     if train_only and (validation is not None or probe):
@@ -2760,7 +4288,7 @@ def train_local(
         step_cap = (
             None
             if screened or exploratory_sweep
-            else TRAIN_ONLY_STEP_CAPS["sft" if mode == "egsft" else mode]
+            else TRAIN_ONLY_STEP_CAPS["grpo" if mode == "grpo" else "sft"]
         )
         if step_cap is not None and max_steps > step_cap:
             raise ValueError(f"TRAIN-only {mode} diagnostic exceeds {step_cap} steps")
@@ -2776,6 +4304,7 @@ def train_local(
         spec["labels"],
         preprocessing_id=spec.get("preprocessing_id"),
         require_all_classes=not train_only,
+        allow_repeated_ids=replay_sequence,
     )
     row_cap = (
         NATIVE_TRAIN_ROWS
@@ -2784,7 +4313,8 @@ def train_local(
         if screened or order == "sequential"
         else 400
     )
-    if train_only and len(train_rows) > row_cap:
+    # a replay sequence presents rows again; the cap is on distinct TRAIN images
+    if train_only and len({row["id"] for row in train_rows}) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
     if screened and len(train_rows) < target_accepted:
         raise ValueError("screen scan is shorter than target_accepted; it would exhaust S")
@@ -2827,7 +4357,7 @@ def train_local(
         "processor_model": model,
         "processor_revision": MODEL_REVISIONS[model],
         "profile": asdict(profile),
-        "output_grammar": OUTPUT_GRAMMAR,
+        "output_grammar": output_grammar(profile.response_format),
         "data_spec_sha256": _file_sha256(Path(data_spec)),
         "train": _classification_identity(Path(train), train_rows),
         "validation": _classification_identity(Path(validation), validation_rows)
@@ -2842,6 +4372,9 @@ def train_local(
         or mode not in {"grpo", "sft"}
         or (mode == "grpo" and beta != 0.04)
         or continue_from_checkpoint is not None
+        or loss_type not in (None, "grpo")
+        or scale_rewards != "group"
+        or reward != "exact"
     ):
         raise ValueError(
             "expanded training requires the approved init, SFT or GRPO with beta .04, "
@@ -2874,6 +4407,34 @@ def train_local(
     # New options enter settings only when used, so existing runs keep their identity.
     if order != "random":
         settings.update(order=order, cycle=cycle)
+    if threads != DEFAULT_THREADS:
+        settings["torch_threads"] = threads
+    if profile.dtype == "float16":
+        settings["loss_scaling"] = {
+            "scaler": "torch.amp.GradScaler via accelerate mixed_precision=fp16",
+            "autocast": "float16",
+            "init_scale": loss_scale_init,
+            "growth_factor": 2.0,
+            "backoff_factor": 0.5,
+            "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
+            "max_consecutive_skips": MAX_CONSECUTIVE_LOSS_SCALE_SKIPS,
+        }
+    if replay_sequence:
+        settings["replay_sequence"] = {
+            "order": "manifest rows in file order, repeated ids presented again",
+            "rows": len(train_rows),
+            "distinct_ids": len({row["id"] for row in train_rows}),
+        }
+    if overrides:
+        settings["grpo_overrides"] = overrides
+    if dynamic_sampling_max_draws is not None:
+        settings["dynamic_sampling"] = {
+            "max_draws": dynamic_sampling_max_draws,
+            "drop": "groups whose TRL advantages are all zero (all rewards equal)",
+            "replacement": "dynamic_replacement_index(seed, global_step, draw, |TRAIN|)",
+            "exhausted": "keep the last draw (KL-only update), journaled",
+            "journal": "dynamic_sampling.jsonl",
+        }
     if screened:
         screen_journal = Path(screen_journal).resolve()
         if not screen_journal.is_relative_to(output) or screen_journal == output:
@@ -2893,10 +4454,50 @@ def train_local(
             "advantage_eps": TRL_ADVANTAGE_EPS,
             "weight": "stopgrad[w_G(p) / w_G(0.5)], TRL Bessel-corrected group std",
         }
+        if egsft_scale != "group":
+            settings["egsft"].update(
+                scale_rewards=egsft_scale,
+                weight="stopgrad[2p]: Dr-GRPO no-std limit (G-1)p / ((G-1)/2), any G",
+            )
+        if egsft_band_group is not None:
+            settings["egsft"]["band"] = {
+                "group_size": egsft_band_group,
+                "threshold": EGSFT_BAND_THRESHOLD,
+                "mask": "1[u_G(p) >= threshold]; outside: zero loss and no optimizer step "
+                "(AdamW state untouched), presentation still counted toward max_steps",
+            }
     if exploratory_sweep is not None:
         settings["exploratory_sweep"] = exploratory_sweep
+    if loss_type not in (None, "grpo"):
+        settings["loss_type"] = loss_type
+    if scale_rewards != "group":
+        settings["scale_rewards"] = scale_rewards
+    if reward != "exact":
+        settings["reward"] = {"name": reward, "confuser_reward": HN_CONFUSER_REWARD}
+    confusers = taxonomy_entries = trie = None
+    if confusion_map is not None:
+        confusers = load_confusion_map(confusion_map, spec["labels"])
+        settings["confusion_map_sha256"] = _file_sha256(Path(confusion_map))
+    if mode in LABEL_LOSS_MODES:
+        settings["label_loss"] = {
+            "objective": {
+                "hn_sft": "CE + 0.5 * -log(1 - pi(c)), c = top live frozen-map confuser",
+                "hls_sft": "sum_l q_l mean-token NLL(label l + EOS), gold included, "
+                "q = hierarchical smoothing",
+                "cce_sft": "mean CE of the trie-restricted log-softmax; post-EOS tail free",
+            }[mode],
+            **({"coefficient": HN_SFT_COEFFICIENT} if mode == "hn_sft" else {}),
+            **({"epsilon": HLS_EPSILON} if mode == "hls_sft" else {}),
+        }
+    if taxonomy is not None:
+        taxonomy_entries = load_taxonomy(taxonomy, spec["labels"])
+        settings["taxonomy_sha256"] = _file_sha256(Path(taxonomy))
+    if label_trie is not None:
+        _, trie, settings["label_trie_sha256"] = load_label_trie(label_trie)
     if screen_tokenizations is not None:
         settings["gold_tokenizations_sha256"] = _file_sha256(Path(screen_tokenizations))
+    if shaping is not None:
+        settings["reward_shaping"] = shaping_identity(shaping)
     continuation = None
     if continue_from_checkpoint is not None:
         continuation = _continuation_identity(Path(continue_from_checkpoint), identity, settings)
@@ -2946,6 +4547,8 @@ def train_local(
             )
         if device == "mps" and not (checkpoint / "mps_rng_state.pth").is_file():
             raise ValueError("MPS resume requires the saved mps_rng_state.pth")
+        if profile.dtype == "float16" and not (checkpoint / "scaler.pt").is_file():
+            raise ValueError("float16 resume requires the saved loss-scaler scaler.pt")
         if (
             mode == "grpo"
             and beta > 0
@@ -3016,6 +4619,8 @@ def train_local(
         if screen.position == len(train_rows) and len(screen.accepted_ids) < target_accepted:
             raise LocalVLMError("screened scan already exhausted S before target_accepted")
     environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile, training=True)
+    check_device_dtype(device, profile.dtype, environment, training=True)
     if _expanded.is_expanded(profile):
         # Binds the whole package (contract, converter, grader, siblings) to the endpoint.
         environment["expanded_source_closure"] = _expanded.source_closure()
@@ -3028,9 +4633,13 @@ def train_local(
         "algorithm": f"TRL-{mode.upper()}",
         "regularization_profile": ("initial-policy-KL" if beta else "beta-zero-ablation")
         if mode == "grpo"
-        else "completion-only-SFT"
-        if mode == "sft"
-        else "expected-gradient-weighted-completion-only-SFT",
+        else {
+            "sft": "completion-only-SFT",
+            "egsft": "expected-gradient-weighted-completion-only-SFT",
+            "hn_sft": "completion-only-SFT-plus-confuser-unlikelihood",
+            "hls_sft": "hierarchical-label-smoothed-completion-only-SFT",
+            "cce_sft": "label-trie-constrained-completion-only-SFT",
+        }[mode],
         "created_at": datetime.now(timezone.utc).isoformat(),
         "control_identity": identity,
         "settings": settings,
@@ -3058,7 +4667,8 @@ def train_local(
     audit = None
     try:
         torch = import_module("torch")
-        torch.set_num_threads(_torch_threads())
+        # An explicit --threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
+        _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
         transformers, peft, trl = (import_module(x) for x in ("transformers", "peft", "trl"))
         transformers.set_seed(seed)
         record["model_source"] = _verified_model_directory(model_directory, model)
@@ -3066,7 +4676,7 @@ def train_local(
         record["processor_audit"] = _audit_processor(
             processor, train_rows + validation_rows, spec, profile
         )
-        record_mode = "sft" if mode == "egsft" else mode
+        record_mode = "grpo" if mode == "grpo" else "sft"
         dataset = _dataset(train_rows, spec, record_mode, profile)
         policy = transformers.AutoModelForImageTextToText.from_pretrained(
             str(model_directory),
@@ -3133,6 +4743,9 @@ def train_local(
             save_steps=save_steps,
             beta=beta,
             **({"order": order} if order != "random" else {}),
+            **({"grpo_overrides": overrides} if overrides else {}),
+            **({"loss_type": loss_type} if loss_type is not None else {}),
+            **({"scale_rewards": scale_rewards} if scale_rewards != "group" else {}),
         )
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
         if args.device.type != device:
@@ -3146,10 +4759,16 @@ def train_local(
             stop_after_steps=stop_after_steps,
             stop_after_active_seconds=stop_after_active_seconds,
             **({"screen": screen} if screen is not None else {}),
+            **({"loss_scaled": True} if profile.dtype == "float16" else {}),
         )
         eos = policy.generation_config.eos_token_id
         eos = [eos] if isinstance(eos, int) else list(eos or [])
         eos = sorted(set(eos + [processor.tokenizer.eos_token_id]))
+        relay = (
+            _PromptRelay(audit.observe_prompt)
+            if mode == "grpo" and (policy_reuse or dynamic_sampling_max_draws is not None)
+            else None
+        )
         reward = make_reward(
             spec["labels"],
             profile.num_generations,
@@ -3157,8 +4776,12 @@ def train_local(
             output / "reward_groups.jsonl",
             allow_reasoning=True,
             journal_io_context=audit.timer.exclude_journal_io,
-            observe_prompt=audit.observe_prompt,
+            observe_prompt=relay.note if relay is not None else audit.observe_prompt,
+            **({"shaping": shaping} if shaping is not None else {}),
+            **_format_kwargs(profile),
+            **({"reward": reward, "confusers": confusers} if reward != "exact" else {}),
         )
+        dynamic_summary = {} if dynamic_sampling_max_draws is not None else None
         constructor = trl.GRPOTrainer if mode == "grpo" else trl.SFTTrainer
         if mode == "grpo":
             constructor = _trainer_with_grpo_resume(
@@ -3169,6 +4792,19 @@ def train_local(
             )
             if screen is not None:
                 constructor = _trainer_with_screening(constructor, screen, dataset)
+            if policy_reuse:
+                constructor = _trainer_with_policy_reuse(constructor, relay)
+            if dynamic_sampling_max_draws is not None:
+                constructor = _trainer_with_dynamic_sampling(
+                    constructor,
+                    relay,
+                    dataset,
+                    max_draws=dynamic_sampling_max_draws,
+                    seed=seed,
+                    journal=output / "dynamic_sampling.jsonl",
+                    journal_io_context=audit.timer.exclude_journal_io,
+                    summary=dynamic_summary,
+                )
         else:
             if mode == "egsft":
                 constructor = _trainer_with_egsft(
@@ -3182,13 +4818,41 @@ def train_local(
                     labels_by_id={row["id"]: row["label"] for row in train_rows},
                     journal_io_context=audit.timer.exclude_journal_io,
                     resume_state=egsft_state,
+                    **({"scale_rewards": egsft_scale} if egsft_scale != "group" else {}),
+                    **(
+                        {"band_group": egsft_band_group}
+                        if egsft_band_group is not None
+                        else {}
+                    ),
+                )
+            if mode in LABEL_LOSS_MODES:
+                constructor = _trainer_with_label_loss(
+                    constructor,
+                    mode=mode,
+                    journal=output / "label_loss.jsonl",
+                    labels_by_id={row["id"]: row["label"] for row in train_rows},
+                    eos_token_ids=eos,
+                    label_token_ids={
+                        label: processor.tokenizer.encode(label, add_special_tokens=False)
+                        for label in spec["labels"]
+                    },
+                    confusers=confusers,
+                    taxonomy=taxonomy_entries,
+                    trie=trie,
+                    journal_io_context=audit.timer.exclude_journal_io,
                 )
             constructor = _trainer_with_sft_exposure(constructor, audit)
+            if replay_sequence:
+                constructor = _trainer_with_replay_order(
+                    constructor, [row["id"] for row in train_rows], lambda: exposure.entries
+                )
             if continuation is not None:
                 constructor = _trainer_with_continuation(
                     constructor, continuation["parent_global_step"]
                 )
         constructor = _trainer_with_mps_rng(constructor, device)
+        if profile.dtype == "float16":
+            constructor = _trainer_with_loss_scaling(constructor, loss_scale_init)
         constructor = _trainer_with_active_time(constructor)
         trainer = constructor(
             model=policy,
@@ -3289,11 +4953,14 @@ def train_local(
         trainer.save_model(str(adapter))
         processor.save_pretrained(str(adapter))
         trainer.save_state()
+        if device == "cuda":
+            record["cuda_memory"] = _cuda_memory(device)
         record.update(
             status="completed",
             train_metrics=train_metrics,
             optimizer_audit=audit.summary,
             reward_audit=reward.stats if mode == "grpo" else None,
+            **({"dynamic_sampling": dynamic_summary} if dynamic_summary is not None else {}),
             **(
                 {
                     "screen": {k: v for k, v in screen.state().items() if k != "entries"},
@@ -3345,6 +5012,11 @@ def train_local(
                 record["active_time_audit"] = audit.timer.summary()
             except Exception as timing_exc:
                 record["active_time_error"] = str(timing_exc)
+        if device == "cuda":
+            try:
+                record["cuda_memory"] = _cuda_memory(device)
+            except Exception as memory_exc:
+                record["cuda_memory_error"] = str(memory_exc)
         record.update(
             status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
             error_type=type(exc).__name__,
@@ -3357,6 +5029,685 @@ def train_local(
         # must not rewrite the completed native record that the receipt already binds.
         # The verifier's pin is the SHA-256 of the expanded_endpoint.json written here.
         _expanded.publish_endpoint(output)
+    return record
+
+
+RFT_SCOPE = "TRAIN-only rejection-sampling fine-tuning (expert iteration); no held-out claim"
+
+
+def rft_round_prompt_ids(
+    ids: list[str], *, seed: int, round_index: int, per_round: int
+) -> list[str]:
+    """Deterministic prompt slice for one on-policy round.
+
+    Positions ``round_index * per_round ...`` walk a seeded permutation of the pool, one
+    fresh permutation per pass, so rounds see new prompts until the pool is exhausted.
+    """
+    if not ids or len(set(ids)) != len(ids):
+        raise ValueError("RFT pool requires unique nonempty IDs")
+    if type(per_round) is not int or not 1 <= per_round <= len(ids):
+        raise ValueError("prompts_per_round must be in 1..pool size")
+    permutations: dict[int, list[str]] = {}
+    chosen = []
+    for position in range(round_index * per_round, (round_index + 1) * per_round):
+        epoch, offset = divmod(position, len(ids))
+        if epoch not in permutations:
+            permutations[epoch] = sorted(
+                ids,
+                key=lambda identifier: hashlib.sha256(
+                    f"rft-order-v1:{seed}:{epoch}:{identifier}".encode()
+                ).hexdigest(),
+            )
+        chosen.append(permutations[epoch][offset])
+    return chosen
+
+
+def rft_select(
+    samples: list[dict],
+    label: str,
+    labels: list[str],
+    *,
+    max_keep: int,
+    skip_all_correct: bool = False,
+) -> tuple[list[str], dict]:
+    """Keep exact-EOS correct completions (distinct texts, sample order), at most max_keep."""
+    if not samples:
+        raise ValueError("RFT selection requires sampled completions")
+    correct = [
+        sample["response"]
+        for sample in samples
+        if sample["terminated"]
+        and parse_label(sample["response"], labels, allow_reasoning=True) == label
+    ]
+    stats = {
+        "samples": len(samples),
+        "correct": len(correct),
+        "pass_rate": len(correct) / len(samples),
+        "skipped_all_correct": False,
+    }
+    if skip_all_correct and len(correct) == len(samples):
+        stats["skipped_all_correct"] = True
+        return [], stats
+    kept = list(dict.fromkeys(correct))[:max_keep]
+    stats["kept"] = len(kept)
+    return kept, stats
+
+
+def rft_records(
+    kept: dict[str, list[str]], rows_by_id: dict[str, dict], spec: dict, response_format: str
+) -> list[dict]:
+    """SFT records whose completion is the policy's own correct sample, not the gold label."""
+    prompt = prompt_text(spec, response_format)
+    records = []
+    for identifier, completions in kept.items():
+        row = rows_by_id[identifier]
+        for index, text in enumerate(completions):
+            records.append(
+                {
+                    "id": f"{identifier}#{index}",
+                    "image": row["image"],
+                    "label": row["label"],
+                    "prompt": [{"role": "user", "content": prompt}],
+                    "completion": [{"role": "assistant", "content": text}],
+                }
+            )
+    return records
+
+
+def _sample_groups_batched(policy, processor, rows, spec, profile, device, output, reward, config):
+    """K draws per prompt in ONE generate call (num_return_sequences=K); no update.
+
+    Same released-TRL sampler settings as `_sample_task_groups`, batched over the group,
+    so RFT rounds sample K-fold faster. Each completion is cut after its first EOS, as
+    TRL's completion mask does. Journals one JSON line per prompt.
+    """
+    torch = import_module("torch")
+    groups = {}
+    policy.eval()
+    journal = Path(output) / "sampled_completions.jsonl"
+    with torch.inference_mode():
+        for row in rows:
+            started = time.monotonic()
+            inputs = _inputs(processor, row, spec, profile).to(device)
+            prompt_length = int(inputs["input_ids"].shape[-1])
+            tokens = policy.generate(
+                **inputs,
+                generation_config=config,
+                num_return_sequences=profile.num_generations,
+            )
+            latency = time.monotonic() - started
+            sequences = tokens[:, prompt_length:].tolist()
+            if len(sequences) != profile.num_generations:
+                raise LocalVLMError("batched sampler returned the wrong number of completions")
+            samples = []
+            for tail in sequences:
+                for index, token in enumerate(tail):
+                    if token in config.eos_token_id:
+                        tail = tail[: index + 1]
+                        break
+                samples.append(
+                    {
+                        "response": processor.tokenizer.decode(tail, skip_special_tokens=True),
+                        "raw_response": processor.tokenizer.decode(tail, skip_special_tokens=False),
+                        "completion_ids": tail,
+                        "terminated": bool(tail and tail[-1] in config.eos_token_id),
+                        "prompt_tokens": prompt_length,
+                        "completion_tokens": len(tail),
+                        "group_latency_seconds": latency,
+                    }
+                )
+            groups[row["id"]] = samples
+            with journal.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"id": row["id"], "samples": samples}) + "\n")
+            reward(
+                completions=[sample["response"] for sample in samples],
+                completion_ids=[sample["completion_ids"] for sample in samples],
+                label=[row["label"]] * profile.num_generations,
+                id=[row["id"]] * profile.num_generations,
+            )
+    return groups
+
+
+def _rft_dataset(records: list[dict], spec: dict) -> Any:
+    datasets = import_module("datasets")
+    dataset = datasets.Dataset.from_list(records).cast_column(
+        "image", datasets.Image(mode="RGB", decode=False)
+    )
+
+    def decode(batch):
+        batch["image"] = [_load_rgb(entry["path"], spec) for entry in batch["image"]]
+        return batch
+
+    return dataset.with_transform(decode, columns=["image"], output_all_columns=True)
+
+
+class _RFTClock:
+    """Cumulative sampling + optimizer wall seconds across rounds and invocations."""
+
+    def __init__(self, committed: float, budget: float | None):
+        self.committed, self.budget, self._started = committed, budget, None
+
+    def begin(self):
+        self._started = time.monotonic()
+
+    def elapsed(self) -> float:
+        running = time.monotonic() - self._started if self._started is not None else 0.0
+        return self.committed + running
+
+    def end(self) -> float:
+        seconds = time.monotonic() - self._started
+        self.committed += seconds
+        self._started = None
+        return seconds
+
+    def exhausted(self) -> bool:
+        return self.budget is not None and self.elapsed() >= self.budget
+
+
+def _rft_sft_round(
+    policy,
+    processing_class,
+    dataset,
+    profile: Profile,
+    output: Path,
+    *,
+    device: str,
+    steps: int,
+    learning_rate: float,
+    seed: int,
+    clock: _RFTClock | None = None,
+) -> dict:
+    """One completion-only SFT pass over this round's kept samples (fresh AdamW)."""
+    trl = import_module("trl")
+    transformers = import_module("transformers")
+    kwargs = trainer_kwargs(
+        "sft",
+        output,
+        profile,
+        device=device,
+        max_steps=steps,
+        learning_rate=learning_rate,
+        seed=seed,
+        save_steps=steps,
+    )
+    # Rounds commit their own adapters; trainer checkpoints would only duplicate them.
+    kwargs.update(save_strategy="no")
+    args = trl.SFTConfig(**kwargs)
+    if args.device.type != device:
+        raise LocalVLMError(f"Accelerate selected {args.device}, expected {device}")
+
+    class Budget(transformers.TrainerCallback):
+        stopped_by_budget = False
+        skipped = consecutive = 0
+
+        def on_step_end(self, args, state, control, optimizer=None, **_):
+            if profile.dtype == "float16":
+                # A GradScaler overflow skips the optimizer step but still advances
+                # global_step: count it, and refuse a nonfinite run as train_local does.
+                if getattr(optimizer, "step_was_skipped", False):
+                    Budget.skipped += 1
+                    Budget.consecutive += 1
+                    if Budget.consecutive > MAX_CONSECUTIVE_LOSS_SCALE_SKIPS:
+                        raise LocalVLMError(
+                            "float16 gradients overflowed on every recent step; not loss-scale "
+                            "warm-up but a nonfinite forward/backward"
+                        )
+                else:
+                    Budget.consecutive = 0
+            if clock is not None and clock.exhausted():
+                Budget.stopped_by_budget = True
+                control.should_training_stop = True
+
+    constructor = trl.SFTTrainer
+    if profile.dtype == "float16":
+        # CUDA float16: accelerate fp16 autocast + GradScaler, as train_local does.
+        constructor = _trainer_with_loss_scaling(constructor, DEFAULT_LOSS_SCALE_INIT)
+    trainer = constructor(
+        model=policy,
+        args=args,
+        processing_class=processing_class,
+        train_dataset=dataset,
+        callbacks=[Budget()],
+    )
+    result = trainer.train()
+    losses = [entry["loss"] for entry in trainer.state.log_history if "loss" in entry]
+    out = {
+        "optimizer_steps": trainer.state.global_step,
+        "planned_steps": steps,
+        "stopped_by_time_budget": Budget.stopped_by_budget,
+        "train_loss": result.training_loss,
+        "first_loss": losses[0] if losses else None,
+        "last_loss": losses[-1] if losses else None,
+    }
+    if profile.dtype == "float16":  # presentations stay optimizer_steps; skips are explicit
+        out["loss_scale_skipped_steps"] = Budget.skipped
+    return out
+
+
+def _peft_weights_sha256(adapter: Path) -> str:
+    return _file_sha256(adapter / "adapter_model.safetensors")
+
+
+def _load_round_adapter(policy, adapter: Path) -> None:
+    """Overwrite the live trainable LoRA with a committed round adapter, exactly."""
+    torch = import_module("torch")
+    peft = import_module("peft")
+    saved = import_module("safetensors.torch").load_file(
+        str(adapter / "adapter_model.safetensors"), device="cpu"
+    )
+    peft.set_peft_model_state_dict(policy, saved, adapter_name="default")
+    actual = peft.get_peft_model_state_dict(policy, adapter_name="default")
+    if set(saved) != set(actual) or any(
+        not torch.equal(saved[name], actual[name].detach().cpu().to(saved[name].dtype))
+        for name in saved
+    ):
+        raise LocalVLMError("restored round adapter differs from its committed tensors")
+
+
+def rft_local(
+    train: Path,
+    data_spec: Path,
+    output: Path,
+    *,
+    model_directory: Path,
+    rounds: int,
+    prompts_per_round: int,
+    model: str = DEFAULT_MODEL,
+    device: str = "cpu",
+    profile: Profile = Profile(),
+    init_adapter: Path | None = None,
+    initial_adapter_precision_transfer: str | None = None,
+    learning_rate: float = 1e-5,
+    seed: int = 42,
+    epochs_per_round: int = 1,
+    max_keep_per_prompt: int = 1,
+    skip_all_correct: bool = False,
+    max_steps: int | None = None,
+    max_active_seconds: float | None = None,
+    stop_after_rounds: int | None = None,
+    stop_after_steps: int | None = None,
+    threads: int = DEFAULT_THREADS,
+    _sample=None,
+    _train_round=None,
+) -> dict:
+    """Rejection-sampling fine-tuning / expert iteration on TRAIN only.
+
+    Each round r (on-policy: the CURRENT adapter samples):
+      1. take `prompts_per_round` TRAIN prompts (`rft_round_prompt_ids`),
+      2. draw K = profile.num_generations completions each with released-TRL sampler
+         settings (`_task_group_generation_config`, temperature from the profile),
+      3. keep exact-EOS correct completions (distinct, <= `max_keep_per_prompt`; with
+         `skip_all_correct`, drop prompts the policy already solves K/K),
+      4. run completion-only SFT on the kept (prompt, own completion) pairs for
+         `epochs_per_round` passes, one example per update, fresh AdamW, constant LR,
+      5. commit round-NN/adapter and round-NN/round.json.
+    Stops after `rounds`, or when the cumulative optimizer-update cap `max_steps` or the
+    cumulative sampling+training wall budget `max_active_seconds` is reached; both are
+    for fairness against step- or time-matched SFT. Restarting with identical arguments
+    resumes after the last committed round; an uncommitted round is moved aside and
+    redone from its seeded start. The endpoint is output/final_adapter, bound by
+    output/local_training.json like a train_local endpoint, so the TRAIN assay and a
+    later GRPO warm start accept it.
+
+    `stop_after_steps` (default off; not part of the settings identity) is a staged
+    boundary: before starting a round, stop once the cumulative optimizer updates reach
+    it, and publish that endpoint (status "completed", stop_reason "stop_after_steps").
+    Rounds are never cut, so the trajectory does not depend on where it was stopped; a
+    later call with the same settings and a larger (or no) boundary continues it.
+    `device="cuda"` runs on one GPU under the same device/dtype rules as train_local
+    (bfloat16 training needs compute capability >= 8.0; float16 uses GradScaler).
+    """
+    profile.validate()
+    if type(threads) is not int or threads < 1:
+        raise ValueError("threads must be a positive integer")
+    if _expanded.is_expanded(profile):
+        raise ValueError("RFT supports the legacy Q/V LoRA profile only")
+    if profile.response_format not in LEGACY_RESPONSE_FORMATS:
+        raise ValueError("RFT supports the legacy response formats only")
+    if model not in MODEL_REVISIONS:
+        raise ValueError("choose one of the explicitly pinned Qwen models")
+    for name, value in (
+        ("rounds", rounds),
+        ("prompts_per_round", prompts_per_round),
+        ("epochs_per_round", epochs_per_round),
+        ("max_keep_per_prompt", max_keep_per_prompt),
+    ):
+        if type(value) is not int or value < 1:
+            raise ValueError(f"{name} must be a positive integer")
+    if type(seed) is not int or seed < 0:
+        raise ValueError("seed must be a nonnegative integer")
+    if type(skip_all_correct) is not bool:
+        raise ValueError("skip_all_correct must be boolean")
+    if max_steps is not None and (type(max_steps) is not int or max_steps < 1):
+        raise ValueError("max_steps must be a positive integer when given")
+    if max_active_seconds is not None and (
+        not math.isfinite(max_active_seconds) or max_active_seconds <= 0
+    ):
+        raise ValueError("max_active_seconds must be finite and positive")
+    if stop_after_rounds is not None and (
+        type(stop_after_rounds) is not int or not 1 <= stop_after_rounds <= rounds
+    ):
+        raise ValueError("stop_after_rounds must be within rounds")
+    if stop_after_steps is not None and (type(stop_after_steps) is not int or stop_after_steps < 1):
+        raise ValueError("stop_after_steps must be a positive integer when given")
+    if not math.isfinite(learning_rate) or not 0 < learning_rate <= 1e-2:
+        raise ValueError("learning_rate must be finite and in (0, 0.01]")
+    if initial_adapter_precision_transfer is not None and not init_adapter:
+        raise ValueError("initial adapter precision transfer requires a pinned saved adapter")
+    if device not in RFT_DEVICES:
+        raise ValueError(f"RFT device must be one of {RFT_DEVICES}")
+    spec = load_spec(data_spec)
+    rows = load_classification(
+        train,
+        "train",
+        spec["labels"],
+        preprocessing_id=spec.get("preprocessing_id"),
+        require_all_classes=False,
+    )
+    if len(rows) > SCAN_ROW_CAP:
+        raise ValueError(f"RFT pool is limited to {SCAN_ROW_CAP} TRAIN images")
+    if prompts_per_round > len(rows):
+        raise ValueError("prompts_per_round exceeds the TRAIN pool")
+    if model_directory is None:
+        raise ValueError("model_directory must point to a verified local snapshot")
+    model_directory = Path(model_directory).resolve()
+    output = Path(output).resolve()
+    identity = {
+        "model": model,
+        "model_revision": MODEL_REVISIONS[model],
+        "processor_model": model,
+        "processor_revision": MODEL_REVISIONS[model],
+        "profile": asdict(profile),
+        "output_grammar": OUTPUT_GRAMMAR,
+        "data_spec_sha256": _file_sha256(Path(data_spec)),
+        "train": _classification_identity(Path(train), rows),
+        "validation": None,
+        "image_transform_source_sha256": _file_sha256(Path(inspect.getfile(load_aircraft_rgb)))
+        if spec.get("preprocessing_id") == PREPROCESSING_ID
+        else None,
+    }
+    initial = (
+        _adapter_identity(
+            Path(init_adapter).resolve(),
+            identity,
+            profile,
+            precision_transfer=initial_adapter_precision_transfer,
+        )
+        if init_adapter
+        else None
+    )
+    settings = {
+        "mode": "rft",
+        "rounds": rounds,
+        "prompts_per_round": prompts_per_round,
+        "samples_per_prompt": profile.num_generations,
+        "epochs_per_round": epochs_per_round,
+        "max_keep_per_prompt": max_keep_per_prompt,
+        "skip_all_correct": skip_all_correct,
+        "keep_rule": "exact-EOS canonical label == gold (the GRPO exact reward)",
+        "max_steps": max_steps,
+        "max_active_seconds": max_active_seconds,
+        "learning_rate": learning_rate,
+        "seed": seed,
+        "init_adapter": initial,
+        "initial_adapter_precision_transfer": initial_adapter_precision_transfer,
+        "device": device,
+        "optimizer": "fresh AdamW per round, constant LR, one example per update",
+        "prompt_order": "rft-order-v1 seeded permutation per pass over the TRAIN pool",
+        "sampler": "released-TRL settings, num_return_sequences=K per prompt",
+    }
+    if profile.dtype == "float16":
+        settings["loss_scaling"] = {
+            "scaler": "torch.amp.GradScaler via accelerate mixed_precision=fp16",
+            "autocast": "float16",
+            "init_scale": DEFAULT_LOSS_SCALE_INIT,
+            "growth_interval": LOSS_SCALE_GROWTH_INTERVAL,
+        }
+    previous = None
+    if (output / "local_training.json").is_file():
+        previous = json.loads((output / "local_training.json").read_text())
+        if previous.get("settings") != settings or previous.get("control_identity") != identity:
+            raise ValueError("RFT resume must preserve exact model/data/profile/settings")
+        if previous.get("status") == "completed" and previous.get("stop_reason") != (
+            "stop_after_steps"
+        ):
+            raise LocalVLMError("RFT run already completed")
+    elif output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError("output is not empty; use a new directory or resume the same RFT run")
+    environment = preflight(device)
+    _refuse_unsupported_dtype(environment, profile, training=True)
+    check_device_dtype(device, profile.dtype, environment, training=True)
+    if previous and previous["environment"] != environment:
+        raise ValueError("RFT resume requires the original environment and adapter source")
+    output.mkdir(parents=True, exist_ok=True)
+    committed = []
+    for index in range(rounds):
+        round_dir = output / f"round-{index:02d}"
+        receipt = round_dir / "round.json"
+        if receipt.is_file() and json.loads(receipt.read_text()).get("status") == "completed":
+            committed.append(json.loads(receipt.read_text()))
+            continue
+        if round_dir.exists():
+            discarded = 0
+            while (output / f"round-{index:02d}.discarded-{discarded}").exists():
+                discarded += 1
+            round_dir.rename(output / f"round-{index:02d}.discarded-{discarded}")
+        break
+    for later in range(len(committed) + 1, rounds):
+        if (output / f"round-{later:02d}" / "round.json").is_file():
+            raise LocalVLMError("committed rounds are not a contiguous prefix")
+    record = {
+        "schema_version": 1,
+        "status": "running",
+        "algorithm": "RFT-expert-iteration",
+        "regularization_profile": "rejection-sampled-self-completion-SFT",
+        "created_at": previous["created_at"]
+        if previous
+        else datetime.now(timezone.utc).isoformat(),
+        "control_identity": identity,
+        "settings": settings,
+        "environment": environment,
+        "sources": spec["sources"],
+        "claim_scope": RFT_SCOPE,
+        "held_out_benchmark_improvement": "unmeasured",
+        "rounds": committed,
+        "resumed_after_round": len(committed) - 1 if committed else None,
+    }
+    if threads != DEFAULT_THREADS:
+        record["torch_threads"] = threads
+    _write(output / "local_training.json", record)
+    _archive_source(output, environment["adapter_source_sha256"])
+    rows_by_id = {row["id"]: row for row in rows}
+    ids = [row["id"] for row in rows]
+    clock = _RFTClock(
+        sum(entry["sampling_seconds"] + entry["training_seconds"] for entry in committed),
+        max_active_seconds,
+    )
+    total_steps = sum(entry["optimizer_steps"] for entry in committed)
+    try:
+        torch = import_module("torch")
+        # An explicit threads wins; otherwise VLM_TORCH_THREADS (or the historical 2).
+        _set_threads(torch, threads if threads != DEFAULT_THREADS else _torch_threads())
+        transformers, peft = (import_module(x) for x in ("transformers", "peft"))
+        record["model_source"] = _verified_model_directory(model_directory, model)
+        processor = _processor(model_directory, profile)
+        record["processor_audit"] = _audit_processor(processor, rows, spec, profile)
+        policy = transformers.AutoModelForImageTextToText.from_pretrained(
+            str(model_directory),
+            trust_remote_code=False,
+            local_files_only=True,
+            use_safetensors=True,
+            dtype=getattr(torch, profile.dtype),
+            attn_implementation="sdpa",
+        )
+        if policy.config.model_type not in {"qwen2_vl", "qwen2_5_vl"}:
+            raise LocalVLMError("unexpected cached model architecture")
+        policy = (
+            peft.PeftModel.from_pretrained(policy, str(init_adapter), is_trainable=True)
+            if init_adapter
+            else peft.get_peft_model(
+                policy,
+                peft.LoraConfig(
+                    r=profile.lora_rank,
+                    lora_alpha=2 * profile.lora_rank,
+                    lora_dropout=0.0,
+                    target_modules=["q_proj", "v_proj"],
+                    task_type="CAUSAL_LM",
+                    bias="none",
+                ),
+            )
+        )
+        policy.to(device)
+        if initial and not committed:
+            record["initial_adapter_tensor_audit"] = _verify_initial_adapter_tensors(
+                policy, Path(init_adapter)
+            )
+        for layer in policy.modules():
+            if isinstance(layer, torch.nn.Dropout):
+                layer.p = 0.0
+        if committed:
+            _load_round_adapter(policy, output / f"round-{len(committed) - 1:02d}" / "adapter")
+        config = _task_group_generation_config(policy, processor, profile)
+        record["generation_config"] = config.to_dict()
+        _write(output / "local_training.json", record)
+        sample = _sample or (
+            lambda chosen, round_dir, reward: _sample_groups_batched(
+                policy, processor, chosen, spec, profile, device, round_dir, reward, config
+            )
+        )
+        train_round = _train_round or (
+            lambda records, round_dir, steps, round_seed: _rft_sft_round(
+                policy,
+                processor,
+                _rft_dataset(records, spec),
+                profile,
+                round_dir / "trainer",
+                device=device,
+                steps=steps,
+                learning_rate=learning_rate,
+                seed=round_seed,
+                clock=clock,
+            )
+        )
+        stop_reason = None
+        for index in range(len(committed), rounds):
+            if stop_after_rounds is not None and index >= stop_after_rounds:
+                stop_reason = "stop_after_rounds"
+                break
+            if stop_after_steps is not None and total_steps >= stop_after_steps:
+                stop_reason = "stop_after_steps"
+                break
+            if max_steps is not None and total_steps >= max_steps:
+                stop_reason = "max_steps"
+                break
+            if clock.exhausted():
+                stop_reason = "max_active_seconds"
+                break
+            round_dir = output / f"round-{index:02d}"
+            round_dir.mkdir()
+            round_seed = int(
+                hashlib.sha256(f"rft-round-v1:{seed}:{index}".encode()).hexdigest()[:8], 16
+            )
+            transformers.set_seed(round_seed)
+            chosen = [
+                rows_by_id[identifier]
+                for identifier in rft_round_prompt_ids(
+                    ids, seed=seed, round_index=index, per_round=prompts_per_round
+                )
+            ]
+            reward = make_reward(
+                spec["labels"],
+                profile.num_generations,
+                config.eos_token_id,
+                round_dir / "reward_groups.jsonl",
+                allow_reasoning=True,
+            )
+            clock.begin()
+            groups = sample(chosen, round_dir, reward)
+            sampling_seconds = clock.end()
+            kept, per_prompt = {}, {}
+            for row in chosen:
+                texts, stats = rft_select(
+                    groups[row["id"]],
+                    row["label"],
+                    spec["labels"],
+                    max_keep=max_keep_per_prompt,
+                    skip_all_correct=skip_all_correct,
+                )
+                per_prompt[row["id"]] = stats
+                if texts:
+                    kept[row["id"]] = texts
+            records = rft_records(kept, rows_by_id, spec, profile.response_format)
+            _write(
+                round_dir / "kept.json",
+                {"kept": kept, "per_prompt": per_prompt},
+            )
+            steps = epochs_per_round * len(records)
+            if max_steps is not None:
+                steps = min(steps, max_steps - total_steps)
+            training = {"optimizer_steps": 0, "planned_steps": steps}
+            training_seconds = 0.0
+            if steps > 0 and not clock.exhausted():
+                clock.begin()
+                training = train_round(records, round_dir, steps, round_seed)
+                training_seconds = clock.end()
+            total_steps += training["optimizer_steps"]
+            adapter = round_dir / "adapter"
+            policy.save_pretrained(str(adapter))
+            entry = {
+                "status": "completed",
+                "round": index,
+                "round_seed": round_seed,
+                "prompt_ids": [row["id"] for row in chosen],
+                "sampled_completions": sum(s["samples"] for s in per_prompt.values()),
+                "correct_completions": sum(s["correct"] for s in per_prompt.values()),
+                "mean_pass_rate": sum(s["pass_rate"] for s in per_prompt.values())
+                / len(per_prompt),
+                "prompts_all_correct": sum(
+                    s["correct"] == s["samples"] for s in per_prompt.values()
+                ),
+                "prompts_none_correct": sum(s["correct"] == 0 for s in per_prompt.values()),
+                "prompts_kept": len(kept),
+                "kept_completions": len(records),
+                "reward_audit": reward.stats,
+                **training,
+                "cumulative_optimizer_steps": total_steps,
+                "sampling_seconds": sampling_seconds,
+                "training_seconds": training_seconds,
+                "adapter_sha256": _peft_weights_sha256(adapter),
+            }
+            _write(round_dir / "round.json", entry)
+            committed.append(entry)
+            record["rounds"] = committed
+            _write(output / "local_training.json", record)
+        else:
+            stop_reason = "rounds"
+        if stop_reason == "stop_after_rounds":
+            record.update(status="stopped", stop_reason=stop_reason)
+            _write(output / "local_training.json", record)
+            return record
+        adapter = output / "final_adapter"
+        policy.save_pretrained(str(adapter))
+        processor.save_pretrained(str(adapter))
+        if stop_reason == "stop_after_steps":
+            record["boundary"] = {"stop_after_steps": stop_after_steps}
+        record.update(
+            status="completed",
+            stop_reason=stop_reason,
+            optimizer_steps=total_steps,
+            active_seconds=clock.committed,
+            final_adapter=str(adapter),
+            final_adapter_sha256=_peft_weights_sha256(adapter),
+        )
+        _write(output / "local_training.json", record)
+    except BaseException as exc:
+        record.update(
+            status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        _write(output / "local_training.json", record)
+        raise
     return record
 
 
@@ -3407,6 +5758,94 @@ def make_probe_data(output: Path) -> dict:
     return {"path": str(output.resolve()), "diagnostic_only": True}
 
 
+def _rft_main(parser, args: dict, rft_args: dict) -> int:
+    """CLI for --mode rft: TRAIN pool only; GRPO/SFT-only options are refused."""
+    if not all(args[k] for k in ("train", "data_spec", "output", "model_directory")):
+        parser.error("RFT requires --train, --data-spec, --output and --model-directory")
+    if rft_args["rft_rounds"] is None or rft_args["rft_prompts_per_round"] is None:
+        parser.error("RFT requires --rft-rounds and --rft-prompts-per-round")
+    refused = [
+        key
+        for key in (
+            "validation",
+            "resume_from_checkpoint",
+            "screen_journal",
+            "screen_tokenizations",
+            "continue_from_checkpoint",
+            "label_hierarchy",
+            "family_credit",
+            "manufacturer_credit",
+            "invalid_reward",
+            "stop_after_steps",
+            "stop_after_active_seconds",
+            "stage_id",
+            "probe",
+            "finalize_only",
+            "cycle",
+            "grpo_overrides",
+            "dynamic_sampling_max_draws",
+            "loss_scale_init",
+            "replay_sequence",
+            "loss_type",
+            "confusion_map",
+            "taxonomy",
+            "label_trie",
+            "egsft_band_group",
+        )
+        if args.get(key) not in (None, False)
+    ]
+    if refused or (
+        args["order"],
+        args["screen_threshold"],
+        args["target_accepted"],
+        args["beta"],
+        args["save_steps"],
+        args.get("scale_rewards", "group"),
+        args.get("reward", "exact"),
+        args.get("egsft_scale", "group"),
+    ) != ("random", 0.5, 600, 0.04, 8, "group", "exact", "group"):
+        parser.error(f"RFT refuses GRPO/SFT-only options: {refused or 'order/screen/beta/save'}")
+    try:
+        result = rft_local(
+            args["train"],
+            args["data_spec"],
+            args["output"],
+            model_directory=args["model_directory"],
+            rounds=rft_args["rft_rounds"],
+            prompts_per_round=rft_args["rft_prompts_per_round"],
+            model=args["model"],
+            device=args["device"],
+            profile=args["profile"],
+            init_adapter=args["init_adapter"],
+            initial_adapter_precision_transfer=args["initial_adapter_precision_transfer"],
+            learning_rate=args["learning_rate"],
+            seed=args["seed"],
+            epochs_per_round=rft_args["rft_epochs_per_round"] or 1,
+            max_keep_per_prompt=rft_args["rft_max_keep_per_prompt"] or 1,
+            skip_all_correct=rft_args["rft_skip_all_correct"],
+            max_steps=args["max_steps"],
+            max_active_seconds=args["max_active_seconds"],
+            stop_after_rounds=rft_args["rft_stop_after_rounds"],
+            **(
+                {"stop_after_steps": rft_args["rft_stop_after_steps"]}
+                if rft_args["rft_stop_after_steps"] is not None
+                else {}
+            ),
+            threads=args.pop("threads"),
+        )
+    except (LocalVLMError, ValueError, OSError) as exc:
+        print(f"local VLM: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2, allow_nan=False))
+    return 0
+
+
+def _cli_bool(value: str) -> bool:
+    if value not in ("true", "false"):
+        raise argparse.ArgumentTypeError("expected true or false")
+    return value == "true"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
@@ -3421,7 +5860,9 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Frozen-base sampled reward groups on at most 32 TRAIN images; never fits",
     )
-    parser.add_argument("--mode", choices=("grpo", "sft", "egsft"), default="grpo")
+    parser.add_argument(
+        "--mode", choices=("grpo", "sft", "egsft", "rft", *LABEL_LOSS_MODES), default="grpo"
+    )
     for name in (
         "train",
         "validation",
@@ -3433,11 +5874,35 @@ def main(argv: list[str] | None = None) -> int:
         "screen-journal",
         "screen-tokenizations",
         "continue-from-checkpoint",
+        "label-hierarchy",
+        "confusion-map",
+        "taxonomy",
+        "label-trie",
     ):
         parser.add_argument(f"--{name}", type=Path)
+    # One flag each, two routes (merged branches): grpo/dr_grpo and group/none reach the
+    # explicit train_local parameters; every other allowlisted value (e.g. dapo, batch) is a
+    # GRPO knob and reaches grpo_overrides.
+    parser.add_argument("--loss-type", choices=KNOB_LOSS_TYPES)
+    parser.add_argument("--scale-rewards", choices=("group", "batch", "none"), default="group")
+    parser.add_argument("--reward", choices=REWARDS, default="exact")
+    parser.add_argument("--egsft-scale", choices=GRPO_REWARD_SCALES, default="group")
+    parser.add_argument("--egsft-band-group", type=int, choices=EGSFT_BAND_GROUPS)
     parser.add_argument("--model", choices=tuple(MODEL_REVISIONS), default=DEFAULT_MODEL)
-    parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
-    parser.add_argument("--max-steps", type=int, default=64)
+    parser.add_argument("--device", choices=DEVICES, default="mps")
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=DEFAULT_THREADS,
+        help="torch intra-op CPU threads (default 2)",
+    )
+    parser.add_argument(
+        "--loss-scale-init",
+        type=float,
+        help="float16 only: initial GradScaler loss scale (default 65536)",
+    )
+    # None means "not given": legacy modes then use 64; RFT treats it as an optional cap.
+    parser.add_argument("--max-steps", type=int)
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument(
         "--beta",
@@ -3452,12 +5917,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop-after-active-seconds", type=float)
     parser.add_argument("--stage-id")
     parser.add_argument("--finalize-only", action="store_true")
-    parser.add_argument("--initial-adapter-precision-transfer", choices=("float32-to-bfloat16",))
+    parser.add_argument(
+        "--initial-adapter-precision-transfer",
+        choices=INFERENCE_PRECISION_TRANSFERS,
+        help="training: float32-to-bfloat16|float16; TRAIN inference: <parent>-to-<dtype>",
+    )
     parser.add_argument("--order", choices=("random", "sequential"), default="random")
     parser.add_argument("--cycle", action="store_true")
+    parser.add_argument(
+        "--replay-sequence",
+        action="store_true",
+        help="SFT control: the TRAIN manifest is a replay sequence; repeated ids train again",
+    )
     parser.add_argument("--screen-threshold", type=float, default=0.5)
     parser.add_argument("--target-accepted", type=int, default=600)
     parser.add_argument("--probe", action="store_true")
+    for name, value in GRPO_KNOBS.items():
+        if name in ROUTED_KNOBS:
+            continue  # --loss-type / --scale-rewards above
+        if type(value) is bool:
+            kind = _cli_bool
+        elif name in ("loss_type", "scale_rewards", "importance_sampling_level"):
+            kind = str
+        else:
+            kind = int if type(value) is int else float
+        parser.add_argument(
+            "--" + name.replace("_", "-"),
+            type=kind,
+            default=None,
+            help=f"exploratory GRPO knob; omitted keeps the legacy value {value!r}",
+        )
+    parser.add_argument(
+        "--dynamic-sampling-max-draws",
+        type=int,
+        help="drop all-same GRPO groups and redraw, up to this many groups per update",
+    )
     parser.add_argument(
         "--exploratory-sweep",
         choices=(EXPLORATORY_SWEEP_ID,),
@@ -3468,9 +5962,41 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Bounded TRAIN learning diagnostic; no held-out data",
     )
+    parser.add_argument("--family-credit", type=float, help="GRPO hierarchical reward")
+    parser.add_argument("--manufacturer-credit", type=float, help="GRPO hierarchical reward")
+    parser.add_argument("--invalid-reward", type=float, help="GRPO hierarchical reward")
+    for name in ("rounds", "prompts-per-round", "epochs-per-round", "max-keep-per-prompt"):
+        parser.add_argument(f"--rft-{name}", type=int)
+    parser.add_argument("--rft-stop-after-rounds", type=int)
+    parser.add_argument("--rft-stop-after-steps", type=int)
+    parser.add_argument("--rft-skip-all-correct", action="store_true")
     for name, value in asdict(Profile()).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
+    rft_args = {
+        key: args.pop(key)
+        for key in (
+            "rft_rounds",
+            "rft_prompts_per_round",
+            "rft_epochs_per_round",
+            "rft_max_keep_per_prompt",
+            "rft_stop_after_rounds",
+            "rft_stop_after_steps",
+            "rft_skip_all_correct",
+        )
+    }
+    knobs = {key: args.pop(key) for key in GRPO_KNOBS if key not in ROUTED_KNOBS}
+    knobs = {key: value for key, value in knobs.items() if value is not None}
+    if args["loss_type"] not in (None, *GRPO_LOSS_TYPES):
+        knobs["loss_type"] = args["loss_type"]
+        args["loss_type"] = None
+    if args["scale_rewards"] not in GRPO_REWARD_SCALES:
+        knobs["scale_rewards"] = args["scale_rewards"]
+        args["scale_rewards"] = "group"
+    if knobs:
+        args["grpo_overrides"] = knobs
+    if args["dynamic_sampling_max_draws"] is None:
+        args.pop("dynamic_sampling_max_draws")
     try:
         if args.pop("preflight"):
             result = preflight(args["device"])
@@ -3482,6 +6008,14 @@ def main(argv: list[str] | None = None) -> int:
             if predict_train is not None and sample_train is not None:
                 parser.error("choose --predict-train or --sample-train")
             args["profile"] = Profile(**{key: args.pop(key) for key in asdict(Profile())})
+            if args["mode"] == "rft":
+                if predict_train is not None or sample_train is not None:
+                    parser.error("RFT cannot be combined with TRAIN inference")
+                return _rft_main(parser, args, rft_args)
+            if any(value not in (None, False) for value in rft_args.values()):
+                parser.error("--rft-* options require --mode rft")
+            if args["max_steps"] is None:
+                args["max_steps"] = 64
             if predict_train is not None or sample_train is not None:
                 if not all(args[k] for k in ("data_spec", "output", "model_directory")):
                     parser.error(
@@ -3500,22 +6034,44 @@ def main(argv: list[str] | None = None) -> int:
                         "stop_after_active_seconds",
                         "stage_id",
                         "finalize_only",
-                        "initial_adapter_precision_transfer",
                         "cycle",
                         "screen_journal",
                         "screen_tokenizations",
                         "continue_from_checkpoint",
+                        "label_hierarchy",
+                        "family_credit",
+                        "manufacturer_credit",
+                        "invalid_reward",
+                        "grpo_overrides",
+                        "dynamic_sampling_max_draws",
+                        "replay_sequence",
+                        "loss_type",
+                        "confusion_map",
+                        "taxonomy",
+                        "egsft_band_group",
                     )
-                ) or (args["order"], args["screen_threshold"], args["target_accepted"]) != (
+                    if k in args
+                ) or (
+                    args["order"],
+                    args["screen_threshold"],
+                    args["target_accepted"],
+                    args["loss_scale_init"],
+                ) != (
                     "random",
                     0.5,
                     600,
-                ):
+                    None,
+                ) or (args["scale_rewards"], args["reward"], args["egsft_scale"]) != (
+                    "group",
+                    "exact",
+                    "group",
+                ) or (args["label_trie"] and sample_train is not None):
                     parser.error("TRAIN inference cannot be combined with training inputs")
                 function = sample_train_groups if sample_train is not None else predict_train_subset
                 result = function(
                     sample_train if sample_train is not None else predict_train,
                     **({"seed": args["seed"]} if sample_train is not None else {}),
+                    **({"label_trie": args["label_trie"]} if args["label_trie"] else {}),
                     **{
                         key: args[key]
                         for key in (
@@ -3526,8 +6082,14 @@ def main(argv: list[str] | None = None) -> int:
                             "device",
                             "profile",
                             "init_adapter",
+                            "threads",
                         )
                     },
+                    **(
+                        {"precision_transfer": args["initial_adapter_precision_transfer"]}
+                        if args["initial_adapter_precision_transfer"]
+                        else {}
+                    ),
                 )
                 print(json.dumps(result, indent=2, allow_nan=False))
                 return 0
