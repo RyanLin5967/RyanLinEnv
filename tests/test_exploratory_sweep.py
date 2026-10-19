@@ -1492,3 +1492,33 @@ def test_every_wave2_table_extra_passes_the_allowlist_and_a_tampered_row_refuses
                        tmp_path / "r")
     with pytest.raises(SystemExit, match="not allowlisted"):  # RFT argv is checked too
         bad.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+
+
+def test_wave2_table_dapo_rows_draw_at_least_8_and_check_refuses_fewer(tmp_path, monkeypatch,
+                                                                      capsys):
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    draws = [a["extra_trainer_args"][a["extra_trainer_args"].index(
+        "--dynamic-sampling-max-draws") + 1] for a in arms
+        if "--dynamic-sampling-max-draws" in (a.get("extra_trainer_args") or [])]
+    assert draws == ["8", "8", "8"]  # the three DAPO rows, literal
+    # a generator family below 8 never renders
+    families = [f if f[0] != "dapo" else f[:4] + (
+        [x if x != "8" else "4" for x in f[4]],) + f[5:] for f in wave2.GRPO_FAMILIES]
+    monkeypatch.setattr(wave2, "GRPO_FAMILIES", families)
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        wave2.render()
+    monkeypatch.undo()
+    # a table on disk edited to 4 fails --check with the C5 refusal, not only as drift
+    table = json.loads(wave2.OUT.read_text())
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-wave2-rung1.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(wave2, "OUT", edited)
+    assert wave2.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+    for bad in (["--dynamic-sampling-max-draws=4"], ["--dynamic-sampling-max-draws"]):
+        with pytest.raises(ValueError, match="CORRECTIONS C5"):
+            wave2.check_dynamic_draws([{"id": "x", "extra_trainer_args": bad}])

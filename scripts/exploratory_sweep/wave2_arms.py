@@ -186,8 +186,27 @@ def wave2_arms() -> list:
     return out
 
 
+MIN_DYNAMIC_DRAWS = 8  # CORRECTIONS C5: dynamic sampling redraws at least 8 groups
+
+
+def check_dynamic_draws(arms: list) -> None:
+    """Refuse any row whose --dynamic-sampling-max-draws is missing its value or below 8, so
+    neither the generator nor --check can produce or accept one."""
+    for a in arms:
+        extras = [str(x) for x in a.get("extra_trainer_args") or []]
+        for i, flag in enumerate(extras):
+            if flag.split("=")[0] != "--dynamic-sampling-max-draws":
+                continue
+            value = flag.split("=", 1)[1] if "=" in flag else (
+                extras[i + 1] if i + 1 < len(extras) else "")
+            if not value.isdigit() or int(value) < MIN_DYNAMIC_DRAWS:
+                raise ValueError(f"{a['id']}: --dynamic-sampling-max-draws {value!r} < "
+                                 f"{MIN_DYNAMIC_DRAWS} (CORRECTIONS C5)")
+
+
 def table() -> dict:
     arms = wave2_arms()
+    check_dynamic_draws(arms)
     return {"study_id": D.STUDY_ID, "schema_version": 1, "rung": 1, "wave": 2,
             "amendment": 4, "inits": D.INITS, "rung_updates": D.RUNG_UPDATES,
             "rung_seeds": {str(k): list(v) for k, v in D.RUNG_SEEDS.items()},
@@ -206,6 +225,12 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     raw = render()
     if a.check:
+        if OUT.is_file():  # the file on disk, not only the rebuilt one, must satisfy C5
+            try:
+                check_dynamic_draws(json.loads(OUT.read_text())["arms"])
+            except ValueError as exc:
+                print(f"wave-2 table refused: {exc}", file=sys.stderr)
+                return 1
         if not OUT.is_file() or OUT.read_bytes() != raw:
             print(f"wave-2 table drift: {OUT}", file=sys.stderr)
             return 1
