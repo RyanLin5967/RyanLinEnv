@@ -267,10 +267,15 @@ class CoTenancy:
         self.unmeasured = 0  # CUDA samples where nvidia-smi could not be run
 
     @staticmethod
-    def tree(root: int) -> set:
-        out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True,
-                             text=True).stdout.split()
-        parent = dict(zip(map(int, out[0::2]), map(int, out[1::2])))
+    def tree(root: int) -> set | None:
+        """The stage's process tree, or None when `ps` cannot be run or parsed (the sample
+        is then unmeasured: arm_exec must never die while its trainer runs on)."""
+        try:
+            out = subprocess.run(["ps", "-e", "-o", "pid=,ppid="], capture_output=True,
+                                 text=True, timeout=30).stdout.split()
+            parent = dict(zip(map(int, out[0::2]), map(int, out[1::2])))
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return None
         mine = {root}
         for pid in parent:
             p = pid
@@ -299,6 +304,9 @@ class CoTenancy:
             self.unmeasured += 1
             return
         mine, hit = self.tree(root), False
+        if mine is None:
+            self.unmeasured += 1
+            return
         for line in q.stdout.splitlines():
             parts = [x.strip() for x in line.split(",")]
             if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) not in mine:
@@ -537,7 +545,15 @@ class Arm:
             from vision_rl import vlm_local_training as vlt
 
             ckpt = self.out / f"checkpoint-{int(receipt['global_step'])}"
-            entries = vlt.committed_screen_entries(ckpt)
+            read = getattr(vlt, "committed_screen_entries", None)
+            if read is None:
+                raise SystemExit("REFUSE: this payload's trainer has no "
+                                 "committed_screen_entries; screened rows cannot be listed")
+            try:
+                entries = read(ckpt)
+            except (vlt.LocalVLMError, OSError, ValueError, KeyError) as error:
+                raise SystemExit(f"REFUSE: screened rows of {ckpt.name} unreadable: "
+                                 f"{error}") from None
             ids = [e["id"] for e in sorted(entries, key=lambda e: e["scan_position"])]
             source = "committed screen entries, every scored candidate, scan order"
         else:
@@ -669,6 +685,10 @@ class Arm:
                                      f"stop {ran} (stale record)")
             elif rec.get("stop_reason") not in ("rounds", "max_steps", "max_active_seconds"):
                 raise SystemExit(f"REFUSE: RFT stage {label} ended {rec.get('stop_reason')}")
+            elif ran is not None and int(rec.get("optimizer_steps") or 0) > ran:
+                # an early end may stop short of this stage's stop, never past it
+                raise SystemExit(f"REFUSE: RFT stage {label} ended early at "
+                                 f"{rec.get('optimizer_steps')} updates, past its stop {ran}")
             receipt = self.rft_receipt()
         else:
             receipt_file = self.out / "endpoint_receipt.json"

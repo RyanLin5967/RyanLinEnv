@@ -3,7 +3,7 @@
  "purpose": "launcher smoke, not a result. cpu-fp32: 2 GRPO G8 updates from I (s/update, peak RSS, dev800 at steps 1 and 2, time-matched control), same-host I baseline, C19 E0 (4 uninterrupted x2 vs 2+2 resumed). gtx1070-fp32 is infeasible (measured: fp32 weights 8426 MiB > 8107 MiB card); gtx1070-fp16 (SFT/eval only, C2): 2 SFT updates from I, I baseline, SFT E0.",
  "defaults": {"init": "I", "mode": "grpo", "lr": 1e-05, "beta": 0.04, "num_generations": 8,
               "temperature": 1.0, "stops": [1, 2], "max_steps_total": 2, "track": "smoke",
-              "train_manifest": "s_train_scan_seed42.jsonl", "seed": 42},
+              "seed": 42},
  "arms": [
   {"id": "smoke-cpu-A", "device_class": "cpu-fp32"},
   {"id": "smoke-cpu-B", "device_class": "cpu-fp32"},
