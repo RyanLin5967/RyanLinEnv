@@ -374,6 +374,14 @@ def capacity(state: dict, hosts: dict, host: str, threads: int,
     return max(0, min(int(cores // threads), int(free_mem // mem)))
 
 
+def declared_prompts_per_update(spec: dict) -> int:
+    """P an arm spec declares: the arm key, or the allowlisted extra; 1 when absent."""
+    extra = [str(x) for x in spec.get("extra_trainer_args") or []]
+    if "--prompts-per-update" in extra[:-1]:
+        return int(extra[extra.index("--prompts-per-update") + 1])
+    return int(spec.get("prompts_per_update", 1))
+
+
 def control_spec(state: dict, ctl: dict) -> dict:
     rl = state["arms"].get(ctl["control_of"]) or {}
     summary_path = Path(rl.get("results_dir", "")) / "summary.json"
@@ -391,6 +399,14 @@ def control_spec(state: dict, ctl: dict) -> dict:
     per_step = len(ids) // steps if steps else 0
     if not ids or per_step < 1 or len(ids) != steps * per_step:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
+    # P must be the RL arm's declared prompts_per_update (its launched arm.json), not just a
+    # ratio that happens to divide; an arm without a recorded spec can only be P 1.
+    spec_path = rl.get("spec_path")
+    declared = (declared_prompts_per_update(json.loads(Path(spec_path).read_text()))
+                if spec_path else 1)
+    if per_step != declared:
+        raise SystemExit(f"REFUSE: {ctl['control_of']} committed {per_step} prompts per step "
+                         f"but declares prompts_per_update {declared}")
     if ctl.get("control_replays") == "scanned":
         # CORRECTIONS C4: replay EVERY row the RL arm scored, in scan order (arm_exec's
         # scanned_ids.json). Missing is a refusal, never a fall back to the committed ids.

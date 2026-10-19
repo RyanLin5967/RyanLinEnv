@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,7 +53,7 @@ def write_json(path: Path, value) -> None:
 
 def _int_at_least(n: int):
     def check(v: str):
-        if not v.lstrip("-").isdigit() or int(v) < n:
+        if not re.fullmatch(r"-?[0-9]+", v) or int(v) < n:
             raise SystemExit(f"REFUSE: expected an integer >= {n}, got {v!r}")
     return check
 
@@ -85,7 +86,8 @@ def _one_of(*values: str):
 
 def _int_between(lo: int, hi: int):
     def check(v: str):
-        if not v.isdigit() or not lo <= int(v) <= hi:
+        # ASCII digits only: str.isdigit() also accepts e.g. "²", which int() rejects
+        if not re.fullmatch(r"[0-9]+", v) or not lo <= int(v) <= hi:
             raise SystemExit(f"REFUSE: expected an integer in {lo}..{hi}, got {v!r}")
     return check
 
