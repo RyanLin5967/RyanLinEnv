@@ -388,6 +388,16 @@ def _ppu_grpo_run(output, *, rewards, skip=False, prompts=2, steps=2, dynamic=No
             time.sleep(outside_sleep)  # after the audit closed the span: never active time
 
     constructor = local._trainer_with_grpo_resume(trl.GRPOTrainer)
+    advantages = []
+
+    class CaptureAdvantages(constructor):  # TRL's raw advantages per scored batch
+        def _generate_and_score_completions(self, inputs):
+            output = super()._generate_and_score_completions(inputs)
+            if self.model.training:
+                advantages.append(output["advantages"].detach().cpu().tolist())
+            return output
+
+    constructor = CaptureAdvantages
     dynamic_summary = {}
     if dynamic:
         records = [dict(zip(rows, values, strict=True)) for values in zip(*rows.values())]
@@ -403,10 +413,13 @@ def _ppu_grpo_run(output, *, rewards, skip=False, prompts=2, steps=2, dynamic=No
                           train_dataset=dataset, callbacks=[audit, SleepOutsideTheSpan()],
                           reward_funcs=reward)
     trainer.train()
+    if gate is not None:  # what train_local checks after trainer.train()
+        local._check_zero_gate_coverage(
+            gate, audit.summary["optimizer_steps_observed"], args.num_iterations)
     lines = (output / "optimizer_audit.jsonl").read_text().splitlines()
     return SimpleNamespace(trainer=trainer, args=args, calls=calls, initial=initial,
                            rows=[json.loads(x) for x in lines], audit=audit,
-                           dynamic=dynamic_summary)
+                           dynamic=dynamic_summary, advantages=advantages, gate=gate)
 
 
 def _inner_adamw(trainer):
@@ -588,11 +601,26 @@ def test_control_of_a_multi_image_arm_replays_every_committed_image(tmp_path):
         {"label": "step4", "steps": 4, "active_seconds": 50.0}]}))
     (res / "endpoint_receipt.json").write_text(json.dumps(
         {"global_step": 4, "committed_prompt_ids": ids}))
-    state = {"arms": {"rl": {"status": "DONE", "results_dir": str(res)}}}
+    arm = tmp_path / "arm.json"
+    arm.write_text(json.dumps({"id": "rl", "prompts_per_update": 2}))
+    state = {"arms": {"rl": {"status": "DONE", "results_dir": str(res),
+                             "spec_path": str(arm)}}}
     ctl = {"id": "rl~ctl", "control_of": "rl", "max_steps_total": 6}
     spec = runner.control_spec(state, ctl)
     assert spec["train_ids"] == ids and spec["stops"] == [8]
     assert spec["max_steps_total"] == 12  # images: 6 RL steps x P 2
+    # The same receipt from an arm that declared another P (or none) is refused.
+    for declared in ({"id": "rl", "prompts_per_update": 4}, {"id": "rl"}):
+        arm.write_text(json.dumps(declared))
+        with pytest.raises(SystemExit, match="declares prompts_per_update"):
+            runner.control_spec(state, ctl)
+    arm.write_text(json.dumps({"id": "rl", "extra_trainer_args": [
+        "--loss-type", "grpo", "--prompts-per-update", "2"]}))  # the extras route counts
+    assert runner.control_spec(state, ctl)["max_steps_total"] == 12
+    no_spec = {"arms": {"rl": {"status": "DONE", "results_dir": str(res)}}}
+    with pytest.raises(SystemExit, match="declares prompts_per_update 1"):
+        runner.control_spec(no_spec, ctl)
+    arm.write_text(json.dumps({"id": "rl"}))
     (res / "endpoint_receipt.json").write_text(json.dumps(
         {"global_step": 4, "committed_prompt_ids": ids[:7]}))  # not P per step
     with pytest.raises(SystemExit, match="does not match"):
@@ -600,3 +628,74 @@ def test_control_of_a_multi_image_arm_replays_every_committed_image(tmp_path):
     (res / "endpoint_receipt.json").write_text(json.dumps(
         {"global_step": 4, "committed_prompt_ids": ids[:4]}))  # legacy P 1: unchanged
     assert runner.control_spec(state, ctl)["max_steps_total"] == 6
+
+
+# Review hardening (PR #39 fresh review) ------------------------------------------------------
+
+
+def test_zero_gate_coverage_refuses_a_gate_that_missed_updates():
+    gate = local._ZeroAdvantageGate()
+    gate.scored_batches = 4
+    local._check_zero_gate_coverage(gate, 4, 1)
+    local._check_zero_gate_coverage(gate, 7, 2)  # hand value: ceil(7 / 2) = 4 <= 4 <= 7
+    for steps, iterations in ((5, 1), (3, 1), (9, 2)):
+        with pytest.raises(local.LocalVLMError, match="did not see every update"):
+            local._check_zero_gate_coverage(gate, steps, iterations)
+    gate.scored_batches = 0  # e.g. a TRL change that no longer calls the hooked method
+    with pytest.raises(local.LocalVLMError, match="scored 0 batches for 2"):
+        local._check_zero_gate_coverage(gate, 2, 1)
+
+
+def test_released_grpo_normalizes_advantages_per_group_at_p_greater_than_one(tmp_path):
+    """P 2 x G 2 rewards (1, 1, 0, 0): per-group normalization gives all-zero advantages
+    (each group is flat), whole-batch normalization would give (+, +, -, -). So the update
+    must be skipped; under whole-batch normalization it would not be."""
+    run = _ppu_grpo_run(tmp_path / "pg", rewards=lambda c, n: [1.0, 1.0, 0.0, 0.0], skip=True)
+    assert run.advantages == [[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]]
+    assert [row["zero_advantage_skipped"] for row in run.rows] == [True, True]
+    assert run.gate.scored_batches == 2
+    # Mixed group next to a flat one: (1, 0, 1, 1). Per group: (+a, -a, 0, 0) with a > 0;
+    # whole batch (mean 0.75) would make the flat group's advantages nonzero.
+    mixed = _ppu_grpo_run(tmp_path / "mix", rewards=lambda c, n: [1.0, 0.0, 1.0, 1.0])
+    for batch in mixed.advantages:
+        assert batch[2] == batch[3] == 0.0
+        assert batch[0] > 0 and batch[1] == -batch[0]
+
+
+def test_prompts_per_update_refuses_duplicate_train_ids(tmp_path, monkeypatch):
+    """The loader refuses repeats today, except on the replay path; the P>1 guard must
+    hold on its own, so the loader is made to admit the repeat here."""
+    data = tmp_path / "data"
+    local.make_probe_data(data)
+    rows = (data / "train.jsonl").read_text().splitlines()
+    replay = data / "replay.jsonl"  # beside the images its relative paths name
+    replay.write_text("\n".join(rows + rows[:1]) + "\n")  # one TRAIN id twice
+    loader = local.load_classification
+    monkeypatch.setattr(local, "load_classification",
+                        lambda *a, **k: loader(*a, **{**k, "allow_repeated_ids": True}))
+    common = dict(validation=None, data_spec=data / "data_spec.json",
+                  model_directory=tmp_path / "absent", device="cpu", max_steps=4,
+                  train_only=True)
+    with pytest.raises(ValueError, match="requires distinct TRAIN ids"):
+        local.train_local(replay, output=tmp_path / "o", **common,
+                          grpo_overrides={"prompts_per_update": 2})
+    # P 1 is unaffected by this guard: it fails later, on the absent model directory (or,
+    # on a CI image without the local VLM stack, at preflight).
+    with pytest.raises((FileNotFoundError, ImportError, ModuleNotFoundError, ValueError,
+                        local.LocalVLMError)) as e:
+        local.train_local(replay, output=tmp_path / "o1", **common)
+    assert "distinct TRAIN ids" not in str(e.value)
+
+
+def test_extra_flag_integers_are_ascii_digits_only():
+    arm_exec = _load_script("arm_exec")
+    check = arm_exec._int_between(2, 32)
+    check("8")
+    for bad in ("\u00b2", "\u0668", "8 ", "+8", "-8", "", "08.0"):  # superscript 2, Arabic 8
+        with pytest.raises(SystemExit, match="expected an integer"):
+            check(bad)
+    at_least = arm_exec._int_at_least(8)
+    at_least("8")
+    for bad in ("\u0668", "\u00b9\u2070"):
+        with pytest.raises(SystemExit, match="expected an integer"):
+            at_least(bad)

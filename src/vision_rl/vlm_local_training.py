@@ -1822,6 +1822,23 @@ class _ZeroAdvantageGate:
         return self._vision_rl_skip_step
 
 
+def _check_zero_gate_coverage(gate: _ZeroAdvantageGate, steps: int, num_iterations: int):
+    """Refuse a skip-enabled run whose gate did not see every update's batch.
+
+    The gate hooks TRL's `_generate_and_score_completions`; if a TRL change routed
+    generation elsewhere, the skip would silently never fire. Each update optimizes one
+    scored batch, reused by at most `num_iterations` consecutive updates, so the scored
+    batches of this invocation must be between ceil(steps / num_iterations) and steps
+    (equal to steps when num_iterations is 1).
+    """
+    low = -(-steps // num_iterations)
+    if not low <= gate.scored_batches <= steps:
+        raise LocalVLMError(
+            f"zero-advantage gate scored {gate.scored_batches} batches for {steps} optimizer "
+            f"updates (num_iterations {num_iterations}); the skip did not see every update"
+        )
+
+
 def _trainer_with_zero_advantage_skip(base, gate: _ZeroAdvantageGate):
     """Wire `gate` to the released GRPO generation and to the optimizer step."""
 
@@ -4507,6 +4524,10 @@ def train_local(
     # a replay sequence presents rows again; the cap is on distinct TRAIN images
     if train_only and len({row["id"] for row in train_rows}) > row_cap:
         raise ValueError(f"TRAIN-only diagnostic is limited to {row_cap} images")
+    if prompts_per_update > 1 and len({row["id"] for row in train_rows}) != len(train_rows):
+        # One update's P prompts must be distinct; a repeated TRAIN id could land twice in
+        # one batch and the exposure ledger would then refuse mid-run.
+        raise ValueError("prompts_per_update > 1 requires distinct TRAIN ids")
     if len(train_rows) < prompts_per_update:
         raise ValueError("prompts_per_update exceeds the TRAIN rows; it needs distinct prompts")
     if screened and len(train_rows) < target_accepted:
@@ -5154,6 +5175,13 @@ def train_local(
             )
             trained = trainer.train(resume_from_checkpoint=str(start) if start else None)
             train_metrics = trained.metrics
+            if zero_gate is not None:
+                _check_zero_gate_coverage(
+                    zero_gate,
+                    audit.summary["optimizer_steps_observed"],
+                    overrides.get("num_iterations", 1),
+                )
+                audit.summary["zero_advantage_scored_batches"] = zero_gate.scored_batches
         after, predictions = _evaluate(policy, processor, evaluation_rows, spec, profile, device)
         _write(output / f"after_{evaluation_name}_predictions.json", predictions)
         adapter = output / "final_adapter"
