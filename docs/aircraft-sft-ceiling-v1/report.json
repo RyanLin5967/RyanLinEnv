@@ -1,0 +1,277 @@
+{
+ "I": {
+  "accuracy": 0.775,
+  "adapter_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7",
+  "trained_on": "mps (controlled400)"
+ },
+ "I_seed_spread": {
+  "accuracies": {
+   "I(seed42,mps)": 0.775
+  },
+  "mean": 0.775,
+  "n": 1,
+  "range": 0.0,
+  "sd": null
+ },
+ "bootstrap": {
+  "impl": "runner.paired_bootstrap @9d9a09f",
+  "resamples": 20000,
+  "seed": 20261018
+ },
+ "dev800_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+ "endpoints": [
+  {
+   "accuracy": 0.77625,
+   "active_seconds": 7302.970204627432,
+   "adapter_sha256": "3ec9cffc92ddaec1867daf76fab7c61f2dd5f00fba1569513119b607a3fe9bb5",
+   "arm": "sftceil-cont-all-lr1e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.77625,
+   "family": "cont-all",
+   "host": "iccad11",
+   "init": "I",
+   "label": "step300",
+   "lr": 1e-05,
+   "seed": 42,
+   "updates": 300,
+   "valid_fraction": 0.995,
+   "vs_I": {
+    "ci95": [
+     -0.01625,
+     0.0175
+    ],
+    "delta": 0.00125,
+    "losses": 23,
+    "n": 800,
+    "p_le_0": 0.47075,
+    "resamples": 20000,
+    "wins": 24
+   }
+  },
+  {
+   "accuracy": 0.77125,
+   "active_seconds": 12549.431477442442,
+   "adapter_sha256": "0098f4f1a26b25c4acacc80bc9ae0c3798c6c513b6a5bf707003d7eb7850c48c",
+   "arm": "sftceil-cont-all-lr1e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.77125,
+   "family": "cont-all",
+   "host": "iccad11",
+   "init": "I",
+   "label": "step600",
+   "lr": 1e-05,
+   "seed": 42,
+   "updates": 600,
+   "valid_fraction": 0.99375,
+   "vs_I": {
+    "ci95": [
+     -0.02125,
+     0.01375
+    ],
+    "delta": -0.00375,
+    "losses": 27,
+    "n": 800,
+    "p_le_0": 0.6901,
+    "resamples": 20000,
+    "wins": 24
+   }
+  },
+  {
+   "accuracy": 0.7725,
+   "active_seconds": 23221.574554187886,
+   "adapter_sha256": "c5d838331e6567e6f0a0d967cad87007ee65af4254f2e1f98ff65b6e8a4cb74d",
+   "arm": "sftceil-cont-all-lr1e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.7725,
+   "family": "cont-all",
+   "host": "iccad11",
+   "init": "I",
+   "label": "step1200",
+   "lr": 1e-05,
+   "seed": 42,
+   "updates": 1200,
+   "valid_fraction": 0.99625,
+   "vs_I": {
+    "ci95": [
+     -0.02125,
+     0.01625
+    ],
+    "delta": -0.0025,
+    "losses": 30,
+    "n": 800,
+    "p_le_0": 0.6288,
+    "resamples": 20000,
+    "wins": 28
+   }
+  },
+  {
+   "accuracy": 0.77,
+   "active_seconds": 6434.5792983062565,
+   "adapter_sha256": "2fbf90d5fd027962ac050b4689bc1503e0e05f0f1472a00bc0646cf8b74efb2d",
+   "arm": "sftceil-cont-all-lr2e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.77,
+   "family": "cont-all",
+   "host": "iccad12",
+   "init": "I",
+   "label": "step300",
+   "lr": 2e-05,
+   "seed": 42,
+   "updates": 300,
+   "valid_fraction": 0.995,
+   "vs_I": {
+    "ci95": [
+     -0.02625,
+     0.01625
+    ],
+    "delta": -0.005,
+    "losses": 40,
+    "n": 800,
+    "p_le_0": 0.69945,
+    "resamples": 20000,
+    "wins": 36
+   }
+  },
+  {
+   "accuracy": 0.7675,
+   "active_seconds": 13114.930167917162,
+   "adapter_sha256": "0e73058293660ddbd0e5dcab33026579df7ff8da98480509628d41875b8b99b2",
+   "arm": "sftceil-cont-all-lr2e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.7675,
+   "family": "cont-all",
+   "host": "iccad12",
+   "init": "I",
+   "label": "step600",
+   "lr": 2e-05,
+   "seed": 42,
+   "updates": 600,
+   "valid_fraction": 0.9925,
+   "vs_I": {
+    "ci95": [
+     -0.0275,
+     0.0125
+    ],
+    "delta": -0.0075,
+    "losses": 37,
+    "n": 800,
+    "p_le_0": 0.7872,
+    "resamples": 20000,
+    "wins": 31
+   }
+  },
+  {
+   "accuracy": 0.765,
+   "active_seconds": 26177.76298081316,
+   "adapter_sha256": "2265448e1cd89701fea83a411a3fb203dea9e0cc9aafbda76049a7759cea80fa",
+   "arm": "sftceil-cont-all-lr2e-5",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.765,
+   "family": "cont-all",
+   "host": "iccad12",
+   "init": "I",
+   "label": "step1200",
+   "lr": 2e-05,
+   "seed": 42,
+   "updates": 1200,
+   "valid_fraction": 0.99625,
+   "vs_I": {
+    "ci95": [
+     -0.0325,
+     0.01125
+    ],
+    "delta": -0.01,
+    "losses": 43,
+    "n": 800,
+    "p_le_0": 0.82985,
+    "resamples": 20000,
+    "wins": 35
+   }
+  },
+  {
+   "accuracy": 0.785,
+   "active_seconds": 6115.820098588243,
+   "adapter_sha256": "76a6a9e524f8573401e9f7e91a5ce552e8f1fcc072eb3cbc342640169e3b4773",
+   "arm": "sftceil-cont-all-lr5e-6",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.785,
+   "family": "cont-all",
+   "host": "iccad7",
+   "init": "I",
+   "label": "step300",
+   "lr": 5e-06,
+   "seed": 42,
+   "updates": 300,
+   "valid_fraction": 0.995,
+   "vs_I": {
+    "ci95": [
+     -0.00375,
+     0.02375
+    ],
+    "delta": 0.01,
+    "losses": 11,
+    "n": 800,
+    "p_le_0": 0.08185,
+    "resamples": 20000,
+    "wins": 19
+   }
+  },
+  {
+   "accuracy": 0.78125,
+   "active_seconds": 10316.43312057649,
+   "adapter_sha256": "e919e45f6a340236109ebd9bda83a134c9a10215b9dfab47a5cd2e3e1e2d8530",
+   "arm": "sftceil-cont-all-lr5e-6",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.78125,
+   "family": "cont-all",
+   "host": "iccad7",
+   "init": "I",
+   "label": "step600",
+   "lr": 5e-06,
+   "seed": 42,
+   "updates": 600,
+   "valid_fraction": 0.995,
+   "vs_I": {
+    "ci95": [
+     -0.00875,
+     0.02125
+    ],
+    "delta": 0.00625,
+    "losses": 15,
+    "n": 800,
+    "p_le_0": 0.2238,
+    "resamples": 20000,
+    "wins": 20
+   }
+  },
+  {
+   "accuracy": 0.7775,
+   "active_seconds": 28117.012016164488,
+   "adapter_sha256": "2f5b645562ba951f5cf1cc1febc548d7cbe7991dc08dfc557ce4138742ff7de0",
+   "arm": "sftceil-cont-all-lr5e-6",
+   "eos_fraction": 1.0,
+   "equal_class_accuracy": 0.7775,
+   "family": "cont-all",
+   "host": "iccad7",
+   "init": "I",
+   "label": "step1200",
+   "lr": 5e-06,
+   "seed": 42,
+   "updates": 1200,
+   "valid_fraction": 0.995,
+   "vs_I": {
+    "ci95": [
+     -0.01375,
+     0.0175
+    ],
+    "delta": 0.0025,
+    "losses": 19,
+    "n": 800,
+    "p_le_0": 0.40515,
+    "resamples": 20000,
+    "wins": 21
+   }
+  }
+ ],
+ "holdout": "dev800"
+}
