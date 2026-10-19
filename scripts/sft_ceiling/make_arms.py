@@ -1,14 +1,17 @@
-"""Write the lane's arm specs (arm_exec.py format, payload 9d9a09f) into runs/aircraft-sft-ceiling-v1/launch/<id>/.
+"""Write the lane's arm specs (arm_exec.py format, payload 9d9a09f) into
+runs/aircraft-sft-ceiling-v1/launch/<id>/.
 
   python3 -I scripts/sft_ceiling/make_arms.py
 
 Each launch dir gets arm.json and run.sh (finds this host's r226lin-sftceil root, runs the sweep's
 unchanged arm_exec.py). Arms:
   I-seed{1,2,3,42}: I's exact recipe (controlled400 sft-1e5-time): init W, train400 in file order,
-    SFT LR 1e-5 constant, batch 1, max_steps 6000, stopped at I's 2464 updates; only the seed differs.
+    SFT LR 1e-5 constant, batch 1, max_steps 6000, stopped at I's 2464 updates; only the seed
+    differs.
     Seed 42 on CPU is I's own seed: it separates the device effect (I was trained on MPS) from seed.
   cont-all-lr{5e-6,1e-5,2e-5}: SFT from I on the clean all_train pool
-    (docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json), seed 42, stops 300/600/1200/2400/4800/7200 (7200 SFT updates ~ active time of 600 GRPO-G8 updates).
+    (docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json), seed 42, stops
+    300/600/1200/2400/4800/7200 (7200 SFT updates ~ active time of 600 GRPO-G8 updates).
 Every stop is assayed on dev800 (sha b01175a1...) by arm_exec's own assay.
 """
 import json
@@ -16,7 +19,8 @@ from pathlib import Path
 
 WT = Path(__file__).resolve().parents[2]
 OUT = WT / "runs/aircraft-sft-ceiling-v1/launch"
-TRAIN400 = Path("/Users/idide/RyanLinEnv/data/fgvc-aircraft-2013b/candidates/fourshot-seed791/train400.jsonl")
+TRAIN400 = Path("/Users/idide/RyanLinEnv/data/fgvc-aircraft-2013b/candidates/"
+                "fourshot-seed791/train400.jsonl")
 POOL = WT / "docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json"
 COMMON = {"adapter_profile": "legacy-qv-v1", "beta": None, "device": "cpu", "dtype": "float32",
           "features": [], "max_completion_length": 256, "max_pixels": 200704, "min_pixels": 50176,

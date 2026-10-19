@@ -86,7 +86,8 @@ def main():
     for x in rows:
         b = x["vs_I"]
         print(f"{x['arm']:<28} {x['label']:<9} upd={x['updates']:<5} acc={x['accuracy']:.4f} "
-              f"dI={b['delta']:+.4f} [{b['ci95'][0]:+.4f},{b['ci95'][1]:+.4f}] p<=0={b['p_le_0']:.3f}")
+              f"dI={b['delta']:+.4f} [{b['ci95'][0]:+.4f},{b['ci95'][1]:+.4f}] "
+              f"p<=0={b['p_le_0']:.3f}")
     print("seed spread", json.dumps(out["I_seed_spread"]))
 
 

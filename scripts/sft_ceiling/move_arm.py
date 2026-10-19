@@ -39,15 +39,19 @@ def main():
     arm, oldrun, oldhost, newhost, n = sys.argv[1:6]
     dry = "--dry-run" in sys.argv
     spec = json.loads((LANE / "launch" / arm / "arm.json").read_text())
-    summary = remote_json(oldhost, f"~/runs/{oldrun}/work/results/summary.json") or {"endpoints": []}
+    summary = (remote_json(oldhost, f"~/runs/{oldrun}/work/results/summary.json")
+               or {"endpoints": []})
     done = {e["steps"] for e in summary["endpoints"]}
-    root_glob = f"/dev/shm/r226lin-sftceil/arms/{arm}/train /var/tmp/r226lin-sftceil/arms/{arm}/train"
-    last = uw("ssh", oldhost, f"for d in {root_glob}; do [ -d $d ] && ls $d | grep -o 'checkpoint-[0-9]*' "
+    root_glob = (f"/dev/shm/r226lin-sftceil/arms/{arm}/train "
+                 f"/var/tmp/r226lin-sftceil/arms/{arm}/train")
+    last = uw("ssh", oldhost, f"for d in {root_glob}; do [ -d $d ] && ls $d "
+                                  "| grep -o 'checkpoint-[0-9]*' "
               f"| cut -d- -f2 | sort -n | tail -1; done; true", timeout=120).split()
     step = int(last[-1]) if last else 0
     pending = [s for s in spec["stops"] if s <= step and s not in done]
     if pending:
-        raise SystemExit(f"REFUSE: stops {pending} reached but not assayed yet (mid-assay); move later")
+        raise SystemExit(f"REFUSE: stops {pending} reached but not assayed yet "
+                         "(mid-assay); move later")
     print(f"{arm}: last checkpoint {step}, endpoints {sorted(done)}")
     if dry:
         return

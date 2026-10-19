@@ -1,6 +1,8 @@
-"""Build the lane's SFT-from-I label pool: all_train - train400 - native VAL/TEST pHash near-duplicates.
+"""Build the lane's SFT-from-I label pool: all_train - train400 - native VAL/TEST pHash
+near-duplicates.
 
-  python3 -I scripts/sft_ceiling/make_pool.py --out docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json
+  python3 -I scripts/sft_ceiling/make_pool.py --out
+    docs/aircraft-sft-ceiling-v1/pool_all_train_clean.json
 
 Inputs are pinned by sha256 and the script refuses on any mismatch or an unexpected result.
 Near-duplicates use the same rule as the sweep's design.py (phash_audit.json
@@ -15,7 +17,8 @@ from pathlib import Path
 ALL_TRAIN = Path("/Users/idide/wt/RyanLinEnv-exploratory-sweep-v2.noindex/docs/"
                  "aircraft-exploratory-sweep-v2/manifests/all_train.jsonl")
 ALL_TRAIN_SHA = "9bed5893ad866fa2b6a5f86c4edc98421699154f435879e9e4867825c64caa9e"
-TRAIN400 = Path("/Users/idide/RyanLinEnv/data/fgvc-aircraft-2013b/candidates/fourshot-seed791/train400.jsonl")
+TRAIN400 = Path("/Users/idide/RyanLinEnv/data/fgvc-aircraft-2013b/candidates/"
+                "fourshot-seed791/train400.jsonl")
 TRAIN400_SHA = "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0"
 DEV800 = Path("/Users/idide/wt/RyanLinEnv-exploratory-sweep-v2.noindex/docs/"
               "aircraft-exploratory-sweep-v2/manifests/dev800.jsonl")
@@ -47,7 +50,8 @@ def main():
     dev = {r["id"] for r in rows(DEV800)}
     near_in = near & set(allt)
     if len(near_in) != 477:
-        sys.exit(f"REFUSE: expected 477 VAL/TEST near-duplicates in all_train, found {len(near_in)}")
+        sys.exit("REFUSE: expected 477 VAL/TEST near-duplicates in all_train, "
+                 f"found {len(near_in)}")
     if dev & set(allt):
         sys.exit("REFUSE: all_train overlaps dev800")
     pool = [i for i in allt if i not in t400 and i not in near]
