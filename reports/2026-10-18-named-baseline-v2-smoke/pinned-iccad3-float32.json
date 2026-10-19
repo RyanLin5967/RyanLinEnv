@@ -1,0 +1,234 @@
+{
+  "kind": "named-baseline-v2-smoke",
+  "split": "train",
+  "images": 4,
+  "model": {
+    "repository": "Qwen/Qwen3.8-27B",
+    "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+  },
+  "runtime_versions": {
+    "torch": "2.14.1+cpu",
+    "torchvision": "0.29.1+cpu",
+    "transformers": "5.20.0",
+    "tokenizers": "0.23.3",
+    "pillow": "12.3.0",
+    "numpy": "2.5.4",
+    "safetensors": "0.8.0"
+  },
+  "load_info": {
+    "load_seconds": 10.23111593304202,
+    "device": {
+      "type": "cpu",
+      "torch_threads": 32,
+      "cpu_numerics": {
+        "aten_cpu_capability": "DEFAULT",
+        "mkldnn_enabled": false,
+        "mkl_cbwr": "AVX",
+        "mkl_available": true
+      },
+      "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+      "host": "ICCAD3"
+    },
+    "dtype": "float32",
+    "eos_token_ids": [
+      248044,
+      248046
+    ],
+    "max_rss_bytes_after_load": 164721328128,
+    "author_generation_config_replaced": {
+      "max_length": null,
+      "max_new_tokens": null,
+      "min_length": null,
+      "min_new_tokens": null,
+      "early_stopping": null,
+      "max_time": null,
+      "stop_strings": null,
+      "do_sample": true,
+      "num_beams": null,
+      "use_mtp": null,
+      "use_cache": null,
+      "cache_implementation": null,
+      "cache_config": null,
+      "max_cache_len": null,
+      "temperature": 1.0,
+      "top_k": 20,
+      "top_p": 0.95,
+      "min_p": null,
+      "top_h": null,
+      "typical_p": null,
+      "epsilon_cutoff": null,
+      "eta_cutoff": null,
+      "repetition_penalty": null,
+      "encoder_repetition_penalty": null,
+      "length_penalty": null,
+      "no_repeat_ngram_size": null,
+      "bad_words_ids": null,
+      "renormalize_logits": null,
+      "forced_bos_token_id": null,
+      "forced_eos_token_id": null,
+      "remove_invalid_values": null,
+      "exponential_decay_length_penalty": null,
+      "suppress_tokens": null,
+      "begin_suppress_tokens": null,
+      "sequence_bias": null,
+      "token_healing": null,
+      "guidance_scale": null,
+      "watermarking_config": null,
+      "num_return_sequences": null,
+      "output_attentions": null,
+      "output_hidden_states": null,
+      "output_scores": null,
+      "output_logits": null,
+      "return_dict_in_generate": null,
+      "pad_token_id": 248044,
+      "bos_token_id": 248044,
+      "eos_token_id": [
+        248046,
+        248044
+      ],
+      "encoder_no_repeat_ngram_size": null,
+      "decoder_start_token_id": null,
+      "is_assistant": null,
+      "num_assistant_tokens": null,
+      "num_assistant_tokens_schedule": null,
+      "assistant_confidence_threshold": null,
+      "prompt_lookup_num_tokens": null,
+      "max_matching_ngram_size": null,
+      "assistant_early_exit": null,
+      "assistant_lookbehind": null,
+      "target_lookbehind": null,
+      "assistant_ensemble_weight": null,
+      "speculation_type": null,
+      "compile_config": null,
+      "disable_compile": null,
+      "continuous_batching_config": null,
+      "low_memory": null,
+      "penalty_alpha": null,
+      "dola_layers": null,
+      "diversity_penalty": null,
+      "num_beam_groups": null,
+      "constraints": null,
+      "force_words_ids": null,
+      "prefill_chunk_size": null,
+      "_from_model_config": null,
+      "transformers_version": "5.20.0"
+    }
+  },
+  "wall_seconds_including_load": 1486.3398853780236,
+  "mean_image_seconds": 367.89827916095965,
+  "results": [
+    {
+      "id": "0447760",
+      "latency_seconds": 333.0794916949235,
+      "text": "Fokker 50",
+      "finish_reason": "stop",
+      "parsed": "Fokker 50",
+      "final_answer_error": null,
+      "prompt_tokens": 1392,
+      "generation_tokens": 7,
+      "prefill_seconds": 253.7209542610217,
+      "max_rss_gb": 164.721328128,
+      "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+      "input_ids_shape": [
+        1,
+        1392
+      ],
+      "pixel_values_shape": [
+        2604,
+        1536
+      ],
+      "image_grid_thw": [
+        [
+          1,
+          42,
+          62
+        ]
+      ]
+    },
+    {
+      "id": "1158113",
+      "latency_seconds": 550.8998382398859,
+      "text": "Fokker 70",
+      "finish_reason": "stop",
+      "parsed": "Fokker 70",
+      "final_answer_error": null,
+      "prompt_tokens": 2391,
+      "generation_tokens": 7,
+      "prefill_seconds": 380.67900395486504,
+      "max_rss_gb": 164.721328128,
+      "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+      "input_ids_shape": [
+        1,
+        2391
+      ],
+      "pixel_values_shape": [
+        6600,
+        1536
+      ],
+      "image_grid_thw": [
+        [
+          1,
+          66,
+          100
+        ]
+      ]
+    },
+    {
+      "id": "0090868",
+      "latency_seconds": 257.5042836610228,
+      "text": "DC-9-30",
+      "finish_reason": "stop",
+      "parsed": "DC-9-30",
+      "final_answer_error": null,
+      "prompt_tokens": 1161,
+      "generation_tokens": 7,
+      "prefill_seconds": 177.46170407091267,
+      "max_rss_gb": 164.721328128,
+      "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+      "input_ids_shape": [
+        1,
+        1161
+      ],
+      "pixel_values_shape": [
+        1680,
+        1536
+      ],
+      "image_grid_thw": [
+        [
+          1,
+          30,
+          56
+        ]
+      ]
+    },
+    {
+      "id": "0489934",
+      "latency_seconds": 330.10950304800645,
+      "text": "ATR-42",
+      "finish_reason": "stop",
+      "parsed": "ATR-42",
+      "final_answer_error": null,
+      "prompt_tokens": 1445,
+      "generation_tokens": 5,
+      "prefill_seconds": 225.4233554478269,
+      "max_rss_gb": 164.721328128,
+      "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+      "input_ids_shape": [
+        1,
+        1445
+      ],
+      "pixel_values_shape": [
+        2816,
+        1536
+      ],
+      "image_grid_thw": [
+        [
+          1,
+          44,
+          64
+        ]
+      ]
+    }
+  ],
+  "not_a_score": true
+}

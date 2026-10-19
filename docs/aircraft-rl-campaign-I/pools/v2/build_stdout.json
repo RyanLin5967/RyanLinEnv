@@ -1,0 +1,19 @@
+{
+ "POOLS.json": "6170738f1a2ebddd1e5d0c20c40beda9aa15d557036a8cfdb13476d48e300203",
+ "counts": {
+  "coverage.json": null,
+  "coverage.md": null,
+  "manifests/hard.jsonl": 208,
+  "manifests/mid.jsonl": 399,
+  "manifests/mixed.jsonl": 458,
+  "manifests/unreachable.jsonl": 130,
+  "scores.jsonl": 1452
+ },
+ "coverage.json": "144dd6a5c526fcab153ff1b88dc60337ce85770a35a09c59ece48a9370dc9315",
+ "coverage.md": "b36d66593c361ab3e1c12842309eafe562237c48c9895353c54e36ceb52f0ae1",
+ "manifests/hard.jsonl": "b3307a265e12a6ef637ed22902dcd0046852874d2cc642bda3525e6019cc3092",
+ "manifests/mid.jsonl": "36ee310457610ef2866cc7d730c33f95e5ee4dc83e0819e055877cf2705da6ef",
+ "manifests/mixed.jsonl": "9406af37a7b14cb324ad06661cf858886d4d5c1f5c4effaef2db03cf7db13294",
+ "manifests/unreachable.jsonl": "1c1bbaaa71bebc8531e024352751e6f3d191133da1636ba86594b717d5a40009",
+ "scores.jsonl": "fff32da764bc826514b92acab815ea396b7b3c344c3af3e10be5e8e885fb1b2a"
+}
