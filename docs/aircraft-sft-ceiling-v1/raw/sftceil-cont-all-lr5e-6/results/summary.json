@@ -38,6 +38,25 @@
    },
    "receipt_status": "boundary_reached",
    "steps": 600
+  },
+  {
+   "active_seconds": 28117.012016164488,
+   "label": "step1200",
+   "metrics": {
+    "accuracy": 0.7775,
+    "adapter_sha256": "2f5b645562ba951f5cf1cc1febc548d7cbe7991dc08dfc557ce4138742ff7de0",
+    "assay_seconds": 5592.4,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.7775,
+    "label": "step1200",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.995
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 1200
   }
  ],
  "host": "iccad7",
