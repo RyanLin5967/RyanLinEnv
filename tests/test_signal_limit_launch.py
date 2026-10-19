@@ -652,10 +652,12 @@ def main(argv):
     if command == "_exec":
         name = argv[1]
         run, info = ROOT / name, meta(argv[1])
-        # Overlap barrier: the first run waits (up to 60 s) until a second one exists, so the
-        # concurrency the test asserts is observed however fast the fake stages are.
+        # Overlap barrier: the first Stage A run waits (up to 60 s) until a second run exists,
+        # so the concurrency the test asserts is observed however fast the fake stages are.
+        # Only Stage A's runs are independent; a serial stage alone must not wait.
         deadline = time.monotonic() + 60
-        while (sum(1 for d in ROOT.iterdir() if (d / "meta.json").is_file()) < 2
+        while ("stage-a-" in name
+               and sum(1 for d in ROOT.iterdir() if (d / "meta.json").is_file()) < 2
                and time.monotonic() < deadline):
             time.sleep(0.05)
         if info["fault"] == "slow":
@@ -866,7 +868,7 @@ class Fixture:
                                  "stage_a_hls_sft": 600, "stage_a_cce_sft": 600}}
         if self.uw_all is not None:
             del self.uw_block["forecast_seconds"]
-            self.uw_block.update(device=self.uw_all, mixed_poll_seconds=0.05)
+            self.uw_block.update(device=self.uw_all, mixed_poll_seconds=0.3)
             if self.uw_all == "cuda":
                 self.uw_block.update(min_free_vram_mib=10000)
 
