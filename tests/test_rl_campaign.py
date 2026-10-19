@@ -610,3 +610,22 @@ def test_stage_record_refuses_stale_files_foreign_stage_ids_and_non_fp32(tmp_pat
     rec.write_text(json.dumps(dict(good, control_identity={"profile": {"dtype": "float16"}})))
     with pytest.raises(SystemExit, match="float16"):
         arm_exec.stage_record(rec)
+
+
+def test_a_synthetic_four_draw_dynamic_sampling_row_refuses_before_the_trainer(tmp_path):
+    # C5 (>= 8 draws), on a row built here rather than a committed table
+    _fake_payload(tmp_path)
+    row = grpo_row(extra_trainer_args=["--dynamic-sampling-max-draws", "4"])
+    with pytest.raises(SystemExit, match="integer >= 8"):
+        camp.build_spec(table(), row)
+    spec = dict(camp.build_spec(table(), grpo_row()), extra_trainer_args=[
+        "--dynamic-sampling-max-draws", "4"])
+    with pytest.raises(SystemExit, match="integer >= 8"):
+        arm_exec.refuse_spec(spec)
+    with pytest.raises(SystemExit, match="integer >= 8"):
+        arm_exec.Arm(tmp_path, spec, tmp_path / "r").trainer_args(
+            tmp_path / "m.jsonl", 200, 50, None)
+    ok = dict(spec, extra_trainer_args=["--dynamic-sampling-max-draws", "8"])
+    argv = arm_exec.Arm(tmp_path, ok, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", 200, 50, None)
+    assert argv[-2:] == ["--dynamic-sampling-max-draws", "8"]
