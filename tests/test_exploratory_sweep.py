@@ -114,7 +114,7 @@ def make_table(arms):
 def base_arm(arm_id, track):
     return {
         "id": arm_id, "track": track, "rung": 1, "seed": 42, "init": "I", "mode": "grpo",
-        "family": "grpo-I",
+        "family": "d37-grpo-I",
         "lr": 1e-5, "stops": [150], "max_steps_total": 1500, "wave": 1, "num_generations": 8,
         "train_manifest": "s_train_scan_seed42.jsonl", "features": [],
     }
@@ -305,7 +305,8 @@ iccad4        0.02    24    24     121      0       0    yes     62    2  2.28  
 def test_host_table_reads_uwrun_v5_columns_by_header():
     t = runner.host_table(UWRUN_V5_HOSTS)
     assert t["iccad13"] == {"load1": 46.59, "nproc": 72, "cores": 36, "avail_gb": 235.0,
-                            "local_gb": 8.0}
+                            "local_gb": 8.0, "avx": "512"}
+    assert t["iccad4"]["avx"] == "2"
     assert t["iccad4"]["avail_gb"] == 121.0 and t["iccad4"]["cores"] == 24
     old = "host load1 nproc availGB localGB\niccad4 0.0 24 121 0\n"
     with pytest.raises(SystemExit, match="header lacks"):
@@ -331,7 +332,8 @@ def test_launch_skips_a_control_on_a_stale_host_and_launches_the_rest(tmp_path, 
                             "features": ["exploratory_sweep"]}},
         "new": {"receipt": {"valid": True, "payload_sha256": "NEW", "root": "/r",
                             "features": ["exploratory_sweep"]}}},
-        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True}}
+        "payload": {"sha256": "NEW"}, "uwrun_runs": [], "gate0": {"passed": True},
+        "d37_release": {"verified": True}}
     finish(tmp_path, state, "rl0", 0.5)
     state["arms"]["rl0"]["host"] = "old"
     path = setup(tmp_path, monkeypatch, state)
@@ -587,10 +589,16 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         if fam == "wave2-dapo":
             assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
             assert kw["dynamic_sampling_max_draws"] == 8
-        if fam == "wave2-drgrpo":
-            assert kw["grpo_overrides"] == {"loss_type": "dr_grpo", "scale_rewards": "none"}
+        if fam == "wave2-drgrpo":  # main's explicit Dr-GRPO parameters
+            assert (kw["loss_type"], kw["scale_rewards"]) == ("dr_grpo", "none")
+            assert "grpo_overrides" not in kw
         if fam == "wave2-mu2":
             assert kw["grpo_overrides"] == {"num_iterations": 2}
+        if fam in ("wave2-fmtpen", "wave2-closedset", "wave2-mu2", "wave2-guard"):
+            # beta 0 names its aggregation: the legacy "grpo" (settings unchanged)
+            assert kw["loss_type"] == "grpo" and kw["scale_rewards"] == "group"
+        if fam == "wave2-dapo":
+            assert kw["loss_type"] is None  # DAPO's loss_type is the knob above
         if a["mode"] == "grpo":
             assert kw["beta"] == 0.0 and kw["profile"].dtype == "float32"
         if a["track"] == "control" or fam in ("wave2-closedset", "wave2-guard"):
@@ -864,20 +872,28 @@ def test_launch_one_omits_mem_for_an_unmeasured_kind(tmp_path, monkeypatch):
 
 
 def test_amendment3_launch_allowlist_holds_w_init_and_gates_grpo_i():
-    table = {"g": {"id": "g", "family": "grpo-I"}, "w": {"id": "w", "family": "grpo-W"}}
-    closed, opened = {}, {"gate0": {"passed": True}}
+    # amendment 5: the allowlisted family is the D37 table's; the old grpo-I is retired
+    table = {"g": {"id": "g", "family": "d37-grpo-I"}, "w": {"id": "w", "family": "grpo-W"},
+             "old": {"id": "old", "family": "grpo-I"}}
+    closed, opened = {}, {"gate0": {"passed": True}, "d37_release": {"verified": True}}
+    unverified = {"gate0": {"passed": True}}
     for state in (closed, opened):
         for spec in ({"id": "w", "family": "grpo-W", "track": "rl"},
                      {"id": "w~ctl", "family": "control", "track": "control", "control_of": "w"},
                      {"id": "s", "family": "sft-I", "track": "sft"},
-                     {"id": "x", "family": "sftall-rl", "track": "rl"}):
+                     {"id": "x", "family": "sftall-rl", "track": "rl"},
+                     {"id": "old", "family": "grpo-I", "track": "rl"},
+                     {"id": "old~ctl", "family": "control", "track": "control",
+                      "control_of": "old"}):
             assert "allowlist" in runner.launch_hold(state, spec, table)
-    g = {"id": "g", "family": "grpo-I", "track": "rl"}
+    g = {"id": "g", "family": "d37-grpo-I", "track": "rl"}
     gc = {"id": "g~ctl", "family": "control", "track": "control", "control_of": "g"}
     assert "GATE 0" in runner.launch_hold(closed, g, table)
     assert "GATE 0" in runner.launch_hold({"gate0": {"passed": "yes"}}, gc, table)
     assert runner.launch_hold(opened, g, table) is None
     assert runner.launch_hold(opened, gc, table) is None
+    assert "d37_release" in runner.launch_hold(unverified, g, table)
+    assert "d37_release" in runner.launch_hold(unverified, gc, table)
 
 
 def test_amendment3_promotion_never_ranks_w_init_units(tmp_path, monkeypatch):
@@ -1005,13 +1021,17 @@ def test_wave2_launch_refuses_until_gate0_passed(tmp_path, monkeypatch):
         table, ids, wave, rung, hosts = str(wave2.OUT), None, None, None, None
         max_launch, timeout, dry_run = 100, 60, False
 
+    # n 0-5 vary GATE 0 with d37_release verified (the gate is the only variable); n 6 has
+    # GATE 0 passed but d37_release unverified: wave-2 controls are PR #36's machinery too
     for n, gate in enumerate((None, {}, {"passed": False}, {"passed": "true"}, {"passed": 1},
-                              {"passed": True})):
+                              {"passed": True}, {"passed": True})):
         calls = []
         monkeypatch.setattr(runner, "launch_one",
                             lambda path, spec, *a, **k: calls.append(spec["id"]) or "run")
         state = {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": receipt}},
                  "arms": {}, "uwrun_runs": []}
+        if n < 6:
+            state["d37_release"] = {"verified": True}
         if gate is not None:
             state["gate0"] = gate
         (tmp_path / f"g{n}").mkdir()
@@ -1101,8 +1121,9 @@ def test_replay_sequence_is_control_only_and_repeats_must_be_exact(tmp_path):
 def test_assay_profile_refuses_a_missing_key_other_than_temperature(tmp_path):
     from vision_rl import vlm_local_training as local
 
-    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 1,
-            "max_pixels": 2, "max_completion_length": 8, "num_generations": 8,
+    # the sweep's real pixel bounds: assay_profile now also runs Profile.validate()
+    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 50176,
+            "max_pixels": 200704, "max_completion_length": 8, "num_generations": 8,
             "temperature": None}
     assert arm_exec.Arm(tmp_path, base, tmp_path / "r").assay_profile(local).temperature == 1.0
     for key in ("response_format", "max_pixels", "num_generations"):
@@ -1158,3 +1179,447 @@ def test_truncated_dynamic_sampling_journal_refuses_clearly(tmp_path):
         handle.write('{"global_step": 2, "dra')  # a crash mid-write
     with pytest.raises(SystemExit, match="line 3 of 3 is not JSON"):
         arm.scanned_ids(receipt)
+
+
+def _vlt():
+    import sys as _sys
+    _sys.path.insert(0, str(ROOT / "src"))
+    from vision_rl import vlm_local_training as vlt
+    return vlt
+
+
+PROFILE_BASE = {"response_format": "answer_only", "min_pixels": 50176, "max_pixels": 200704,
+                "max_completion_length": 256, "num_generations": 4}
+
+
+def test_assay_profile_accepts_controls_without_temperature_and_sft_with_none(tmp_path):
+    vlt = _vlt()
+    control = dict(PROFILE_BASE, id="c")                     # design.py controls: no key
+    sft = dict(PROFILE_BASE, id="s", temperature=None)        # every SFT-family arm
+    grpo = dict(PROFILE_BASE, id="g", temperature=0.7)
+    # forced fire: the old construction fails exactly as reported, for both shapes
+    with pytest.raises(KeyError, match="temperature"):
+        vlt.Profile(**{k: control[k] for k in arm_exec.PROFILE_KEYS})
+    with pytest.raises(TypeError):
+        vlt.Profile(**{k: sft[k] for k in arm_exec.PROFILE_KEYS}).validate()
+    for spec, temp in ((control, 1.0), (sft, 1.0), (grpo, 0.7)):
+        p = arm_exec.Arm(tmp_path, spec, tmp_path / "r").assay_profile(vlt)
+        assert p.temperature == temp and p.max_pixels == 200704  # 1.0 = Profile default
+
+
+def test_valid_receipt_feature_gate_admits_a_present_feature():
+    state = {"payload": {"sha256": "P"}, "hosts": {"h": {"receipt": {
+        "valid": True, "payload_sha256": "P", "root": "/r",
+        "features": ["exploratory_sweep", "cuda"]}}}}
+    assert runner.valid_receipt(state, "h", ["cuda"])["root"] == "/r"  # old code refused
+    with pytest.raises(SystemExit, match=r"lacks features \['expanded_lora'\]"):
+        runner.valid_receipt(state, "h", ["cuda", "expanded_lora"])
+
+
+def test_continuation_of_an_arm_that_died_in_its_first_assay():
+    spec = {"id": "sftall-W-1e-5", "stops": [2329, 4658], "max_steps_total": 4658,
+            "mode": "sft", "family": "sftall-W"}
+    with pytest.raises(SystemExit, match="proper prefix"):
+        runner.continuation_spec(spec, {"endpoints": []})
+    cont = runner.continuation_spec(spec, {"endpoints": []}, first_stage_ran=True)
+    assert (cont["stops"], cont["resume_stop"], cont["reuse_kept"], cont["save_steps"]) == (
+        [2329, 4658], None, True, 2329)
+
+
+def _kept(work, stop, step, sha=None):
+    import hashlib
+    k = work / "kept" / f"step{stop}"
+    (k / "final_adapter").mkdir(parents=True)
+    (k / "final_adapter" / "adapter_model.safetensors").write_bytes(b"w%d" % stop)
+    real = hashlib.sha256(b"w%d" % stop).hexdigest()
+    (k / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": step, "status": "stop_after_steps", "committed_active_seconds": 9.0,
+         "final_adapter": {"weights_sha256": sha or real}}))
+
+
+def test_run_reassays_a_kept_stop_then_trains_the_next_from_its_checkpoint(tmp_path, monkeypatch):
+    (tmp_path / "RECEIPT.json").write_text("{}")
+    spec = {"id": "a", "mode": "sft", "stops": [2329, 4658], "max_steps_total": 4658,
+            "reuse_kept": True, "resume_stop": None, "prior_endpoints": []}
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "res")
+    _kept(arm.work, 2329, 2329)
+    (arm.out / "checkpoint-2329").mkdir(parents=True)
+    stages, assays = [], []
+    monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
+    monkeypatch.setattr(arm, "trainer_args", lambda m, total, stop, resume, **k: [stop, resume])
+    monkeypatch.setattr(arm, "run_stage", lambda label, args: stages.append((label, args)) or {
+        "status": "max_steps", "global_step": 4658, "committed_active_seconds": 20.0})
+    monkeypatch.setattr(arm, "keep_adapter", lambda label: tmp_path / "fa")
+    monkeypatch.setattr(arm, "copy_small", lambda: None)
+    monkeypatch.setattr(arm, "assay", lambda adapter, label, m: assays.append((adapter, label))
+                        or {"accuracy": 0.5})
+    summary = arm_exec.run(arm, False)
+    assert stages == [("train-4658", [4658, arm.out / "checkpoint-2329"])]
+    assert assays[0] == (arm.work / "kept" / "step2329" / "final_adapter", "step2329")
+    assert [e["label"] for e in summary["endpoints"]] == ["step2329", "step4658"]
+    assert summary["endpoints"][0]["reassayed_kept"] is True
+
+
+def test_kept_endpoint_is_used_only_when_it_is_exactly_that_stop(tmp_path):
+    arm = arm_exec.Arm(tmp_path, {"id": "a"}, tmp_path / "r")
+    assert arm.kept_endpoint(4658) is None                 # nothing kept: it trains
+    _kept(arm.work, 4658, 4000)
+    assert arm.kept_endpoint(4658) is None                 # wrong step: it trains
+    _kept(arm.work, 2329, 2329)
+    assert arm.kept_endpoint(2329)[0]["global_step"] == 2329
+    done = arm_exec.Arm(tmp_path, {"id": "a", "prior_endpoints": [{"label": "step2329"}]},
+                        tmp_path / "r")
+    assert done.kept_endpoint(2329) is None                # already scored: not re-assayed
+
+
+def test_sftall_that_died_in_its_first_assay_is_continuable_and_its_host_refreshable(
+        tmp_path, monkeypatch):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "train-2329.log.txt").write_text("trained\n")  # no summary.json: died in assay
+    spec = {"id": "sftall-W-1e-5", "family": "sftall-W", "stops": [2329, 4658],
+            "max_steps_total": 4658, "mode": "sft", "features": []}
+    (tmp_path / "arm.json").write_text(json.dumps(spec))
+    x = {"status": "FAILED", "host": "iccad13", "run": "r", "kind": "train",
+         "spec_path": str(tmp_path / "arm.json"), "results_dir": str(res)}
+    state = {"payload": {"sha256": "P"}, "uwrun_runs": [], "arms": {"sftall-W-1e-5": x},
+             "hosts": {"iccad13": {"receipt": {"valid": True, "payload_sha256": "P",
+                                               "root": "/r", "features": ["exploratory_sweep"]}}}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
+    path = setup(tmp_path, monkeypatch, state)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    sent = []
+    monkeypatch.setattr(runner, "launch_one", lambda sp, spec, host, root, t, dry:
+                        sent.append((spec, host, dry)))
+
+    class A:
+        arm, reason, timeout, dry_run = "sftall-W-1e-5", "assay TypeError", 60, True
+
+    assert runner.cmd_continue(A, path) == 0
+    cont, host, _ = sent[0]
+    assert (host, cont["stops"], cont["reuse_kept"], cont["resume_stop"]) == (
+        "iccad13", [2329, 4658], True, None)
+
+
+def test_kept_adapter_whose_bytes_differ_from_its_receipt_refuses(tmp_path):
+    arm = arm_exec.Arm(tmp_path, {"id": "a"}, tmp_path / "r")
+    _kept(arm.work, 2329, 2329, sha="0" * 64)
+    with pytest.raises(SystemExit, match="kept step2329 adapter sha"):
+        arm.kept_endpoint(2329)
+
+
+def test_a_reuse_kept_continuation_that_dies_again_stays_continuable(tmp_path):
+    res = tmp_path / "res2"
+    res.mkdir()  # the re-assay run: no training log, no summary
+    spec = {"id": "s", "family": "sftall-W", "stops": [2329, 4658], "stops_all": [2329, 4658],
+            "reuse_kept": True, "max_steps_total": 4658, "mode": "sft"}
+    (tmp_path / "arm.json").write_text(json.dumps(spec))
+    x = {"status": "FAILED", "host": "iccad13", "spec_path": str(tmp_path / "arm.json"),
+         "results_dir": str(res), "failure_reason": "oom-guard:host-ram"}
+    state = {"arms": {"s": x}}
+    assert runner.continuable_hosts(state) == {"iccad13"}
+    assert runner.retire_if_host_oom(state, "s") is None and state["arms"]["s"] is x
+    cont = runner.continuation_spec(spec, runner.read_summary(x),
+                                    first_stage_ran=runner.first_stage_ran(spec, x))
+    assert cont["stops"] == [2329, 4658] and cont["reuse_kept"] is True
+
+
+def test_host_oom_in_a_first_assay_is_not_retired(tmp_path):
+    res = tmp_path / "res"
+    res.mkdir()
+    (res / "train-2329.log.txt").write_text("x")
+    (tmp_path / "arm.json").write_text(json.dumps({"id": "s", "stops": [2329, 4658]}))
+    state = {"arms": {"s": {"status": "FAILED", "failure_reason": "oom-guard:host-ram",
+                            "results_dir": str(res), "spec_path": str(tmp_path / "arm.json")}}}
+    assert runner.retire_if_host_oom(state, "s") is None
+
+
+def test_launch_places_an_avx512_arm_only_on_an_avx512_host(tmp_path, monkeypatch):
+    arm = dict(base_arm("d", "rl"), need_avx512=True)
+    rec = {"valid": True, "payload_sha256": "P", "root": "/r", "features": ["exploratory_sweep"]}
+    state = {"arms": {}, "uwrun_runs": [], "payload": {"sha256": "P"}, "gate0": {"passed": True},
+             "d37_release": {"verified": True},
+             "hosts": {"iccad5": {"receipt": dict(rec)}, "iccad7": {"receipt": dict(rec)},
+                       "iccad9": {"receipt": dict(rec)}}}
+    path = setup(tmp_path, monkeypatch, state)
+    table = tmp_path / "t.json"
+    table.write_text(json.dumps(make_table([arm])))
+    rows = runner.host_table(
+        "host load1 nproc cores availGB ourThr localGB avx\n"
+        "iccad5 0 40 20 400 0 50 2\niccad7 0 72 36 200 0 50 512\n"
+        "iccad9 0 48 24 900 0 50 512\n")
+    rows["iccad9"]["load1"] = 30.0  # busy: iccad7 is the only AVX-512 host with room
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    monkeypatch.setattr(runner, "ASSAY_PEAK_GIB", 10.0)
+    sent = []
+    monkeypatch.setattr(runner, "launch_one",
+                        lambda sp, spec, host, root, t, dry: sent.append(host))
+
+    class A:
+        ids = wave = rung = hosts = None
+        max_launch, timeout, dry_run = 1000, 60, False
+
+    A.table = str(table)
+    runner.cmd_launch(A, path)
+    assert sent == ["iccad7"]  # iccad5 (AVX2) has the most free memory but never qualifies
+    rows["iccad7"]["avx"] = None  # a host whose AVX width is unknown is refused too
+    sent.clear()
+    runner.cmd_launch(A, path)
+    assert sent == []
+
+
+def test_d37_table_is_corrections_compliant_and_retires_every_old_grpo_i_spec():
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("d37", ROOT / "scripts" / "exploratory_sweep" / "d37_arms.py")
+    d37 = iu.module_from_spec(spec)
+    spec.loader.exec_module(d37)
+    t = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json")
+                   .read_text())
+    assert t == json.loads(d37.render())  # the committed table is the generator's
+    rl = [a for a in t["arms"] if a["track"] == "rl"]
+    ctl = [a for a in t["arms"] if a["track"] == "control"]
+    main = [a for a in rl if a["family"] == "d37-grpo-I"]
+    assert sorted((a["lr"], a["temperature"]) for a in main) == [
+        (1e-5, 1.0), (1e-5, 1.3), (2e-5, 1.0), (2e-5, 1.3), (5e-5, 1.0), (5e-5, 1.3)]
+    assert [(a["lr"], a["temperature"]) for a in rl if a["family"] == "d37-guard"] == [(3e-6, 1.0)]
+    for a in rl:
+        assert (a["init"], a["beta"], a["num_generations"], a["dtype"], a["device"]) == (
+            "I", 0.0, 8, "float32", "cpu")
+        assert a["need_avx512"] is True and a["stops"] == [150, 300, 600]
+        assert a["max_steps_total"] == 600 and "dynamic_sampling" in a["features"]
+        i = a["extra_trainer_args"].index("--dynamic-sampling-max-draws")
+        assert int(a["extra_trainer_args"][i + 1]) >= 8
+    assert sorted({c["lr"] for c in ctl}) == [5e-6, 1e-5, 2e-5]
+    assert {c["control_of"] for c in ctl} == {a["id"] for a in rl}
+    for c in ctl:
+        assert (c["init"], c["mode"], c["dtype"], c["need_avx512"]) == ("I", "sft", "float32", True)
+        assert "replay_sequence" in c["features"] and c["control_replays"] == "scanned"
+    rung1 = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-rung1.json")
+                       .read_text())
+    old = {a["id"] for a in rung1["arms"]
+           if a["family"] == "grpo-I" or str(a.get("control_of", "")).startswith("grpo-I-")}
+    assert len(old) == 12 and set(t["retires"]) == old
+    held = {a["id"]: runner.launch_hold({"gate0": {"passed": True}}, a,
+                                        {x["id"]: x for x in rung1["arms"]})
+            for a in rung1["arms"] if a["id"] in old}
+    assert all("allowlist" in v for v in held.values())
+
+
+GUARDED_BASE = ["-m", "vision_rl.vlm_local_training", "--train", "m.jsonl", "--dtype", "float32",
+                "--learning-rate", "1e-05", "--max-steps", "600"]
+
+
+@pytest.mark.parametrize("extras,why", [
+    (["--dtype", "bfloat16"], "not allowlisted"),             # override of a guarded flag
+    (["--learning-rate", "1"], "not allowlisted"),
+    (["--learning", "1"], "not allowlisted"),                 # argparse abbreviation
+    (["--train", "x.jsonl"], "may not pass --train"),
+    (["--validation", "v.jsonl"], "may not pass --validation"),
+    (["--train=x.jsonl"], "may not pass"),
+    (["--dynamic-sampling-max-draws=8"], "not allowlisted"),  # `=` form
+    (["--dynamic-sampling-max-draws", "4"], "integer >= 8"),  # C5
+    (["--dynamic-sampling-max-draws", "--dtype"], "integer >= 8"),
+    (["--dynamic-sampling-max-draws"], "no value"),
+    (["--dynamic-sampling-max-draws", "8", "--dynamic-sampling-max-draws", "9"], "twice"),
+])
+def test_extra_trainer_args_refuse_overrides_and_unlisted_flags(extras, why):
+    with pytest.raises(SystemExit, match=why):
+        arm_exec.checked_extras(extras, GUARDED_BASE)
+
+
+def test_extra_trainer_args_refuse_a_flag_arm_exec_already_passes(monkeypatch):
+    monkeypatch.setitem(arm_exec.EXTRA_FLAGS, "--dtype", lambda v: None)  # even if listed
+    with pytest.raises(SystemExit, match="override arm_exec's own value"):
+        arm_exec.checked_extras(["--dtype", "bfloat16"], GUARDED_BASE)
+
+
+def test_trainer_args_end_with_the_checked_d37_extras_and_refuse_a_bad_table_row(tmp_path):
+    t = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json")
+                   .read_text())
+    rl = next(a for a in t["arms"] if a["track"] == "rl")
+    arm = arm_exec.Arm(tmp_path, rl, tmp_path / "r")
+    argv = arm.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
+    # beta 0 names its loss aggregation explicitly (main's trainer refuses it otherwise)
+    assert argv[-4:] == ["--loss-type", "grpo", "--dynamic-sampling-max-draws", "8"]
+    assert argv.count("--dtype") == 1 and argv.count("--learning-rate") == 1
+    bad = arm_exec.Arm(tmp_path, dict(rl, extra_trainer_args=["--dtype", "bfloat16"]),
+                       tmp_path / "r")
+    with pytest.raises(SystemExit, match="not allowlisted"):
+        bad.trainer_args(tmp_path / "m.jsonl", 600, 150, None)
+
+
+# ---- wave-2 extras (amendment 4): each table flag has an exact-name entry and a validator
+@pytest.mark.parametrize("extras,why", [
+    (["--loss-type", "cispo"], "one of"),                       # outside the plan's values
+    (["--loss-type=dapo"], "not allowlisted"),                  # `=` form
+    (["--loss", "dapo"], "not allowlisted"),                    # argparse abbreviation
+    (["--loss-type", "dapo", "--loss-type", "grpo"], "twice"),  # last value would win
+    (["--scale-rewards", "batch"], "one of"),
+    (["--epsilon-high", "0.1"], "outside"),                     # below epsilon 0.2
+    (["--epsilon-high", "nan"], "outside"),
+    (["--num-iterations", "9"], "1..8"),
+    (["--family-credit", "1"], "outside"),
+    (["--manufacturer-credit", "-0.1"], "outside"),
+    (["--invalid-reward", "0.5"], "outside"),
+    (["--invalid-reward", "x"], "a number"),
+    (["--label-hierarchy", "/etc/passwd"], "label-hierarchy-train-v1.json"),
+    (["--label-hierarchy", "label-hierarchy-train-v1.json"], "label-hierarchy-train-v1.json"),
+    (["--beta", "0.04"], "not allowlisted"),                    # arm_exec's own GRPO flag
+    (["--response-format", "think_answer"], "not allowlisted"),
+])
+def test_wave2_extra_trainer_args_refuse_bad_values_and_forms(extras, why):
+    with pytest.raises(SystemExit, match=why):
+        arm_exec.checked_extras(extras, GUARDED_BASE)
+
+
+def test_every_wave2_table_extra_passes_the_allowlist_and_a_tampered_row_refuses(tmp_path):
+    root, asset = _fake_root(tmp_path)
+    arms = [a for a in json.loads(wave2.OUT.read_text())["arms"] if a.get("extra_trainer_args")]
+    assert {a["family"] for a in arms} == {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo",
+                                           "wave2-mu2", "wave2-dapo", "wave2-guard"}
+    for a in arms:  # resolved @payload/ path, then the allowlist: every row passes as is
+        argv = arm_exec.Arm(root, a, tmp_path / "r").trainer_args(
+            tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
+        assert argv[-len(a["extra_trainer_args"]):][::2] == a["extra_trainer_args"][::2]
+    dapo = next(a for a in arms if a["family"] == "wave2-dapo")
+    for tamper in (["--learning-rate", "1e-2"], ["--train", "x.jsonl"],
+                   ["--dynamic-sampling-max-draws", "4"]):
+        bad = arm_exec.Arm(root, dict(dapo, extra_trainer_args=dapo["extra_trainer_args"]
+                                      + tamper), tmp_path / "r")
+        with pytest.raises(SystemExit, match="REFUSE"):
+            bad.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+    rft = next(a for a in json.loads(wave2.OUT.read_text())["arms"] if a["mode"] == "rft")
+    bad = arm_exec.Arm(root, dict(rft, extra_trainer_args=["--learning-rate", "1"]),
+                       tmp_path / "r")
+    with pytest.raises(SystemExit, match="not allowlisted"):  # RFT argv is checked too
+        bad.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+
+
+def test_wave2_table_dapo_rows_draw_at_least_8_and_check_refuses_fewer(tmp_path, monkeypatch,
+                                                                      capsys):
+    arms = json.loads(wave2.OUT.read_text())["arms"]
+    draws = [a["extra_trainer_args"][a["extra_trainer_args"].index(
+        "--dynamic-sampling-max-draws") + 1] for a in arms
+        if "--dynamic-sampling-max-draws" in (a.get("extra_trainer_args") or [])]
+    assert draws == ["8", "8", "8"]  # the three DAPO rows, literal
+    # a generator family below 8 never renders
+    families = [f if f[0] != "dapo" else f[:4] + (
+        [x if x != "8" else "4" for x in f[4]],) + f[5:] for f in wave2.GRPO_FAMILIES]
+    monkeypatch.setattr(wave2, "GRPO_FAMILIES", families)
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        wave2.render()
+    monkeypatch.undo()
+    # a table on disk edited to 4 fails --check with the C5 refusal, not only as drift
+    table = json.loads(wave2.OUT.read_text())
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-wave2-rung1.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(wave2, "OUT", edited)
+    assert wave2.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+    for bad in (["--dynamic-sampling-max-draws=4"], ["--dynamic-sampling-max-draws"]):
+        with pytest.raises(ValueError, match="CORRECTIONS C5"):
+            wave2.check_dynamic_draws([{"id": "x", "extra_trainer_args": bad}])
+
+
+def test_d37_generator_and_check_refuse_fewer_than_8_draws(tmp_path, monkeypatch, capsys):
+    d37 = load("d37_arms")
+    assert d37.main(["--check"]) == 0
+    monkeypatch.setattr(d37, "DYNAMIC_DRAWS", 4)  # a generator below C5 never renders
+    with pytest.raises(ValueError, match="CORRECTIONS C5"):
+        d37.main(["--check"])
+    monkeypatch.undo()
+    table = json.loads(D37_TABLE.read_text())  # a table on disk edited to 4 fails --check
+    for a in table["arms"]:
+        x = a.get("extra_trainer_args") or []
+        if "--dynamic-sampling-max-draws" in x:
+            x[x.index("--dynamic-sampling-max-draws") + 1] = "4"
+    edited = tmp_path / "arms-d37-grpo-I.json"
+    edited.write_text(json.dumps(table))
+    monkeypatch.setattr(d37, "OUT", edited)
+    assert d37.main(["--check"]) == 1
+    assert "CORRECTIONS C5" in capsys.readouterr().err
+
+
+def test_label_hierarchy_extra_must_be_a_payload_file(tmp_path):
+    root, asset = _fake_root(tmp_path)
+    outside = tmp_path / "elsewhere" / asset.name  # the right name, outside the payload
+    outside.parent.mkdir()
+    outside.write_bytes(asset.read_bytes())
+    fmtpen = next(a for a in json.loads(wave2.OUT.read_text())["arms"]
+                  if a["family"] == "wave2-fmtpen")
+    for value in (str(outside), str(outside.resolve()), "@payload/../elsewhere/x.json"):
+        extras = list(fmtpen["extra_trainer_args"])
+        extras[extras.index("--label-hierarchy") + 1] = value
+        arm = arm_exec.Arm(root, dict(fmtpen, extra_trainer_args=extras), tmp_path / "r")
+        with pytest.raises(SystemExit, match="REFUSE"):
+            arm.trainer_args(tmp_path / "m.jsonl", 1500, 150, None)
+    ok = arm_exec.Arm(root, fmtpen, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 1500,
+                                                                 150, None)
+    assert ok[ok.index("--label-hierarchy") + 1] == str(asset.resolve())
+
+
+# ---- every launchable table row passes the trainer's own argument parsing and validation
+D37_TABLE = ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json"
+
+
+def _rows_the_trainer_must_accept():
+    rows = []
+    for path in (D37_TABLE, wave2.OUT):
+        for a in json.loads(path.read_text())["arms"]:
+            if a["mode"] != "eval":
+                rows.append(pytest.param(a, id=a["id"]))
+    return rows
+
+
+@pytest.mark.parametrize("arm", _rows_the_trainer_must_accept())
+def test_every_table_row_passes_the_trainers_argument_validation(arm, tmp_path, monkeypatch,
+                                                                 capsys):
+    """arm_exec's argv for the row, through vlm_local_training.main() and train_local /
+    rft_local, up to the point where the TRAIN manifest would load. Every argument-only and
+    spec-level refusal comes before that point (e.g. beta-0 GRPO without an explicit
+    loss_type, a knob outside its range, the label hierarchy against the 100 labels), and
+    main() turns a refusal into rc 2, so a row the trainer would refuse fails here, in CI,
+    not at launch. Only the data spec (the hierarchy's TRAIN labels) and the manifest load
+    are stubbed."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+
+    def reached(*_, **__):
+        raise RuntimeError("reached the TRAIN manifest")
+
+    monkeypatch.setattr(local, "load_classification", reached)
+    # a control's stops come from control_spec at launch (its RL arm's committed count);
+    # any stop below the declared total exercises the same flags
+    stop = int((arm.get("stops") or [150])[0])
+    argv = arm_exec.Arm(root, arm, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", int(arm["max_steps_total"]), stop, None)
+    assert argv[:2] == ["-m", "vision_rl.vlm_local_training"]
+    with pytest.raises(RuntimeError, match="reached the TRAIN manifest"):
+        local.main(argv[2:])
+    capsys.readouterr()
+
+
+def test_a_beta0_row_without_a_loss_type_is_refused_by_the_trainer(tmp_path, monkeypatch,
+                                                                   capsys):
+    """The forced fire for the test above: the D37 rows as they were at 56c3dce (beta 0,
+    only --dynamic-sampling-max-draws) never reach the manifest; main() refuses with rc 2."""
+    from vision_rl import vlm_local_training as local
+
+    root, asset = _fake_root(tmp_path)
+    labels = sorted(json.loads(asset.read_text())["labels"])
+    monkeypatch.setattr(local, "load_spec", lambda *_: {"labels": labels, "sources": []})
+    monkeypatch.setattr(local, "load_classification",
+                        lambda *_, **__: pytest.fail("refusal must come first"))
+    rl = next(a for a in json.loads(D37_TABLE.read_text())["arms"] if a["track"] == "rl")
+    old = dict(rl, extra_trainer_args=["--dynamic-sampling-max-draws", "8"])
+    argv = arm_exec.Arm(root, old, tmp_path / "r").trainer_args(tmp_path / "m.jsonl", 600, 150,
+                                                                 None)
+    assert local.main(argv[2:]) == 2
+    assert "explicit loss_type" in capsys.readouterr().err

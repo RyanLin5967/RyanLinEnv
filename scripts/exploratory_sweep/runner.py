@@ -142,7 +142,9 @@ def host_table(text: str | None = None) -> dict:
                                "nproc": int(parts[col["nproc"]]),
                                "cores": int(parts[col["cores"]]),
                                "avail_gb": float(parts[col["availGB"]]),
-                               "local_gb": float(parts[col["localGB"]])}
+                               "local_gb": float(parts[col["localGB"]]),
+                               # widest AVX uwrun measured (512, 2, 0); None when not listed
+                               "avx": parts[header.index("avx")] if "avx" in header else None}
         except ValueError:
             raise SystemExit(f"REFUSE: unparsable `uwrun hosts` row: {line!r}")
     if not hosts:
@@ -240,19 +242,37 @@ def drained_stale_hosts(state: dict) -> list:
                   and host not in live and h.get("boot_payload_sha256") != pinned)
 
 
+def first_stage_ran(spec: dict, x: dict) -> bool:
+    """The arm's first training stage ran (its log was fetched), or the arm was itself a
+    reuse_kept continuation, whose kept stop trained in an earlier run (its re-assay writes
+    no training log, so a second death there must stay continuable)."""
+    if spec.get("reuse_kept"):
+        return True
+    stops = spec.get("stops") or []
+    return bool(stops) and (Path(x["results_dir"]) / f"train-{stops[0]}.log.txt").is_file()
+
+
+def read_summary(x: dict) -> dict:
+    """A FAILED arm's summary; an arm that died before its first endpoint wrote none."""
+    path = Path(x["results_dir"]) / "summary.json"
+    return json.loads(path.read_text()) if path.is_file() else {"endpoints": []}
+
+
 def continuable_hosts(state: dict) -> set:
-    """Hosts of FAILED arms in CONTINUE_FAMILIES whose summary has a completed step stop."""
+    """Hosts of FAILED arms in CONTINUE_FAMILIES that completed a step stop or at least ran
+    their first training stage (died in its assay: `continue` re-assays the kept adapter)."""
     out = set()
     for x in state["arms"].values():
         if x.get("status") != "FAILED" or not x.get("results_dir"):
             continue
         try:
             spec = json.loads(Path(x["spec_path"]).read_text())
-            summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+            summary = read_summary(x)
         except (OSError, ValueError, KeyError):
             continue
-        if spec.get("family") in CONTINUE_FAMILIES and any(
-                str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+        ran = first_stage_ran(spec, x)
+        if spec.get("family") in CONTINUE_FAMILIES and (ran or any(
+                str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", []))):
             out.add(x["host"])
     return out
 
@@ -296,8 +316,8 @@ def valid_receipt(state: dict, host: str, features, spec: dict | None = None) ->
         raise SystemExit(f"REFUSE: {host} has no valid bootstrap receipt (run `receipts`)")
     if r["payload_sha256"] != state.get("payload", {}).get("sha256"):
         raise SystemExit(f"REFUSE: {host} receipt is for another payload")
-    # parenthesised: `a | b - c` is `a | (b - c)`, which listed every declared feature as
-    # missing, so no feature-gated (wave-2) arm could ever launch
+    # parenthesised (port of wave-2 06264b4): `a | b - c` is `a | (b - c)`, which listed
+    # every declared feature as missing, so no feature-gated arm could ever launch
     missing = sorted((set(features) | {"exploratory_sweep"}) - set(r["features"]))
     if missing:
         raise SystemExit(f"REFUSE: {host} trainer lacks features {missing}")
@@ -454,11 +474,16 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
 # (state["gate0"]["passed"] is True, written by whoever records GATE 0). `continue` is
 # allowed only for the sftall families. No W-init unit is promoted. Freed cores stay idle
 # for the GATE 0 SFT lane, so `refresh` bootstraps only hosts holding a continuable arm.
+# Amendment 5 (root D37; amendment 4 is the wave-2 table, PR #36): the corrected
+# GRPO-from-I table arms-d37-grpo-I.json replaces the rung-1 grpo-I arms, which are retired
+# (its `retires` map records why) and never launch.
+LAUNCH_FAMILIES = {"d37-grpo-I", "d37-guard"}
 # Plan amendment 4 (arms-wave2-rung1.json): every wave-2 family starts from I and goes
-# through the same GATE 0 check as grpo-I, matched controls and device evals included.
+# through the same GATE 0 check, and the same d37_release hold (its controls are this PR's
+# machinery), matched controls and device evals included.
 WAVE2_FAMILIES = {"wave2-fmtpen", "wave2-closedset", "wave2-drgrpo", "wave2-mu2",
                   "wave2-dapo", "wave2-guard", "wave2-rft", "device-control"}
-LAUNCH_FAMILIES = {"grpo-I"} | WAVE2_FAMILIES
+LAUNCH_FAMILIES = LAUNCH_FAMILIES | WAVE2_FAMILIES
 CONTINUE_FAMILIES = {"sftall-I", "sftall-W"}
 
 
@@ -475,6 +500,10 @@ def launch_hold(state: dict, spec: dict, table_by_id: dict):
         return f"held (amendment 3): family {family} is not on the launch allowlist"
     if not gate0_passed(state):
         return "held (amendment 3): GATE 0 has not passed"
+    if (state.get("d37_release") or {}).get("verified") is not True:
+        # coordinator 2026-10-19: D37 arms launch only after PR #36's control machinery
+        # (per-checkpoint time matching, scanned-row replay) is verified through this runner
+        return "held (amendment 5): d37_release.verified is not true"
     return None
 
 
@@ -483,7 +512,7 @@ def is_w_init(arm: dict) -> bool:
     return init == "W" or (isinstance(init, dict) and str(init.get("arm", "")).find("-W") >= 0)
 
 
-def continuation_spec(spec: dict, summary: dict) -> dict:
+def continuation_spec(spec: dict, summary: dict, first_stage_ran: bool = False) -> dict:
     """The rest of a FAILED multi-stop arm, resumed in place from its last completed stop.
 
     Same id, work dir and host; the completed endpoints are carried into the new summary.
@@ -497,10 +526,15 @@ def continuation_spec(spec: dict, summary: dict) -> dict:
     rft = spec.get("mode") == "rft"
     reached = all(int(e["steps"]) >= d if rft else int(e["steps"]) == d
                   for e, d in zip(ends, done))
-    if not reached or not done or done != stops[:len(done)] or len(done) >= len(stops):
+    # an arm whose first stage ran but recorded no endpoint (it died in that stop's assay)
+    # continues too: arm_exec re-assays a kept adapter that is exactly that stop, verified on
+    # the host (reuse_kept), and otherwise refuses to retrain into the non-empty work dir
+    if (not reached or (not done and not first_stage_ran) or done != stops[:len(done)]
+            or len(done) >= len(stops)):
         raise SystemExit(f"REFUSE: completed steps {done} are not a proper prefix of {stops}")
     cont = dict(spec)
-    cont.update(stops=stops[len(done):], stops_all=stops, resume_stop=done[-1],
+    cont.update(stops=stops[len(done):], stops_all=stops, reuse_kept=True,
+                resume_stop=done[-1] if done else None,
                 save_steps=arm_exec_module().save_steps_for(spec, int(spec["max_steps_total"])),
                 work_id=spec.get("work_id", spec["id"]),
                 prior_endpoints=summary["endpoints"])
@@ -517,13 +551,14 @@ def cmd_continue(a, state_path: Path) -> int:
     if spec.get("family") not in CONTINUE_FAMILIES:
         raise SystemExit(f"REFUSE (amendment 3): only {sorted(CONTINUE_FAMILIES)} continue; "
                          f"{a.arm} is {spec.get('family')}")
-    summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
-    cont = continuation_spec(spec, summary)
+    summary = read_summary(x)
+    cont = continuation_spec(spec, summary, first_stage_ran=first_stage_ran(spec, x))
     cont["continued_from_run"] = x["run"]
     host = x["host"]
     r = valid_receipt(state, host, cont.get("features", []), cont)
-    if capacity(state, host_table(), host, cont.get("threads", 16),
-                mem_gb(cont) or ARM_RSS_GB, cont.get("device", "cpu")) < 1 and not a.dry_run:
+    # a dry run never queries uwrun's host table (it launches nothing)
+    if not a.dry_run and capacity(state, host_table(), host, cont.get("threads", 16),
+                                  mem_gb(cont) or ARM_RSS_GB, cont.get("device", "cpu")) < 1:
         raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
     if a.dry_run:
         launch_one(state_path, cont, host, r["root"], a.timeout, True)
@@ -609,6 +644,10 @@ def cmd_launch(a, state_path: Path) -> int:
                 # a control waits for its RL arm's host (refreshed once drained); skipping
                 # it still refuses that launch without aborting every other arm's
                 skipped.append(str(exc))
+                continue
+            if spec.get("need_avx512") and (hosts.get(host) or {}).get("avx") != "512":
+                # fp32 MKL kernels die with SIGILL without AVX-512 (D37); unknown = refuse
+                skipped.append(f"{spec['id']}: {host} has no AVX-512 (uwrun hosts avx)")
                 continue
             free = capacity(st, hosts, host, spec.get("threads", 16),
                             mem_gb(spec) or ARM_RSS_GB, spec.get("device", "cpu"))
@@ -712,8 +751,12 @@ def retire_if_host_oom(st: dict, arm_id: str):
            and str(y.get("failure_reason", "")).startswith("oom-guard")) >= OOM_RETRIES:
         return None
     try:
-        summary = json.loads((Path(x["results_dir"]) / "summary.json").read_text())
+        summary = read_summary(x)
         if any(str(e.get("label", "")).startswith("step") for e in summary.get("endpoints", [])):
+            return None
+        # a stage that trained (or a reuse_kept continuation) keeps its adapter on this host:
+        # leave it FAILED for `continue`, never restart it from scratch elsewhere
+        if first_stage_ran(json.loads(Path(x["spec_path"]).read_text()), x):
             return None
     except (OSError, ValueError, KeyError):
         pass

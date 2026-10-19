@@ -1,0 +1,8 @@
+# Torch and torchvision CPU wheels for the named-baseline CI workflow (Linux x86_64, CPython 3.12).
+# Hashes from https://download.pytorch.org/whl/cpu/{torch,torchvision}/ index links, 2026-10-18.
+# Their dependencies are pinned and hashed in requirements-vlm-local.lock, installed first.
+# Install: uv pip install --no-deps --require-hashes --index-url https://download.pytorch.org/whl/cpu -r requirements-torch-cpu.lock
+torch==2.14.1+cpu \
+    --hash=sha256:5a6363570c753812540a05eb82380e329469cbe668643e88111414c12627711f
+torchvision==0.29.1+cpu \
+    --hash=sha256:ef220d4b21878c58947851beb7337382897159105f012f0c9c07bf7e84174d7e

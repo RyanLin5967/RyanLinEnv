@@ -1,0 +1,543 @@
+{
+  "config": "dnnavx",
+  "threads": 32,
+  "observed": {
+    "aten_cpu_capability": "DEFAULT",
+    "mkldnn_enabled": true,
+    "mkl_cbwr": "AVX",
+    "aten_cpu_capability_env": "default",
+    "mkl_available": true
+  },
+  "torch_num_threads": 32,
+  "env": {
+    "ATEN_CPU_CAPABILITY": "default",
+    "MKL_CBWR": "AVX",
+    "ONEDNN_MAX_CPU_ISA": "AVX",
+    "OMP_NUM_THREADS": "32",
+    "MKL_NUM_THREADS": "32"
+  },
+  "smoke": {
+    "kind": "named-baseline-v2-smoke",
+    "split": "train",
+    "images": 4,
+    "model": {
+      "repository": "Qwen/Qwen3.8-27B",
+      "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    },
+    "runtime_versions": {
+      "torch": "2.14.1+cpu",
+      "torchvision": "0.29.1+cpu",
+      "transformers": "5.20.0",
+      "tokenizers": "0.23.3",
+      "pillow": "12.3.0",
+      "numpy": "2.5.4",
+      "safetensors": "0.8.0"
+    },
+    "load_info": {
+      "load_seconds": 21.35556058608927,
+      "device": {
+        "type": "cpu",
+        "torch_threads": 32,
+        "cpu_numerics": {
+          "aten_cpu_capability": "DEFAULT",
+          "mkldnn_enabled": true,
+          "mkl_cbwr": "AVX",
+          "aten_cpu_capability_env": "default",
+          "mkl_available": true
+        },
+        "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz",
+        "host": "ICCAD3"
+      },
+      "dtype": "float32",
+      "eos_token_ids": [
+        248044,
+        248046
+      ],
+      "max_rss_bytes_after_load": 164572413952,
+      "author_generation_config_replaced": {
+        "max_length": null,
+        "max_new_tokens": null,
+        "min_length": null,
+        "min_new_tokens": null,
+        "early_stopping": null,
+        "max_time": null,
+        "stop_strings": null,
+        "do_sample": true,
+        "num_beams": null,
+        "use_mtp": null,
+        "use_cache": null,
+        "cache_implementation": null,
+        "cache_config": null,
+        "max_cache_len": null,
+        "temperature": 1.0,
+        "top_k": 20,
+        "top_p": 0.95,
+        "min_p": null,
+        "top_h": null,
+        "typical_p": null,
+        "epsilon_cutoff": null,
+        "eta_cutoff": null,
+        "repetition_penalty": null,
+        "encoder_repetition_penalty": null,
+        "length_penalty": null,
+        "no_repeat_ngram_size": null,
+        "bad_words_ids": null,
+        "renormalize_logits": null,
+        "forced_bos_token_id": null,
+        "forced_eos_token_id": null,
+        "remove_invalid_values": null,
+        "exponential_decay_length_penalty": null,
+        "suppress_tokens": null,
+        "begin_suppress_tokens": null,
+        "sequence_bias": null,
+        "token_healing": null,
+        "guidance_scale": null,
+        "watermarking_config": null,
+        "num_return_sequences": null,
+        "output_attentions": null,
+        "output_hidden_states": null,
+        "output_scores": null,
+        "output_logits": null,
+        "return_dict_in_generate": null,
+        "pad_token_id": 248044,
+        "bos_token_id": 248044,
+        "eos_token_id": [
+          248046,
+          248044
+        ],
+        "encoder_no_repeat_ngram_size": null,
+        "decoder_start_token_id": null,
+        "is_assistant": null,
+        "num_assistant_tokens": null,
+        "num_assistant_tokens_schedule": null,
+        "assistant_confidence_threshold": null,
+        "prompt_lookup_num_tokens": null,
+        "max_matching_ngram_size": null,
+        "assistant_early_exit": null,
+        "assistant_lookbehind": null,
+        "target_lookbehind": null,
+        "assistant_ensemble_weight": null,
+        "speculation_type": null,
+        "compile_config": null,
+        "disable_compile": null,
+        "continuous_batching_config": null,
+        "low_memory": null,
+        "penalty_alpha": null,
+        "dola_layers": null,
+        "diversity_penalty": null,
+        "num_beam_groups": null,
+        "constraints": null,
+        "force_words_ids": null,
+        "prefill_chunk_size": null,
+        "_from_model_config": null,
+        "transformers_version": "5.20.0"
+      }
+    },
+    "host": {
+      "hostname": "ICCAD3",
+      "cpu_model": "Intel(R) Xeon(R) CPU E5-2667 v2 @ 3.30GHz"
+    },
+    "kernel_fingerprint": "2d732e8fab0d96b713f0188586b60bead9fb9d691d9a5e323e45eba09fe14651",
+    "wall_seconds_including_load": 1093.978677076986,
+    "mean_image_seconds": 264.9703003367176,
+    "results": [
+      {
+        "id": "0447760",
+        "latency_seconds": 257.9182200480718,
+        "text": "Fokker 50",
+        "finish_reason": "stop",
+        "parsed": "Fokker 50",
+        "final_answer_error": null,
+        "prompt_tokens": 1392,
+        "generation_tokens": 7,
+        "prefill_seconds": 242.784669210203,
+        "max_rss_gb": 164.572413952,
+        "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+        "input_ids_shape": [
+          1,
+          1392
+        ],
+        "pixel_values_shape": [
+          2604,
+          1536
+        ],
+        "image_grid_thw": [
+          [
+            1,
+            42,
+            62
+          ]
+        ],
+        "fingerprint": {
+          "cpu_start": 332.033752,
+          "wall_start": 1296479.500673005,
+          "loadavg_start": [
+            "27.09",
+            "16.50",
+            "21.03"
+          ],
+          "first_scores_sha256": "4d8a20fdc6f860389182867746c9030e29bfb0e00a062cc51e1381aba8b8070f",
+          "first_top5": [
+            [
+              37,
+              21.877016067504883
+            ],
+            [
+              50524,
+              20.626262664794922
+            ],
+            [
+              6844,
+              20.02633285522461
+            ],
+            [
+              230127,
+              19.991514205932617
+            ],
+            [
+              35,
+              19.914642333984375
+            ]
+          ],
+          "cpu_at_first_token": 7086.542433,
+          "drawn": [
+            37,
+            547,
+            6832,
+            220,
+            20,
+            15,
+            248046
+          ],
+          "step_times": [
+            242.86712227622047,
+            245.2370973750949,
+            247.37553670606576,
+            249.46767536504194,
+            251.6287790851202,
+            253.89405433321372,
+            255.97908843611367
+          ],
+          "cpu_total": 7497.40434,
+          "loadavg_end": [
+            "32.33",
+            "25.86",
+            "23.90"
+          ],
+          "decode_seconds_per_token": 2.1853276933155334
+        }
+      },
+      {
+        "id": "1158113",
+        "latency_seconds": 378.21955638285726,
+        "text": "Fokker 70",
+        "finish_reason": "stop",
+        "parsed": "Fokker 70",
+        "final_answer_error": null,
+        "prompt_tokens": 2391,
+        "generation_tokens": 7,
+        "prefill_seconds": 365.123028784059,
+        "max_rss_gb": 164.572413952,
+        "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+        "input_ids_shape": [
+          1,
+          2391
+        ],
+        "pixel_values_shape": [
+          6600,
+          1536
+        ],
+        "image_grid_thw": [
+          [
+            1,
+            66,
+            100
+          ]
+        ],
+        "fingerprint": {
+          "cpu_start": 7829.886071,
+          "wall_start": 1296735.520953597,
+          "loadavg_start": [
+            "32.33",
+            "25.86",
+            "23.90"
+          ],
+          "first_scores_sha256": "9ca6fadda004b0b58d06b46fd6a617c3ee1e44e63cf63922cd842b3737f6392e",
+          "first_top5": [
+            [
+              37,
+              22.21711540222168
+            ],
+            [
+              50524,
+              21.90431785583496
+            ],
+            [
+              230127,
+              21.11384391784668
+            ],
+            [
+              56,
+              20.446226119995117
+            ],
+            [
+              6844,
+              20.398731231689453
+            ]
+          ],
+          "cpu_at_first_token": 11295.717084999997,
+          "drawn": [
+            37,
+            547,
+            6832,
+            220,
+            22,
+            15,
+            248046
+          ],
+          "step_times": [
+            365.1233626489993,
+            367.28955406998284,
+            369.5055207379628,
+            371.6072215458844,
+            373.79044222505763,
+            375.8921335139312,
+            378.17912269593216
+          ],
+          "cpu_total": 11704.431056000001,
+          "loadavg_end": [
+            "32.57",
+            "30.58",
+            "26.73"
+          ],
+          "decode_seconds_per_token": 2.175960007822141
+        }
+      },
+      {
+        "id": "0090868",
+        "latency_seconds": 204.63487610896118,
+        "text": "DC-9-30",
+        "finish_reason": "stop",
+        "parsed": "DC-9-30",
+        "final_answer_error": null,
+        "prompt_tokens": 1161,
+        "generation_tokens": 7,
+        "prefill_seconds": 191.7456109880004,
+        "max_rss_gb": 164.572413952,
+        "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+        "input_ids_shape": [
+          1,
+          1161
+        ],
+        "pixel_values_shape": [
+          1680,
+          1536
+        ],
+        "image_grid_thw": [
+          [
+            1,
+            30,
+            56
+          ]
+        ],
+        "fingerprint": {
+          "cpu_start": 19534.510916,
+          "wall_start": 1297113.714538265,
+          "loadavg_start": [
+            "32.57",
+            "30.58",
+            "26.73"
+          ],
+          "first_scores_sha256": "aa4bde630a55cc06d5d8574646ea8938f4d4a44d2b9debf3c34be3151fd0f9c2",
+          "first_top5": [
+            [
+              22,
+              24.913331985473633
+            ],
+            [
+              5449,
+              23.52165412902832
+            ],
+            [
+              5886,
+              23.048545837402344
+            ],
+            [
+              32,
+              21.227069854736328
+            ],
+            [
+              1191,
+              20.817012786865234
+            ]
+          ],
+          "cpu_at_first_token": 5780.626898999999,
+          "drawn": [
+            5449,
+            12,
+            24,
+            12,
+            18,
+            15,
+            248046
+          ],
+          "step_times": [
+            191.74581836606376,
+            193.8550846548751,
+            195.94031902891584,
+            198.1291028659325,
+            200.23407226405106,
+            202.441175180953,
+            204.61484210798517
+          ],
+          "cpu_total": 6183.691551,
+          "loadavg_end": [
+            "31.59",
+            "31.54",
+            "27.91"
+          ],
+          "decode_seconds_per_token": 2.144837290320235
+        }
+      },
+      {
+        "id": "0489934",
+        "latency_seconds": 219.10854880698025,
+        "text": "ATR-42",
+        "finish_reason": "stop",
+        "parsed": "ATR-42",
+        "final_answer_error": null,
+        "prompt_tokens": 1445,
+        "generation_tokens": 5,
+        "prefill_seconds": 210.65005277702585,
+        "max_rss_gb": 164.572413952,
+        "formatted_prompt_sha256": "c4409cacd942bb3c0810ac3bb0c6ba6573453eb38d644324023f16a4d2036074",
+        "input_ids_shape": [
+          1,
+          1445
+        ],
+        "pixel_values_shape": [
+          2816,
+          1536
+        ],
+        "image_grid_thw": [
+          [
+            1,
+            44,
+            64
+          ]
+        ],
+        "fingerprint": {
+          "cpu_start": 25718.438482999998,
+          "wall_start": 1297318.355665951,
+          "loadavg_start": [
+            "31.59",
+            "31.54",
+            "27.91"
+          ],
+          "first_scores_sha256": "1b223ace61a3a542ba431c1e816f47831b9f9d6c819e405668e3636f2c83d1f1",
+          "first_top5": [
+            [
+              5449,
+              21.712953567504883
+            ],
+            [
+              34,
+              20.953014373779297
+            ],
+            [
+              230127,
+              20.822561264038086
+            ],
+            [
+              35,
+              20.695148468017578
+            ],
+            [
+              50524,
+              20.142135620117188
+            ]
+          ],
+          "cpu_at_first_token": 6496.0532090000015,
+          "drawn": [
+            230127,
+            12,
+            19,
+            17,
+            248046
+          ],
+          "step_times": [
+            210.650341152912,
+            212.73748782393523,
+            214.8165341920685,
+            216.99381167488173,
+            219.08737933286466
+          ],
+          "cpu_total": 6760.976017000001,
+          "loadavg_end": [
+            "30.30",
+            "30.86",
+            "28.41"
+          ],
+          "decode_seconds_per_token": 2.109259544988163
+        }
+      }
+    ],
+    "not_a_score": true
+  },
+  "decode_bench": {
+    "prompt_tokens": 28,
+    "tokens": 16,
+    "prefill_seconds": 6.499801553087309,
+    "seconds_per_token_mean": 2.0805211775315304,
+    "seconds_per_token_min": 2.0262357478495687,
+    "seconds_per_token_max": 2.1691890410147607,
+    "cpu_cores_busy_during_decode": 31.58233406911358,
+    "intervals": [
+      2.0271795061416924,
+      2.0262357478495687,
+      2.0498716831207275,
+      2.0338737098500133,
+      2.1691890410147607,
+      2.084976052166894,
+      2.0617595869116485,
+      2.0484369578771293,
+      2.098976890090853,
+      2.1539112280588597,
+      2.124659914057702,
+      2.093899496831,
+      2.075362080009654,
+      2.036106721032411,
+      2.123379047960043
+    ],
+    "token_ids": [
+      588,
+      11,
+      1330,
+      11,
+      2250,
+      11,
+      2943,
+      11,
+      4097,
+      11,
+      4590,
+      11,
+      7840,
+      11,
+      7810,
+      11
+    ],
+    "loadavg_start": [
+      "30.30",
+      "30.86",
+      "28.41"
+    ],
+    "loadavg_end": [
+      "31.49",
+      "31.10",
+      "28.59"
+    ],
+    "wall_seconds": 37.708912840113044
+  },
+  "nice": 10
+}

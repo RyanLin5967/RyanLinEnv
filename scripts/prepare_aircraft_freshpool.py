@@ -42,6 +42,7 @@ from PIL import Image
 HAMMING_MAX = 6
 HOLDOUT_SALT = "train-holdout-screen"
 HOLDOUT_SEED = 791
+SIGNAL_LIMIT_SALT = "signal-limit-split"  # aircraft-rl-next-study-v1 S_a / S_b split
 SCAN_SEEDS = (42, 314, 2718)
 FORCED_FIRE_DISTINCT_PAIRS = 50
 TEST_IMAGE_COUNT = 3333  # audit/test-images.json rows; the sealed TEST split size
@@ -224,6 +225,57 @@ def scan_order(ids, seed: int) -> list[str]:
     order = sorted(ids)
     random.Random(seed).shuffle(order)
     return order
+
+
+def pool_split_salt(protocol: dict) -> str:
+    """Return data.pool_split.hash_protocol_id of the signal-limit protocol; refuse when absent.
+
+    Same rule as holdout_salt: a pinned literal, never the top-level protocol_id, so an
+    activated copy under a new id cannot reshuffle S_a / S_b.
+    """
+    salt = None
+    data = protocol.get("data") if isinstance(protocol, dict) else None
+    split = data.get("pool_split") if isinstance(data, dict) else None
+    if isinstance(split, dict):
+        salt = split.get("hash_protocol_id")
+    if not isinstance(salt, str) or not salt.strip():
+        raise ValueError(
+            "protocol data.pool_split.hash_protocol_id must be a non-empty string; "
+            "there is no fallback to protocol_id"
+        )
+    return salt
+
+
+def split_signal_limit(s_rows, protocol_id: str):
+    """S -> (S_a, S_b) for aircraft-rl-next-study-v1 (docs/aircraft-rl-next-study-v1.json).
+
+    Within each class, rank by ascending SHA256 of compact JSON
+    [protocol_id, "signal-limit-split", 791, label, id]; ranks 1, 3, 5, ... go to S_a and
+    2, 4, 6, ... to S_b, so S_a gets ceil(n/2) of a class and S_b floor(n/2). Classes are
+    visited in sorted label order and each keeps its rank order. Refuses an empty salt, a
+    duplicate ID, and a class with fewer than two images (S_b would miss that class).
+    """
+    if not isinstance(protocol_id, str) or not protocol_id.strip():
+        raise ValueError("protocol_id is required; there is no default")
+    ids = [row["id"] for row in s_rows]
+    if len(set(ids)) != len(ids):
+        raise ValueError("S rows must have unique IDs")
+    by_label = defaultdict(list)
+    for row in s_rows:
+        by_label[row["label"]].append(row)
+
+    def key(label, image_id):
+        payload = [protocol_id, SIGNAL_LIMIT_SALT, HOLDOUT_SEED, label, image_id]
+        return sha(json.dumps(payload, separators=(",", ":")).encode())
+
+    s_a, s_b = [], []
+    for label in sorted(by_label):
+        ranked = sorted(by_label[label], key=lambda r: key(label, r["id"]))
+        if len(ranked) < 2:
+            raise ValueError(f"Class {label!r} has fewer than 2 S images; S_b would miss it")
+        s_a += ranked[0::2]
+        s_b += ranked[1::2]
+    return s_a, s_b
 
 
 def make_manifests(

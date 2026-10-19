@@ -128,7 +128,7 @@ def test_train_local_refuses_multi_image_outside_plain_grpo(diagnostic, tmp_path
 def test_multi_image_knobs_enter_settings_only_when_passed(diagnostic, tmp_path, monkeypatch):
     pytest.importorskip("torch")
     record = _settings_after_model_refusal(
-        diagnostic, tmp_path, monkeypatch, "m3", beta=0.0,
+        diagnostic, tmp_path, monkeypatch, "m3", beta=0.0, loss_type="grpo",
         grpo_overrides={"prompts_per_update": 4, "skip_zero_advantage_steps": True})
     assert record["settings"]["grpo_overrides"] == {
         "prompts_per_update": 4, "skip_zero_advantage_steps": True}
@@ -493,11 +493,15 @@ def test_dynamic_sampling_dropped_draws_are_charged_to_committed_active_seconds(
 # arm_exec ------------------------------------------------------------------------------------
 
 
+LOSS = ["--loss-type", "grpo"]  # beta-0 GRPO must name its loss aggregation (main's rule)
+
+
 def _arm(**extra):
     return {"id": "m3", "mode": "grpo", "init": "I", "lr": 1e-5, "seed": 42, "beta": 0.0,
             "temperature": 1.0, "response_format": "answer_only", "num_generations": 8,
             "min_pixels": 50176, "max_pixels": 200704, "max_completion_length": 256,
-            "train_manifest": "s_train_scan_seed42.jsonl", "stops": [150], **extra}
+            "train_manifest": "s_train_scan_seed42.jsonl", "stops": [150],
+            "extra_trainer_args": list(LOSS), **extra}
 
 
 def _arm_root(tmp_path):
@@ -533,6 +537,10 @@ def test_arm_exec_passes_the_multi_image_keys_to_the_trainer(tmp_path, monkeypat
     kw = trainer_kwargs_for(_arm(skip_zero_advantage_steps=True))  # P 1 needs no feature
     assert kw["grpo_overrides"] == {"skip_zero_advantage_steps": True}
     feature = {"features": ["prompts_per_update"]}
+    # The allowlisted-extras route reaches the trainer identically.
+    kw = trainer_kwargs_for(_arm(**feature, extra_trainer_args=LOSS + [
+        "--prompts-per-update", "8", "--skip-zero-advantage-steps", "true"]))
+    assert kw["grpo_overrides"] == {"prompts_per_update": 8, "skip_zero_advantage_steps": True}
     for bad, match in (
         (_arm(mode="sft", prompts_per_update=8, **feature), "GRPO only"),
         (_arm(mode="rft", skip_zero_advantage_steps=True), "GRPO only"),
@@ -541,9 +549,14 @@ def test_arm_exec_passes_the_multi_image_keys_to_the_trainer(tmp_path, monkeypat
         (_arm(prompts_per_update=True), "1..32"),
         (_arm(skip_zero_advantage_steps="true"), "bool"),
         (_arm(prompts_per_update=8, extra_trainer_args=["--prompts-per-update", "4"],
-              **feature), "arm keys"),
-        (_arm(extra_trainer_args=["--prompts-per-update=4"]), "arm keys"),
-        (_arm(extra_trainer_args=["--skip", "true"]), "arm keys"),  # argparse prefix
+              **feature), "both as an arm key"),
+        (_arm(extra_trainer_args=["--prompts-per-update=4"]), "not allowlisted"),
+        (_arm(extra_trainer_args=["--skip", "true"]), "not allowlisted"),  # argparse prefix
+        (_arm(extra_trainer_args=["--prompts-per-update", "1"]), "2..32"),  # default: omit
+        (_arm(extra_trainer_args=["--skip-zero-advantage-steps", "false"]), "true"),
+        (_arm(extra_trainer_args=["--prompts-per-update", "8"]), "must come together"),
+        (_arm(beta=0.04, extra_trainer_args=["--skip-zero-advantage-steps", "true"]),
+         "beta 0"),
         (_arm(prompts_per_update=8), "must come together"),  # the host gate would miss it
         (_arm(**feature), "must come together"),  # a "ppu" arm that would run P 1
     ):

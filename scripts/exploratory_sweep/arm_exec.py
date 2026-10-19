@@ -50,6 +50,102 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
+def _int_at_least(n: int):
+    def check(v: str):
+        if not v.lstrip("-").isdigit() or int(v) < n:
+            raise SystemExit(f"REFUSE: expected an integer >= {n}, got {v!r}")
+    return check
+
+
+# Table-supplied trainer flags, an ALLOWLIST (exact names; each takes one value checked by
+# its validator). argparse keeps the LAST value of a repeated flag and accepts unique
+# abbreviations and `--flag=value`, so an extra appended after arm_exec's own flags could
+# silently override --dtype, --learning-rate, --train, ... while the spec-field guards
+# pass (PR #38 review). Extend this map only with a validator; never add a flag arm_exec
+# sets itself. Blind spot: a validator checks the value's form, not the trainer's semantics.
+def _float_in(lo: float, hi: float, *, lo_open: bool = False, hi_open: bool = False):
+    def check(v: str):
+        try:
+            x = float(v)
+        except ValueError:
+            raise SystemExit(f"REFUSE: expected a number, got {v!r}") from None
+        ok = (x > lo if lo_open else x >= lo) and (x < hi if hi_open else x <= hi)
+        if not ok or x != x:
+            raise SystemExit(f"REFUSE: {v!r} is outside {'(' if lo_open else '['}{lo}, {hi}"
+                             f"{')' if hi_open else ']'}")
+    return check
+
+
+def _one_of(*values: str):
+    def check(v: str):
+        if v not in values:
+            raise SystemExit(f"REFUSE: expected one of {list(values)}, got {v!r}")
+    return check
+
+
+def _int_between(lo: int, hi: int):
+    def check(v: str):
+        if not v.isdigit() or not lo <= int(v) <= hi:
+            raise SystemExit(f"REFUSE: expected an integer in {lo}..{hi}, got {v!r}")
+    return check
+
+
+def _payload_file(name: str):
+    """A resolved @payload/ path (arm_exec.payload_arg ran first) to exactly this file."""
+    def check(v: str):
+        path = Path(v)
+        if (not path.is_absolute() or path.resolve() != path or path.name != name
+                or not path.is_file()):
+            raise SystemExit(f"REFUSE: expected the payload's {name}, got {v!r}")
+    return check
+
+
+EXTRA_FLAGS = {
+    "--dynamic-sampling-max-draws": _int_at_least(8),  # CORRECTIONS C5: >= 8 draws
+    # wave-2 table (amendment 4); values are the plan's, ranges no wider than the trainer's
+    "--loss-type": _one_of("grpo", "dr_grpo", "dapo"),
+    "--scale-rewards": _one_of("group", "none"),
+    "--epsilon-high": _float_in(0.2, 10.0),  # clip-higher: >= epsilon 0.2
+    "--num-iterations": _int_between(1, 8),
+    "--label-hierarchy": _payload_file("label-hierarchy-train-v1.json"),
+    "--family-credit": _float_in(0.0, 1.0, hi_open=True),
+    "--manufacturer-credit": _float_in(0.0, 1.0, hi_open=True),
+    "--invalid-reward": _float_in(-1.0, 0.0),
+    # correction M3; defaults (P 1, no skip) are never passed, so legacy identity holds
+    "--prompts-per-update": _int_between(2, 32),
+    "--skip-zero-advantage-steps": _one_of("true"),
+}
+NEVER_EXTRA = {"--train", "--validation"}
+# extras whose value is a file: given as @payload/<rel> only (Arm.resolved_extras)
+PAYLOAD_FLAGS = {"--label-hierarchy"}
+
+
+def checked_extras(extras, base_args) -> list[str]:
+    """`extras` as trainer argv, or refuse: only EXTRA_FLAGS, each once, as `--flag value`,
+    never a flag arm_exec already passes, never --train/--validation."""
+    own = {a for a in base_args if isinstance(a, str) and a.startswith("--")}
+    out, seen, i = [], set(), 0
+    extras = [str(x) for x in extras]
+    while i < len(extras):
+        flag = extras[i]
+        if flag in NEVER_EXTRA or flag.split("=")[0] in NEVER_EXTRA:
+            raise SystemExit(f"REFUSE: extra_trainer_args may not pass {flag}")
+        if "=" in flag or flag not in EXTRA_FLAGS:
+            raise SystemExit(f"REFUSE: extra trainer flag {flag!r} is not allowlisted "
+                             f"(exact `--flag value` from {sorted(EXTRA_FLAGS)})")
+        if flag in own:
+            raise SystemExit(f"REFUSE: extra {flag} would override arm_exec's own value")
+        if flag in seen:
+            raise SystemExit(f"REFUSE: extra {flag} given twice")
+        if i + 1 >= len(extras):
+            raise SystemExit(f"REFUSE: extra {flag} has no value")
+        EXTRA_FLAGS[flag](extras[i + 1])
+        out += [flag, extras[i + 1]]
+        seen.add(flag)
+        i += 2
+    return out
+
+
 def save_steps_for(spec: dict, max_steps: int) -> int:
     """--save-steps for every stage of this arm's trajectory.
 
@@ -121,6 +217,17 @@ class Arm:
             raise SystemExit(f"REFUSE: {text} is not a file in the payload")
         return str(path)
 
+    def resolved_extras(self) -> list[str]:
+        """The table's extras with @payload/ values resolved. A file-valued extra
+        (PAYLOAD_FLAGS) must be given as @payload/<rel>, so payload_arg confines it to this
+        host's payload: an absolute path elsewhere, even with the right file name, refuses."""
+        raw = [str(x) for x in self.spec.get("extra_trainer_args") or []]
+        for i, flag in enumerate(raw):
+            if flag in PAYLOAD_FLAGS and (i + 1 >= len(raw)
+                                          or not raw[i + 1].startswith("@payload/")):
+                raise SystemExit(f"REFUSE: {flag} must name a payload file as @payload/<rel>")
+        return [self.payload_arg(x) for x in raw]
+
     def cuda_args(self) -> list[str]:
         if self.spec.get("device", "cpu") != "cuda":
             return []
@@ -160,7 +267,8 @@ class Arm:
             args += ["--rft-stop-after-steps", str(stop)]
         if s.get("max_active_seconds"):
             args += ["--max-active-seconds", repr(float(s["max_active_seconds"]))]
-        return args + [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
+        resolved = self.resolved_extras()
+        return args + checked_extras(resolved, args)
 
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
@@ -213,8 +321,9 @@ class Arm:
             args += ["--stop-after-active-seconds", repr(float(stop_seconds))]
         if resume is not None:
             args += ["--resume-from-checkpoint", str(resume)]
-        args += [self.payload_arg(x) for x in s.get("extra_trainer_args", [])]
-        return args
+        # @payload/ values resolve first; then every extra must pass the allowlist
+        resolved = self.resolved_extras()
+        return args + checked_extras(resolved, args)
 
     def scanned_ids(self, receipt: dict) -> dict | None:
         """Every prompt the RL arm scored against its gold label, in scan order, for a
@@ -286,21 +395,30 @@ class Arm:
         if type(ppu) is not int or not 1 <= ppu <= 32 or type(skip) is not bool:
             raise SystemExit("REFUSE: prompts_per_update must be an int in 1..32 and "
                              "skip_zero_advantage_steps a bool")
-        flags = ("--prompts-per-update", "--skip-zero-advantage-steps")
-        for token in (str(x).split("=", 1)[0] for x in s.get("extra_trainer_args", [])):
-            # argparse also accepts `--flag=value` and unique prefixes (`--skip`).
-            if len(token) > 2 and any(flag.startswith(token) for flag in flags):
-                raise SystemExit("REFUSE: pass prompts_per_update/skip_zero_advantage_steps "
-                                 f"as arm keys, not extra_trainer_args ({token})")
+        # The same knobs may instead come as allowlisted extras (EXTRA_FLAGS validates their
+        # form; `=` and abbreviated forms are refused there). One route per knob only.
+        extra = [str(x) for x in s.get("extra_trainer_args") or []]
+        given = {f: extra[i + 1] for i, f in enumerate(extra[:-1])
+                 if f in ("--prompts-per-update", "--skip-zero-advantage-steps")}
+        if ("--prompts-per-update" in given and "prompts_per_update" in s) or (
+                "--skip-zero-advantage-steps" in given and "skip_zero_advantage_steps" in s):
+            raise SystemExit("REFUSE: prompts_per_update/skip_zero_advantage_steps given both "
+                             "as an arm key and in extra_trainer_args")
+        if "--prompts-per-update" in given:
+            EXTRA_FLAGS["--prompts-per-update"](given["--prompts-per-update"])
+        if "--skip-zero-advantage-steps" in given:
+            EXTRA_FLAGS["--skip-zero-advantage-steps"](given["--skip-zero-advantage-steps"])
+        p_eff = int(given.get("--prompts-per-update", ppu))
+        skip_eff = skip or "--skip-zero-advantage-steps" in given
         # The runner's host gate reads `features`: a P>1 arm must declare the feature, and an
         # arm that declares it must set P>1 (else a "ppu" arm would silently run P=1).
-        if ("prompts_per_update" in s.get("features", [])) != (ppu != 1):
+        if ("prompts_per_update" in s.get("features", [])) != (p_eff != 1):
             raise SystemExit("REFUSE: feature prompts_per_update and prompts_per_update > 1 "
                              "must come together")
-        if (ppu != 1 or skip) and mode != "grpo":
+        if (p_eff != 1 or skip_eff) and mode != "grpo":
             raise SystemExit(f"REFUSE: prompts_per_update/skip_zero_advantage_steps are GRPO "
                              f"only, not {mode}")
-        if skip and float(s["beta"]) != 0:
+        if skip_eff and float(s["beta"]) != 0:
             raise SystemExit("REFUSE: skip_zero_advantage_steps needs beta 0")
         return ((["--prompts-per-update", str(ppu)] if ppu != 1 else [])
                 + (["--skip-zero-advantage-steps", "true"] if skip else []))
@@ -477,8 +595,29 @@ class Arm:
         missing = [k for k in PROFILE_KEYS if s.get(k) is None and k not in optional]
         if missing:
             raise SystemExit(f"REFUSE: {s.get('id')} has no {missing} for its assay profile")
-        return vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
-                           dtype=s.get("dtype", "float32"))
+        profile = vlt.Profile(**{k: s[k] for k in PROFILE_KEYS if s.get(k) is not None},
+                              dtype=s.get("dtype", "float32"))
+        profile.validate()
+        return profile
+
+    def kept_endpoint(self, stop: int):
+        """(receipt, adapter) of kept/step<stop> when its endpoint receipt is exactly this stop
+        and no endpoint for it was recorded in this run, else None (then the stop trains)."""
+        if any(e.get("label") == f"step{stop}" for e in self.spec.get("prior_endpoints") or []):
+            return None
+        kept = self.work / "kept" / f"step{int(stop)}"
+        path = kept / "endpoint_receipt.json"
+        if not path.is_file() or not (kept / "final_adapter").is_dir():
+            return None
+        receipt = json.loads(path.read_text())
+        if int(receipt.get("global_step", -1)) != int(stop):
+            return None
+        want = (receipt.get("final_adapter") or {}).get("weights_sha256")
+        got = sha_file(kept / "final_adapter" / "adapter_model.safetensors")
+        if want != got:  # a partial copy must never be scored as this stop
+            raise SystemExit(f"REFUSE: kept step{stop} adapter sha {got[:12]} != receipt "
+                             f"{str(want)[:12]}")
+        return receipt, kept / "final_adapter"
 
     def assay(self, adapter: Path, label: str, manifest_name: str) -> dict:
         sys.path.insert(0, str(self.payload / "code" / "src"))
@@ -605,13 +744,31 @@ def run(arm: Arm, final_check: bool) -> dict:
     total = int(s["max_steps_total"])
     previous = s.get("resume_stop")  # promotion: continue this host's own boundary
     for stop in s["stops"]:
+        kept = arm.kept_endpoint(stop) if s.get("reuse_kept") else None
+        if kept is not None:
+            # runner.py continue: this stop trained and its adapter was kept, but the run
+            # died before its endpoint was recorded (e.g. in the assay): re-assay the kept
+            # adapter instead of training again (the trainer refuses a non-empty output)
+            receipt, adapter = kept
+            summary["endpoints"].append({
+                "label": f"step{stop}", "steps": int(stop),
+                "receipt_status": receipt["status"], "reassayed_kept": True,
+                "active_seconds": receipt["committed_active_seconds"],
+                "metrics": arm.assay(adapter, f"step{stop}", holdout)})
+            arm.copy_small()
+            write_summary(arm, summary)
+            previous = stop
+            continue
         # RFT continues its own output dir (round-level resume), never a checkpoint.
         resume = (arm.out / f"checkpoint-{previous}" if previous and s["mode"] != "rft"
                   else None)
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
-        receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume),
-                                stop)
+        stage_args = arm.trainer_args(manifest, total, stop, resume)
+        # only RFT needs the stop (to reuse a completed boundary endpoint); every other mode
+        # keeps run_stage's two-argument call
+        receipt = (arm.run_stage(f"train-{stop}", stage_args, stop) if s["mode"] == "rft"
+                   else arm.run_stage(f"train-{stop}", stage_args))
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),

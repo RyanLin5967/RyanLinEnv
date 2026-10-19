@@ -84,24 +84,28 @@ def control_lrs(lrs) -> dict:
 # (tag, device class, overrides, features, extra trainer args, LRs). Dropped as refuted
 # (C7): hierarchical partial credit (contrast in 1 of 30-50 groups) and both CoT formats
 # (valid 94.9% -> 82.8%, accuracy 70.7% -> 55.5%).
+# beta-0 GRPO must name its loss aggregation explicitly (main's train_local rule): "grpo" is
+# the legacy aggregation and leaves the settings identity unchanged.
+LEGACY_LOSS = ["--loss-type", "grpo"]
 GRPO_FAMILIES = [
     # exact reward, minus 0.5 for a non-EOS or out-of-vocabulary answer (no partial credit;
     # the hierarchy file only supplies the label set, with both credits 0)
     ("fmtpen", "cpu-float32", {}, ["hierarchical_reward", "invalid_answer_penalty"],
      ["--label-hierarchy", HIERARCHY, "--family-credit", "0", "--manufacturer-credit", "0",
-      "--invalid-reward", "-0.5"], GRPO_LRS),
+      "--invalid-reward", "-0.5", *LEGACY_LOSS], GRPO_LRS),
     ("closedset", "cpu-float32", {"response_format": "closed_set_answer_only"},
-     ["closed_set_prompt"], [], GRPO_LRS),
+     ["closed_set_prompt"], LEGACY_LOSS, GRPO_LRS),
     ("drgrpo", "cpu-float32", {}, ["dr_grpo"],
      ["--loss-type", "dr_grpo", "--scale-rewards", "none"], GRPO_LRS + (3e-5,)),
-    ("mu2", "cpu-float32", {}, ["num_iterations"], ["--num-iterations", "2"], GRPO_LRS),
+    ("mu2", "cpu-float32", {}, ["num_iterations"], ["--num-iterations", "2", *LEGACY_LOSS],
+     GRPO_LRS),
     # DAPO: token-level loss, clip-higher (binds only once a batch is reused, see mu2) and
     # dynamic sampling, >= 8 draws (C5): all-same reward groups dropped and redrawn
     ("dapo", "rtx2080ti-float32", {}, ["dapo", "dynamic_sampling"],
      ["--loss-type", "dapo", "--epsilon-high", "0.28", "--dynamic-sampling-max-draws", "8"],
      GRPO_LRS),
     # plain GRPO-I at a low LR: how much a small step forgets
-    ("guard", "cpu-float32", {}, [], [], (3e-6,)),
+    ("guard", "cpu-float32", {}, [], LEGACY_LOSS, (3e-6,)),
 ]
 RFT = {"rounds": 400, "prompts_per_round": 32, "epochs_per_round": 1, "max_keep_per_prompt": 1,
        "skip_all_correct": False}
@@ -182,8 +186,27 @@ def wave2_arms() -> list:
     return out
 
 
+MIN_DYNAMIC_DRAWS = 8  # CORRECTIONS C5: dynamic sampling redraws at least 8 groups
+
+
+def check_dynamic_draws(arms: list) -> None:
+    """Refuse any row whose --dynamic-sampling-max-draws is missing its value or below 8, so
+    neither the generator nor --check can produce or accept one."""
+    for a in arms:
+        extras = [str(x) for x in a.get("extra_trainer_args") or []]
+        for i, flag in enumerate(extras):
+            if flag.split("=")[0] != "--dynamic-sampling-max-draws":
+                continue
+            value = flag.split("=", 1)[1] if "=" in flag else (
+                extras[i + 1] if i + 1 < len(extras) else "")
+            if not value.isdigit() or int(value) < MIN_DYNAMIC_DRAWS:
+                raise ValueError(f"{a['id']}: --dynamic-sampling-max-draws {value!r} < "
+                                 f"{MIN_DYNAMIC_DRAWS} (CORRECTIONS C5)")
+
+
 def table() -> dict:
     arms = wave2_arms()
+    check_dynamic_draws(arms)
     return {"study_id": D.STUDY_ID, "schema_version": 1, "rung": 1, "wave": 2,
             "amendment": 4, "inits": D.INITS, "rung_updates": D.RUNG_UPDATES,
             "rung_seeds": {str(k): list(v) for k, v in D.RUNG_SEEDS.items()},
@@ -202,6 +225,12 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     raw = render()
     if a.check:
+        if OUT.is_file():  # the file on disk, not only the rebuilt one, must satisfy C5
+            try:
+                check_dynamic_draws(json.loads(OUT.read_text())["arms"])
+            except ValueError as exc:
+                print(f"wave-2 table refused: {exc}", file=sys.stderr)
+                return 1
         if not OUT.is_file() or OUT.read_bytes() != raw:
             print(f"wave-2 table drift: {OUT}", file=sys.stderr)
             return 1
