@@ -42,10 +42,15 @@ sha256(json([STUDY, pool, SEED, label, id])); every prefix is as class-balanced 
 
 Refuses (exit 2) when: a unit is missing, or two results for one id disagree, or a unit carries a
 different adapter/payload/trie/profile, or failed its trainer cross-check; the scored ids are not
-exactly the scored rows; a scored row has no pHash entry; any pool or unreachable row's id or
-image content sha256 is in dev800, dev600, h_select, h_gate_final, native VAL, sealed TEST,
-train400 or either near-duplicate set; a row's image bytes differ from the native TRAIN audit's
-encoded_sha256 for its id.
+exactly the scored rows; a scored row has no 16-lowercase-hex pHash entry; any pool or
+unreachable row's id or image content sha256 is in dev800, dev600, h_select, h_gate_final, native
+VAL, sealed TEST, train400 or either near-duplicate set; a row's image bytes differ from the native
+TRAIN audit's encoded_sha256 for its id.
+
+The self-test plants each overlap with an id and an image hash unique to its reference set (or,
+when a set has none, against that set alone) and requires the refusal to name that set.
+POOLS.json also reports, without dropping anything, eligible rows within Hamming 6 of an
+already-excluded row (transitive_near_duplicate_exposure).
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ import collections
 import copy
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -71,6 +77,7 @@ ELIGIBLE_ROWS = 1452
 SHARD = 32
 P_REACH, P_LO, P_HI = 0.02, 0.1, 0.9
 HOLDOUTS = ("dev800", "dev600", "h_select", "h_gate_final")
+HEX16 = re.compile(r"[0-9a-f]{16}")
 
 
 class Refuse(Exception):
@@ -145,9 +152,14 @@ def phash_exclusions(path: Path, scored: list[dict]) -> tuple[dict, dict]:
 def check_phash_doc(doc: dict, scored: list[dict]) -> dict:
     ids = [r["id"] for r in scored]
     hashes = doc["eligible_phashes"]
-    unaudited = sorted(i for i in ids if not isinstance(hashes.get(i), str))
+    unaudited = sorted(
+        i for i in ids if not (isinstance(hashes.get(i), str) and HEX16.fullmatch(hashes[i]))
+    )
     if unaudited:
-        raise Refuse(f"scored rows with no pHash entry (never near-duplicate checked): {unaudited}")
+        raise Refuse(
+            "scored rows with no valid 16-hex pHash entry (never near-duplicate checked): "
+            f"{unaudited}"
+        )
     if set(hashes) != set(ids):
         raise Refuse("pHash audit covers ids outside the scored rows")
     if doc["hamming_max"] != 6 or doc["reference_counts"] != {
@@ -442,6 +454,41 @@ def prepare(a):
     return scored, flagged, refs, train_audit, labels, ex_meta
 
 
+def transitive_exposure(eligible, flagged, near, phash_doc, old_audit, ordered) -> dict:
+    """REPORT ONLY (pools unchanged): eligible rows within Hamming 6 of an already-excluded row.
+
+    Excluded rows with a pHash: the v3-flagged rows (eligible_phash_audit.json) and the 477
+    VAL/TEST near-duplicates (the original phash_audit.json pool_phashes). train400 is not listed
+    here because it is already a direct pHash reference for every eligible row.
+    """
+    hashes = phash_doc["eligible_phashes"]
+    excluded = {i: (int(hashes[i], 16), "v3_phash_near_duplicate") for i in flagged}
+    old = old_audit["pool_phashes"]
+    missing = sorted(i for i in near if not HEX16.fullmatch(str(old.get(i))))
+    for i in near:
+        if i not in missing:
+            excluded[i] = (int(old[i], 16), "val_test_phash_near_duplicate_477")
+    pairs = []
+    for r in eligible:
+        h = int(hashes[r["id"]], 16)
+        for x, (xh, reason) in excluded.items():
+            d = (h ^ xh).bit_count()
+            if d <= 6:
+                pairs.append({"id": r["id"], "excluded_id": x, "hamming": d, "excluded_as": reason})
+    pairs.sort(key=lambda p: (p["id"], p["excluded_id"]))
+    exposed = sorted({p["id"] for p in pairs})
+    return {
+        "rule": "eligible row within Hamming <= 6 of an excluded row (report only; not dropped)",
+        "excluded_rows_compared": len(excluded),
+        "excluded_rows_without_phash": missing,
+        "pairs": pairs,
+        "exposed_ids": exposed,
+        "exposed_in_pools": {
+            k: sorted({r["id"] for r in v} & set(exposed)) for k, v in ordered.items()
+        },
+    }
+
+
 def run(a) -> dict:
     scored, flagged, refs, train_audit, labels, ex_meta = prepare(a)
     scores, meta = load_scores(a.results, scored)
@@ -531,6 +578,14 @@ def run(a) -> dict:
         "train400. v3 pHashes every scored row against VAL, TEST and train400 and drops flagged "
         "rows; scores are unchanged (per-row, from the same 46 units).",
         "phash_excluded_ids": sorted(flagged),
+        "transitive_near_duplicate_exposure": transitive_exposure(
+            eligible,
+            flagged,
+            refs["val_test_phash_near_duplicates"]["ids"],
+            json.loads(a.eligible_phash.read_text()),
+            json.loads(a.phash.read_text()),
+            ordered,
+        ),
         "images_note": "manifests reference images/train/<id>.jpg; place them in the payload's "
         "data/manifests directory (same layout as all_train.jsonl) to train",
     }
@@ -541,6 +596,13 @@ def run(a) -> dict:
         **{k: v["sha256"] for k, v in files.items()},
         "counts": {k: v.get("rows") for k, v in files.items()},
     }
+
+
+def own_refusal(exc: Refuse, name: str, mode: str) -> str:
+    """A planted overlap counts only when the refusal names the set it was planted in."""
+    if f"overlaps {name}:" not in str(exc):
+        return f"WRONG CHECK FIRED ({mode}): {str(exc)[:110]}"
+    return f"refused ({mode}): {str(exc)[:110]}"
 
 
 def self_test(scores, eligible, refs, train_audit, labels, scored, phash_doc) -> dict:
@@ -572,6 +634,15 @@ def self_test(scores, eligible, refs, train_audit, labels, scored, phash_doc) ->
             }
         ),
         "phash_threshold_changed": lambda d: d.update(hamming_max=8),
+        "phash_entry/not_hex": lambda d: d["eligible_phashes"].update(
+            {unaudited_victim: "zzzzzzzzzzzzzzzz"}
+        ),
+        "phash_entry/15_chars": lambda d: d["eligible_phashes"].update(
+            {unaudited_victim: d["eligible_phashes"][unaudited_victim][:15]}
+        ),
+        "phash_entry/uppercase": lambda d: d["eligible_phashes"].update(
+            {unaudited_victim: "ABCDEF0123456789"}
+        ),
     }
     for name, plant in plants.items():
         d = copy.deepcopy(phash_doc)
@@ -583,32 +654,49 @@ def self_test(scores, eligible, refs, train_audit, labels, scored, phash_doc) ->
             outcomes[name] = f"refused: {str(exc)[:110]}"
     victim = eligible[0]["id"]
     for name, ref in refs.items():
-        planted = sorted(ref["ids"])[0]
+        # Plant an id and an image hash that belong to THIS set only, so the refusal can only
+        # come from this set's own check. A set with no unique member is planted against itself
+        # alone ("isolated"). Either way the refusal must name the planted set.
+        other_ids = set().union(*(r["ids"] for k, r in refs.items() if k != name))
+        other_sha = set().union(*(r["sha"] for k, r in refs.items() if k != name))
+        unique_ids, unique_sha = sorted(ref["ids"] - other_ids), sorted(ref["sha"] - other_sha)
+        planted = (unique_ids or sorted(ref["ids"]))[0]
+        planted_sha = (unique_sha or sorted(ref["sha"]))[0]
+        id_refs = refs if unique_ids else {name: ref}
+        sha_refs = refs if unique_sha else {name: ref}
+        mode = {"id": "unique" if unique_ids else "isolated"}
+        mode["content"] = "unique" if unique_sha else "isolated"
         # (1) planted by id into the eligible set, forced into hard
         s = copy.deepcopy(scores)
         s[planted] = dict(s[victim], id=planted, greedy_correct=False, p_gold=0.5)
         el = list(eligible) + [dict(eligible[0], id=planted)]
         try:
-            build(s, el, refs, dict(train_audit, **{planted: s[planted]["image_sha256"]}), labels)
+            build(
+                s, el, id_refs, dict(train_audit, **{planted: s[planted]["image_sha256"]}), labels
+            )
             outcomes[f"{name}/id"] = "NOT REFUSED"
         except Refuse as exc:
-            outcomes[f"{name}/id"] = f"refused: {str(exc)[:110]}"
+            outcomes[f"{name}/id"] = own_refusal(exc, name, mode["id"])
         # (2) planted by content: an eligible row carrying a reference image's bytes
         s = copy.deepcopy(scores)
-        s[victim] = dict(s[victim], image_sha256=sorted(ref["sha"])[0], greedy_correct=False)
+        s[victim] = dict(s[victim], image_sha256=planted_sha, greedy_correct=False)
         try:
             build(
-                s, eligible, refs, dict(train_audit, **{victim: s[victim]["image_sha256"]}), labels
+                s,
+                eligible,
+                sha_refs,
+                dict(train_audit, **{victim: s[victim]["image_sha256"]}),
+                labels,
             )
             outcomes[f"{name}/content"] = "NOT REFUSED"
         except Refuse as exc:
-            outcomes[f"{name}/content"] = f"refused: {str(exc)[:110]}"
+            outcomes[f"{name}/content"] = own_refusal(exc, name, mode["content"])
         # (3) the pool-level check alone, on a pool list holding one planted row
         try:
-            check_disjoint("hard", [scores[victim], dict(scores[victim], id=planted)], refs)
+            check_disjoint("hard", [scores[victim], dict(scores[victim], id=planted)], id_refs)
             outcomes[f"{name}/pool_level"] = "NOT REFUSED"
         except Refuse as exc:
-            outcomes[f"{name}/pool_level"] = f"refused: {str(exc)[:110]}"
+            outcomes[f"{name}/pool_level"] = own_refusal(exc, name, mode["id"])
     s = copy.deepcopy(scores)
     s[victim] = dict(s[victim], image_sha256="0" * 64)
     try:

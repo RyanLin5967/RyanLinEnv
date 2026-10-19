@@ -345,5 +345,296 @@
   "units_checked": 46
  },
  "trainer_sha256": "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0",
+ "transitive_near_duplicate_exposure": {
+  "excluded_rows_compared": 493,
+  "excluded_rows_without_phash": [],
+  "exposed_ids": [
+   "0157159",
+   "0443884",
+   "0454746",
+   "0584541",
+   "0732201",
+   "0894321",
+   "0894380",
+   "0918736",
+   "0967838",
+   "0997581",
+   "1095676",
+   "1111277",
+   "1113385",
+   "1146230",
+   "1196995",
+   "1227256",
+   "1243371",
+   "1261425",
+   "1270604",
+   "1303402",
+   "1346116",
+   "1376551",
+   "1453430",
+   "1560577",
+   "1570250",
+   "1682041",
+   "1818731",
+   "1861811",
+   "1979061",
+   "2114202",
+   "2162833"
+  ],
+  "exposed_in_pools": {
+   "hard": [
+    "0894321",
+    "0894380",
+    "0918736",
+    "1146230"
+   ],
+   "mid": [
+    "0443884",
+    "0454746",
+    "0894321",
+    "0894380",
+    "1146230",
+    "1243371",
+    "1261425",
+    "1453430",
+    "1570250",
+    "1682041",
+    "1818731",
+    "2162833"
+   ],
+   "mixed": [
+    "0443884",
+    "0454746",
+    "0894321",
+    "0894380",
+    "0918736",
+    "1146230",
+    "1243371",
+    "1261425",
+    "1453430",
+    "1570250",
+    "1682041",
+    "1818731",
+    "2162833"
+   ],
+   "unreachable": [
+    "1227256",
+    "1346116"
+   ]
+  },
+  "pairs": [
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1989990",
+    "hamming": 6,
+    "id": "0157159"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1534214",
+    "hamming": 6,
+    "id": "0443884"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0273150",
+    "hamming": 6,
+    "id": "0454746"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1307327",
+    "hamming": 6,
+    "id": "0584541"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1736158",
+    "hamming": 6,
+    "id": "0584541"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1266977",
+    "hamming": 4,
+    "id": "0732201"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0822348",
+    "hamming": 6,
+    "id": "0894321"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2047538",
+    "hamming": 6,
+    "id": "0894380"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0255363",
+    "hamming": 6,
+    "id": "0918736"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1611576",
+    "hamming": 6,
+    "id": "0967838"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1054078",
+    "hamming": 6,
+    "id": "0997581"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1027362",
+    "hamming": 6,
+    "id": "1095676"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1829675",
+    "hamming": 6,
+    "id": "1111277"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1951693",
+    "hamming": 6,
+    "id": "1111277"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1100739",
+    "hamming": 6,
+    "id": "1113385"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1389219",
+    "hamming": 6,
+    "id": "1146230"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1010683",
+    "hamming": 6,
+    "id": "1196995"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0218812",
+    "hamming": 6,
+    "id": "1227256"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2240254",
+    "hamming": 6,
+    "id": "1227256"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2207336",
+    "hamming": 6,
+    "id": "1243371"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1279903",
+    "hamming": 6,
+    "id": "1261425"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1093671",
+    "hamming": 6,
+    "id": "1270604"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2031397",
+    "hamming": 6,
+    "id": "1303402"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0977347",
+    "hamming": 6,
+    "id": "1346116"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1068361",
+    "hamming": 6,
+    "id": "1376551"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1458702",
+    "hamming": 6,
+    "id": "1453430"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0771164",
+    "hamming": 6,
+    "id": "1560577"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2162060",
+    "hamming": 6,
+    "id": "1570250"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0838565",
+    "hamming": 6,
+    "id": "1682041"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0702868",
+    "hamming": 6,
+    "id": "1818731"
+   },
+   {
+    "excluded_as": "v3_phash_near_duplicate",
+    "excluded_id": "1557747",
+    "hamming": 6,
+    "id": "1861811"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "1368847",
+    "hamming": 6,
+    "id": "1979061"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "0983934",
+    "hamming": 6,
+    "id": "2114202"
+   },
+   {
+    "excluded_as": "v3_phash_near_duplicate",
+    "excluded_id": "1446341",
+    "hamming": 6,
+    "id": "2162833"
+   },
+   {
+    "excluded_as": "val_test_phash_near_duplicate_477",
+    "excluded_id": "2122829",
+    "hamming": 6,
+    "id": "2162833"
+   }
+  ],
+  "rule": "eligible row within Hamming <= 6 of an excluded row (report only; not dropped)"
+ },
  "trie_sha256": "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0"
 }
