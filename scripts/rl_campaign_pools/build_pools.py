@@ -1,7 +1,7 @@
 """Reduce the I scores into hard/mid/mixed RL pools plus an unreachable list; prove disjointness.
 
   python3 -I build_pools.py --results DIR --payload-data DIR --audit DIR --phash FILE \
-      --train400 FILE --exclusions FILE --out DIR
+      --train400 FILE --exclusions FILE --eligible-phash FILE --out DIR
   python3 -I build_pools.py ... --self-test        # planted-overlap fixture; must refuse each plant
 
 Standard library only. Inputs:
@@ -15,9 +15,17 @@ Standard library only. Inputs:
   --train400      data/fgvc-aircraft-2013b/candidates/fourshot-seed791/train400.jsonl
   --exclusions    the exclusions file score_worker.py pinned; refused unless it equals the sets
                   re-derived here from --train400 and --phash
+  --eligible-phash  phash_eligible.py output (pinned): a pHash for EVERY scored row, and its
+                  near-duplicate pairs (Hamming <= 6) against native VAL, sealed TEST and train400
 
-Eligible rows = all_train - train400 - the 477 all_train images flagged as pHash near-duplicates
+Scored rows = all_train - train400 - the 477 all_train images flagged as pHash near-duplicates
 (Hamming <= 6) of a native VAL or sealed TEST image (CORRECTIONS.md C9/M8). 1,452 rows.
+Eligible rows (v3) = scored rows - every scored row that phash_eligible.py flags as a pHash
+near-duplicate of a native VAL, sealed TEST or train400 image. The original audit never hashed 15
+of the scored rows (probe16 outside train400), and v2 only removed ids that audit listed, so an
+unaudited row passed as clean. v3 refuses when any scored row has no pHash entry, and pools never
+hold a near-duplicate of train400 (CORRECTIONS.md keeps train400 out of RL pools). Removed rows are
+listed in phash_excluded.jsonl with their pairs.
 
 Pools (rules fixed by CORRECTIONS.md 2026-10-18, before any corrected score was read):
   p_gold      = P(gold label + EOS) under I at temperature 1.0, summed over every label-trie
@@ -34,9 +42,10 @@ sha256(json([STUDY, pool, SEED, label, id])); every prefix is as class-balanced 
 
 Refuses (exit 2) when: a unit is missing, or two results for one id disagree, or a unit carries a
 different adapter/payload/trie/profile, or failed its trainer cross-check; the scored ids are not
-exactly the eligible rows; any pool or unreachable row's id or image content sha256 is in dev800,
-dev600, h_select, h_gate_final, native VAL, sealed TEST, train400 or the near-duplicate set; a row's
-image bytes differ from the native TRAIN audit's encoded_sha256 for its id.
+exactly the scored rows; a scored row has no pHash entry; any pool or unreachable row's id or
+image content sha256 is in dev800, dev600, h_select, h_gate_final, native VAL, sealed TEST,
+train400 or either near-duplicate set; a row's image bytes differ from the native TRAIN audit's
+encoded_sha256 for its id.
 """
 
 from __future__ import annotations
@@ -49,7 +58,7 @@ import json
 import sys
 from pathlib import Path
 
-STUDY = "aircraft-rl-campaign-I-pools-v2"
+STUDY = "aircraft-rl-campaign-I-pools-v3"
 SEED = 20261018
 I_WEIGHTS_SHA256 = "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
 ALL_TRAIN_SHA256 = "9bed5893ad866fa2b6a5f86c4edc98421699154f435879e9e4867825c64caa9e"
@@ -57,6 +66,7 @@ TRIE_SHA256 = "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0"
 TRAINER_SHA256 = "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0"
 EXCLUSIONS_SHA256 = "00a433eab22002764d2d91c02888623b2d5a4b37ee90ba3e1bb0eb19b482380b"
 TRAIN400_SHA256 = "b4e5b821b851189d5dda0963f99f98e6b790a51c5b99b07f6af00843bf2a41f0"
+ELIGIBLE_PHASH_SHA256 = "83270d7d8b8315c54e78eedd840ba685d9a204a16e4a28dc28e391e1e4b32c8d"
 ELIGIBLE_ROWS = 1452
 SHARD = 32
 P_REACH, P_LO, P_HI = 0.02, 0.1, 0.9
@@ -115,6 +125,43 @@ def exclusion_sets(a, all_train_ids: set) -> tuple[set, set, dict]:
             "exclusions_sha256": EXCLUSIONS_SHA256,
         },
     )
+
+
+def phash_exclusions(path: Path, scored: list[dict]) -> tuple[dict, dict]:
+    """{id: [pairs]} for every scored row flagged against VAL/TEST/train400; refuses on gaps."""
+    if sha_file(path) != ELIGIBLE_PHASH_SHA256:
+        raise Refuse("eligible pHash audit differs from the pinned sha256")
+    doc = json.loads(path.read_text())
+    return check_phash_doc(doc, scored), {
+        "eligible_phash_sha256": ELIGIBLE_PHASH_SHA256,
+        "hamming_max": doc["hamming_max"],
+        "reference_counts": doc["reference_counts"],
+        "parity_with_original_audit": doc["parity_with_original_audit"],
+        "forced_fire_passed": doc["forced_fire"]["eligible"]["passed"]
+        and doc["forced_fire"]["planted_val_flagged"],
+    }
+
+
+def check_phash_doc(doc: dict, scored: list[dict]) -> dict:
+    ids = [r["id"] for r in scored]
+    hashes = doc["eligible_phashes"]
+    unaudited = sorted(i for i in ids if not isinstance(hashes.get(i), str))
+    if unaudited:
+        raise Refuse(f"scored rows with no pHash entry (never near-duplicate checked): {unaudited}")
+    if set(hashes) != set(ids):
+        raise Refuse("pHash audit covers ids outside the scored rows")
+    if doc["hamming_max"] != 6 or doc["reference_counts"] != {
+        "validation": 3333,
+        "test": 3333,
+        "train400": 400,
+    }:
+        raise Refuse("pHash audit used a different threshold or reference sets")
+    flagged = collections.defaultdict(list)
+    for x in doc["near_duplicates"]:
+        if x["reference_split"] not in ("validation", "test", "train400") or x["hamming"] > 6:
+            raise Refuse(f"pHash pair outside the rule: {x}")
+        flagged[x["pool_id"]].append(x)
+    return dict(flagged)
 
 
 def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
@@ -178,7 +225,7 @@ def load_scores(results: Path, eligible: list[dict]) -> tuple[dict, dict]:
     }
 
 
-def references(payload_data: Path, audit: Path, t4: set, near: set) -> dict:
+def references(payload_data: Path, audit: Path, t4: set, near: set, near3: set) -> dict:
     """{name: {"ids": set, "sha": set}} for every set a pool must never touch."""
     man = payload_data / "manifests"
     splits = json.loads((payload_data / "splits.json").read_text())
@@ -209,6 +256,7 @@ def references(payload_data: Path, audit: Path, t4: set, near: set) -> dict:
     }
     refs["train400"] = {"ids": set(t4), "sha": {train_sha[i] for i in t4}}
     refs["val_test_phash_near_duplicates"] = {"ids": set(near), "sha": {train_sha[i] for i in near}}
+    refs["v3_phash_near_duplicates"] = {"ids": set(near3), "sha": {train_sha[i] for i in near3}}
     for name in refs:
         refs[name]["id_set_sha256"] = id_set_sha(refs[name]["ids"])
         refs[name]["n"] = len(refs[name]["ids"])
@@ -331,7 +379,8 @@ def coverage_md(cov: dict, timing: dict) -> str:
     lines = [
         "# I on the eligible TRAIN rows: RL pool coverage",
         "",
-        f"Eligible = all_train (2,329) - train400 (400) - VAL/TEST pHash near-duplicates (477) = "
+        "Eligible = all_train (2,329) - train400 (400) - VAL/TEST pHash near-duplicates (477) "
+        "- v3 pHash near-duplicates of VAL/TEST/train400 among the 1,452 scored rows = "
         f"{t['eligible']} rows. I greedy correct {t['greedy_correct']} "
         f"({t['greedy_correct'] / t['eligible']:.4f}); wrong {t['greedy_wrong']} "
         f"(invalid {t['greedy_invalid']}); wrong and unreachable (p < 0.02) "
@@ -379,24 +428,38 @@ def prepare(a):
         raise Refuse("all_train.jsonl is not the pinned pool")
     all_train = read_jsonl(man / "all_train.jsonl")
     t4, near, ex_meta = exclusion_sets(a, {r["id"] for r in all_train})
-    eligible = [r for r in all_train if r["id"] not in t4 | near]
-    if len(eligible) != ELIGIBLE_ROWS:
-        raise Refuse(f"eligible rows {len(eligible)} != {ELIGIBLE_ROWS}")
-    refs = references(a.payload_data, a.audit, t4, near)
+    scored = [r for r in all_train if r["id"] not in t4 | near]
+    if len(scored) != ELIGIBLE_ROWS:
+        raise Refuse(f"scored rows {len(scored)} != {ELIGIBLE_ROWS}")
+    flagged, ph_meta = phash_exclusions(a.eligible_phash, scored)
+    ex_meta["v3_phash"] = ph_meta
+    refs = references(a.payload_data, a.audit, t4, near, set(flagged))
     train_audit = {
         e["image_id"]: e["encoded_sha256"]
         for e in json.loads((a.audit / "train-images.json").read_text())
     }
     labels = json.loads((a.payload_data / "data_spec.json").read_text())["labels"]
-    return eligible, refs, train_audit, labels, ex_meta
+    return scored, flagged, refs, train_audit, labels, ex_meta
 
 
 def run(a) -> dict:
-    eligible, refs, train_audit, labels, ex_meta = prepare(a)
-    scores, meta = load_scores(a.results, eligible)
+    scored, flagged, refs, train_audit, labels, ex_meta = prepare(a)
+    scores, meta = load_scores(a.results, scored)
+    eligible = [r for r in scored if r["id"] not in flagged]
     if a.self_test:
-        return self_test(scores, eligible, refs, train_audit, labels)
+        phash_doc = json.loads(a.eligible_phash.read_text())
+        return self_test(scores, eligible, refs, train_audit, labels, scored, phash_doc)
     rows, ordered, disjoint, cov = build(scores, eligible, refs, train_audit, labels)
+    excluded = [
+        {
+            "id": i,
+            "label": scores[i]["label"],
+            "p_gold": scores[i]["p_gold"],
+            "greedy_correct": scores[i]["greedy_correct"],
+            "pairs": sorted(flagged[i], key=lambda x: (x["reference_split"], x["reference_id"])),
+        }
+        for i in sorted(flagged)
+    ]
     out = a.out
     (out / "manifests").mkdir(parents=True, exist_ok=True)
     files = {}
@@ -427,6 +490,9 @@ def run(a) -> dict:
     raw = jsonl({k: r[k] for k in keep} for r in rows)
     (out / "scores.jsonl").write_bytes(raw)
     files["scores.jsonl"] = {"sha256": sha(raw), "rows": len(rows)}
+    raw = jsonl(excluded)
+    (out / "phash_excluded.jsonl").write_bytes(raw)
+    files["phash_excluded.jsonl"] = {"sha256": sha(raw), "rows": len(excluded)}
     raw = (json.dumps(cov, indent=1, sort_keys=True) + "\n").encode()
     (out / "coverage.json").write_bytes(raw)
     files["coverage.json"] = {"sha256": sha(raw)}
@@ -437,7 +503,9 @@ def run(a) -> dict:
         "study": STUDY,
         "seed": SEED,
         "rule": {
-            "eligible": "all_train - train400 - VAL/TEST pHash near-duplicates (477)",
+            "scored": "all_train - train400 - VAL/TEST pHash near-duplicates (477) = 1452",
+            "eligible": "scored - rows flagged by phash_eligible.py against native VAL, sealed "
+            "TEST or train400 (Hamming <= 6); every scored row must carry a pHash",
             "p_gold": "P(gold + EOS) at T 1.0 under I, summed over label-trie tokenisations",
             "hard": f"I greedy answer != gold AND p_gold >= {P_REACH}",
             "mid": f"{P_LO} <= p_gold <= {P_HI}",
@@ -458,6 +526,11 @@ def run(a) -> dict:
         "files": files,
         "pool_scoring": meta["timing"],
         "trainer_cross_check": meta["cross_check"],
+        "change_from_v2": "v2 pooled 4 rows (0090868, 0447760, 1548951, 2045491) that the original "
+        "pHash audit never hashed (probe16 outside train400), and pooled pHash near-duplicates of "
+        "train400. v3 pHashes every scored row against VAL, TEST and train400 and drops flagged "
+        "rows; scores are unchanged (per-row, from the same 46 units).",
+        "phash_excluded_ids": sorted(flagged),
         "images_note": "manifests reference images/train/<id>.jpg; place them in the payload's "
         "data/manifests directory (same layout as all_train.jsonl) to train",
     }
@@ -470,10 +543,44 @@ def run(a) -> dict:
     }
 
 
-def self_test(scores, eligible, refs, train_audit, labels) -> dict:
-    """Clean build passes; every planted overlap (by id, and by content) must refuse."""
+def self_test(scores, eligible, refs, train_audit, labels, scored, phash_doc) -> dict:
+    """Clean build passes; every planted overlap (by id, and by content) must refuse, and so must
+    a scored row left without a pHash entry."""
     build(scores, eligible, refs, train_audit, labels)
     outcomes = {}
+    check_phash_doc(phash_doc, scored)  # the real audit passes
+    unaudited_victim = sorted(phash_doc["eligible_phashes"])[0]
+    plants = {
+        "unaudited_row/missing_entry": lambda d: d["eligible_phashes"].pop(unaudited_victim),
+        "unaudited_row/null_entry": lambda d: d["eligible_phashes"].update(
+            {unaudited_victim: None}
+        ),
+        "phash_pair/over_threshold": lambda d: d["near_duplicates"].append(
+            {
+                "pool_id": unaudited_victim,
+                "reference_split": "test",
+                "reference_id": "x",
+                "hamming": 7,
+            }
+        ),
+        "phash_pair/unknown_split": lambda d: d["near_duplicates"].append(
+            {
+                "pool_id": unaudited_victim,
+                "reference_split": "dev",
+                "reference_id": "x",
+                "hamming": 1,
+            }
+        ),
+        "phash_threshold_changed": lambda d: d.update(hamming_max=8),
+    }
+    for name, plant in plants.items():
+        d = copy.deepcopy(phash_doc)
+        plant(d)
+        try:
+            check_phash_doc(d, scored)
+            outcomes[name] = "NOT REFUSED"
+        except Refuse as exc:
+            outcomes[name] = f"refused: {str(exc)[:110]}"
     victim = eligible[0]["id"]
     for name, ref in refs.items():
         planted = sorted(ref["ids"])[0]
@@ -517,7 +624,15 @@ def self_test(scores, eligible, refs, train_audit, labels) -> dict:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    for name in ("results", "payload-data", "audit", "phash", "train400", "exclusions"):
+    for name in (
+        "results",
+        "payload-data",
+        "audit",
+        "phash",
+        "train400",
+        "exclusions",
+        "eligible-phash",
+    ):
         p.add_argument("--" + name, type=Path, required=True)
     p.add_argument("--out", type=Path)
     p.add_argument("--self-test", action="store_true")

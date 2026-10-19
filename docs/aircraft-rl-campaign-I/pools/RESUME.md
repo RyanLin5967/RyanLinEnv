@@ -1,3 +1,30 @@
+# CURRENT: pools v3 (docs/aircraft-rl-campaign-I/pools/v3/). v2 is SUPERSEDED: do not train on it.
+
+v2 pooled 0447760 (mid, mixed), a pHash near-duplicate of native VAL 0098491 (Hamming 4) and sealed
+TEST 1290785 (Hamming 6). Found by a fresh review of PR #41 (2026-10-18): the original audit
+(runs/aircraft-freshpool-g0-v1/manifests/phash_audit.json) hashed only its 2,919-image pool, never
+train400 or the 15 probe16-outside-train400 rows, all 15 of which are scored here; v2's builder only
+removed ids that audit listed, so an unaudited row passed as clean.
+
+v3 fix (scripts/rl_campaign_pools/phash_eligible.py, run rlpools3-phash-1 on iccad7):
+- pHash all 1,452 scored rows with the producer's own phash64/near_pairs/HAMMING_MAX (imported from
+  scripts/prepare_aircraft_freshpool.py, origin/main sha256 019a57d4...) against native VAL (3,333,
+  from images), sealed TEST (3,333, from runs/aircraft-freshpool-g0-v1/test-phashes.json, sha256
+  edbf711c..., never images) and train400 (400). Output v3/eligible_phash_audit.json sha256 83270d7d...
+- Method parity with the original audit on the 1,437 rows it did hash: 0 pHash mismatches, 13/13
+  near-duplicate pairs identical. Forced fire: planted VAL copy flagged (Hamming 0); producer
+  forced_fire passed on the eligible rows.
+- The 15 unaudited rows: 0447760 (VAL+TEST), 1446341 (VAL), 2171061 (TEST) flagged; the other 12,
+  including 0090868, 1548951, 2045491, are clean at Hamming <= 6.
+- Also dropped: 13 near-duplicates of train400 (CORRECTIONS keeps train400 out of RL pools),
+  including 1377655, 1921783, 2026755. 16 rows dropped in all (v3/pools/phash_excluded.jsonl).
+- build_pools.py refuses when any scored row has no pHash entry (self-test plants: missing entry,
+  null entry, pair over threshold, unknown split, changed threshold; all refused, 33/33 plants).
+- v3 = v2 minus the flagged ids exactly; kept rows' scores byte-identical to v2 (no rescoring).
+  hard 207 (-1921783), mid 396 (-0447760, 1377655, 2026755), mixed 454, unreachable 129 (-2171061),
+  eligible 1,436. Built by rlpools3-build-1 on iccad7 from /dev/shm/r226lin-rlesweep/payload
+  (code_head c44802e, all_train 9bed5893...); ~/rlpools/payload-c44802e no longer exists on NFS.
+
 # RL campaign I: TRAIN-only RL pools from I (branch rl-campaign-pools.noindex)
 
 Rules: runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (C9, C10, M8). P0-I rollouts moved to the GPU lane
