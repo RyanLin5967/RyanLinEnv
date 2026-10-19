@@ -1,0 +1,422 @@
+{
+ "amendments": [
+  {
+   "at": "2026-10-18T12:40Z",
+   "before_any_accuracy": true,
+   "effect": "none before the stop: lr_scheduler_type constant, warmup 0, so the declared total does not change any update; a screened unit cannot run rung 3 (it is ranked, but a rung-3 promotion of it is recorded infeasible); at rung 2 a screened run whose scan holds fewer than 600 accepted prompts refuses and is recorded failed",
+   "previous_design_files_sha256": {
+    "arms-rung1.json": "c39c8bd0e805aa429e09f87738669cf3e13d736753653cce974d31a415ff36b0",
+    "scripts/exploratory_sweep/design.py": "9515dcee18135c21e71a0ed5c5e761d2ff39e01cb5b2f8ded55cf9b17fa4082e",
+    "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
+   },
+   "what": "screened GRPO-W arms (screen_threshold 0.5, 15 arms) and their controls declare max_steps_total 600 (rung-2 total) instead of 1500",
+   "why": "the first screened arm (grpo-W-04, uwrun rlesweep-grpo-W-04-lr1e-6-g16-b0_1-t1_0-s-326254823, iccad13) refused at start: the trainer requires screened max_steps == target_accepted and at least that many UNIQUE scan rows ('screen scan is shorter than target_accepted; it would exhaust S'); s_train has 1424 rows, so 1500 accepted updates are impossible"
+  },
+  {
+   "at": "2026-10-18T18:45Z",
+   "effect": "no update, data, or schedule changes; single-stop rung-1 arms (stops [150]) get the same value as before; rung-1 sftall arms launched under the old payload will refuse their epoch-2 stage and are continued from their kept checkpoint-2329 under the new payload",
+   "kind": "engineering (plan-neutral, not science)",
+   "what": "arm_exec passes --save-steps gcd(declared stops + resume_stop) instead of the current stage's stop",
+   "why": "save_steps is part of the trainer's resume identity; with a per-stage value every multi-stop arm refuses its second stage (rc=2, 'resume must preserve exact model/data/profile/settings'); found by the GPU lane (3/3 multi-stop GPU arms, ecetesla2/4), fix ported from its acdab57; regression test fails on the old code, passes on the new (uwrun rlesweep-savesteps-test2-1792349070)"
+  },
+  {
+   "at": "2026-10-18T20:10Z",
+   "effect": "no update, data, schedule or ranking changes; rung-2 and rung-3 continuations resume with the save_steps their trajectory started with (150 for seed 42, 600 for a seed entering at rung 2); new arms launch only on hosts holding the pinned payload, and a host is re-bootstrapped only after none of our arms runs on it",
+   "kind": "engineering (plan-neutral, not science)",
+   "what": "promoted arms carry save_steps; runner reads uwrun v5 host columns by header and counts physical cores; a control on a stale-receipt host waits instead of aborting the launch pass; runner refresh and runner continue",
+   "why": "the gcd rule alone gives 150, 150, 300 over the 150/600/1500 rungs, so every rung-3 resume would refuse; uwrun v5 added cores/ourThr columns and the positional parser read physical cores as free GB; sftall arms launched before the save_steps fix need an in-place epoch-2 continuation"
+  },
+  {
+   "accuracy_read_before": "only the init baselines eval-W and eval-I (dev800); no trained arm of this sweep had finished",
+   "at": "2026-10-18T21:30Z",
+   "before_any_val": true,
+   "effect": "34 W-init controls, 13 unlaunched grpo-W, sft-W, egsft-W, noise, sft-I and sftall-rl arms are not launched; grpo-I (6) waits for GATE 0; rung-2 promotion ranks only non-W units",
+   "kind": "amendment 3 (exploratory, before any VAL use)",
+   "what": "the 22 running rung-1 arms finish and are recorded as exploratory; new launches are an allowlist: grpo-I arms and their matched controls only, and only after GATE 0 passes (state gate0.passed is True); runner continue only for sftall-I and sftall-W; no W-init unit is promoted to rung 2 (promote records held_w_init); refresh bootstraps only hosts holding a continuable arm while GATE 0 is open, leaving freed cores to the GATE 0 SFT lane (iccad5/6/7/8/10/13, ecetesla0/1)",
+   "why": "RL lessons audit 2026-10-18 (runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md, C8 and C11): GRPO-from-W loses to I by 5-9 pp on dev800, and the GATE 0 SFT runs are starved on our own oversubscribed hosts (21-54 s per SFT update against the benched 11.3)"
+  },
+  {
+   "at": "2026-10-18T21:00Z",
+   "before_any_wave2_arm": true,
+   "corrections": {
+    "beta_lr": "beta 0; LR {1e-5,2e-5,5e-5}, Dr-GRPO also 3e-5, one 3e-6 guard",
+    "controls": "C4: same count of distinct control LRs as RL LRs per family; DAPO/RFT controls replay every scored row (dynamic_sampling.jsonl draws; RFT rounds[].prompt_ids)",
+    "dropped": "hierarchical partial credit (contrast in 1 of 30-50 groups); both CoT formats (valid 94.9% -> 82.8%, accuracy 70.7% -> 55.5%)",
+    "gate0": "enforced: WAVE2_FAMILIES join amendment 3's launch allowlist behind gate0.passed is True",
+    "init": "I for every family (GRPO-W loses to I by 5-9 pp on dev800)",
+    "precision": "GRPO fp32 only (bf16 parity 0.028 vs 0.02 tolerance; fp16 no parity evidence); RFT bf16 allowed (SFT on own samples, no importance ratio)",
+    "source": "runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md (root checkout), binding 2026-10-18 ~22:30Z"
+   },
+   "effect": "wave 1 unchanged; wave-2 arms launch only on a host whose receipt lists their features and has their device kind and GPU model; they rank at rung 1 in the rl track (late-entrant rule); an RFT rung stop is round-granular and records its true update count",
+   "kind": "amendment 4: concrete wave-2 arms (new design file; arms-rung1.json unchanged)",
+   "what": "arms-wave2-rung1.json (scripts/exploratory_sweep/wave2_arms.py --check), 46 arms, all from I: GRPO-I beta 0 fmtpen, closedset, mu2 at LR {1e-5,2e-5,5e-5}, drgrpo also 3e-5, one 3e-6 guard (cpu-float32); dapo with dynamic sampling 8 draws (rtx2080ti-float32); RFT at LR {1e-5,2e-5,5e-5} (rtx3070-bfloat16); 20 matched SFT-from-I controls, distinct LRs per family by rank ({5e-6,1e-5,2e-5}, Dr-GRPO {5e-6,1e-5,2e-5,3e-5}), closed-set controls on the closed-set prompt, DAPO and RFT controls replaying every scored row in scan order (scanned_ids.json); 6 W/I device-control evals; every wave-2 family held by runner.py launch until state.json gate0.passed is exactly true",
+   "why": "the pre-registered wave-2 rows name features without trainer arguments; three features (RFT, format+DAPO knobs, invalid-answer penalty) and CUDA training were built and merged on sweep-wave2-integration.noindex"
+  },
+  {
+   "at": "2026-10-19T01:30Z",
+   "effect": "until the payload's trainer has dynamic_sampling and replay_sequence (PR #36's trainer), valid_receipt refuses every host for these arms, so none launches; after that, they launch only on AVX-512 hosts as wave-1 arms free them",
+   "kind": "amendment 5 (exploratory, before any corrected GRPO-I result, before any VAL use)",
+   "numbering": "amendment 4 is the wave-2 arm table on PR #36",
+   "retired": {
+    "grpo-I-lr1e-5-g4": "LR 1e-5 is re-run under D37 here; beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr1e-5-g4~ctl": "control of retired grpo-I-lr1e-5-g4",
+    "grpo-I-lr1e-5-g8": "LR 1e-5 is re-run under D37 here; beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr1e-5-g8~ctl": "control of retired grpo-I-lr1e-5-g8",
+    "grpo-I-lr1e-6-g4": "LR 1e-6 is ruled out (C3: no 1e-6); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr1e-6-g4~ctl": "control of retired grpo-I-lr1e-6-g4",
+    "grpo-I-lr1e-6-g8": "LR 1e-6 is ruled out (C3: no 1e-6); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr1e-6-g8~ctl": "control of retired grpo-I-lr1e-6-g8",
+    "grpo-I-lr5e-6-g4": "LR 5e-6 is outside {1e-5, 2e-5, 5e-5} + one 3e-6 guard (C3); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr5e-6-g4~ctl": "control of retired grpo-I-lr5e-6-g4",
+    "grpo-I-lr5e-6-g8": "LR 5e-6 is outside {1e-5, 2e-5, 5e-5} + one 3e-6 guard (C3); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+    "grpo-I-lr5e-6-g8~ctl": "control of retired grpo-I-lr5e-6-g8"
+   },
+   "what": "the 6 rung-1 grpo-I arms (G4/G8 x LR 1e-6, 5e-6, 1e-5) and their 6 matched controls are retired, never launched; arms-d37-grpo-I.json (generator scripts/exploratory_sweep/d37_arms.py) replaces them: 6 GRPO-from-I arms (LR 1e-5, 2e-5, 5e-5 x T 1.0, 1.3) plus one 3e-6 guard, beta 0, G8, fp32 CPU on AVX-512 hosts only, dynamic sampling 8 draws, 600 updates assayed at 150/300/600, each with a matched SFT-from-I control (LR grid 5e-6, 1e-5, 2e-5 rank for rank; guard 5e-6) replaying every scanned row, time-matched per checkpoint; the launch allowlist becomes these two families; runner launches need_avx512 arms only on hosts uwrun reports avx 512",
+   "why": "root D37 (PR #40): GATE 0 passed (E0 resume, dev800 calibration Spearman +0.929, P0-I pass@8 10.0%/11.0% of images at T 1.0/1.3 vs the 5% bar, SFT-from-I ceiling 0.785, placebo bar 0.03); runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md rules out the retired specs (C3 LR, C12 beta, C5 dynamic sampling, C11 fixed schedule)"
+  }
+ ],
+ "base_settings": {
+  "adapter_profile": "legacy-qv-v1",
+  "device": "cpu",
+  "dtype": "float32",
+  "max_completion_length": 256,
+  "max_pixels": 200704,
+  "min_pixels": 50176,
+  "response_format": "answer_only",
+  "threads": 16
+ },
+ "blind_spots": [
+  "dev800 SE ~1.6 points at 0.70; rung-1 single seed is coarse (noise arms measure it)",
+  "shared hosts add noise to active seconds",
+  "wave-2 availability is detected from trainer --help flags only",
+  "h_gate_final is 200 images"
+ ],
+ "compute": {
+  "cpu_bench": "docs/aircraft-exploratory-sweep-v2/cpu-bench.json (timing only, measured after this plan was written)",
+  "env": "scripts/exploratory_sweep/bootstrap_host.sh: uv venv Python 3.12.13; torch 2.14.1/torchvision 0.29.1 (CPU or cu130 index); requirements-vlm-local.lock --require-hashes; model at pinned revision via the trainer's verifier; payload sha256-verified with no extras",
+  "headroom": "25% of cores and memory free per host; ~16 GB RSS counted per arm",
+  "hosts": "UW via ~/.claude/bin/uwrun; Mac runs only the light driver",
+  "pin_exceptions": {
+   "fsspec": {
+    "reason": ".venv-detection has no trl/datasets; datasets 5.1.0 requires fsspec<=2026.7.0; W and I were trained under 2026.7.0",
+    "version": "2026.7.0"
+   }
+  },
+  "pins": "every package shared with .venv-detection equals its version",
+  "threads_per_arm": 16
+ },
+ "confirmation": "later, on native VAL / sealed TEST, under a separate pre-registration that fixes the recipe first",
+ "decision_rule": {
+  "candidate": [
+   "rung-3 RL unit mean dev800 accuracy over 3 seeds >= best SFT unit (rung-3 SFT track, sftall 3 seeds, SFT controls) + 2.0 points",
+   "paired bootstrap (pooled seeds) vs its time-matched control: CI95 lower bound > 0",
+   "same vs its examples-matched control: CI95 lower bound > 0",
+   "valid fraction not lower than the compared SFT's by more than 1 point"
+  ],
+  "null_result": "no RL recipe beats fair SFT under this budget, reported as such",
+  "then": "each candidate and the best SFT unit assayed once on h_gate_final; reported as is; no re-selection"
+ },
+ "design_files_sha256": {
+  "arms-rung1.json": "cfdbf2c872b307af8216335f2f8507829696363023e8bc33d94ef934b3e9cabc",
+  "arms-wave2-rung1.json": "f5c97cadbc0ea2fabc120c2ddd7addb8c075240d9ba951649b1e16b282539722",
+  "scripts/exploratory_sweep/design.py": "adc155dd4c72ff4f4dc1fcd296099fb791dab9ad9e322d24cf179e0dc1f38a12",
+  "scripts/exploratory_sweep/wave2_arms.py": "40ed669b955bc492fd536a808060990959683cd0515be237919d272d308b6105",
+  "splits.json": "761d79f1b1e0e9a381e9d780f6d278aa0641be18d8f0d21ae2a82473c644f4ed"
+ },
+ "design_reproduce": "python3 -I scripts/exploratory_sweep/design.py --check",
+ "forbidden_data": [
+  "native VAL (any read, listing, copy or score)",
+  "sealed TEST (any read, listing, copy or score)"
+ ],
+ "heldout_claim": false,
+ "inits": {
+  "I": {
+   "path": "adapters/I",
+   "source": "runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/final_adapter",
+   "weights_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
+  },
+  "W": {
+   "path": "adapters/W",
+   "source": "runs/aircraft-warmstart-v1/final_adapter",
+   "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"
+  }
+ },
+ "matched_control": {
+  "data": "the RL arm's committed prompt ids (endpoint_receipt.json), in order, one SFT update per prompt, cycling",
+  "endpoints": {
+   "E": "examples-matched: same number of examples",
+   "T": "time-matched: continued to the RL arm's committed active seconds"
+  },
+  "every": "RL arm",
+  "host": "the RL arm's host, after it",
+  "init": "the RL arm's init",
+  "lr": {
+   "I": 5e-06,
+   "W": 1e-05
+  },
+  "lr_from_kept_endpoint": 5e-06
+ },
+ "matrix_wave1": {
+  "baseline": {
+   "assay_only": [
+    "W",
+    "I"
+   ]
+  },
+  "egsft-W (addition)": {
+   "init": "W",
+   "lr": [
+    1e-05,
+    3e-05
+   ]
+  },
+  "grpo-I": {
+   "G": [
+    4,
+    8
+   ],
+   "beta": 0.04,
+   "init": "I",
+   "lr": [
+    1e-06,
+    5e-06,
+    1e-05
+   ],
+   "temperature": 1.0
+  },
+  "grpo-W": {
+   "G": [
+    4,
+    8,
+    16
+   ],
+   "beta": [
+    0,
+    0.04,
+    0.1
+   ],
+   "design": "fractional: full LR x G grid (5 x 3) twice = 30 runs; per cell two distinct beta from {0,0.04,0.1}, opposite temperature {0.7,1.0}, opposite screening {off, threshold 0.5}; beta balanced 10/10/10; best of 4,000 seeded candidates by max |corr| of coded factors",
+   "init": "W",
+   "lr": [
+    1e-06,
+    5e-06,
+    1e-05,
+    5e-05,
+    0.0001
+   ],
+   "max_abs_factor_correlation": 0.0816,
+   "screening": [
+    null,
+    0.5
+   ],
+   "temperature": [
+    0.7,
+    1.0
+   ]
+  },
+  "lora_capacity": {
+   "compare": "legacy-qv-v1 vs qwen2vl2b-language-seven-r8-v1 (expanded-LoRA v2, approved INIT from W)",
+   "contract_limits": "GRPO only with beta 0.04, or SFT; approved INIT only",
+   "gate": "host receipt lists trainer feature expanded_lora; refused (never substituted) until then",
+   "rung": 2,
+   "seeds": 3,
+   "units": [
+    "best SFT unit from W",
+    "best RL unit from W"
+   ]
+  },
+  "noise (addition)": {
+   "arms": [
+    "SFT-W 1e-5",
+    "GRPO-W 1e-5 G4"
+   ],
+   "seeds": [
+    314,
+    2718
+   ]
+  },
+  "sft-I": {
+   "init": "I",
+   "lr": [
+    1e-06,
+    5e-06,
+    1e-05
+   ]
+  },
+  "sft-W": {
+   "init": "W",
+   "lr": [
+    5e-06,
+    1e-05,
+    3e-05,
+    0.0001
+   ]
+  },
+  "sftall": {
+   "arms": [
+    [
+     "W",
+     1e-05
+    ],
+    [
+     "W",
+     3e-05
+    ],
+    [
+     "I",
+     5e-06
+    ]
+   ],
+   "endpoints": "each epoch",
+   "epochs": 2,
+   "pool": "all_train",
+   "replicates": "seeds 314, 2718 after rung 1 (runner.py derive sftall-seeds)"
+  },
+  "sftall_to_rl": {
+   "G": 8,
+   "beta": 0.04,
+   "control_lr": 5e-06,
+   "implementation": "runner.py derive sftall-rl",
+   "init": "best sftall endpoint by dev800",
+   "lr": [
+    1e-06,
+    5e-06,
+    1e-05
+   ],
+   "pool": "s_train",
+   "temperature": 1.0
+  },
+  "think-grpo-W (addition)": {
+   "G": 8,
+   "init": "W",
+   "lr": [
+    5e-06,
+    1e-05
+   ],
+   "response_format": "think_then_answer"
+  }
+ },
+ "matrix_wave2": {
+  "features": [
+   "dr_grpo",
+   "trie_constrained_decoding",
+   "confuser_unlikelihood",
+   "constrained_ce",
+   "hierarchical_reward",
+   "closed_set_prompt",
+   "cot_answer_reward",
+   "dapo",
+   "prompts_per_update",
+   "num_iterations",
+   "lr_schedule",
+   "rl_aux_nll",
+   "invalid_answer_penalty",
+   "rejection_sampling_ft",
+   "sft_augmentation",
+   "resolution_transfer",
+   "cuda"
+  ],
+  "gate": "runner launches an arm only on a host whose receipt lists every feature it names (trainer --help)",
+  "per_feature_rung1": "GRPO-W G8 at LR {5e-6, 1e-5}; RFT and augmented SFT at LR {1e-5, 3e-5}; resolution: SFT-W 1e-5 and GRPO-W 1e-5 G8 at 401,408 pixels"
+ },
+ "metrics": {
+  "comparison": {
+   "draw": "exact multinomial over (win, tie, loss) counts",
+   "kind": "paired bootstrap of accuracy difference vs matched SFT control",
+   "report": [
+    "delta",
+    "ci95 percentile",
+    "p_le_0",
+    "wins",
+    "losses"
+   ],
+   "resamples": 20000,
+   "seed": 20261018
+  },
+  "decoding": "greedy via vlm_local_training.predict_train_subset, chunks of 32",
+  "holdout": "dev800",
+  "primary": "accuracy",
+  "secondary": [
+   "valid_fraction",
+   "equal_class_accuracy"
+  ],
+  "valid": "completion ended at EOS and parse_label maps it to one of the 100 labels; invalid counts wrong"
+ },
+ "model": {
+  "adapter": "rank-8 Q/V LoRA (legacy-qv-v1) unless an arm says otherwise",
+  "id": "Qwen/Qwen2-VL-2B-Instruct",
+  "revision": "895c3a49bc3fa70a340399125c650a463535e71c"
+ },
+ "plan_markdown": "docs/aircraft-exploratory-sweep-v2.md",
+ "promotion": {
+  "implementation": "scripts/exploratory_sweep/runner.py promote",
+  "late_entrants": "a unit finishing after its rung's promotion is promoted if its score >= the lowest promoted unit in its track",
+  "not_halved": [
+   "control",
+   "noise",
+   "baseline",
+   "sftall"
+  ],
+  "requires": "every launched arm of the rung finished; FAILED ranks last and is never promoted",
+  "rung1_keep": "ceil(n/3) per track",
+  "rung2_keep": "3 per track",
+  "tracks": {
+   "rl": [
+    "grpo-W",
+    "grpo-I",
+    "think-grpo-W",
+    "wave-2 RL",
+    "RFT"
+   ],
+   "sft": [
+    "sft-W",
+    "sft-I",
+    "egsft-W",
+    "wave-2 SFT"
+   ]
+  },
+  "unit_score": "dev800 accuracy at the last step endpoint, mean over seeds at rungs 2-3; ties: equal-class accuracy, then valid fraction"
+ },
+ "rungs": {
+  "continuation": "seed 42 continues its rung-1 run in place at rung 2; every seed continues its rung-2 run at rung 3",
+  "declared_total_updates": 1500,
+  "seeds": {
+   "1": [
+    42
+   ],
+   "2": [
+    42,
+    314,
+    2718
+   ],
+   "3": [
+    42,
+    314,
+    2718
+   ]
+  },
+  "updates": {
+   "1": 150,
+   "2": 600,
+   "3": 1500
+  }
+ },
+ "schema_version": 1,
+ "splits": {
+  "all_train": "native TRAIN - h_select - h_gate - dev600 - holdout partners (2,329)",
+  "dev600": "per class, the 6 S rows with the smallest sha256(json[study_id,'dev600',20261018,label,id]); 6 x 100",
+  "dev800": "h_select (200) + dev600 (600): selection holdout, assayed at every kept endpoint",
+  "h_gate_final": "freshpool h_gate (200): read once, rung-3 candidates and the best SFT unit only; no selection after",
+  "s_train": "S - dev600 - within-pool pHash partners (Hamming <= 6) of any holdout (1,424)",
+  "scan_orders": "random.Random(seed).shuffle(sorted(ids)), seeds 42, 314, 2718",
+  "seed": 20261018
+ },
+ "status": "exploratory",
+ "study_id": "aircraft-exploratory-sweep-v2",
+ "task_data_spec": {
+  "path": "data/fgvc-aircraft-2013b/candidates/fourshot-seed791/data_spec.json",
+  "sha256": "afc69edde9bc7c9a8e0221e2fdf11ddbf6b1174d8069f3ba3de8937ddf50477a",
+  "why": "W and I control_identity.data_spec_sha256; saved-adapter TRAIN assay refuses another spec; same labels/question/preprocessing as development/data_spec.json"
+ },
+ "written_before_any_result": true
+}

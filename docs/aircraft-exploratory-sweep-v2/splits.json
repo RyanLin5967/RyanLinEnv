@@ -1,0 +1,50 @@
+{
+ "freshpool_manifest_sha256": "862c11472de04e55c1b2d290173f8340fd23ef0c1da7f5c1025326038a41cf0f",
+ "manifests_sha256": {
+  "manifests/all_train.jsonl": "9bed5893ad866fa2b6a5f86c4edc98421699154f435879e9e4867825c64caa9e",
+  "manifests/all_train_scan_seed2718.jsonl": "592988481507a4e8440a98fe7bad3806df83690c0527153de91f82d820bcb5fb",
+  "manifests/all_train_scan_seed314.jsonl": "e2c72c88f15fbd2f9895c23a71d61a03016019865ab47590ae1a30b26817df9a",
+  "manifests/all_train_scan_seed42.jsonl": "5fcb65887c482b46ce74c71bbe35af6e5d2bbae08fe29bc2edb1204d04200b26",
+  "manifests/dev600.jsonl": "cc81bb8c744d32db5428506b09e3054fb5b73e6137fa09d8cbbc985aa5d89ff7",
+  "manifests/dev800.jsonl": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+  "manifests/h_gate_final.jsonl": "47ba76a97c32bf47e0fe106c4a08289dcaa6607e2bdef4a2829a301785ed7fae",
+  "manifests/h_select.jsonl": "7c7f2754c379109a6d5afc42c1e4927535fe0c98b03087193971588387035e16",
+  "manifests/s_train.jsonl": "810905a0658916fea9713d3805829092bdeb3012d4841219df8e89f99faeb9ad",
+  "manifests/s_train_scan_seed2718.jsonl": "68680c098a028fe96e04c1c9f37eb39d0fdd5b34c57d37511ea86e2a1a6327ee",
+  "manifests/s_train_scan_seed314.jsonl": "8e81eedf76a9139ac46e38f1f399fdbc7bc8c2b654fd675d16a6ddc8e65d5918",
+  "manifests/s_train_scan_seed42.jsonl": "8f078caaa7a20cd27fe8758cc57619d8ac2457f768135cf83ba528d37d38c896"
+ },
+ "native_train_sha256": "909ea0c93f72feece41ef0ea8896bc74a751f4753d2f4ec1ac642b2c84783eec",
+ "near_duplicate_partners_excluded": [
+  "0062131",
+  "0894311",
+  "1114210",
+  "1237633",
+  "1239225"
+ ],
+ "rules": {
+  "all_train": "native TRAIN - h_select - h_gate - dev600 - holdout pHash partners (pool images the G0 audit flagged as near-duplicates of native VAL/TEST are kept: legitimate native TRAIN; strongest baseline)",
+  "dev600": "from S (freshpool s.jsonl): per class the 6 rows with the smallest sha256(json [study_id,'dev600',20261018,label,id]); 600 = 6 x 100",
+  "dev800": "h_select (200) + dev600 (600): the selection holdout",
+  "h_gate_final": "freshpool h_gate (200): touched once, by rung-3 finalists only",
+  "s_train": "S - dev600 - pHash partners (within-pool Hamming <= 6) of any holdout",
+  "scan": "random.Random(seed).shuffle(sorted(ids)) for seeds 42, 314, 2718"
+ },
+ "sizes": {
+  "all_train": 2329,
+  "all_train_scan_seed2718": 2329,
+  "all_train_scan_seed314": 2329,
+  "all_train_scan_seed42": 2329,
+  "dev600": 600,
+  "dev800": 800,
+  "h_gate_final": 200,
+  "h_select": 200,
+  "s_train": 1424,
+  "s_train_scan_seed2718": 1424,
+  "s_train_scan_seed314": 1424,
+  "s_train_scan_seed42": 1424
+ },
+ "split_seed": 20261018,
+ "study_id": "aircraft-exploratory-sweep-v2",
+ "val_test_near_duplicates_kept_in_all_train": 477
+}
