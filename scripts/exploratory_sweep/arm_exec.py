@@ -548,6 +548,9 @@ class Arm:
 
     def run_stage(self, label: str, args: list[str], stop: int | None = None) -> dict:
         if self.rft_endpoint_done(stop):
+            # an earlier attempt's completed endpoint (its stage may have been refused after
+            # the trainer finished): it must still be float32 (C2) to be reused
+            stage_record(self.out / "local_training.json")
             self.log.append({"stage": label, "rc": 0, "reused_completed_endpoint": True,
                              "argv": args})
             receipt = self.rft_receipt()

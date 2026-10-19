@@ -385,21 +385,23 @@ def test_arm_exec_refuses_parity_outside_tolerance(tmp_path):
         arm_exec.check_parity(rec)
 
 
-def test_scanned_ids_for_dynamic_sampling_keep_dropped_draws_in_order(tmp_path):
+def test_record_scanned_keeps_every_draw_and_falls_back_only_for_plain_grpo(tmp_path):
     spec = camp.build_spec(table(), grpo_row())
     arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
     arm.out.mkdir(parents=True)
-    rows = [(1, 0, "a"), (1, 1, "b"), (2, 0, "c"), (2, 0, "c2"), (3, 0, "late")]
+    # the trainer's journal: one block per update, ending at its kept draw
+    rows = [(1, 0, "a", False), (1, 1, "b", True), (2, 0, "c", True)]
     (arm.out / "dynamic_sampling.jsonl").write_text("".join(
-        json.dumps({"global_step": s, "draw": d, "id": i}) + "\n" for s, d, i in rows))
-    # step 2's draw 0 was redone after a resume ("c2" wins); step 3 is past the endpoint
-    assert arm.scanned_ids({"global_step": 2}) == ["a", "b", "c2"]
-    assert arm.scanned_ids({"global_step": 3}) == ["a", "b", "c2", "late"]
-    (arm.out / "dynamic_sampling.jsonl").write_text(json.dumps(
-        {"global_step": 2, "draw": 0, "id": "x"}) + "\n")
-    with pytest.raises(SystemExit, match="every step"):
-        arm.scanned_ids({"global_step": 2})
-
+        json.dumps({"global_step": st, "draw": d, "id": i, "kept": k}) + "\n"
+        for st, d, i, k in rows))
+    receipt = {"global_step": 2, "committed_prompt_ids": ["b", "c"]}
+    arm_exec.record_scanned(arm, receipt, "step2")
+    doc = json.loads((arm.results / "scanned" / "step2.json").read_text())
+    assert doc["ids"] == ["a", "b", "c"]  # the dropped draw "a" counts as read
+    (arm.out / "dynamic_sampling.jsonl").unlink()
+    arm_exec.record_scanned(arm, receipt, "step2")
+    doc = json.loads((arm.results / "scanned" / "step2.json").read_text())
+    assert doc["ids"] == ["b", "c"] and doc["source"] == "committed_prompt_ids"
 
 def test_cotenancy_summary_flags_shared_only_when_a_foreign_process_was_seen():
     c = arm_exec.CoTenancy(cuda=False, threads=10**6)  # no load can exceed this
@@ -735,11 +737,18 @@ def test_rft_stage_requires_its_own_stop_boundary_and_float32(tmp_path):
     receipt = arm.run_stage("train-150", argv, 150)
     assert receipt["status"] == "boundary_reached"
     assert "--stage-id" not in json.loads((arm.out / "argv.json").read_text())  # RFT CLI
-    for bad, match in (("rft_wrong_boundary", "boundary"), ("bf16", "bfloat16"),
-                       ("stale", "stale")):
+    # the next stage exits 0 without rewriting its record: train-150's record is stale
+    mode.write_text("stale")
+    with pytest.raises(SystemExit, match="stale"):
+        arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 300)
+    for bad, match in (("rft_wrong_boundary", "boundary"), ("bf16", "bfloat16")):
         mode.write_text(bad)
         with pytest.raises(SystemExit, match=match):
             arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 300)
+    # the refused bf16 attempt left a completed 300 endpoint: a retry may not reuse it
+    mode.write_text("honest")
+    with pytest.raises(SystemExit, match="bfloat16"):
+        arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 300)
     with pytest.raises(SystemExit, match="ran with"):  # the stop that ran must be the stop
         arm.run_stage("train-300", arm.trainer_args(m, 1500, 300, None), 450)
 
