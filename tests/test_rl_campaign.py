@@ -415,6 +415,21 @@ def test_cotenancy_summary_flags_shared_only_when_a_foreign_process_was_seen():
     c.samples, c.hits, c.foreign = 4, 1, {"999": {"used_mib": "7000", "name": "python"}}
     assert c.summary()["shared"] is True and c.summary()["samples_with_cotenant"] == 1
 
+
+def test_cuda_cotenancy_without_nvidia_smi_is_unknown_not_alone(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))  # no nvidia-smi on PATH
+    c = arm_exec.CoTenancy(cuda=True, threads=10**6)
+    c.sample(1)  # must not raise: the stage's trainer is still running
+    assert c.summary()["shared"] is None and c.summary()["samples_unmeasured"] == 1
+
+
+def test_an_unmeasured_stage_refuses_the_time_match(tmp_path):
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", None)],
+                     [("train-time1", False), ("train-time2", False)],
+                     {"step1": 8, "step2": 16}, (40, 80))
+    assert out["refused"] == [
+        "rl step2: no rl stage record for step2 (co-tenancy unmeasured)"]
+
 # ---- worker -------------------------------------------------------------------------------
 WORKER = ROOT / "scripts/exploratory_sweep/gpu_worker.sh"
 

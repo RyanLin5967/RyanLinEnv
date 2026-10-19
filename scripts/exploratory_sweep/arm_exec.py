@@ -254,13 +254,15 @@ class CoTenancy:
     CUDA: every `nvidia-smi --query-compute-apps` sample; a process not in the stage's own
     process tree is a co-tenant. CPU: a sample is co-tenant when load1 exceeds the stage's own
     threads + 1 (other work shows only as load). `shared` is True when any sample saw a
-    co-tenant; the campaign report refuses
+    co-tenant, None when any CUDA sample could not be taken (unknown, never "alone");
+    the campaign report refuses
     a time comparison between an RL arm and a control whose `shared` values differ.
     Blind spot: a co-tenant that starts and ends between two samples is not seen."""
 
     def __init__(self, cuda: bool, threads: int = 0):
         self.cuda, self.samples, self.foreign, self.hits, self.load = cuda, 0, {}, 0, []
         self.threads = int(threads)
+        self.unmeasured = 0  # CUDA samples where nvidia-smi could not be run
 
     @staticmethod
     def tree(root: int) -> set:
@@ -284,8 +286,16 @@ class CoTenancy:
         if not self.cuda:
             self.hits += load1 > self.threads + 1
             return
-        q = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,process_name",
-                            "--format=csv,noheader,nounits"], capture_output=True, text=True)
+        try:
+            q = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,"
+                                "process_name", "--format=csv,noheader,nounits"],
+                               capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            self.unmeasured += 1  # never abort the stage (its trainer is running)
+            return
+        if q.returncode != 0:
+            self.unmeasured += 1
+            return
         mine, hit = self.tree(root), False
         for line in q.stdout.splitlines():
             parts = [x.strip() for x in line.split(",")]
@@ -299,7 +309,9 @@ class CoTenancy:
         load = sorted(self.load)
         return {"device": "cuda" if self.cuda else "cpu", "samples": self.samples,
                 "period_seconds": COTENANCY_PERIOD, "samples_with_cotenant": self.hits,
-                "cotenant_gpu_processes": self.foreign, "shared": self.hits > 0,
+                "cotenant_gpu_processes": self.foreign,
+                "shared": None if self.unmeasured else self.hits > 0,
+                "samples_unmeasured": self.unmeasured,
                 "load1_median": load[len(load) // 2] if load else None,
                 "load1_max": load[-1] if load else None}
 

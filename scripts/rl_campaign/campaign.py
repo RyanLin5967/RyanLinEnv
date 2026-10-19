@@ -664,8 +664,8 @@ def collect(results_dirs) -> dict:
             rec["assays"][f.stem] = json.loads(f.read_text())
         if (d / "stages.json").is_file():
             for st in json.loads((d / "stages.json").read_text()):
-                shared = bool((st.get("cotenancy") or {}).get("shared"))
-                rec["cotenancy_shared"] = rec["cotenancy_shared"] or shared
+                shared = (st.get("cotenancy") or {}).get("shared")  # None: unmeasured
+                rec["cotenancy_shared"] = rec["cotenancy_shared"] or bool(shared)
                 stage = str(st.get("stage", ""))
                 if stage.startswith("train-"):  # train-50 -> step50, train-time2 -> time2
                     x = stage[len("train-"):]
@@ -699,7 +699,11 @@ def missing_stage(stage_shared: dict, label: str, spec: dict | None = None) -> s
     need = required_stages(spec or {}, label)
     if need is None:
         return "<trajectory unknown>"
-    return next((x for x in need if x not in stage_shared), None)
+    gone = next((x for x in need if x not in stage_shared), None)
+    if gone is None:
+        gone = next((f"{x} (co-tenancy unmeasured)" for x in need
+                     if stage_shared[x] is None), None)
+    return gone
 
 
 def shared_through(stage_shared: dict, label: str, spec: dict | None = None):
@@ -708,8 +712,8 @@ def shared_through(stage_shared: dict, label: str, spec: dict | None = None):
     accumulate across all earlier stages). None when any of those stage records is missing
     (e.g. a promoted continuation whose rung-1 results were never fetched)."""
     need = required_stages(spec or {}, label)
-    if need is None or any(x not in stage_shared for x in need):
-        return None
+    if need is None or any(stage_shared.get(x) is None for x in need):
+        return None  # a missing or unmeasured stage: refuse, never assume "alone"
     return any(stage_shared[x] for x in need)
 
 
