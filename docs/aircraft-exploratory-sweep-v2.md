@@ -422,7 +422,18 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   behind the same check. `runner.py launch` holds the family's arms, its controls and the
   device-control evals until `state.json` `gate0.passed` is exactly `true`. That needs all
   four Gate-0 measurements: P0-I headroom, the SFT-from-I curve, dev800 calibration and the
-  placebo.
+  placebo. Wave-2 arms also sit behind Amendment 5's `d37_release.verified` hold, because
+  their controls depend on the same machinery from this PR.
+- **Table extras are an allowlist.** argparse keeps the last value of a repeated flag and
+  accepts abbreviations and `--flag=value`. Every `extra_trainer_args` entry, for GRPO and
+  RFT arms alike, therefore goes through `arm_exec.EXTRA_FLAGS`:
+  - Each flag the table uses has an exact-name entry with a value validator: `--loss-type`
+    {grpo, dr_grpo, dapo}, `--scale-rewards` {group, none}, `--epsilon-high` ≥ 0.2,
+    `--num-iterations` 1–8, `--label-hierarchy` (only the payload's
+    `label-hierarchy-train-v1.json`), `--family-credit` and `--manufacturer-credit` in
+    [0, 1), `--invalid-reward` in [−1, 0], and `--dynamic-sampling-max-draws` ≥ 8.
+  - A flag that arm_exec itself passes, `--train`, `--validation`, an `=` form, an
+    abbreviation or a repeated flag is refused.
 - **Promotion.** Wave-2 arms rank at rung 1 in the `rl` track together with wave 1, under
   the plan's late-entrant rule. That ranking mixes device classes, so it is read against
   the device-control offsets. A paired comparison (arm against its matched control, or
@@ -435,3 +446,69 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   loss plus dynamic sampling. wave2-mu2 is the arm where clipping is active. Second, C5
   requires discarded generation seconds to be charged to RL time; whether the trainer's
   active-time audit charges them for dynamic sampling is unverified.
+
+## Engineering fix 3 (2026-10-18, plan-neutral): assay profile, feature gate, kept-stop continuation
+
+- **Assay profile.** Every matched control would have died at its first assay with KeyError
+  `temperature`: design.py's controls have no temperature key (found by the wave-2
+  integration, ce099a3). Every SFT-family arm sets temperature `None`, which
+  `Profile.validate()` rejects inside `predict_train_subset` (`math.isfinite(None)`), so
+  those arms would die at their first assay too. That includes the three sftall arms
+  running on the old payload. An absent or `None` key now takes the Profile default (1.0).
+  Greedy decoding does not sample, so an assay cannot change.
+- **Feature gate.** `valid_receipt` read `a | b - c` as `a | (b - c)`, so it reported every
+  declared feature as missing. Fixed by porting wave-2 06264b4.
+- **Continuation after a failed assay.** `runner.py continue` also accepts an arm whose first
+  stage ran but which recorded no endpoint. In a continuation, arm_exec re-assays a kept
+  adapter whose endpoint receipt is exactly that stop (checked on the host) instead of
+  training it again, then resumes the next stop from that checkpoint. The sftall arms will
+  take this path after their step-2329 assay fails.
+
+## Amendment 5 (2026-10-19, before any corrected GRPO-I result, before any VAL use): D37 GRPO-from-I table
+
+Amendment 4 is the wave-2 arm table on PR #36. Root decision D37 (PR #40) records that GATE 0
+passed and releases GRPO-from-I arms under the RL lessons audit's corrections
+(`runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`).
+
+- **Retired, never launched.** The six rung-1 grpo-I arms (G4 and G8 at LR 1e-6, 5e-6 and
+  1e-5) and their six matched controls are retired. They break C3 (LR), C12 (β 0.04) and C5
+  (no dynamic sampling), and they ran only T 1.0 on the 150-update rung schedule. The table's
+  `retires` map records the reason for each id.
+- **Replacement: `arms-d37-grpo-I.json`**, written by `scripts/exploratory_sweep/d37_arms.py`.
+  Each of the following has `--check` to confirm the file matches its generator.
+  - Six GRPO-from-I arms, LR {1e-5, 2e-5, 5e-5} × T {1.0, 1.3}, plus one LR 3e-6 forgetting
+    guard at T 1.0.
+  - β 0, G 8, fp32, on CPU hosts with AVX-512 only. The fp32 MKL kernels die with SIGILL
+    elsewhere. The runner places these arms only on hosts that `uwrun hosts` reports as
+    `avx 512`.
+  - Dynamic sampling with 8 draws (C5).
+  - 600 updates, assayed at 150, 300 and 600 (fixed schedule, C11).
+- **Controls.** Each RL arm has a matched SFT-from-I control on its host, using the LR grid
+  {5e-6, 1e-5, 2e-5} rank for rank (the guard's control uses 5e-6). Each control replays
+  every scanned row and is time-matched at each checkpoint.
+- **What gates the launch.** The launch allowlist becomes these two families, released once
+  `gate0.passed` is set. The arms need the trainer features `dynamic_sampling` and
+  `replay_sequence`, which exist only in PR #36's trainer. Until a payload carries them, the
+  receipt check refuses every host, so none of these arms can launch.
+
+## Engineering fix 4 (2026-10-19, plan-neutral): table trainer flags are an allowlist
+
+`arm_exec` appended `extra_trainer_args` after its own flags. argparse keeps the last value
+of a repeated flag and also accepts abbreviations and `--flag=value`, so a table extra could
+silently override `--dtype`, `--learning-rate`, `--train` and similar flags while the
+spec-field guards passed (found by the PR #38 review).
+
+Extras are now an exact-name allowlist (`EXTRA_FLAGS`), and each allowed flag has a value
+validator. `arm_exec` refuses:
+
+- a flag it passes itself;
+- `--train` and `--validation`;
+- `=` forms and abbreviations;
+- duplicates, missing values and unknown flags.
+
+Checked on 2026-10-19:
+
+- No row of `arms-rung1.json` (157 rows), the wave-1 ordered table (96 rows) or any launched
+  `arm.json` (38) carries extras.
+- The 7 D37 RL rows carry only `--dynamic-sampling-max-draws 8`. It is allowlisted with an
+  integer ≥ 8 check (C5) and overrides nothing.

@@ -1,0 +1,643 @@
+{
+ "amendment": 5,
+ "arms": [
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-1e-5-g8-b0-t1_0-ds8",
+   "init": "I",
+   "lr": 1e-05,
+   "matched_control_lr": 5e-06,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.0,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-2e-5-g8-b0-t1_0-ds8",
+   "init": "I",
+   "lr": 2e-05,
+   "matched_control_lr": 1e-05,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.0,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-5e-5-g8-b0-t1_0-ds8",
+   "init": "I",
+   "lr": 5e-05,
+   "matched_control_lr": 2e-05,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.0,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-1e-5-g8-b0-t1_3-ds8",
+   "init": "I",
+   "lr": 1e-05,
+   "matched_control_lr": 5e-06,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.3,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-2e-5-g8-b0-t1_3-ds8",
+   "init": "I",
+   "lr": 2e-05,
+   "matched_control_lr": 1e-05,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.3,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-grpo-I",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-grpo-I-5e-5-g8-b0-t1_3-ds8",
+   "init": "I",
+   "lr": 5e-05,
+   "matched_control_lr": 2e-05,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.3,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "beta": 0.0,
+   "control_max_steps_total": 4800,
+   "control_replays": "scanned",
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "extra_trainer_args": [
+    "--dynamic-sampling-max-draws",
+    "8"
+   ],
+   "family": "d37-guard",
+   "features": [
+    "dynamic_sampling"
+   ],
+   "id": "d37-guard-3e-6-g8-b0-t1_0-ds8",
+   "init": "I",
+   "lr": 3e-06,
+   "matched_control_lr": 5e-06,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 600,
+   "min_pixels": 50176,
+   "mode": "grpo",
+   "need_avx512": true,
+   "num_generations": 8,
+   "response_format": "answer_only",
+   "rung": 1,
+   "screen_threshold": null,
+   "seed": 42,
+   "stops": [
+    150,
+    300,
+    600
+   ],
+   "temperature": 1.0,
+   "threads": 16,
+   "track": "rl",
+   "train_manifest": "s_train_scan_seed42.jsonl",
+   "updates": 600,
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-1e-5-g8-b0-t1_0-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-1e-5-g8-b0-t1_0-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-1e-5-g8-b0-t1_0-ds8~ctl",
+   "init": "I",
+   "lr": 5e-06,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-1e-5-g8-b0-t1_0-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-1e-5-g8-b0-t1_0-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-2e-5-g8-b0-t1_0-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-2e-5-g8-b0-t1_0-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-2e-5-g8-b0-t1_0-ds8~ctl",
+   "init": "I",
+   "lr": 1e-05,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-2e-5-g8-b0-t1_0-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-2e-5-g8-b0-t1_0-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-5e-5-g8-b0-t1_0-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-5e-5-g8-b0-t1_0-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-5e-5-g8-b0-t1_0-ds8~ctl",
+   "init": "I",
+   "lr": 2e-05,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-5e-5-g8-b0-t1_0-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-5e-5-g8-b0-t1_0-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-1e-5-g8-b0-t1_3-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-1e-5-g8-b0-t1_3-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-1e-5-g8-b0-t1_3-ds8~ctl",
+   "init": "I",
+   "lr": 5e-06,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-1e-5-g8-b0-t1_3-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-1e-5-g8-b0-t1_3-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-2e-5-g8-b0-t1_3-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-2e-5-g8-b0-t1_3-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-2e-5-g8-b0-t1_3-ds8~ctl",
+   "init": "I",
+   "lr": 1e-05,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-2e-5-g8-b0-t1_3-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-2e-5-g8-b0-t1_3-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-grpo-I-5e-5-g8-b0-t1_3-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-grpo-I-5e-5-g8-b0-t1_3-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-grpo-I-5e-5-g8-b0-t1_3-ds8~ctl",
+   "init": "I",
+   "lr": 2e-05,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-grpo-I-5e-5-g8-b0-t1_3-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-grpo-I-5e-5-g8-b0-t1_3-ds8",
+   "wave": 1
+  },
+  {
+   "adapter_profile": "legacy-qv-v1",
+   "amendment": 5,
+   "control_of": "d37-guard-3e-6-g8-b0-t1_0-ds8",
+   "control_replays": "scanned",
+   "control_time_match": "per_checkpoint",
+   "cycle": true,
+   "depends_on": [
+    "d37-guard-3e-6-g8-b0-t1_0-ds8"
+   ],
+   "device": "cpu",
+   "device_class": "cpu-float32-avx512",
+   "dtype": "float32",
+   "family": "control",
+   "features": [
+    "replay_sequence"
+   ],
+   "id": "d37-guard-3e-6-g8-b0-t1_0-ds8~ctl",
+   "init": "I",
+   "lr": 5e-06,
+   "max_active_seconds": 259200.0,
+   "max_completion_length": 256,
+   "max_pixels": 200704,
+   "max_steps_total": 4800,
+   "min_pixels": 50176,
+   "mode": "sft",
+   "need_avx512": true,
+   "num_generations": 4,
+   "order": "sequential",
+   "response_format": "answer_only",
+   "rung": 1,
+   "same_host_as": "d37-guard-3e-6-g8-b0-t1_0-ds8",
+   "seed": 42,
+   "threads": 16,
+   "track": "control",
+   "train_manifest": "@consumed:d37-guard-3e-6-g8-b0-t1_0-ds8",
+   "wave": 1
+  }
+ ],
+ "control_grid": {
+  "1": [
+   5e-06
+  ],
+  "3": [
+   5e-06,
+   1e-05,
+   2e-05
+  ]
+ },
+ "control_lr": {
+  "I": 5e-06,
+  "W": 1e-05
+ },
+ "decision": "D37",
+ "inits": {
+  "I": {
+   "path": "adapters/I",
+   "source": "runs/aircraft-controlled400-v1/setup/sft-1e5-time/published/final_adapter",
+   "weights_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7"
+  },
+  "W": {
+   "path": "adapters/W",
+   "source": "runs/aircraft-warmstart-v1/final_adapter",
+   "weights_sha256": "f05840be84e1058e8fe8a011b57402ccfab5f5fb751c37ab6d8a6b84fab52c1c"
+  }
+ },
+ "retires": {
+  "grpo-I-lr1e-5-g4": "LR 1e-5 is re-run under D37 here; beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr1e-5-g4~ctl": "control of retired grpo-I-lr1e-5-g4",
+  "grpo-I-lr1e-5-g8": "LR 1e-5 is re-run under D37 here; beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr1e-5-g8~ctl": "control of retired grpo-I-lr1e-5-g8",
+  "grpo-I-lr1e-6-g4": "LR 1e-6 is ruled out (C3: no 1e-6); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr1e-6-g4~ctl": "control of retired grpo-I-lr1e-6-g4",
+  "grpo-I-lr1e-6-g8": "LR 1e-6 is ruled out (C3: no 1e-6); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr1e-6-g8~ctl": "control of retired grpo-I-lr1e-6-g8",
+  "grpo-I-lr5e-6-g4": "LR 5e-6 is outside {1e-5, 2e-5, 5e-5} + one 3e-6 guard (C3); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr5e-6-g4~ctl": "control of retired grpo-I-lr5e-6-g4",
+  "grpo-I-lr5e-6-g8": "LR 5e-6 is outside {1e-5, 2e-5, 5e-5} + one 3e-6 guard (C3); beta 0.04 (C12: beta 0), no dynamic sampling (C5), T 1.0 only, 150-update rung schedule instead of 600 assayed at 150/300/600; replaced by arms-d37-grpo-I.json (root D37, PR #40)",
+  "grpo-I-lr5e-6-g8~ctl": "control of retired grpo-I-lr5e-6-g8"
+ },
+ "rung": 1,
+ "rung_seeds": {
+  "1": [
+   42
+  ],
+  "2": [
+   42,
+   314,
+   2718
+  ],
+  "3": [
+   42,
+   314,
+   2718
+  ]
+ },
+ "rung_updates": {
+  "1": 150,
+  "2": 600,
+  "3": 1500
+ },
+ "schema_version": 1,
+ "study_id": "aircraft-exploratory-sweep-v2"
+}
