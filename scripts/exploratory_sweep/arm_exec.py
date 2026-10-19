@@ -702,8 +702,11 @@ def run(arm: Arm, final_check: bool) -> dict:
                   else None)
         if resume is not None and not resume.is_dir():
             raise SystemExit(f"REFUSE: resume checkpoint {resume} is missing on this host")
-        receipt = arm.run_stage(f"train-{stop}", arm.trainer_args(manifest, total, stop, resume),
-                                stop)
+        stage_args = arm.trainer_args(manifest, total, stop, resume)
+        # only RFT needs the stop (to reuse a completed boundary endpoint); every other mode
+        # keeps run_stage's two-argument call
+        receipt = (arm.run_stage(f"train-{stop}", stage_args, stop) if s["mode"] == "rft"
+                   else arm.run_stage(f"train-{stop}", stage_args))
         arm.keep_adapter(f"step{stop}")
         summary["endpoints"].append({
             "label": f"step{stop}", "steps": receipt.get("global_step", stop),

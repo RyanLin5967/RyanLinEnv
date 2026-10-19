@@ -549,8 +549,9 @@ def cmd_continue(a, state_path: Path) -> int:
     cont["continued_from_run"] = x["run"]
     host = x["host"]
     r = valid_receipt(state, host, cont.get("features", []), cont)
-    if capacity(state, host_table(), host, cont.get("threads", 16),
-                mem_gb(cont) or ARM_RSS_GB, cont.get("device", "cpu")) < 1 and not a.dry_run:
+    # a dry run never queries uwrun's host table (it launches nothing)
+    if not a.dry_run and capacity(state, host_table(), host, cont.get("threads", 16),
+                                  mem_gb(cont) or ARM_RSS_GB, cont.get("device", "cpu")) < 1:
         raise SystemExit(f"REFUSE: {host} has no free capacity now; retry later")
     if a.dry_run:
         launch_one(state_path, cont, host, r["root"], a.timeout, True)

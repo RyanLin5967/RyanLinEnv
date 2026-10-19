@@ -1121,8 +1121,9 @@ def test_replay_sequence_is_control_only_and_repeats_must_be_exact(tmp_path):
 def test_assay_profile_refuses_a_missing_key_other_than_temperature(tmp_path):
     from vision_rl import vlm_local_training as local
 
-    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 1,
-            "max_pixels": 2, "max_completion_length": 8, "num_generations": 8,
+    # the sweep's real pixel bounds: assay_profile now also runs Profile.validate()
+    base = {"id": "a", "mode": "grpo", "response_format": "answer_only", "min_pixels": 50176,
+            "max_pixels": 200704, "max_completion_length": 8, "num_generations": 8,
             "temperature": None}
     assert arm_exec.Arm(tmp_path, base, tmp_path / "r").assay_profile(local).temperature == 1.0
     for key in ("response_format", "max_pixels", "num_generations"):
