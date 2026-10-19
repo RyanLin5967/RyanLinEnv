@@ -427,3 +427,10 @@ D36 is reserved by open PR #31.
 - **Placebo / noise (M5): measured.** Same LR, different seed (lr1e-5 s42 vs s314) differs by up to 1.75 pp at one stop, and best-of-6 differs by 0.25 pp. The promotion bar stays B = max(0.03, placebo max), which is 0.03 now.
 - **Released:** GRPO-I arms under runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md: fp32 only (2080 Ti and AVX-512 CPU hosts), LR {1e-5, 2e-5, 5e-5} plus one 3e-6 guard, β 0, dynamic sampling ≥ 8, T 1.0 and 1.3, with LR-gridded controls trained on all scanned rows and time-matched per checkpoint. bf16 GRPO on the 3070s waits for the M9 replicate.
 - **Not quotable:** the exploratory GRPO-I arm 21 (lr1e-5, no dynamic sampling) scored 0.78125 at step 150. It predates these rules and is not a candidate.
+
+## D38 — CPU moved from SFT measurement to RL arms (2026-10-19)
+- **Measured:** corrected GRPO-I fp32 arms on CPU run at about 290–380 s/update (iccad13 lr5e-5: 869 s for 3 updates; iccad0 lr2e-5: 758 s for 2), from each arm's optimizer_audit active seconds. 600 updates is therefore about 48–63 h, not the 22 h estimated from the uncontended benchmark (134 s). Dynamic-sampling redraws and our own oversubscription of the AVX-512 hosts both add to the cost; the split between them is not yet measured.
+- **Why now:** GATE 0's SFT questions are answered (D37). SFT-from-I plateaus at 0.785 best-of-6 across LR {5e-6, 1e-5, 2e-5}, and the seed placebo spread (best-of-6) is about 0.25 pp.
+- **Stopped, partial results kept and labelled:** the CPU SFT-ceiling lane's I-seed retrains (seeds 1–6 and seed42-cpu; the confirmatory plan never retrains I), the all_train comparator replicates (lr1e-5 s314 and s2718, lr5e-6 s314), and lr3e-6.
+- **Kept:** all_train lr5e-6, lr1e-5 and lr2e-5 at seed 42, to 2400; the leader continues to 7200 as the long-horizon comparator.
+- **Freed AVX-512 cores** go to corrected GRPO-I workers. The M9 test (bf16 GRPO on the 3070s, about 6 s/update) is first in line, because it is the largest throughput lever.
