@@ -35,9 +35,9 @@ With the warm-up inside the engine's own pin (`ew_engine_probe.py` via `run_warm
 
 | host | elementwise runs, SIGILL | real-engine forwards so far | forwards with `warmup: true` and a matching fingerprint | forward SIGILL |
 | --- | --- | --- | --- | --- |
-| iccad1 | 200, 0 | 11 | 11 | 0 |
-| iccad3 | 200, 0 | 17 | 17 | 0 |
-| iccad5 | 200, 0 | 11 | 11 | 0 |
+| iccad1 | 200, 0 | 21 | 21 | 0 |
+| iccad3 | 200, 0 | 27 | 27 | 0 |
+| iccad5 | 200, 0 | 16 | 16 | 0 |
 | iccad6 (matrix, `ew_probe.py warm`) | 100, 0 | none | none | none |
 
 - **What a forward does** (`model_probe.py`): the plan pin with the warm-up, model load, the
