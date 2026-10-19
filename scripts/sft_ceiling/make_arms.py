@@ -56,9 +56,10 @@ def main():
                          lr=lr, seed=42, train_ids=pool, stops=[300, 600, 1200, 2400, 4800, 7200],
                          max_steps_total=7200))
     # comparator seed replicate (coordinator): its seed spread feeds the placebo bar
-    for cseed in (314, 2718):
-        arms.append(dict(COMMON, id=f"sftceil-cont-all-lr1e-5-s{cseed}", family="cont-all-seed",
-                         init="I", lr=1e-5, seed=cseed, train_ids=pool,
+    for clr, cseed in ((1e-5, 314), (1e-5, 2718), (5e-6, 314)):
+        tag = f"{clr:.0e}".replace("e-0", "e-")
+        arms.append(dict(COMMON, id=f"sftceil-cont-all-lr{tag}-s{cseed}", family="cont-all-seed",
+                         init="I", lr=clr, seed=cseed, train_ids=pool,
                          stops=[300, 600, 1200, 2400, 4800, 7200], max_steps_total=7200))
     for arm in arms:
         d = OUT / arm["id"]

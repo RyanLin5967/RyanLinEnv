@@ -14,7 +14,8 @@ sftceil-I-seed5:iccad7:11
 sftceil-I-seed42:iccad5:10
 sftceil-cont-all-lr1e-5-s314:iccad0:1
 sftceil-I-seed6:iccad7:3
-sftceil-cont-all-lr1e-5-s2718:iccad8:1"
+sftceil-cont-all-lr1e-5-s2718:iccad8:1
+sftceil-cont-all-lr5e-6-s314:iccad10:2"
 for triple in $ARMS; do
   arm=${triple%%:*}; rest=${triple#*:}; host=${rest%%:*}; n=${rest##*:}
   st=$(timeout 90 ~/.claude/bin/uwrun status "$arm-$n" 2>&1 | tail -1 | awk '{print $3, $4}')
