@@ -470,10 +470,10 @@ D36 is reserved by open PR #31.
   - GPU s_train lr5e-6 at step 2400.
   The RL and SFT arms ran on different devices.
 - **Placebo noise.** Best-of-k placebo spread is 0.25 pp (seeds 42 vs 314). The per-checkpoint seed spread reaches 1.75 pp.
-- **Single-image GRPO-from-I** (measured at LR 1e-5 and 2e-5; T 1.0 and 1.3; bf16 and fp32; β0; DS8) sits at I ± noise or below.
+- **Single-image GRPO-from-I** (measured at LR 1e-5 and 2e-5; T 1.0 and 1.3; bf16 and fp32; β0; DS8 except one fp32 lr1e-5 arm without dynamic sampling, 0.78125 at step 150) sits at I ± noise or below.
   - fp32 lr2e-5 T1.3: 0.7538 at step 300.
   - fp32 lr2e-5 T1.0: 0.7712 → 0.7800 → 0.7588 at steps 150/300/600.
-  - The T1.3 arms all end at or below I. Only the fp32 lr2e-5 arm is clearly lower; the others are flat within their CIs.
+  - The T1.3 arms all end at or below I. Only the fp32 lr2e-5 arm is lower (CI vs I [−4.25, 0.0], upper bound touching 0); the others are flat within their CIs.
   - The CPU lr5e-5 arms have no endpoints yet.
 - **Pool-only GRPO on mixed-v3 forgets.** lr2e-5 T1.3: 0.7462, then 0.7262 (both CIs exclude 0).
 - **RFT/expert iteration with replay is flat:** 0.775 / 0.774 / 0.7725 at steps 178 / 331 / 605.
