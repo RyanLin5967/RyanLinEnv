@@ -386,6 +386,11 @@ def control_spec(state: dict, ctl: dict) -> dict:
     receipt = json.loads(receipt_path.read_text())
     last = [e for e in summary["endpoints"] if e["label"].startswith("step")][-1]
     ids = receipt["committed_prompt_ids"]
+    steps = receipt["global_step"]
+    # A prompts_per_update arm commits P prompt ids per global step (P = 1 otherwise).
+    per_step = len(ids) // steps if steps else 0
+    if not ids or per_step < 1 or len(ids) != steps * per_step:
+        raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     if ctl.get("control_replays") == "scanned":
         # CORRECTIONS C4: replay EVERY row the RL arm scored, in scan order (arm_exec's
         # scanned_ids.json). Missing is a refusal, never a fall back to the committed ids.
@@ -408,13 +413,15 @@ def control_spec(state: dict, ctl: dict) -> dict:
         if not ok:
             raise SystemExit(f"REFUSE: {ctl['control_of']} committed ids are not within its "
                              f"scanned ids in order")
-    if not ids or receipt["global_step"] != last["steps"] or len(ids) > ctl["max_steps_total"]:
+    if not ids or steps != last["steps"] or len(ids) > ctl["max_steps_total"] * per_step:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
     # examples-matched: one SFT update per prompt the RL arm committed (or, for a
     # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
                 time_budget_seconds=float(last["active_seconds"]))
+    if per_step > 1:  # the SFT control's update cap is in images: P x the RL arm's steps
+        spec["max_steps_total"] = ctl["max_steps_total"] * per_step
     return spec
 
 

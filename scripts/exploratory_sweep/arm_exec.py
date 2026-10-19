@@ -111,6 +111,9 @@ EXTRA_FLAGS = {
     "--family-credit": _float_in(0.0, 1.0, hi_open=True),
     "--manufacturer-credit": _float_in(0.0, 1.0, hi_open=True),
     "--invalid-reward": _float_in(-1.0, 0.0),
+    # correction M3; defaults (P 1, no skip) are never passed, so legacy identity holds
+    "--prompts-per-update": _int_between(2, 32),
+    "--skip-zero-advantage-steps": _one_of("true"),
 }
 NEVER_EXTRA = {"--train", "--validation"}
 # extras whose value is a file: given as @payload/<rel> only (Arm.resolved_extras)
@@ -270,6 +273,7 @@ class Arm:
     def trainer_args(self, manifest: Path, max_steps: int, stop: int | None,
                      resume: Path | None, stop_seconds: float | None = None) -> list[str]:
         s = self.spec
+        multi_image = self.multi_image_args(s["mode"])  # refuses the M3 keys outside GRPO
         if s["mode"] == "rft":
             if resume is not None or stop_seconds is not None:
                 raise SystemExit("REFUSE: RFT resumes its own output dir and has no time stop")
@@ -291,6 +295,7 @@ class Arm:
         args += ["--save-steps", str(save_steps_for(s, max_steps))]
         if stop and stop < max_steps:
             args += ["--stop-after-steps", str(stop)]
+        args += multi_image
         if mode == "grpo":
             args += ["--beta", repr(float(s["beta"])),
                      "--temperature", repr(float(s["temperature"]))]
@@ -374,6 +379,49 @@ class Arm:
                "scanned_prompt_ids": ids, "source": source}
         write_json(self.out / "scanned_ids.json", doc)
         return doc
+
+    def multi_image_args(self, mode: str) -> list[str]:
+        """Correction M3 arm keys -> the trainer's GRPO knobs (one route only).
+
+        `prompts_per_update` P: P distinct TRAIN images x G generations per optimizer
+        update; the arm's `stops`/`updates` stay in global steps, so a stop at N consumes
+        N*P images (the matched control replays all N*P committed prompt ids).
+        `skip_zero_advantage_steps`: an update whose whole batch has zero advantage takes no
+        optimizer step but still counts as a step of P consumed images (beta 0 only). A
+        value equal to the legacy default is not passed, so the run keeps the legacy
+        settings identity."""
+        s = self.spec
+        ppu, skip = s.get("prompts_per_update", 1), s.get("skip_zero_advantage_steps", False)
+        if type(ppu) is not int or not 1 <= ppu <= 32 or type(skip) is not bool:
+            raise SystemExit("REFUSE: prompts_per_update must be an int in 1..32 and "
+                             "skip_zero_advantage_steps a bool")
+        # The same knobs may instead come as allowlisted extras (EXTRA_FLAGS validates their
+        # form; `=` and abbreviated forms are refused there). One route per knob only.
+        extra = [str(x) for x in s.get("extra_trainer_args") or []]
+        given = {f: extra[i + 1] for i, f in enumerate(extra[:-1])
+                 if f in ("--prompts-per-update", "--skip-zero-advantage-steps")}
+        if ("--prompts-per-update" in given and "prompts_per_update" in s) or (
+                "--skip-zero-advantage-steps" in given and "skip_zero_advantage_steps" in s):
+            raise SystemExit("REFUSE: prompts_per_update/skip_zero_advantage_steps given both "
+                             "as an arm key and in extra_trainer_args")
+        if "--prompts-per-update" in given:
+            EXTRA_FLAGS["--prompts-per-update"](given["--prompts-per-update"])
+        if "--skip-zero-advantage-steps" in given:
+            EXTRA_FLAGS["--skip-zero-advantage-steps"](given["--skip-zero-advantage-steps"])
+        p_eff = int(given.get("--prompts-per-update", ppu))
+        skip_eff = skip or "--skip-zero-advantage-steps" in given
+        # The runner's host gate reads `features`: a P>1 arm must declare the feature, and an
+        # arm that declares it must set P>1 (else a "ppu" arm would silently run P=1).
+        if ("prompts_per_update" in s.get("features", [])) != (p_eff != 1):
+            raise SystemExit("REFUSE: feature prompts_per_update and prompts_per_update > 1 "
+                             "must come together")
+        if (p_eff != 1 or skip_eff) and mode != "grpo":
+            raise SystemExit(f"REFUSE: prompts_per_update/skip_zero_advantage_steps are GRPO "
+                             f"only, not {mode}")
+        if skip_eff and float(s["beta"]) != 0:
+            raise SystemExit("REFUSE: skip_zero_advantage_steps needs beta 0")
+        return ((["--prompts-per-update", str(ppu)] if ppu != 1 else [])
+                + (["--skip-zero-advantage-steps", "true"] if skip else []))
 
     def rft_endpoint_done(self, stop: int | None) -> bool:
         """An RFT run whose bound endpoint already covers this stage (e.g. the arm died in

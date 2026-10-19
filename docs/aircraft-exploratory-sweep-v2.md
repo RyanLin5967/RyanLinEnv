@@ -439,13 +439,30 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   the device-control offsets. A paired comparison (arm against its matched control, or
   against I) never crosses device classes.
 - **Not in this table.** The multi-image-update family (M3: P images per optimizer step)
-  needs a trainer feature (`prompts_per_update`) that is not built. The receipt check
-  refuses it until it is.
+  is not in the wave-2 table. Its trainer feature is now built: the GRPO knobs
+  `--prompts-per-update P` (1..32, default 1) and `--skip-zero-advantage-steps true`
+  (beta 0 only), plus the arm keys `prompts_per_update` and `skip_zero_advantage_steps` in
+  `arm_exec`. A host receipt lists `prompts_per_update` once its payload carries this
+  trainer. Every GRPO `optimizer_audit.jsonl` row now logs `param_delta_l2`. `arm_exec`
+  requires the `prompts_per_update` feature and a P > 1 to come together. So the rung-1
+  table's two `w2-ppu4-grpo-W-*` arms, which name the feature but set no P, refuse rather
+  than train P = 1. Making them run needs `prompts_per_update` set in `design.py`; this
+  table does not set it.
+- **M3 budget accounting (decided 2026-10-18).** An update whose whole batch has zero
+  advantage takes no optimizer step under the skip, so parameters, AdamW moments and the
+  AdamW step count do not move. It still advances `global_step`. So it counts toward
+  `max_steps`, `stops` and `updates` as P consumed images, not as an applied optimizer
+  update. Applied updates = `optimizer_steps_observed - zero_advantage_skipped_steps`
+  (audit). An arm's stop at N updates consumes N*P images. Its matched control replays all
+  N*P committed prompt ids (`runner.control_spec`), so the control stays matched on images.
 - **Known limits.** First, with `--num-iterations 1` DAPO's clip-higher term never binds,
   because every update is on-policy. The dapo family is therefore effectively token-level
   loss plus dynamic sampling. wave2-mu2 is the arm where clipping is active. Second, C5
-  requires discarded generation seconds to be charged to RL time; whether the trainer's
-  active-time audit charges them for dynamic sampling is unverified.
+  requires discarded generation seconds to be charged to RL time. This is verified for
+  dynamic sampling: every draw runs inside the update's active-time span.
+  `tests/test_grpo_multi_image.py::test_dynamic_sampling_dropped_draws_are_charged_to_committed_active_seconds`
+  passes. It fails when the draws are excluded from the span (forced fire, uwrun
+  `m3-tests-5477c6a`).
 
 ## Engineering fix 3 (2026-10-18, plan-neutral): assay profile, feature gate, kept-stop continuation
 
