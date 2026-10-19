@@ -1,0 +1,46 @@
+{
+ "arm": "smoke-sft-fp16-ecetesla3",
+ "endpoints": [
+  {
+   "active_seconds": 19.766581318108365,
+   "label": "step1",
+   "metrics": {
+    "accuracy": 0.77375,
+    "adapter_sha256": "30c0011596ccd653fbde7324f00d28f4c2235285df6dcb79d9fe62aa94660530",
+    "assay_seconds": 3362.3,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.77375,
+    "label": "step1",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 1
+  },
+  {
+   "active_seconds": 39.26670665992424,
+   "label": "step2",
+   "metrics": {
+    "accuracy": 0.7725,
+    "adapter_sha256": "a9d399d6ad7603b4f4bec80e0bca422ffa427cbec35ff0473ad3dd0aee995cc8",
+    "assay_seconds": 3361.9,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.7725,
+    "label": "step2",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "receipt_status": "total_budget_exhausted",
+   "steps": 2
+  }
+ ],
+ "host": "ECETESLA3",
+ "receipt_sha256": "ba1b3c584679ac11b7eb130187070049e05d7f742392c7b8400fb79787a389c4",
+ "root": "/var/tmp/r226lin-rlcampaign"
+}

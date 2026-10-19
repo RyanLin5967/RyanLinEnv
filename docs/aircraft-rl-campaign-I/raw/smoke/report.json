@@ -1,0 +1,87 @@
+{
+ "baselines": {
+  "class/gtx1070-fp16": {
+   "accuracy": 0.7725,
+   "arm": "eval-I-fp16-ecetesla3"
+  },
+  "host/ecetesla3": {
+   "accuracy": 0.7725,
+   "arm": "eval-I-fp16-ecetesla3"
+  }
+ },
+ "bootstrap": "paired, class-stratified",
+ "checkpoints": [
+  {
+   "I_accuracy": 0.7725,
+   "I_baseline": "eval-I-fp16-ecetesla3",
+   "accuracy": 0.77375,
+   "active_seconds": 19.766581318108365,
+   "arm": "smoke-sft-fp16-ecetesla3",
+   "device_class": "gtx1070-fp16",
+   "equal_class_accuracy": 0.77375,
+   "group": null,
+   "host": "ecetesla3",
+   "label": "step1",
+   "rung": 1,
+   "steps": 1,
+   "track": "smoke",
+   "valid_fraction": 0.99375,
+   "vs_I": {
+    "ci95": [
+     0.0,
+     0.00375
+    ],
+    "classes": 100,
+    "delta": 0.00125,
+    "losses": 0,
+    "n": 800,
+    "p_le_0": 0.3398,
+    "resamples": 20000,
+    "stratified": "gold class",
+    "wins": 1
+   }
+  },
+  {
+   "I_accuracy": 0.7725,
+   "I_baseline": "eval-I-fp16-ecetesla3",
+   "accuracy": 0.7725,
+   "active_seconds": 39.26670665992424,
+   "arm": "smoke-sft-fp16-ecetesla3",
+   "device_class": "gtx1070-fp16",
+   "equal_class_accuracy": 0.7725,
+   "group": null,
+   "host": "ecetesla3",
+   "label": "step2",
+   "rung": 1,
+   "steps": 2,
+   "track": "smoke",
+   "valid_fraction": 0.99375,
+   "vs_I": {
+    "ci95": [
+     0.0,
+     0.0
+    ],
+    "classes": 100,
+    "delta": 0.0,
+    "losses": 0,
+    "n": 800,
+    "p_le_0": 1.0,
+    "resamples": 20000,
+    "stratified": "gold class",
+    "wins": 0
+   }
+  }
+ ],
+ "created_at": "2026-10-19T01:11:13+00:00",
+ "exploratory": true,
+ "groups": [],
+ "holdout": "dev800",
+ "missing": [
+  "smoke-sft-fp16-ecetesla3 step1: no matched control endpoint",
+  "smoke-sft-fp16-ecetesla3 step2: no matched control endpoint"
+ ],
+ "refused": [],
+ "resamples": 20000,
+ "seed": 20261018,
+ "study_id": "aircraft-rl-campaign-I"
+}

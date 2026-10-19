@@ -1,0 +1,34 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.04,
+ "device": "cuda",
+ "device_class": "gtx1070-fp16",
+ "dtype": "float16",
+ "family": "eval",
+ "features": [
+  "cuda"
+ ],
+ "host": "ecetesla3",
+ "id": "eval-I-fp16-ecetesla3",
+ "init": "I",
+ "lr": 1e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 2,
+ "min_pixels": 50176,
+ "mode": "eval",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "rung": 1,
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  1,
+  2
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "eval",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}
