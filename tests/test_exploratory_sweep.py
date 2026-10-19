@@ -587,10 +587,16 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         if fam == "wave2-dapo":
             assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
             assert kw["dynamic_sampling_max_draws"] == 8
-        if fam == "wave2-drgrpo":
-            assert kw["grpo_overrides"] == {"loss_type": "dr_grpo", "scale_rewards": "none"}
+        if fam == "wave2-drgrpo":  # main's explicit Dr-GRPO parameters
+            assert (kw["loss_type"], kw["scale_rewards"]) == ("dr_grpo", "none")
+            assert "grpo_overrides" not in kw
         if fam == "wave2-mu2":
             assert kw["grpo_overrides"] == {"num_iterations": 2}
+        if fam in ("wave2-fmtpen", "wave2-closedset", "wave2-mu2", "wave2-guard"):
+            # beta 0 names its aggregation: the legacy "grpo" (settings unchanged)
+            assert kw["loss_type"] == "grpo" and kw["scale_rewards"] == "group"
+        if fam == "wave2-dapo":
+            assert kw["loss_type"] is None  # DAPO's loss_type is the knob above
         if a["mode"] == "grpo":
             assert kw["beta"] == 0.0 and kw["profile"].dtype == "float32"
         if a["track"] == "control" or fam in ("wave2-closedset", "wave2-guard"):

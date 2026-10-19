@@ -553,28 +553,32 @@ def _cuda_stack(monkeypatch, policies, bf16_native):
     monkeypatch.setattr(local, "import_module", modules)
     monkeypatch.setattr(local, "preflight", lambda *_: {
         "adapter_source_sha256": local._file_sha256(Path(local.__file__)),
-        "cuda": {"bf16_native": bf16_native}})
+        "cuda_device": {"name": "card", "native_bfloat16": bf16_native}})
 
 
 def test_rft_runs_on_cuda_under_the_train_local_device_rules(diagnostic, tmp_path,
                                                              monkeypatch):
+    """RFT follows train_local's rules (main merge): bf16 needs a native-bf16 card, and
+    float16 training is refused on every device (corrections C2: no parity evidence)."""
     policies = []
     profile = replace(local.Profile(), response_format="answer_only")
     _cuda_stack(monkeypatch, policies, bf16_native=False)
-    with pytest.raises(ValueError, match="capability >= 8.0"):
+    with pytest.raises(local.LocalVLMError, match="no native bfloat16"):
         run_rft(diagnostic, tmp_path / "bf16", policies, [], [], device="cuda",
                 profile=replace(profile, dtype="bfloat16"))
-    record = run_rft(diagnostic, tmp_path / "fp16", policies, [], [], device="cuda",
-                     profile=replace(profile, dtype="float16"))
-    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
-    assert record["settings"]["loss_scaling"]["init_scale"] == local.DEFAULT_LOSS_SCALE_INIT
+    for device, out in (("cuda", "fp16"), ("cpu", "cpu16")):
+        with pytest.raises(local.LocalVLMError, match="float16 training"):
+            run_rft(diagnostic, tmp_path / out, policies, [], [], device=device,
+                    profile=replace(profile, dtype="float16"))
+        assert not (tmp_path / out).exists()
     _cuda_stack(monkeypatch, policies, bf16_native=True)
     record = run_rft(diagnostic, tmp_path / "ampere", policies, [], [], device="cuda",
                      profile=replace(profile, dtype="bfloat16"))
-    assert record["status"] == "completed" and "loss_scaling" not in record["settings"]
-    with pytest.raises(ValueError, match="only on --device cuda"):
-        run_rft(diagnostic, tmp_path / "cpu16", policies, [], [], device="cpu",
-                profile=replace(profile, dtype="float16"))
+    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
+    assert "loss_scaling" not in record["settings"]
+    record = run_rft(diagnostic, tmp_path / "fp32", policies, [], [], device="cuda",
+                     profile=profile)
+    assert record["status"] == "completed" and record["settings"]["device"] == "cuda"
 
 
 def test_rft_default_threads_fall_back_to_the_env_without_entering_the_record(

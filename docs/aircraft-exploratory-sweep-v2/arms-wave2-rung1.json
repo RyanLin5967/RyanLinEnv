@@ -171,7 +171,9 @@
     "--manufacturer-credit",
     "0",
     "--invalid-reward",
-    "-0.5"
+    "-0.5",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-fmtpen",
    "features": [
@@ -216,7 +218,9 @@
     "--manufacturer-credit",
     "0",
     "--invalid-reward",
-    "-0.5"
+    "-0.5",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-fmtpen",
    "features": [
@@ -261,7 +265,9 @@
     "--manufacturer-credit",
     "0",
     "--invalid-reward",
-    "-0.5"
+    "-0.5",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-fmtpen",
    "features": [
@@ -299,7 +305,10 @@
    "device": "cpu",
    "device_class": "cpu-float32",
    "dtype": "float32",
-   "extra_trainer_args": [],
+   "extra_trainer_args": [
+    "--loss-type",
+    "grpo"
+   ],
    "family": "wave2-closedset",
    "features": [
     "closed_set_prompt"
@@ -335,7 +344,10 @@
    "device": "cpu",
    "device_class": "cpu-float32",
    "dtype": "float32",
-   "extra_trainer_args": [],
+   "extra_trainer_args": [
+    "--loss-type",
+    "grpo"
+   ],
    "family": "wave2-closedset",
    "features": [
     "closed_set_prompt"
@@ -371,7 +383,10 @@
    "device": "cpu",
    "device_class": "cpu-float32",
    "dtype": "float32",
-   "extra_trainer_args": [],
+   "extra_trainer_args": [
+    "--loss-type",
+    "grpo"
+   ],
    "family": "wave2-closedset",
    "features": [
     "closed_set_prompt"
@@ -568,7 +583,9 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--num-iterations",
-    "2"
+    "2",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-mu2",
    "features": [
@@ -606,7 +623,9 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--num-iterations",
-    "2"
+    "2",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-mu2",
    "features": [
@@ -644,7 +663,9 @@
    "dtype": "float32",
    "extra_trainer_args": [
     "--num-iterations",
-    "2"
+    "2",
+    "--loss-type",
+    "grpo"
    ],
    "family": "wave2-mu2",
    "features": [
@@ -821,7 +842,10 @@
    "device": "cpu",
    "device_class": "cpu-float32",
    "dtype": "float32",
-   "extra_trainer_args": [],
+   "extra_trainer_args": [
+    "--loss-type",
+    "grpo"
+   ],
    "family": "wave2-guard",
    "features": [],
    "id": "wave2-guard-grpo-I-3e-6-g8-b0-cpu-float32",

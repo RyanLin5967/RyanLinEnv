@@ -154,6 +154,20 @@ Operating constraints, stated:
 | `e0_gate.py` | Entry `e0_gate:main` for the `e0` template: the protocol's `real_learning_and_resume_gate`. Four screened GRPO updates from W uninterrupted, 2+2 and 1+3, each trainer part in its own process through `phase_worker.py` (24 GiB MPS guard each), plus a resume from the 2+2 split checkpoint with one reference-adapter bit flipped, which the trainer must refuse. Twelve checks, all required by the launcher; the docstring lists them |
 | `production/` | The real launch: `prepare.py` (writes the receipts, evidence base, `plan.json`, `plan.sha256`), `start.py` (the single command), `chain.py` (detached runner), `status.py` (monitoring), `live.py` (whether the study is running, for the test and dry-run refusals) |
 
+## Results report
+
+`scripts/freshpool_report.py --state-directory <state> [--json out.json] [--markdown out.md] [--watch 60]`
+is read-only over a state directory. It admits only the fragments the journal completed (by
+path and SHA256), rebuilds the evaluator's evidence with `Launcher.evidence` for every
+`gate_started`, re-decides each gate with `evaluate`, and refuses (exit 2) when a fragment is
+missing or changed, a rebuilt evidence file or a recomputed gate differs from what the
+launcher wrote, or a selection disagrees with the evaluator's. It reports per-stage status, E0,
+every gate, H-select / H-gate accuracies with the protocol's paired bootstrap, RL* vs W,
+SFT-E*, SFT-T* and EG-SFT, and the branch receipt's VAL target a* + D_req. It never scores
+TEST. Its synthetic tests are `tests/test_freshpool_report.py` (safe beside the live study) and
+`tests/test_freshpool_report_launcher_e2e.py` (real launcher runs; CI only, refused by
+`tests/conftest.py` while the study runs).
+
 ## Stage order (seed 42)
 
 1. **G0.** Checked by the launcher before anything starts, by content where the content is checkable:
@@ -291,3 +305,30 @@ The launcher assembles the evaluator's evidence document from these fragments pl
 - **SFT-T on an all-accepted scan.** The trainer refuses a continuation whose TRAIN identity equals the parent's. If RL\* accepted every candidate it scanned, the scanned and accepted manifests are byte-identical and SFT-T would refuse. G1 requires acceptance of at least 0.30, not 1.0, so this needs 600 accepted with no rejection; it is not handled.
 - **Lock and orphans.** A pid plus `ps` start time identifies a process; the orphan reap acts only on the recorded group whose leader has the recorded start time (or, with the leader gone, whose every member names the state directory).
 - **Import tree.** Only `import_root` is checked for unpinned importable files; `runs/vlm-local-libs/site-packages` on `PYTHONPATH` is covered by the controlled400 runtime pins, not by a full scan.
+
+## Signal-limit v1 (`aircraft-rl-next-study-v1`, pre-registered, not activated)
+
+`signal_limit_launch.py` sequences `docs/aircraft-rl-next-study-v1.json` (P0-I, Stage 0,
+Stage A, Stage B) on the same `Launcher`, so every guard above applies unchanged. Nothing of it
+has run on the model. What is new:
+
+| File | Role |
+|---|---|
+| `stage_table.py` | The stage table (P0-I, Stage 0, Stage A's 13 arms, Stage B), the init endpoint role of every stage (I, W, I\*), the update counts (Stage A 600; RL screen 100, final 300) and `a_floor = N x 1.25 / |S_b|`. `verify_against_study` cross-checks it against the study JSON field by field; any disagreement refuses the launch |
+| `signal_limit_launch.py` | The launcher (`schema: signal-limit-launch-plan-v1`). Init endpoints are pinned per stage (`init_endpoints.I` / `.W` in the plan, checked against the study's I hash and W prefix; I\* pinned in the state from Gate A's `i_star`, by adapter SHA256); a plan-wide `init_endpoint`/`w_endpoint` refuses. Update counts come from the plan's `updates`, which must equal the study's unless the plan is a dry run. c(G) is written to the state from Stage 0 before any RL forecast reads it (RL cap = 1.25 x c(G) x 300). Every H assay carries the constrained-greedy pass and enters the look ledger. Gates and selections come from `scripts/evaluate_signal_limit_gates.py` (contract in the module docstring) |
+| `uw_stage_a.py` | Optional UWaterloo executor for Stage A (`"stage_a_execution": "uwaterloo"` and a `uw` block): runs the independent Stage A arms and their H-select assays concurrently through `~/.claude/bin/uwrun`, one per host slot, in uwrun's host-local `/var/tmp` run directories, through the same `prepare` / `finish` as a local stage (pins, cap with voids, fragment validation), and journals every stage with its uwrun name, host and hardware record. Host choice is an allowlist with per-host run, free-RAM, free-disk (>= 5 GB) and provisioning checks; a lost host interrupts resumably and the instance is re-run from scratch; a remote timeout is the arm cap; a fetched adapter whose bytes differ stops. What ships is an allowlist (pinned files, `src`'s .py/.json, the stage's inputs, all hash-pinned in `pins.json`, itself pinned on the command line); the arm clock reaches `state.json` every 5 s; every run it stops or finishes is `uwrun rm`ed; `uwrun` must be absolute and plan-pinned; a dry-run plan cannot use it. The docstring lists its blind spots |
+| `p0_screen.py` | G from the profile (refuses G outside {4, 8, 16}); `--predict-groups` adds predicted acceptance and mean u per G from p only (P0-I); `--choose-groups 8,16 --a-floor F` picks the smallest qualifying G and samples there (P0') |
+| `h_assay.py` | Assay G stays 4 whatever the training G (`--training-group` only records it); `--label-trie T --label-trie-sha256 H` adds the constrained greedy pass, refused unless the trie hashes to H and the trainer's `predict_train_subset` takes `label_trie` |
+| `trainer_fragment.py` | Arms A1-A5 and LIM-T (either limit objective's mode); their fragments, and an RL fragment whose trainer recorded a `loss_type`, carry `mode`, `init_sha256` and the RL profile (loss_type, scale_rewards, beta, group, reward). Freshpool fragments are unchanged |
+| `phase_worker.py` | `--remote-cpu`: the UW path's real cpu run, with `UWRUN_THREADS` torch threads (`VISION_RL_TORCH_THREADS` must equal it; that variable refuses a stage anywhere else, a deliberate legacy refusal) |
+
+The Stage 0 entry (cost probe and the G8 / beta 0 / dr_grpo resume proof) is the plan's
+`stage0` template; the launcher requires its fragment to report the checks named in
+`signal_limit_launch.STAGE0_CHECKS` under each G's own key (`checks["8"]`, `checks["16"]`),
+sampler-teacher agreement <= 0.001 and `c_seconds_per_accepted_update` for G8 and G16.
+
+Tests: `tests/test_signal_limit_launch_units.py` (stage table, counts, P0 and assay options,
+profile fields, `--remote-cpu`, the UW helpers) and `tests/test_signal_limit_launch.py` (the
+whole sequence with a fake stage entry, a contract evaluator or the real one when present, and a
+fake `uwrun`: concurrency per host, a lost host and its resume, a remote timeout, a transfer
+mismatch, launch failure and every host refusal).

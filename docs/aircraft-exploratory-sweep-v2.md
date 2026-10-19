@@ -384,6 +384,18 @@ The table has 46 arms: 20 RL arms, 20 matched controls and 6 device-control eval
   The committed ids must lie within the scanned ids. For DAPO they must appear as an
   in-order subsequence. For RFT they must be a subset, and each round's kept prompts must
   be prompts that round sampled.
+- **Merged with main (2026-10-19).** Three decisions changed this table and the trainer:
+  - **Explicit loss aggregation.** Main requires every β-0 GRPO run to name its loss
+    aggregation, so fmtpen, closedset, mu2 and guard pass `--loss-type grpo`. This is the
+    legacy aggregation and leaves the settings identity unchanged. Dr-GRPO's
+    `--loss-type dr_grpo --scale-rewards none` now reaches main's explicit parameters.
+    DAPO's `--loss-type dapo` stays a GRPO knob, so one flag routes to either.
+  - **fp16 training is refused.** On every device, in `train_local` and RFT, per main's
+    rule and corrections C2. No wave-2 arm trains in fp16, and fp16 remains allowed for
+    inference.
+  - **Replay order is checked at run time.** Under `--replay-sequence` the trainer refuses
+    any train sampler that is not a SequentialSampler. It also refuses, before any endpoint
+    is published, if the committed exposure order differs from the manifest order.
 - **Replay sequences can repeat rows.** A replay list can present the same TRAIN row more
   than once:
   - DAPO redraws pick rows at random;

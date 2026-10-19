@@ -31,6 +31,18 @@ SHA256), scan_order (every manifest ID), journal (400 entries) and rollouts (128
 Each rollout completion also carries its ``completion_ids``: when more than 2% of the correct
 ones are non-canonical, the launcher sums the screen's p over every correct tokenization
 observed here (study.json alt_tokenization_switch, frozen before G2).
+
+Signal-limit v1 (docs/aircraft-rl-next-study-v1.json; implementation_work_list p0_screen):
+  * G is the profile's ``--num-generations`` (default 4, the freshpool value); G outside
+    {4,8,16} refuses. u, accepted and the rollout group size all use that G.
+  * ``--predict-groups 4,8,16`` (P0-I) adds ``predicted``: per G, from p only, the predicted
+    acceptance (share of the 400 with u_G(p) >= 0.5), mean u_G over all 400 and mean u_G over
+    the accepted ones (null when none is accepted).
+  * ``--choose-groups 8,16 --a-floor F`` (P0' at I*, gate GB0) scores first, then picks the
+    smallest listed G whose predicted acceptance is >= F, samples the rollouts at that G and
+    records ``chosen_group`` (null, with no rollouts, when none qualifies: GB0 then fails).
+    It implies ``predicted`` over the listed groups and ignores --num-generations.
+Without those options the document is byte-identical to the freshpool one.
 """
 
 import argparse
@@ -38,7 +50,7 @@ import gc
 import json
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from importlib import import_module
 from pathlib import Path
 
@@ -51,6 +63,7 @@ SEED = 42
 CANDIDATES, ROLLOUT_IMAGES, ROLLOUT_SEEDS = 400, 64, (42, 314)
 THRESHOLD = 0.5
 GROUP = 4
+GROUPS = (4, 8, 16)  # every G the signal-limit study allows (stage_table.GROUPS)
 
 
 def score_candidates(rows, *, adapter, data_spec, model_directory, device, profile,
@@ -123,22 +136,49 @@ def sample_groups(rows, seed, stage_dir, *, adapter, data_spec, model_directory,
     return found
 
 
-def g1_document(rows, scores, samples, adapter_sha, labels):
+def predicted(scores, groups):
+    """{G: predicted acceptance, mean u, mean u among accepted}, from p only."""
+    found = {}
+    for group in groups:
+        us = [vlt.group_useful_probability(p, group) for p, _, _ in scores]
+        accepted = [u for u in us if u >= THRESHOLD]
+        found[str(group)] = {
+            "acceptance": len(accepted) / len(us), "mean_u": sum(us) / len(us),
+            "mean_u_accepted": sum(accepted) / len(accepted) if accepted else None}
+    return found
+
+
+def choose_group(prediction, groups, floor):
+    """The smallest listed G whose predicted acceptance is >= the floor, else None."""
+    for group in sorted(groups):
+        if prediction[str(group)]["acceptance"] >= floor:
+            return group
+    return None
+
+
+def parse_groups(text):
+    groups = tuple(int(part) for part in text.split(","))
+    if not groups or len(set(groups)) != len(groups) or any(g not in GROUPS for g in groups):
+        raise SystemExit(f"groups must be distinct values from {GROUPS}, got {text!r}")
+    return groups
+
+
+def g1_document(rows, scores, samples, adapter_sha, labels, group=GROUP, rollout_images=None):
     candidates = rows[:CANDIDATES]
     journal = []
     for row, (p, seconds, _) in zip(candidates, scores, strict=True):
-        u = vlt.group_useful_probability(p, GROUP)
+        u = vlt.group_useful_probability(p, group)
         journal.append({"id": row["id"], "p": p, "u": u, "accepted": u >= THRESHOLD,
                         "scorer_seconds": seconds, "adapter_sha256": adapter_sha})
     canonical = {row["id"]: score[2] for row, score in zip(candidates, scores, strict=True)}
     rollouts = []
-    for row in candidates[:ROLLOUT_IMAGES]:
+    for row in candidates[:ROLLOUT_IMAGES if rollout_images is None else rollout_images]:
         for seed in ROLLOUT_SEEDS:
-            group = samples[seed].get(row["id"], [])
-            if len(group) != GROUP:
-                raise RuntimeError(f"{row['id']} seed {seed}: {len(group)} completions")
+            drawn = samples[seed].get(row["id"], [])
+            if len(drawn) != group:
+                raise RuntimeError(f"{row['id']} seed {seed}: {len(drawn)} completions")
             completions = []
-            for completion in group:
+            for completion in drawn:
                 value, ended = h_assay.answer(completion, labels)
                 ids = list(completion.get("completion_ids", []))
                 completions.append({
@@ -163,12 +203,20 @@ def main(argv=None):
     parser.add_argument("--data-spec", type=Path, required=True)
     parser.add_argument("--model-directory", type=Path, required=True)
     parser.add_argument("--device", choices=("mps", "cpu"), default="mps")
+    parser.add_argument("--predict-groups", type=parse_groups)
+    parser.add_argument("--choose-groups", type=parse_groups)
+    parser.add_argument("--a-floor", type=float)
     for name, value in asdict(PROFILE).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value), default=value)
     args = vars(parser.parse_args(argv))
     profile = vlt.Profile(**{key: args.pop(key) for key in asdict(PROFILE)})
-    if profile.num_generations != GROUP:
-        raise SystemExit("study.json fixes G = 4")
+    if profile.num_generations not in GROUPS:
+        raise SystemExit(f"G must be one of {GROUPS}, got {profile.num_generations}")
+    choose, floor, predict = args["choose_groups"], args["a_floor"], args["predict_groups"]
+    if (choose is None) != (floor is None):
+        raise SystemExit("--choose-groups and --a-floor go together")
+    if choose is not None and (predict is not None or not 0 < floor <= 1):
+        raise SystemExit("--choose-groups needs 0 < --a-floor <= 1 and no --predict-groups")
     rows = read_rows(args["scan_manifest"])
     if len(rows) < CANDIDATES:
         raise SystemExit(f"scan manifest holds {len(rows)} rows, fewer than {CANDIDATES}")
@@ -180,12 +228,32 @@ def main(argv=None):
     scores = score_candidates(rows[:CANDIDATES], **common)
     if len(scores) != CANDIDATES:
         raise RuntimeError("scorer did not return one result per candidate")
+    extra, group = {}, profile.num_generations
+    if predict is not None:
+        extra["predicted"] = predicted(scores, predict)
+    if choose is not None:
+        extra["predicted"] = predicted(scores, choose)
+        group = choose_group(extra["predicted"], choose, floor)
+        extra.update(chosen_group=group, choose_groups=list(choose), a_floor=floor)
+        if group is None:
+            # GB0 fails on this document: no G qualifies, so nothing is sampled.
+            document = g1_document(rows, scores, {}, adapter_sha, labels, max(choose),
+                                   rollout_images=0)
+            document.update(group=None, **extra)
+            return write_fragment(args["fragment"], document)
+        common["profile"] = replace(profile, num_generations=group)
     samples = {seed: sample_groups(rows[:ROLLOUT_IMAGES], seed, args["stage_dir"], **common)
                for seed in ROLLOUT_SEEDS}
-    document = g1_document(rows, scores, samples, adapter_sha, labels)
-    temporary = args["fragment"].with_suffix(".tmp")
+    document = g1_document(rows, scores, samples, adapter_sha, labels, group)
+    if extra or group != GROUP:
+        document.update(group=group, **extra)
+    return write_fragment(args["fragment"], document)
+
+
+def write_fragment(fragment, document):
+    temporary = fragment.with_suffix(".tmp")
     temporary.write_text(json.dumps(document, indent=2, allow_nan=False) + "\n")
-    temporary.replace(args["fragment"])
+    temporary.replace(fragment)
     return 0
 
 
