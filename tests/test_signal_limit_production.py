@@ -6,6 +6,7 @@ expected value comes from the fixture (never from the subject)."""
 
 import hashlib
 import importlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -14,10 +15,22 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "scripts" / "freshpool_launch" / "signal_limit_production"
-sys.path.insert(0, str(PACKAGE))
 sys.path.insert(0, str(PACKAGE.parent))
-prepare = importlib.import_module("prepare")
-start = importlib.import_module("start")
+
+
+def _load(name, module):
+    # By path under a unique name: freshpool's production package has a prepare.py and a
+    # start.py too, and whichever is imported first would otherwise win in a full run.
+    spec = importlib.util.spec_from_file_location(module, PACKAGE / f"{name}.py")
+    loaded = importlib.util.module_from_spec(spec)
+    sys.modules[module] = loaded
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+prepare = _load("prepare", "signal_limit_production_prepare")
+start = _load("start", "signal_limit_production_start")
+assert start.prepare is prepare  # start.py loads the same sibling, not freshpool's
 
 
 def sha_text(text):

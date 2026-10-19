@@ -48,8 +48,21 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import prepare  # noqa: E402  (constants; nothing heavy at import)
+
+
+def _sibling(name, module):
+    """This directory's ``name``.py under a unique module name: a bare ``import prepare``
+    would return whichever ``prepare`` was imported first (freshpool's has the same name)."""
+    if module in sys.modules:
+        return sys.modules[module]
+    spec = importlib.util.spec_from_file_location(module, HERE / f"{name}.py")
+    loaded = importlib.util.module_from_spec(spec)
+    sys.modules[module] = loaded
+    spec.loader.exec_module(loaded)
+    return loaded
+
+
+prepare = _sibling("prepare", "signal_limit_production_prepare")  # constants; nothing heavy
 
 GiB = 1024**3
 RESERVE_BYTES = 5 * GiB
