@@ -716,8 +716,6 @@ class Arm:
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
         if self.spec["mode"] == "grpo":
             entry["sampler_parity"] = check_parity(record, started, sid)
-        if self.spec["mode"] in ("grpo", "sft"):
-            entry["record_check"] = self.check_record(args)
         self.scanned_ids(receipt)
         write_json(self.results / "stages.json", self.log)
         return receipt

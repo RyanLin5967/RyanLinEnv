@@ -440,6 +440,8 @@ def multi_image_arms() -> list:
                    family="probe" if probe else "xbf16", label=f"EXPLORATORY-bf16 P{p}",
                    extra_trainer_args=["--loss-type", "grpo", "--prompts-per-update", str(p),
                                        "--skip-zero-advantage-steps", "true"])
+        # main's M3 guard: a P > 1 arm declares the feature the runner's host gate reads
+        arm["features"] = [*arm.get("features", []), "prompts_per_update"]
         if probe:
             arm.update(stops=[2], max_steps_total=2)
         arms.append(arm)

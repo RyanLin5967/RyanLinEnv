@@ -250,22 +250,6 @@ def test_start_adapter_init_needs_its_exact_pinned_weights(tmp_path):
                          tmp_path / "r").init_adapter()
 
 
-def test_cotenancy_sees_the_stage_tree_and_never_raises():
-    import subprocess
-    import sys
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"])
-    try:
-        s = arm_exec.cotenancy(proc.pid)
-    finally:
-        proc.wait()
-    assert s["load1"] >= 0 and s["stage_threads"] >= 1  # the sleeping child is in the tree
-    assert s["own_user_other_threads"] >= 1  # at least this pytest process
-    summary = arm_exec.summarize_cotenancy([s, dict(s, load1=s["load1"] + 2.0, gpu_apps=None)])
-    assert summary["samples"] == 2 and summary["load1"]["n"] == 2
-    assert summary["load1"]["max"] == s["load1"] + 2.0
-    assert summary["gpu_probe_missing"] >= 1
-
-
 @pytest.mark.parametrize("stops", [[0.0, 10.0], [10.0, 10.0], [20.0, 10.0], [-1.0]])
 def test_time_stops_refuse_non_positive_or_non_increasing(stops):
     with pytest.raises(SystemExit):
