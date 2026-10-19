@@ -520,12 +520,22 @@ def test_extras_that_override_or_escape_the_guards_refuse(tmp_path, extra):
 
 def test_allowlisted_extras_reach_the_trainer_once(tmp_path):
     _fake_payload(tmp_path)
-    extra = ["--dynamic-sampling-max-draws", "8", "--loss-type", "dr_grpo",
-             "--skip-zero-advantage-steps", "--prompts-per-update", "4"]
+    extra = ["--dynamic-sampling-max-draws", "8", "--loss-type", "dr_grpo"]
     spec = camp.build_spec(table(), grpo_row(extra_trainer_args=extra))
     argv = arm_exec.Arm(tmp_path, spec, tmp_path / "r").trainer_args(
         tmp_path / "m.jsonl", 200, 50, None)
-    assert argv[-7:] == extra and argv.count("--dtype") == 1
+    assert argv[-4:] == extra and argv.count("--dtype") == 1
+    # M3 knobs (main #39): P > 1 needs the declared feature; the zero-advantage skip takes
+    # "true" and beta 0
+    m3 = dict(camp.build_spec(table(), grpo_row(beta=0.0)), features=["prompts_per_update"],
+              extra_trainer_args=["--prompts-per-update", "4",
+                                  "--skip-zero-advantage-steps", "true"])
+    argv = arm_exec.Arm(tmp_path, m3, tmp_path / "r").trainer_args(
+        tmp_path / "m.jsonl", 200, 50, None)
+    assert argv.count("--prompts-per-update") == 1 and argv.count(
+        "--skip-zero-advantage-steps") == 1
+    with pytest.raises(SystemExit):  # the bare flag form is not main's allowlisted form
+        arm_exec.checked_extras(["--skip-zero-advantage-steps"], [])
     with pytest.raises(SystemExit, match="repeats"):
         arm_exec.refuse_repeated_flags(["--dtype", "float32", "--x", "--dtype", "bfloat16"])
 

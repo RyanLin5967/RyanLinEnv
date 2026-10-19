@@ -49,6 +49,10 @@ RESPONSE_FORMATS = LEGACY_RESPONSE_FORMATS + ("closed_set_answer_only",) + TAGGE
 TAGGED_OUTPUT_GRAMMAR = "think-answer-tags-v1/answer-only"
 # DAPO/Dr.GRPO/GSPO knobs that released TRL 1.16 GRPOConfig implements, with their
 # legacy values in `trainer_kwargs`. Only explicitly passed knobs enter settings.
+# The last two are this module's own (correction M3), not GRPOConfig fields:
+# `prompts_per_update` P sets generation_batch_size = gradient_accumulation_steps = P*G,
+# and `skip_zero_advantage_steps` leaves the optimizer untouched on an update whose whole
+# batch has zero advantage (see _ZeroAdvantageGate).
 GRPO_KNOBS = {
     "epsilon": 0.2,
     "epsilon_high": None,
@@ -59,10 +63,15 @@ GRPO_KNOBS = {
     "mask_truncated_completions": True,
     "num_iterations": 1,
     "top_entropy_quantile": 1.0,
+    "prompts_per_update": 1,
+    "skip_zero_advantage_steps": False,
 }
 KNOB_LOSS_TYPES = ("grpo", "dr_grpo", "dapo", "bnpo", "cispo", "sapo", "luspo", "vespo")
 # GRPO knobs with one shared CLI flag (--loss-type, --scale-rewards): see main().
 ROUTED_KNOBS = ("loss_type", "scale_rewards")
+# GRPO_KNOBS that `trainer_kwargs` translates instead of passing to GRPOConfig.
+MODULE_GRPO_KNOBS = ("prompts_per_update", "skip_zero_advantage_steps")
+MAX_PROMPTS_PER_UPDATE = 32
 # FGVC-Aircraft 2013b taxonomy for the closed-set prompt. Every (manufacturer, family,
 # variants) row was derived from the author release's native TRAIN annotations only
 # (images_{variant,family,manufacturer}_train.txt, SHA-256 29ac66fb..., 9bc9b649...,
@@ -1010,15 +1019,17 @@ def validate_grpo_overrides(overrides: dict | None) -> dict:
     quantile = merged["top_entropy_quantile"]
     if not _finite(quantile) or not 0 < quantile <= 1:
         raise ValueError("top_entropy_quantile must be finite and in (0, 1]")
+    prompts = merged["prompts_per_update"]
+    if type(prompts) is not int or not 1 <= prompts <= MAX_PROMPTS_PER_UPDATE:
+        raise ValueError(
+            f"prompts_per_update must be an integer in 1..{MAX_PROMPTS_PER_UPDATE}"
+        )
+    if prompts > 1 and merged["num_iterations"] != 1:
+        # Policy reuse re-observes one buffered prompt per reused update, not P.
+        raise ValueError("prompts_per_update > 1 cannot combine with num_iterations > 1")
+    if type(merged["skip_zero_advantage_steps"]) is not bool:
+        raise ValueError("skip_zero_advantage_steps must be a bool")
     return {key: overrides[key] for key in sorted(overrides)}
-
-
-MAX_PROMPTS_PER_UPDATE = 32
-
-
-def _validate_prompts_per_update(value) -> None:
-    if type(value) is not int or not 1 <= value <= MAX_PROMPTS_PER_UPDATE:
-        raise ValueError(f"prompts_per_update must be an integer in 1..{MAX_PROMPTS_PER_UPDATE}")
 
 
 def trainer_kwargs(
@@ -1036,7 +1047,6 @@ def trainer_kwargs(
     grpo_overrides: dict | None = None,
     loss_type: str | None = None,
     scale_rewards: str = "group",
-    prompts_per_update: int = 1,
 ) -> dict:
     """Explicit comparable defaults; one unique prompt per optimizer update by default.
 
@@ -1046,15 +1056,14 @@ def trainer_kwargs(
     `grpo_overrides` replaces allowlisted legacy GRPO values (see GRPO_KNOBS), e.g. a DAPO
     loss_type. A knob may come from one route only: an explicit `loss_type` or non-default
     `scale_rewards` together with the same knob in `grpo_overrides` refuses.
-    `prompts_per_update` P (GRPO only, 1..32, default 1 = legacy): one optimizer update
-    consumes P distinct prompts x G generations. TRL generates the P*G batch once
+    `prompts_per_update` P (default 1 = legacy) makes one optimizer update consume P
+    distinct prompts x G generations: TRL generates the P*G batch once
     (generation_batch_size = P*G) and accumulates it one completion per micro-step
-    (gradient_accumulation_steps = P*G), so generation stays aligned with the update
-    (on-policy, old log-probs None) and the loss is the mean over the P*G sequences.
+    (gradient_accumulation_steps = P*G), so generation stays aligned with the update and
+    the loss is TRL's normalisation over all P*G sequences. `skip_zero_advantage_steps`
+    requires beta == 0: with a KL term a zero-advantage update still has a gradient, so
+    skipping it would silently change the objective rather than drop a phantom step.
     """
-    _validate_prompts_per_update(prompts_per_update)
-    if prompts_per_update != 1 and mode != "grpo":
-        raise ValueError("prompts_per_update applies only to GRPO")
     if order not in {"random", "sequential"} or (order == "sequential" and mode != "sft"):
         raise ValueError("order must be random, or sequential for SFT")
     overrides = validate_grpo_overrides(grpo_overrides)
@@ -1068,8 +1077,10 @@ def trainer_kwargs(
         scale_rewards != "group" and "scale_rewards" in overrides
     ):
         raise ValueError("loss_type/scale_rewards given both explicitly and in grpo_overrides")
-    if prompts_per_update != 1 and overrides.get("num_iterations", 1) != 1:
-        raise ValueError("prompts_per_update > 1 cannot combine with num_iterations > 1")
+    prompts = overrides.get("prompts_per_update", 1)
+    if overrides.get("skip_zero_advantage_steps") and beta != 0:
+        raise ValueError("skip_zero_advantage_steps requires beta 0 (a KL term has a gradient)")
+    trl_overrides = {k: v for k, v in overrides.items() if k not in MODULE_GRPO_KNOBS}
     common = dict(
         output_dir=str(output),
         max_steps=max_steps,
@@ -1105,8 +1116,8 @@ def trainer_kwargs(
     )
     if mode == "grpo":
         common.update(
-            gradient_accumulation_steps=prompts_per_update * profile.num_generations,
-            generation_batch_size=prompts_per_update * profile.num_generations,
+            gradient_accumulation_steps=prompts * profile.num_generations,
+            generation_batch_size=prompts * profile.num_generations,
             num_generations=profile.num_generations,
             num_generations_eval=1,
             num_iterations=1,
@@ -1125,7 +1136,7 @@ def trainer_kwargs(
             mask_truncated_completions=True,
             disable_dropout=True,
         )
-        common.update(overrides)
+        common.update(trl_overrides)
     elif mode == "sft":
         common.update(
             gradient_accumulation_steps=1,
@@ -1779,22 +1790,21 @@ def _skip_flagged_optimizer_steps(trainer, optimizer) -> None:
 
 
 class _ZeroAdvantageGate:
-    """Opt-in GRPO skip of an optimizer update whose whole batch has zero advantage.
+    """Opt-in GRPO skip of an optimizer update whose whole batch has zero advantage (M3).
 
-    Released TRL 1.16 does NOT skip such an update: GRPOTrainer computes the loss and
-    transformers' Trainer calls optimizer.step whatever the advantages are. With beta > 0
-    the KL term still has a gradient, and constant AdamW moves the weights on its first
-    moment even when the gradient is zero, so the legacy update is not a no-op and this
-    skip is a behaviour change (--skip-zero-advantage-steps, default off).
+    Released TRL 1.16 does not skip such an update: transformers' Trainer calls
+    optimizer.step whatever the advantages are, and constant AdamW then moves the weights
+    on its first moment although the gradient is zero (the B4 phantom step). `observe`
+    reads the advantages TRL computed for the generation batch the coming update optimizes
+    (P prompts x G completions with prompts_per_update; reused unchanged by num_iterations
+    > 1 updates). The update is skipped when every advantage is exactly zero
+    (count_nonzero == 0); near-zero float advantages are not skipped.
 
-    `observe` reads the advantages TRL computed for the generation batch the coming
-    updates optimize (P prompts x G completions, the whole update with
-    prompts_per_update; reused unchanged by num_iterations > 1 updates). An update is
-    skipped when every advantage is exactly zero (torch.count_nonzero == 0): no parameter
-    and no AdamW state change (moments and step count), via _skip_flagged_optimizer_steps.
-    The update still counts toward max_steps and its prompts toward exposure. A batch whose
-    advantages are only numerically near zero (e.g. float rounding of equal shaped
-    rewards) is not skipped.
+    Budget accounting (chosen and documented): a skipped update still advances
+    global_step, so it counts toward max_steps and every stop as P CONSUMED IMAGES, and its
+    prompts enter the exposure ledger; it is not an applied optimizer update. The audit
+    reports `zero_advantage_skipped_steps` separately, so applied updates =
+    optimizer_steps_observed - zero_advantage_skipped_steps.
     """
 
     def __init__(self):
@@ -2666,7 +2676,12 @@ class _ExposureLedger:
         distinct prompt, in observation order, all carrying that update's global_step
         (entry k belongs to global step k // P + 1). P = 1 is the legacy one-entry lineage.
         """
-        _validate_prompts_per_update(prompts_per_update)
+        if type(prompts_per_update) is not int or not (
+            1 <= prompts_per_update <= MAX_PROMPTS_PER_UPDATE
+        ):
+            raise ValueError(
+                f"prompts_per_update must be an integer in 1..{MAX_PROMPTS_PER_UPDATE}"
+            )
         if inherited and prompts_per_update != 1:
             raise LocalVLMError("continuation lineage is one prompt per update")
         self.output = Path(output)
@@ -2729,7 +2744,7 @@ class _ExposureLedger:
         self.target_step, self.pending = None, None
 
     def save(self, checkpoint, step):
-        if len(self.entries) != step * self.per_update or self.pending:
+        if len(self.entries) != step * self.per_update or self.pending is not None:
             raise LocalVLMError("cannot save an incomplete prompt exposure lineage")
         _write(checkpoint / "exposure.json", {"schema_version": 1, "entries": self.entries})
 
@@ -3195,13 +3210,14 @@ def _audit_callback(
     param_delta: bool = False,
     zero_advantage_gate: _ZeroAdvantageGate | None = None,
 ):
-    """Per-update optimizer audit; one optimizer_audit.jsonl row per optimizer update.
+    """Per-update optimizer audit; one optimizer_audit.jsonl row per global step.
 
     `param_delta` (GRPO) adds `param_delta_l2` to every row: the L2 norm of this update's
-    change of the trainable (LoRA) weights, measured from a float32 snapshot taken at
-    on_step_begin to the weights at on_step_end (None if the trainer passed no model).
-    `zero_advantage_gate` (opt-in --skip-zero-advantage-steps) adds `zero_advantage_skipped`
-    to every row and counts `zero_advantage_skipped_steps` in the summary.
+    change of the trainable (LoRA) weights, from a float32 snapshot taken at on_step_begin
+    (before the active-time span opens, so the copy is not charged as training) to the
+    weights at on_step_end. `zero_advantage_gate` adds `zero_advantage_skipped` to every
+    row and `zero_advantage_skipped_steps` to the summary, and refuses a skipped update
+    whose gradient was not exactly zero or whose weights moved.
     """
     torch = import_module("torch")
     base = import_module("transformers").TrainerCallback
@@ -3255,7 +3271,6 @@ def _audit_callback(
             if exposure is not None:
                 exposure.begin(state.global_step + 1)
             if param_delta and model is not None:
-                # Before the timer starts: the snapshot is audit work, not training work.
                 self.before_step = {
                     n: p.detach().to(dtype=torch.float32, copy=True)
                     for n, p in model.named_parameters()
@@ -3282,6 +3297,14 @@ def _audit_callback(
             if loss_scaled:
                 self.overflow = False
             norm = math.sqrt(norm_sq)
+            if (
+                zero_advantage_gate is not None
+                and zero_advantage_gate.skipped_this_step()
+                and norm != 0
+            ):
+                # Outcome guard: the skip is only a phantom-step removal when the
+                # gradient it discards is exactly zero.
+                raise LocalVLMError("a zero-advantage update to skip has a nonzero gradient")
             self.summary["latest_gradient_norm"] = norm
             self.summary["nonzero_gradient_steps"] += int(norm > 0)
             self.summary["max_gradient_norm_observed"] = max(
@@ -3954,7 +3977,7 @@ def read_endpoint_receipt(output: Path, *, expected_stage_id: str | None = None)
     state = json.loads((checkpoint / "trainer_state.json").read_text())
     exposures = json.loads((checkpoint / "exposure.json").read_text())
     entries = exposures["entries"]
-    per_update = record["settings"].get("prompts_per_update", 1)
+    per_update = record["settings"].get("grpo_overrides", {}).get("prompts_per_update", 1)
     original = {k: record["settings"][k] for k in ("max_steps", "max_active_seconds")}
     if (
         active["scope"] != ACTIVE_TIME_SCOPE
@@ -4248,8 +4271,6 @@ def train_local(
     label_trie: Path | None = None,
     egsft_scale: str = "group",
     egsft_band_group: int | None = None,
-    prompts_per_update: int = 1,
-    skip_zero_advantage_steps: bool = False,
 ) -> dict:
     """Run offline training. Validation is greedy inference only, never trainer input.
 
@@ -4292,14 +4313,16 @@ def train_local(
     `grpo_overrides` sets allowlisted TRL GRPOConfig knobs (GRPO_KNOBS: clip-higher
     epsilon_high, loss_type, scale_rewards, mask_truncated_completions, num_iterations,
     ...). `dynamic_sampling_max_draws` drops all-same reward groups and redraws a
-    deterministic TRAIN replacement, up to that many groups per update.
-    `prompts_per_update` P (1..32) makes one optimizer update consume P distinct TRAIN
-    prompts x G generations (see trainer_kwargs); the exposure ledger then commits P
-    entries per global step. P > 1 refuses screening, dynamic sampling and
-    num_iterations > 1 (each assumes one prompt per update). Each epoch uses
-    floor(|TRAIN| / P) * P prompts (TRL's RepeatSampler drops the incomplete batch).
-    `skip_zero_advantage_steps` skips the optimizer step of an update whose whole batch
-    has zero advantage (see _ZeroAdvantageGate); released TRL does not skip it.
+    deterministic TRAIN replacement, up to that many groups per update; every draw runs
+    inside the update's active-time span, so dropped draws are charged (C5).
+    Two GRPO_KNOBS are this module's (correction M3): `prompts_per_update` P (1..32)
+    makes one update consume P distinct TRAIN prompts x G generations (see trainer_kwargs)
+    and the exposure ledger commits P entries per global step; P > 1 refuses screening,
+    dynamic sampling and num_iterations > 1, which assume one prompt per update. Each
+    epoch uses floor(|TRAIN| / P) * P prompts (TRL's RepeatSampler drops the remainder).
+    `skip_zero_advantage_steps` (beta 0 only) skips the optimizer step of an update whose
+    whole batch has zero advantage; the skipped update still counts toward max_steps and
+    every stop as P consumed images, not as an applied optimizer update (_ZeroAdvantageGate).
     Every GRPO optimizer_audit.jsonl row carries `param_delta_l2`, the update's L2 change
     of the trainable LoRA weights (a log field, not a setting).
     """
@@ -4328,23 +4351,16 @@ def train_local(
     policy_reuse = overrides.get("num_iterations", 1) > 1
     if screen_journal is not None and (policy_reuse or dynamic_sampling_max_draws is not None):
         raise ValueError("screening cannot combine with dynamic sampling or num_iterations > 1")
-    _validate_prompts_per_update(prompts_per_update)
-    if prompts_per_update != 1:
-        if mode != "grpo":
-            raise ValueError("prompts_per_update applies only to GRPO")
-        if (
-            screen_journal is not None
-            or dynamic_sampling_max_draws is not None
-            or policy_reuse
-        ):
-            raise ValueError(
-                "prompts_per_update > 1 cannot combine with screening, dynamic sampling or "
-                "num_iterations > 1"
-            )
-    if type(skip_zero_advantage_steps) is not bool or (
-        skip_zero_advantage_steps and mode != "grpo"
+    prompts_per_update = overrides.get("prompts_per_update", 1)
+    skip_zero_advantage = overrides.get("skip_zero_advantage_steps", False)
+    if prompts_per_update != 1 and (
+        screen_journal is not None or dynamic_sampling_max_draws is not None
     ):
-        raise ValueError("skip_zero_advantage_steps is a bool that applies only to GRPO")
+        raise ValueError(
+            "prompts_per_update > 1 cannot combine with screening or dynamic sampling"
+        )
+    if skip_zero_advantage and beta != 0:
+        raise ValueError("skip_zero_advantage_steps requires beta 0 (a KL term has a gradient)")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     if type(threads) is not int or threads < 1:
@@ -4604,10 +4620,6 @@ def train_local(
         }
     if overrides:
         settings["grpo_overrides"] = overrides
-    if prompts_per_update != 1:
-        settings["prompts_per_update"] = prompts_per_update
-    if skip_zero_advantage_steps:
-        settings["skip_zero_advantage_steps"] = True
     if dynamic_sampling_max_draws is not None:
         settings["dynamic_sampling"] = {
             "max_draws": dynamic_sampling_max_draws,
@@ -4934,12 +4946,11 @@ def train_local(
             **({"grpo_overrides": overrides} if overrides else {}),
             **({"loss_type": loss_type} if loss_type is not None else {}),
             **({"scale_rewards": scale_rewards} if scale_rewards != "group" else {}),
-            **({"prompts_per_update": prompts_per_update} if prompts_per_update != 1 else {}),
         )
         args = (trl.GRPOConfig if mode == "grpo" else trl.SFTConfig)(**kwargs)
         if args.device.type != device:
             raise LocalVLMError(f"Accelerate selected {args.device}, expected {device}")
-        zero_gate = _ZeroAdvantageGate() if skip_zero_advantage_steps else None
+        zero_gate = _ZeroAdvantageGate() if skip_zero_advantage else None
         audit = _audit_callback(
             output,
             max_active_seconds,
@@ -5982,8 +5993,6 @@ def _rft_main(parser, args: dict, rft_args: dict) -> int:
             "dynamic_sampling_max_draws",
             "loss_scale_init",
             "replay_sequence",
-            "prompts_per_update",
-            "skip_zero_advantage_steps",
             "loss_type",
             "confusion_map",
             "taxonomy",
@@ -6151,18 +6160,6 @@ def main(argv: list[str] | None = None) -> int:
         help="drop all-same GRPO groups and redraw, up to this many groups per update",
     )
     parser.add_argument(
-        "--prompts-per-update",
-        type=int,
-        help="GRPO: distinct prompts x G generations per optimizer update, 1..32 "
-        "(omitted keeps the legacy 1)",
-    )
-    parser.add_argument(
-        "--skip-zero-advantage-steps",
-        action="store_true",
-        help="GRPO: skip the optimizer step (no weight or AdamW-state change) when every "
-        "advantage in the update's batch is zero; the step still counts toward max steps",
-    )
-    parser.add_argument(
         "--exploratory-sweep",
         choices=(EXPLORATORY_SWEEP_ID,),
         help="TRAIN-holdout exploratory sweep; lifts the TRAIN-only step/row caps",
@@ -6207,10 +6204,6 @@ def main(argv: list[str] | None = None) -> int:
         args["grpo_overrides"] = knobs
     if args["dynamic_sampling_max_draws"] is None:
         args.pop("dynamic_sampling_max_draws")
-    if args["prompts_per_update"] is None:
-        args.pop("prompts_per_update")
-    if not args["skip_zero_advantage_steps"]:
-        args.pop("skip_zero_advantage_steps")
     try:
         if args.pop("preflight"):
             result = preflight(args["device"])
@@ -6263,8 +6256,6 @@ def main(argv: list[str] | None = None) -> int:
                         "confusion_map",
                         "taxonomy",
                         "egsft_band_group",
-                        "prompts_per_update",
-                        "skip_zero_advantage_steps",
                     )
                     if k in args
                 ) or (
