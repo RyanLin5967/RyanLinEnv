@@ -669,6 +669,21 @@ def collect(results_dirs) -> dict:
     return out
 
 
+def shared_through(stage_shared: dict, label: str):
+    """C16 for a time match: the OR of `shared` over EVERY train stage up to and including the
+    one that produced `label` (a checkpoint's active seconds, and a control's time stop,
+    accumulate across all earlier stages). None when that stage's record is missing."""
+    if label not in stage_shared:
+        return None
+    kind = "time" if label.startswith("time") else "step"
+
+    def order(x: str) -> int:
+        rest = x[len(kind):]
+        return int(rest) if rest.isdigit() else 0
+    return any(sh for x, sh in stage_shared.items()
+               if x.startswith(kind) and order(x) <= order(label))
+
+
 def control_of(arms: dict, arm_id: str):
     """The arm's latest-rung matched control (id ARM~ctl or ARM~ctl@rN), or None."""
     found = [(int(r["spec"].get("rung", 1)), cid) for cid, r in arms.items()
@@ -740,16 +755,19 @@ def build_report(arms: dict, gold: dict, resamples: int, e0_passed=()) -> dict:
                                     "steps": cep.get("steps"),
                                     "active_seconds": cep.get("active_seconds"),
                                     "cotenancy_shared": ctl["cotenancy_shared"]}
-                rl_sh = rec["stage_shared"].get(e["label"], rec["cotenancy_shared"])
-                ctl_sh = ctl["stage_shared"].get(label, ctl["cotenancy_shared"])
+                rl_sh = shared_through(rec["stage_shared"], e["label"])
+                ctl_sh = shared_through(ctl["stage_shared"], label)
                 # rows the RL arm read by this checkpoint (scanned/), else its committed steps
                 if spec.get("mode") in ("grpo", "rft"):
                     read = rec["rows_read"].get(e["label"], -1)  # arm_exec writes scanned/
                 else:  # an SFT (placebo) arm reads one row per step
                     read = int(e["steps"])
-                if rl_sh != ctl_sh:
-                    # C16, stage by stage: the RL stage that made this checkpoint and the
-                    # control stage that made its time match must share co-tenancy
+                if rl_sh is None or ctl_sh is None:
+                    out["refused"].append(f"{arm_id} {e['label']}: no stage record for "
+                                          f"{e['label'] if rl_sh is None else label}")
+                elif rl_sh != ctl_sh:
+                    # C16: every stage up to this checkpoint (RL) and up to its time match
+                    # (control) together must agree on co-tenancy
                     out["refused"].append(f"{arm_id} {e['label']}: co-tenancy differs from "
                                           f"its control (rl {rl_sh}, ctl {ctl_sh})")
                 elif read < 0:

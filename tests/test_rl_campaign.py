@@ -182,6 +182,11 @@ def _arm_dir(base, arm_id, spec, host, endpoints, assays, scanned=None):
                 {"label": label, "ids": [f"r{i}" for i in range(n)]}))
     (d / "arm.json").write_text(json.dumps(dict(spec, id=arm_id)))
     (d / "summary.json").write_text(json.dumps({"host": host, "endpoints": endpoints}))
+    stages = [{"stage": "train-" + (e["label"][4:] if e["label"].startswith("step")
+                                    else e["label"]), "cotenancy": {"shared": False}}
+              for e in endpoints if e["label"].startswith(("step", "time"))]
+    if stages:  # every train stage unshared unless a test overwrites stages.json
+        (d / "stages.json").write_text(json.dumps(stages))
     for label, pred in assays.items():
         correct = sum(pred[i] == g for i, g in GOLD.items()) / 4
         (d / "assays" / f"{label}.json").write_text(json.dumps({
@@ -550,3 +555,58 @@ def test_report_refuses_an_rl_checkpoint_without_scanned_rows(tmp_path):
                      [("train-time1", False), ("train-time2", False)],
                      {"step1": 8}, (40, 80))
     assert out["refused"] == ["rl step2: no scanned/ rows recorded"]
+
+
+def test_cotenancy_counts_every_earlier_stage_on_both_sides(tmp_path):
+    # only the control's FIRST stage was shared; at step2 the producing stages agree (both
+    # unshared) but the control's time2 stop includes time1's shared seconds
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", False)],
+                     [("train-time1", True), ("train-time2", False)],
+                     {"step1": 8, "step2": 16}, (40, 80))
+    assert out["refused"] == [
+        "rl step1: co-tenancy differs from its control (rl False, ctl True)",
+        "rl step2: co-tenancy differs from its control (rl False, ctl True)"]
+
+
+def test_a_missing_stage_record_refuses_instead_of_falling_back(tmp_path):
+    out = _pair_dirs(tmp_path, [("train-1", False), ("train-2", False)],
+                     [("train-time1", False)], {"step1": 8, "step2": 16}, (40, 80))
+    assert out["refused"] == ["rl step2: no stage record for time2"]
+
+
+@pytest.mark.parametrize("extra", [
+    ["--epsilon-high", "nan"], ["--family-credit", "inf"], ["--invalid-reward", "-inf"],
+    ["--label-hierarchy", "@payload/code/../data/x.json"],
+    ["--label-hierarchy", "@payload/code/scripts/../../x.json"],
+    ["--label-hierarchy", "@payload/code//x.json"],
+    ["--label-hierarchy", "@payload/code/./x.json"],
+    ["--label-hierarchy", "@payload/data/x.json"],
+])
+def test_extra_values_must_be_finite_and_stay_inside_payload_code(extra):
+    with pytest.raises(SystemExit):
+        arm_exec.checked_extras(extra, [])
+
+
+def test_extra_values_that_are_fine_pass():
+    ok = ["--epsilon-high", "0.28", "--label-hierarchy",
+          "@payload/code/scripts/exploratory_sweep/assets/label-hierarchy-train-v1.json"]
+    assert arm_exec.checked_extras(ok, []) == ok
+
+
+def test_stage_record_refuses_stale_files_foreign_stage_ids_and_non_fp32(tmp_path):
+    import os
+    rec = tmp_path / "local_training.json"
+    good = {"stage_id": "s2", "control_identity": {"profile": {"dtype": "float32"}},
+            "sampler_teacher_logprob_parity": {"within_tolerance": True, "tolerance": 0.001}}
+    rec.write_text(json.dumps(good))
+    os.utime(rec, (1000.0, 1000.0))
+    assert arm_exec.check_parity(rec, 999.0, "s2")["within_tolerance"] is True
+    with pytest.raises(SystemExit, match="stale"):   # written before this stage started
+        arm_exec.check_parity(rec, 1001.0, "s2")
+    with pytest.raises(SystemExit, match="stage_id"):  # the previous stage's record
+        arm_exec.check_parity(rec, 999.0, "s3")
+    # RFT: same record rules, no parity
+    assert arm_exec.stage_record(rec, 999.0)["stage_id"] == "s2"
+    rec.write_text(json.dumps(dict(good, control_identity={"profile": {"dtype": "float16"}})))
+    with pytest.raises(SystemExit, match="float16"):
+        arm_exec.stage_record(rec)

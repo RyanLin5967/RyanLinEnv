@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import posixpath
 import shutil
 import subprocess
 import sys
@@ -83,9 +84,11 @@ def _int_at_least(n: int):
 
 def _number(v: str):
     try:
-        float(v)
+        x = float(v)
     except ValueError:
         raise SystemExit(f"REFUSE: expected a number, got {v!r}") from None
+    if not math.isfinite(x):
+        raise SystemExit(f"REFUSE: expected a finite number, got {v!r}")
 
 
 def _one_of(*choices):
@@ -96,7 +99,13 @@ def _one_of(*choices):
 
 
 def _payload_json(v: str):
-    if not (v.startswith("@payload/code/") and v.endswith(".json")) or "manifests" in v:
+    """An `@payload/code/...json` asset that stays inside payload/code: no `..`, `.`, empty
+    or absolute parts, no manifest."""
+    rel = v[len("@payload/"):] if v.startswith("@payload/") else ""
+    parts = rel.split("/")
+    if (not rel.endswith(".json") or parts[0] != "code" or len(parts) < 2
+            or any(x in ("", ".", "..") for x in parts) or "manifests" in parts
+            or "\\" in rel or posixpath.normpath(rel) != rel):
         raise SystemExit(f"REFUSE: expected an @payload/code/...json asset, got {v!r}")
 
 
@@ -174,13 +183,30 @@ def refuse_repeated_flags(argv: list) -> None:
         raise SystemExit(f"REFUSE: trainer argv repeats {sorted(seen)}")
 
 
-def check_parity(record_path: Path) -> dict:
-    """A GRPO stage must have run in float32 (the dtype the trainer RECORDED, not the spec's)
-    and record a sampler-teacher log-prob parity inside tolerance (C2)."""
-    record = json.loads(Path(record_path).read_text())
+def stage_record(record_path: Path, started: float | None = None,
+                 stage_id: str | None = None) -> dict:
+    """The trainer's local_training.json for THIS stage, recorded in float32 (C2: the dtype
+    the trainer recorded decides, not the spec's). Refuses a record older than the stage's
+    start (a stage that exited 0 without rewriting it) or one whose stage_id is not the
+    stage's endpoint receipt's."""
+    path = Path(record_path)
+    if started is not None and path.stat().st_mtime < started:
+        raise SystemExit(f"REFUSE: {path} predates this stage (stale record)")
+    record = json.loads(path.read_text())
+    if stage_id is not None and record.get("stage_id") != stage_id:
+        raise SystemExit(f"REFUSE: {path} stage_id {record.get('stage_id')!r} is not this "
+                         f"stage's {stage_id!r}")
     dtype = ((record.get("control_identity") or {}).get("profile") or {}).get("dtype")
     if dtype != "float32":
-        raise SystemExit(f"REFUSE: the GRPO stage recorded dtype {dtype!r}, not float32 (C2)")
+        raise SystemExit(f"REFUSE: the RL stage recorded dtype {dtype!r}, not float32 (C2)")
+    return record
+
+
+def check_parity(record_path: Path, started: float | None = None,
+                 stage_id: str | None = None) -> dict:
+    """A GRPO stage must have run in float32 (stage_record) and record a sampler-teacher
+    log-prob parity inside tolerance (C2)."""
+    record = stage_record(record_path, started, stage_id)
     parity = record.get("sampler_teacher_logprob_parity")
     if not isinstance(parity, dict) or parity.get("within_tolerance") is not True:
         raise SystemExit(f"REFUSE: sampler-teacher parity not within tolerance: {parity}")
@@ -421,7 +447,10 @@ class Arm:
         entry.update(receipt_status=receipt["status"], global_step=receipt.get("global_step"),
                      adapter_sha256=receipt["final_adapter"]["weights_sha256"])
         if self.spec["mode"] == "grpo":
-            entry["sampler_parity"] = check_parity(self.out / "local_training.json")
+            entry["sampler_parity"] = check_parity(self.out / "local_training.json", started,
+                                                   receipt.get("stage_id"))
+        elif self.spec["mode"] == "rft":
+            stage_record(self.out / "local_training.json", started)  # C2 for RFT too
         write_json(self.results / "stages.json", self.log)
         return receipt
 

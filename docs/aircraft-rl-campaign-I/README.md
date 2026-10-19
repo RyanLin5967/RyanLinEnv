@@ -81,5 +81,6 @@ The rules come from `runs/rl-lessons-audit-2026-10-18/CORRECTIONS.md`.
   - `check_parity` reads the dtype the trainer recorded (`control_identity.profile.dtype`) and refuses anything but float32 for GRPO.
 - **Controls and promotion (same review):**
   - An RL arm's control refuses if there is no `scanned/` file; it never falls back to the committed prompts.
-  - The report compares co-tenancy stage by stage (the RL stage `train-<stop>` against the control stage `train-time<i>`). It refuses a pair where the control saw fewer rows than the RL arm read.
+  - The report compares co-tenancy cumulatively: every train stage up to the RL checkpoint against every control stage up to its time match, because active time accumulates across stages. A missing stage record refuses. It also refuses a pair where the control saw fewer rows than the RL arm read.
+  - Extra values must be finite numbers, and `--label-hierarchy` must stay inside payload/code. GRPO and RFT stages refuse a `local_training.json` that is older than the stage, carries another stage_id, or is not float32.
   - Promotion's placebo bar uses only placebo groups from the same rung with the same k.

@@ -508,9 +508,12 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
         if a["mode"] == "eval":
             continue
         arm = arm_exec.Arm(root, a, tmp_path / "r")
-        if a["family"] == "wave2-dapo":
-            # the wave-2 DAPO row asks for 4 dynamic-sampling draws; root correction C5
-            # (>= 8) now refuses it before the trainer is reached (checked_extras)
+        extra = [str(x) for x in a.get("extra_trainer_args", [])]
+        draws = (int(extra[extra.index("--dynamic-sampling-max-draws") + 1])
+                 if "--dynamic-sampling-max-draws" in extra else None)
+        if draws is not None and draws < 8:
+            # root correction C5 (>= 8 draws) refuses such a row before the trainer is
+            # reached (checked_extras); PR #36 moves the wave-2 DAPO row to 8
             with pytest.raises(SystemExit, match="integer >= 8"):
                 arm.trainer_args(tmp_path / "m.jsonl", int(a["max_steps_total"]), 150, None)
             checked += 1
@@ -541,6 +544,9 @@ def test_wave2_arms_reach_the_trainer_with_their_features(tmp_path, monkeypatch)
             # scale_rewards (_route_loss_knobs); no wave-2 arm had run under the old routing
             assert (kw["loss_type"], kw["scale_rewards"]) == ("dr_grpo", "none")
             assert "grpo_overrides" not in kw
+        if fam == "wave2-dapo":
+            assert kw["grpo_overrides"] == {"loss_type": "dapo", "epsilon_high": 0.28}
+            assert kw["dynamic_sampling_max_draws"] == draws
         if fam == "wave2-mu2":
             assert kw["grpo_overrides"] == {"num_iterations": 2}
         if a["track"] == "control" or fam in ("wave2-closedset", "wave2-cot"):
