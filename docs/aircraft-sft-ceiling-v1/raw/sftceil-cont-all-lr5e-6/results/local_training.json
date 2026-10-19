@@ -64,7 +64,7 @@
     },
     "validation": null
   },
-  "created_at": "2026-10-18T22:43:33.382273+00:00",
+  "created_at": "2026-10-19T02:35:01.927987+00:00",
   "environment": {
     "adapter_source_sha256": "b6e18a8b7c502ed71f3178ff3891ff0276261aa2cbdc16f9ce0ca869d116a5c0",
     "device": "cpu",
@@ -89,7 +89,7 @@
     }
   },
   "final_adapter": "/dev/shm/r226lin-sftceil/arms/sftceil-cont-all-lr5e-6/train/final_adapter",
-  "final_adapter_sha256": "76a6a9e524f8573401e9f7e91a5ce552e8f1fcc072eb3cbc342640169e3b4773",
+  "final_adapter_sha256": "e919e45f6a340236109ebd9bda83a134c9a10215b9dfab47a5cd2e3e1e2d8530",
   "finalize_only": false,
   "held_out_benchmark_improvement": "unmeasured",
   "initial_adapter_tensor_audit": {
@@ -117,35 +117,35 @@
     "total_bytes": 4429621382
   },
   "optimizer_audit": {
-    "active_seconds": 6115.820098588243,
+    "active_seconds": 4200.613021988247,
     "active_time": {
-      "committed_active_seconds": 6115.820098588243,
-      "committed_global_step": 300,
+      "committed_active_seconds": 10316.43312057649,
+      "committed_global_step": 600,
       "completed_not_checkpointed_active_seconds": 0.0,
-      "completed_state_active_seconds": 6115.820098588243,
+      "completed_state_active_seconds": 10316.43312057649,
       "hard_total_physical_compute_cap": false,
-      "invocation_active_seconds": 6115.820098588243,
+      "invocation_active_seconds": 4200.613021988247,
       "observed_discarded_or_uncheckpointed_active_seconds": 0.0,
-      "observed_physical_active_seconds": 6115.820098588243,
-      "observed_reward_journal_io_seconds": 0.03224404191132635,
-      "resumed_committed_active_seconds": 0.0,
+      "observed_physical_active_seconds": 10316.43312057649,
+      "observed_reward_journal_io_seconds": 0.05603259103372693,
+      "resumed_committed_active_seconds": 6115.820098588243,
       "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
       "total_budget_seconds": 172800.0,
       "unknown_partial_invocations": 0
     },
     "changed_tensors": 112,
-    "completed_state_active_seconds": 6115.820098588243,
+    "completed_state_active_seconds": 10316.43312057649,
     "first_nonzero_update": {
       "changed_tensors_since_invocation_start": 112,
-      "global_step": 1,
-      "gradient_norm": 1.00000003188461,
-      "parameter_delta_l2_since_invocation_start": 0.005212018474573847
+      "global_step": 301,
+      "gradient_norm": 0.15380601093636725,
+      "parameter_delta_l2_since_invocation_start": 0.0012825642865263774
     },
-    "latest_gradient_norm": 0.9999999230008113,
-    "max_gradient_norm_observed": 1.0000000737950332,
+    "latest_gradient_norm": 0.9999998582007846,
+    "max_gradient_norm_observed": 1.000000084203176,
     "nonzero_gradient_steps": 300,
     "optimizer_steps_observed": 300,
-    "parameter_delta_l2": 0.1041855201254068
+    "parameter_delta_l2": 0.08985035487913504
   },
   "parameter_dtypes": {
     "frozen": {
@@ -156,13 +156,13 @@
     }
   },
   "probe": {
-    "after_train_gold_nll": 0.18421960429351947,
-    "gold_nll_improved": false,
+    "after_train_gold_nll": 0.16366822769632564,
+    "gold_nll_improved": true,
     "gradient_and_weight_change": true,
     "held_out_benchmark_gain": "not measured by this diagnostic",
     "mixed_reward_groups": null,
     "reload_nll_agrees": true,
-    "reloaded_train_gold_nll": 0.18421960429351947,
+    "reloaded_train_gold_nll": 0.16366822769632564,
     "sampler_teacher_logprob_parity": null
   },
   "processor_audit": {
@@ -200,9 +200,9 @@
   "regularization_profile": "completion-only-SFT",
   "requested_boundary": {
     "stop_after_active_seconds": null,
-    "stop_after_steps": 300
+    "stop_after_steps": 600
   },
-  "resumed_from": null,
+  "resumed_from": "/dev/shm/r226lin-sftceil/arms/sftceil-cont-all-lr5e-6/train/checkpoint-300",
   "reward_audit": null,
   "schema_version": 1,
   "settings": {
@@ -1864,11 +1864,11 @@
     "0522914"
   ],
   "train_metrics": {
-    "epoch": 0.2066115702479339,
-    "train_loss": 0.11838278185162286,
-    "train_runtime": 6124.8346,
-    "train_samples_per_second": 0.049,
-    "train_steps_per_second": 0.049
+    "epoch": 0.4132231404958678,
+    "train_loss": 0.10430161878339751,
+    "train_runtime": 4206.9412,
+    "train_samples_per_second": 0.071,
+    "train_steps_per_second": 0.071
   },
   "trainable_parameters": {
     "count": 1089536,
