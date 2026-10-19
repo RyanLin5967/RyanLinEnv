@@ -4450,8 +4450,6 @@ def train_local(
             "advantage_eps": TRL_ADVANTAGE_EPS,
             "weight": "stopgrad[w_G(p) / w_G(0.5)], TRL Bessel-corrected group std",
         }
-    if exploratory_sweep is not None:
-        settings["exploratory_sweep"] = exploratory_sweep
         if egsft_scale != "group":
             settings["egsft"].update(
                 scale_rewards=egsft_scale,
@@ -4464,6 +4462,8 @@ def train_local(
                 "mask": "1[u_G(p) >= threshold]; outside: zero loss and no optimizer step "
                 "(AdamW state untouched), presentation still counted toward max_steps",
             }
+    if exploratory_sweep is not None:
+        settings["exploratory_sweep"] = exploratory_sweep
     if loss_type not in (None, "grpo"):
         settings["loss_type"] = loss_type
     if scale_rewards != "group":
