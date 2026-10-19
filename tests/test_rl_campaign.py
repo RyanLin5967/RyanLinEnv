@@ -681,6 +681,8 @@ if rft:
                   active_seconds=0.0, settings={"epochs_per_round": 1})
     if mode == "rft_rounds":   # the run ran out of rounds before this stage's stop
         record.update(stop_reason="rounds")
+    elif mode == "rft_overshoot":  # an "early" end that trained past this stage's stop
+        record.update(stop_reason="max_steps", optimizer_steps=stop + 5)
     else:
         record.update(stop_reason="stop_after_steps",
                       boundary={"stop_after_steps": 1 if mode == "rft_wrong_boundary" else stop})
@@ -828,3 +830,72 @@ def test_a_continuation_with_an_unfetched_earlier_rung_refuses(tmp_path):
         "step1", "step2", "step4"]
     assert camp.required_stages({"resume_stop": 2, "stops": [4]}, "step4") is None
     assert camp.required_stages({}, "step4") is None  # unknown trajectory: refuse
+
+
+# ---- review minors after #38 -------------------------------------------------------------
+def test_rft_early_end_may_not_pass_the_stop_that_ran(tmp_path):
+    arm, mode = _stage_arm(tmp_path, "rft_overshoot", _rft_spec())
+    with pytest.raises(SystemExit, match="past its stop 150"):
+        arm.run_stage("train-150", arm.trainer_args(tmp_path / "m.jsonl", 1500, 150, None), 150)
+
+
+def test_rl_rows_may_not_name_their_own_training_data():
+    for key, value in (("train_ids", ["p1"]),
+                       ("train_manifest", "dev800.jsonl"),
+                       ("train_manifest", "s_train_scan_seed42.jsonl")):  # even BASE's value
+        with pytest.raises(SystemExit, match="launcher's"):
+            camp.build_spec(table(), grpo_row(**{key: value}))
+        with pytest.raises(SystemExit, match="launcher's"):
+            camp.build_spec(table(**{key: value}), grpo_row())
+    sft = camp.build_spec(table(), grpo_row(mode="sft", train_manifest="s_train.jsonl"))
+    assert sft["train_manifest"] == "s_train.jsonl"  # SFT rows are not RL
+    assert camp.build_spec(table(), grpo_row())["train_manifest"] == camp.BASE["train_manifest"]
+
+
+def _screened_arm(tmp_path, entries, bind=True):
+    import hashlib
+    spec = dict(camp.build_spec(table(), grpo_row()), screen_threshold=0.5)
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
+    ckpt = arm.out / "checkpoint-2"
+    ckpt.mkdir(parents=True)
+    (ckpt / "screen.json").write_text(json.dumps({"entries": entries}))
+    sha = hashlib.sha256((ckpt / "screen.json").read_bytes()).hexdigest()
+    (ckpt / "active_time.json").write_text(json.dumps(
+        {"screen_sha256": sha if bind else "0" * 64}))
+    return arm
+
+
+def test_screened_grpo_scanned_ids_are_every_scored_candidate_in_scan_order(tmp_path):
+    entries = [{"id": "c", "scan_position": 2, "accepted": True},
+               {"id": "a", "scan_position": 0, "accepted": False},
+               {"id": "b", "scan_position": 1, "accepted": True}]
+    arm = _screened_arm(tmp_path, entries)
+    doc = arm.scanned_ids({"global_step": 2, "committed_prompt_ids": ["b", "c"]})
+    assert doc["scanned_prompt_ids"] == ["a", "b", "c"]  # the rejected "a" was read too
+    with pytest.raises(SystemExit, match="REFUSE: screened rows"):
+        _screened_arm(tmp_path / "u", entries, bind=False).scanned_ids(
+            {"global_step": 2, "committed_prompt_ids": ["b", "c"]})
+
+
+def test_screened_grpo_on_a_payload_without_the_reader_refuses(tmp_path, monkeypatch):
+    from vision_rl import vlm_local_training as vlt
+    arm = _screened_arm(tmp_path, [{"id": "a", "scan_position": 0}])
+    monkeypatch.delattr(vlt, "committed_screen_entries")
+    with pytest.raises(SystemExit, match="REFUSE: this payload's trainer"):
+        arm.scanned_ids({"global_step": 2, "committed_prompt_ids": ["a"]})
+
+
+def test_cotenancy_survives_a_failing_ps(monkeypatch):
+    import subprocess as sp
+    real = sp.run
+
+    def fake(cmd, *a, **k):
+        if cmd[0] == "ps":
+            raise OSError("ps unavailable")
+        if cmd[0] == "nvidia-smi":
+            return sp.CompletedProcess(cmd, 0, "4242, 7000, python\n", "")
+        return real(cmd, *a, **k)
+    monkeypatch.setattr(arm_exec.subprocess, "run", fake)
+    c = arm_exec.CoTenancy(cuda=True, threads=10**6)
+    c.sample(1)  # must not raise while the trainer runs
+    assert c.summary()["shared"] is None and c.summary()["samples_unmeasured"] == 1

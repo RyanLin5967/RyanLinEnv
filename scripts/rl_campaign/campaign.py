@@ -246,8 +246,18 @@ def load_table(path: Path) -> dict:
     return table
 
 
+LAUNCHER_DATA_KEYS = ("train_ids", "train_manifest")
+
+
 def build_spec(table: dict, arm: dict) -> dict:
-    """The full arm_exec spec for one table row (defaults <- table defaults <- row)."""
+    """The full arm_exec spec for one table row (defaults <- table defaults <- row).
+    An RL row (grpo, rft) may not name its own training data: train_manifest comes from
+    BASE and train_ids only from control_spec, so a table cannot point RL at other rows."""
+    mode = arm.get("mode", (table.get("defaults") or {}).get("mode"))
+    given = [k for k in LAUNCHER_DATA_KEYS
+             if k in arm or k in (table.get("defaults") or {})]
+    if mode in ("grpo", "rft") and given:
+        raise SystemExit(f"REFUSE: {arm.get('id')}: an RL arm's {given} are the launcher's")
     spec = dict(BASE)
     spec.update(table.get("defaults", {}))
     spec.update(arm)
