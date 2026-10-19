@@ -679,8 +679,10 @@ def test_prompts_per_update_refuses_duplicate_train_ids(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="requires distinct TRAIN ids"):
         local.train_local(replay, output=tmp_path / "o", **common,
                           grpo_overrides={"prompts_per_update": 2})
-    # P 1 is unaffected by this guard (it fails later, on the absent model directory).
-    with pytest.raises((FileNotFoundError, ImportError, ModuleNotFoundError, ValueError)) as e:
+    # P 1 is unaffected by this guard: it fails later, on the absent model directory (or,
+    # on a CI image without the local VLM stack, at preflight).
+    with pytest.raises((FileNotFoundError, ImportError, ModuleNotFoundError, ValueError,
+                        local.LocalVLMError)) as e:
         local.train_local(replay, output=tmp_path / "o1", **common)
     assert "distinct TRAIN ids" not in str(e.value)
 
