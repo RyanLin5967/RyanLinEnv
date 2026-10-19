@@ -15,7 +15,8 @@ sftceil-I-seed4-10:iccad12
 sftceil-I-seed5-10:iccad6
 sftceil-I-seed42-10:iccad5
 sftceil-cont-all-lr1e-5-s314-1:iccad0
-sftceil-I-seed6-3:iccad7"
+sftceil-I-seed6-3:iccad7
+sftceil-cont-all-lr1e-5-s2718-1:iccad8"
 snapshot() {
   for pair in $RUNS; do
     run=${pair%%:*}; host=${pair##*:}
