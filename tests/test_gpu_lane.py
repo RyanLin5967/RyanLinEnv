@@ -231,3 +231,11 @@ def test_corrected_grpo_i_arms_follow_the_root_corrections():
         assert int(x[x.index("--dynamic-sampling-max-draws") + 1]) >= 8
         assert x[x.index("--loss-type") + 1] == "grpo"
         assert a["stops"] == [150, 300, 600]
+
+
+def test_lane_table_declares_every_feature_main_requires():
+    # The lane mirrors arm_exec's feature map; if arm_exec gains a feature, the table must too.
+    assert lane.FEATURE_EXTRA_FLAGS == arm_exec.FEATURE_EXTRA_FLAGS
+    for arm in json.loads(lane.TABLE.read_text())["arms"]:
+        arm_exec.check_feature_flags(arm)
+        assert lane.declare_features(arm) == arm
