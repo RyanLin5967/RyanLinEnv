@@ -59,6 +59,23 @@ def parser() -> argparse.ArgumentParser:
     d = sub.add_parser("demo", help="Run the complete local CPU RL learning experiment")
     d.add_argument("--output", type=Path, default=Path("runs/demo"))
     d.add_argument("--steps", type=int, default=800)
+    tf = sub.add_parser(
+        "train-folder",
+        help="Train a classifier on your own photos (one subfolder per label): SFT, then RL",
+    )
+    tf.add_argument(
+        "--images", type=Path, required=True, help="folder with one subfolder per label"
+    )
+    tf.add_argument("--output", type=Path, required=True)
+    tf.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
+    tf.add_argument("--quick", action="store_true", help="smaller search for a fast first run")
+    tf.add_argument("--seed", type=int, default=0, help="seed for the train/validation/test split")
+    pr = sub.add_parser("predict", help="Label new images with a model from train-folder")
+    pr.add_argument("--model", type=Path, required=True, help="train-folder output or best.pt")
+    pr.add_argument("images", type=Path, nargs="+", help="image files or folders")
+    pr.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto")
+    ex = sub.add_parser("make-example", help="Write a small labeled example image folder")
+    ex.add_argument("--output", type=Path, default=Path("runs/example-shapes"))
     g = sub.add_parser(
         "generate", help="Generate independent synthetic train/validation/test splits"
     )
@@ -167,6 +184,18 @@ def main() -> None:
     try:
         if command == "demo":
             result = demo(**args)
+        elif command == "train-folder":
+            from vision_rl.vision_policy import train_folder
+
+            result = train_folder(**args)
+        elif command == "predict":
+            from vision_rl.vision_policy import predict
+
+            result = predict(**args)
+        elif command == "make-example":
+            from vision_rl.vision_policy import make_example
+
+            result = {"images": str(make_example(**args))}
         elif command == "generate":
             result = generate(**args)
         elif command == "train":

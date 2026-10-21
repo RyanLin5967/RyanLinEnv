@@ -84,6 +84,21 @@ The demo requires no GPU, API key, or model download. It trains a spatial policy
 
 The CPU demo uses a fixed color-centroid encoder and a learned linear policy. It is an exercise in real policy-gradient learning, with an untrained policy as its baseline. Results are not HSS scores or evidence that a frontier model struggles on these generated images.
 
+## Train on your own images
+
+Put your photos in one folder with a subfolder per label, then train, test and use a specialist in three commands:
+
+```bash
+uv venv .venv-vision --python 3.12
+uv pip install --python .venv-vision/bin/python -e . -r requirements-vision.txt
+
+# my-photos/cat/*.jpg, my-photos/dog/*.jpg, ... (2-26 labels, 3+ images each)
+.venv-vision/bin/vision-rl train-folder --images my-photos --output runs/my-model
+.venv-vision/bin/vision-rl predict --model runs/my-model new-photo.jpg
+```
+
+No photos yet? Run `.venv-vision/bin/vision-rl make-example --output runs/shapes` and train on that folder. It takes about 10 seconds on a laptop CPU with `--quick`. The [walkthrough](docs/train-your-own-images.md) explains the output.
+
 ## Docker and Harbor
 
 With a running Docker daemon:

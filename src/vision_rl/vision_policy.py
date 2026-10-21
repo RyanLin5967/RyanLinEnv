@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import platform
+import random
 import time
 import zipfile
 from collections import Counter
@@ -18,10 +19,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from vision_rl.data import assert_disjoint, fingerprint, load_manifest, write_json
+from vision_rl.data import assert_disjoint, fingerprint, image_hash, load_manifest, write_json
 
 ENCODER_ID = "torchvision/resnet18/IMAGENET1K_V1"
 REWARD = "1[action == target] - abs(action - target) / (num_actions - 1)"
+CLASSIFICATION_REWARD = "1[action == target]"
+TASKS = ("counting", "classification")
 
 
 def state_fingerprint(state: dict) -> str:
@@ -71,6 +74,27 @@ def _count_schema(rows: list[dict]) -> list[str]:
     return choices
 
 
+def _task_schema(rows: list[dict]) -> tuple[list[str], str]:
+    """(choices, task) for one consistent counting or single-label classification task."""
+    if rows[0]["category"] == "counting":
+        return _count_schema(rows), "counting"
+    if rows[0]["category"] != "classification":
+        raise ValueError("policy supports counting or classification tasks")
+    choices = rows[0]["choices"]
+    if any(r["choices"] != choices or r["category"] != "classification" for r in rows):
+        raise ValueError("classification policy requires one consistent label set")
+    if any(r["prompt"] != rows[0]["prompt"] for r in rows):
+        raise ValueError("classification policy requires one consistent question")
+    return choices, "classification"
+
+
+def exact_reward(actions, targets, num_actions: int):
+    """Classification reward: labels have no order, so only an exact match earns credit."""
+    if num_actions < 2:
+        raise ValueError("at least two label actions are required")
+    return (actions == targets).float()
+
+
 def shaped_reward(actions, targets, num_actions: int):
     """Bounded count reward; labels never enter the policy's observations."""
     if num_actions < 2:
@@ -78,7 +102,9 @@ def shaped_reward(actions, targets, num_actions: int):
     return (actions == targets).float() - (actions - targets).abs().float() / (num_actions - 1)
 
 
-def reinforce_loss(logits, targets, *, samples=8, entropy_weight=0.005, reference=None, kl=0.02):
+def reinforce_loss(
+    logits, targets, *, samples=8, entropy_weight=0.005, reference=None, kl=0.02, reward=None
+):
     """Sampled policy gradient with an unbiased leave-one-out group baseline."""
     torch, _ = _stack()
     if samples < 2:
@@ -86,7 +112,7 @@ def reinforce_loss(logits, targets, *, samples=8, entropy_weight=0.005, referenc
     log_probs = logits.log_softmax(-1)
     probs = log_probs.exp()
     actions = torch.multinomial(probs, samples, replacement=True)
-    rewards = shaped_reward(actions, targets[:, None], logits.shape[-1])
+    rewards = (reward or shaped_reward)(actions, targets[:, None], logits.shape[-1])
     baseline = (rewards.sum(1, keepdim=True) - rewards) / (samples - 1)
     advantage = (rewards - baseline).detach()
     policy_loss = -(advantage * log_probs.gather(1, actions)).mean()
@@ -166,8 +192,10 @@ def _head(inputs: int, actions: int, hidden: int):
     return torch.nn.Linear(inputs, actions)
 
 
-def _metrics(logits, targets):
+def _metrics(logits, targets, task="counting"):
     predictions = logits.argmax(-1)
+    if task == "classification":
+        return {"accuracy": float((predictions == targets).float().mean()), "mae": None}
     nonzero = targets != 0
     return {
         "accuracy": float((predictions == targets).float().mean()),
@@ -179,7 +207,7 @@ def _metrics(logits, targets):
 
 
 def _rank(metrics):
-    return metrics["accuracy"], -metrics["mae"]
+    return metrics["accuracy"], -(metrics["mae"] or 0.0)
 
 
 def _save_policy(path, head, metadata, mean, scale):
@@ -218,7 +246,7 @@ def train_count_policy(
     train_rows = load_manifest(train_manifest, expected_split="train")
     val_rows = load_manifest(validation_manifest, expected_split="validation")
     assert_disjoint(train_rows, val_rows)
-    choices = _count_schema(train_rows + val_rows)
+    choices, task = _task_schema(train_rows + val_rows)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
@@ -245,7 +273,8 @@ def train_count_policy(
         "train_fingerprint": fingerprint(train_rows),
         "validation_fingerprint": fingerprint(val_rows),
         "selection_split": "validation",
-        "reward": REWARD,
+        "task": task,
+        "reward": REWARD if task == "counting" else CLASSIFICATION_REWARD,
         "image_transform": "RGB resize224x224 + ImageNet normalize; mean/std layer4",
         "train_views": 4 if augment else 1,
         "optimizer_device": "cpu",
@@ -265,7 +294,9 @@ def train_count_policy(
         "samples_per_observation": 8,
         "entropy_weight": 0.005,
         "kl_weight": 0.02,
-        "selection": "maximum validation exact accuracy; then minimum validation MAE",
+        "selection": "maximum validation exact accuracy; then minimum validation MAE"
+        if task == "counting"
+        else "maximum validation exact accuracy",
         "test_access": False,
     }
     write_json(output / "plan.json", {**plan, **metadata})
@@ -300,8 +331,8 @@ def train_count_policy(
                 if epoch % 5 == 0 or epoch == sft_epochs:
                     head.eval()
                     with torch.no_grad():
-                        metrics = _metrics(head(v), vy)
-                        train_metrics = _metrics(head(x), y)
+                        metrics = _metrics(head(v), vy, task)
+                        train_metrics = _metrics(head(x), y, task)
                     event = {
                         "candidate": candidate,
                         "phase": "sft",
@@ -334,15 +365,18 @@ def train_count_policy(
                 with torch.no_grad():
                     reference_logits = reference(x[indices])
                 loss, reward_metrics = reinforce_loss(
-                    head(x[indices]), y[indices], reference=reference_logits
+                    head(x[indices]),
+                    y[indices],
+                    reference=reference_logits,
+                    reward=shaped_reward if task == "counting" else exact_reward,
                 )
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
                 optimizer.step()
                 if step % 20 == 0 or step == rl_steps:
                     with torch.no_grad():
-                        metrics = _metrics(head(v), vy)
-                        train_metrics = _metrics(head(x), y)
+                        metrics = _metrics(head(v), vy, task)
+                        train_metrics = _metrics(head(x), y, task)
                     event = {
                         "candidate": candidate,
                         "phase": "rl",
@@ -421,7 +455,9 @@ def _load_head_checkpoint(checkpoint: Path):
         raise ValueError("policy hidden size must be between 0 and 512")
     choices = meta.get("choices")
     if not isinstance(choices, list) or not 2 <= len(choices) <= 26:
-        raise ValueError("policy must have 2 to 26 count choices")
+        raise ValueError("policy must have 2 to 26 choices")
+    if meta.get("task", "counting") not in TASKS:
+        raise ValueError("unsupported policy task")
     for name in ("feature_mean", "feature_scale"):
         value = saved[name]
         if not isinstance(value, torch.Tensor) or value.shape != (1024,):
@@ -440,16 +476,9 @@ def _load_head_checkpoint(checkpoint: Path):
     return saved
 
 
-def predict_count_policy(
-    rows: list[dict], checkpoint: Path, *, device="auto", trusted_encoder: Path | None = None
-) -> dict:
-    """Run a saved pixel-only policy without exposing answers to the encoder/head."""
-    torch, _ = _stack()
-    checkpoint = Path(checkpoint)
-    saved = _load_head_checkpoint(checkpoint)
-    meta = saved["metadata"]
-    if _count_schema(rows) != meta["choices"] or rows[0]["prompt"] != meta["prompt"]:
-        raise ValueError("evaluation count question/choices differ from the trained task")
+def _checked_encoder(checkpoint: Path, meta: dict, trusted_encoder: Path | None = None):
+    """The checkpoint's sibling encoder.pt after its checksum, or a trusted encoder after its
+    tensor fingerprint."""
     if trusted_encoder is not None:
         encoder_path = Path(trusted_encoder)
     else:
@@ -463,6 +492,25 @@ def predict_count_policy(
         state_fingerprint(encoder.state_dict()) != meta.get("encoder_state_sha256")
     ):
         raise ValueError("trusted encoder tensor checksum mismatch")
+    return encoder
+
+
+def predict_count_policy(
+    rows: list[dict], checkpoint: Path, *, device="auto", trusted_encoder: Path | None = None
+) -> dict:
+    """Run a saved pixel-only policy without exposing answers to the encoder/head."""
+    torch, _ = _stack()
+    checkpoint = Path(checkpoint)
+    saved = _load_head_checkpoint(checkpoint)
+    meta = saved["metadata"]
+    choices, task = _task_schema(rows)
+    if (
+        choices != meta["choices"]
+        or rows[0]["prompt"] != meta["prompt"]
+        or task != meta.get("task", "counting")
+    ):
+        raise ValueError("evaluation question/choices differ from the trained task")
+    encoder = _checked_encoder(checkpoint, meta, trusted_encoder)
     x = _features(rows, encoder, select_device(device))
     x = (x - saved["feature_mean"]) / saved["feature_scale"]
     head = _head(meta["feature_dim"], len(meta["choices"]), meta["hidden"])
@@ -491,21 +539,276 @@ def evaluate_count_policy(
     predictions = predict_count_policy(
         rows, checkpoint, device=device, trusted_encoder=trusted_encoder
     )
+    task = _load_head_checkpoint(Path(checkpoint))["metadata"].get("task", "counting")
     result = score(
         rows,
         predictions,
         {
-            "name": "resnet18-count-policy",
+            "name": f"resnet18-{'count' if task == 'counting' else 'classification'}-policy",
             "backend": "torch",
             "checkpoint_sha256": hashlib.sha256(Path(checkpoint).read_bytes()).hexdigest(),
         },
     )
     result["elapsed_seconds"] = time.monotonic() - started
-    result["mean_absolute_count_error"] = float(
-        np.mean([abs(ord(item["answer"]) - ord(item["expected"])) for item in result["items"]])
-    )
+    if task == "counting":
+        result["mean_absolute_count_error"] = float(
+            np.mean([abs(ord(item["answer"]) - ord(item["expected"])) for item in result["items"]])
+        )
     write_json(output, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Train on your own labeled photos: vision-rl train-folder / predict / make-example.
+# Folder in (one subfolder per label), tested classifier out. Same SFT-then-RL recipe.
+
+FOLDER_PROMPT = "Which category best describes this image?"
+MIN_PER_LABEL = 3  # one image each for train, validation and test
+SPLIT_NAMES = {"train", "test", "valid", "validation", "val"}
+
+
+def _visible(path: Path, root: Path) -> bool:
+    """Skip hidden files and folders and macOS zip debris (__MACOSX, ._name.jpg)."""
+    parts = path.relative_to(root).parts
+    return not any(p.startswith(".") or p == "__MACOSX" for p in parts)
+
+
+def _label_dirs(root: Path) -> list[Path]:
+    dirs = sorted(p for p in root.iterdir() if p.is_dir() and _visible(p, root))
+    if any(p.is_symlink() for p in dirs):
+        raise ValueError("label folders cannot be symlinks")
+    if not 2 <= len(dirs) <= 26:
+        raise ValueError(f"need 2 to 26 label folders, found {len(dirs)} in {root}")
+    return dirs
+
+
+def build_dataset(
+    images: str | Path,
+    output: str | Path,
+    *,
+    seed: int = 0,
+    validation_fraction: float = 0.15,
+    test_fraction: float = 0.15,
+) -> dict:
+    """Write train/validation/test manifests from a labeled image folder.
+
+    Each label is split separately, so every split sees every label. Pixel-identical copies
+    are dropped before splitting; the same pixels under two labels refuse."""
+    from vision_rl.roboflow import (
+        IMAGE_SUFFIXES,
+        _image_path,
+        _row,
+        _write_import,
+        import_classification,
+    )
+
+    root = Path(images).resolve()
+    if not root.is_dir():
+        raise ValueError(f"image folder does not exist: {root}")
+    top = {p.name.lower() for p in root.iterdir() if p.is_dir()}
+    if top & SPLIT_NAMES:
+        # An export that is already split: use it exactly as given, or refuse. Never treat
+        # "train"/"valid" as labels.
+        if not ("train" in top and "test" in top and top & {"valid", "validation", "val"}):
+            raise ValueError(
+                "folder looks pre-split but needs train/, test/ and one of valid/, "
+                "validation/ or val/ (or use one subfolder per label instead)"
+            )
+        result = import_classification(root, output)
+        result["source"] = "existing train/validation/test split"
+        return result
+    if not (0 < validation_fraction < 1 and 0 < test_fraction < 1):
+        raise ValueError("split fractions must be between 0 and 1")
+    labels = [p.name for p in _label_dirs(root)]
+    owner, duplicates, per_label = {}, 0, {}
+    for index, name in enumerate(labels):
+        label_dir = root / name
+        paths = sorted(
+            p
+            for p in label_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES and _visible(p, root)
+        )
+        unique = []
+        for path in paths:
+            digest = image_hash(_image_path(path, label_dir))
+            if digest in owner:
+                if owner[digest][0] != name:
+                    raise ValueError(
+                        f"the same image is labelled both {owner[digest][0]!r} "
+                        f"({owner[digest][1]}) and {name!r} ({path}); keep one"
+                    )
+                duplicates += 1
+                continue
+            owner[digest] = (name, path)
+            unique.append(path.resolve())
+        if len(unique) < MIN_PER_LABEL:
+            raise ValueError(
+                f"label {name!r} has {len(unique)} distinct images; need at least {MIN_PER_LABEL}"
+            )
+        per_label[index] = unique
+    rng = random.Random(seed)
+    rows = {"train": [], "validation": [], "test": []}
+    for index, paths in per_label.items():
+        paths = paths[:]
+        rng.shuffle(paths)
+        n_test = max(1, round(len(paths) * test_fraction))
+        n_val = max(1, round(len(paths) * validation_fraction))
+        if len(paths) - n_test - n_val < 1:
+            n_test, n_val = 1, 1
+        parts = {
+            "test": paths[:n_test],
+            "validation": paths[n_test : n_test + n_val],
+            "train": paths[n_test + n_val :],
+        }
+        for split, items in parts.items():
+            rows[split] += [
+                _row(p, split, labels, index, FOLDER_PROMPT, "classification") for p in items
+            ]
+    result = _write_import(rows, output)
+    result.update(classes=labels, source="split by label", seed=seed, duplicates_dropped=duplicates)
+    return result
+
+
+def _test_accuracy(manifest: Path, checkpoint: Path, device: str) -> dict:
+    out = checkpoint.with_name(checkpoint.stem + "-test.json")
+    result = evaluate_count_policy(manifest, checkpoint, out, device=device)
+    return {"accuracy": result["accuracy"], "correct": result["correct"], "n": result["n"]}
+
+
+def train_folder(
+    images: str | Path,
+    output: str | Path,
+    *,
+    device: str = "auto",
+    quick: bool = False,
+    seed: int = 0,
+    encoder_weights: Path | None = None,
+) -> dict:
+    """Prepare data, train (SFT then RL), select on validation, then score once on test."""
+    import shutil
+
+    output = Path(output).resolve()
+    if output.exists() and any(output.iterdir()):
+        raise ValueError(f"output folder must be new or empty: {output}")
+    data = build_dataset(images, output / "data", seed=seed)
+    manifests = {k: Path(v) for k, v in data["manifests"].items()}
+    model = output / "model"
+    report = train_count_policy(
+        manifests["train"],
+        manifests["validation"],
+        model,
+        device=device,
+        seeds=(7,) if quick else (7, 19),
+        hidden_sizes=(0,) if quick else (0, 128),
+        sft_epochs=40 if quick else 160,
+        rl_steps=200 if quick else 800,
+        encoder_weights=encoder_weights,
+    )
+    experiments = {e["candidate"]: e for e in report["experiments"]}
+    sft_val = experiments[report["sft_candidate"]]["sft_validation"]
+    rl_val = experiments[report["selected_candidate"]]["rl_validation"]
+    # Deploy whichever stage validation prefers (a tie keeps RL); test is read only after.
+    chosen = "rl" if rl_val["accuracy"] >= sft_val["accuracy"] else "sft"
+    shutil.copyfile(model / ("policy.pt" if chosen == "rl" else "sft.pt"), model / "best.pt")
+    test = manifests["test"]
+    scores = {
+        "sft": _test_accuracy(test, model / "sft.pt", device),
+        "rl": _test_accuracy(test, model / "policy.pt", device),
+    }
+    train_labels = Counter(r["answer"] for r in load_manifest(manifests["train"]))
+    test_rows = load_manifest(test)
+    majority = train_labels.most_common(1)[0][0]
+    baseline = sum(r["answer"] == majority for r in test_rows) / len(test_rows)
+    summary = {
+        "labels": data["classes"],
+        "images": data["counts"],
+        "duplicates_dropped": data.get("duplicates_dropped", 0),
+        "validation_accuracy": {"sft": sft_val["accuracy"], "rl": rl_val["accuracy"]},
+        "test_accuracy": {
+            "majority_label_baseline": baseline,
+            "sft": scores["sft"]["accuracy"],
+            "rl": scores["rl"]["accuracy"],
+        },
+        "deployed_model": chosen,
+        "model": str(model / "best.pt"),
+        "quick": quick,
+        "device": report["encoder_device"],
+    }
+    write_json(output / "summary.json", summary)
+    return summary
+
+
+def predict(model: str | Path, images: list[str | Path], *, device: str = "auto") -> list[dict]:
+    """Label each image with a train-folder model: top label and its probability."""
+    from vision_rl.roboflow import IMAGE_SUFFIXES
+
+    torch, _ = _stack()
+    checkpoint = Path(model)
+    for candidate in (checkpoint / "model" / "best.pt", checkpoint / "best.pt"):
+        if checkpoint.is_dir() and candidate.is_file():
+            checkpoint = candidate
+            break
+    if not checkpoint.is_file():
+        raise ValueError(f"no model at {model}; pass the train-folder output folder")
+    saved = _load_head_checkpoint(checkpoint)
+    meta = saved["metadata"]
+    if meta.get("task") != "classification":
+        raise ValueError("predict needs a model trained by train-folder (a classification task)")
+    encoder = _checked_encoder(checkpoint, meta)
+    paths = []
+    for item in images:
+        path = Path(item).resolve()
+        if path.is_dir():
+            paths += sorted(
+                p
+                for p in path.rglob("*")
+                if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES and _visible(p, path)
+            )
+        else:
+            paths.append(path)
+    if not paths:
+        raise ValueError("no images to label")
+    x = _features([{"image": str(p)} for p in paths], encoder, select_device(device))
+    x = (x - saved["feature_mean"]) / saved["feature_scale"]
+    head = _head(meta["feature_dim"], len(meta["choices"]), meta["hidden"])
+    head.load_state_dict(saved["state_dict"])
+    head.eval()
+    with torch.inference_mode():
+        probs = head(x).softmax(-1)
+    best = probs.argmax(-1).tolist()
+    return [
+        {"image": str(p), "label": meta["choices"][k], "confidence": round(float(probs[i, k]), 4)}
+        for i, (p, k) in enumerate(zip(paths, best, strict=True))
+    ]
+
+
+def make_example(output: str | Path, per_label: int = 24, seed: int = 0) -> Path:
+    """A tiny synthetic dataset (circles, squares, triangles) to try train-folder offline."""
+    from PIL import ImageDraw
+
+    output = Path(output)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError(f"example folder must be new or empty: {output}")
+    rng = random.Random(seed)
+    for shape in ("circle", "square", "triangle"):
+        folder = output / shape
+        folder.mkdir(parents=True, exist_ok=True)
+        for i in range(per_label):
+            image = Image.new("RGB", (128, 128), tuple(rng.randrange(150, 256) for _ in range(3)))
+            draw = ImageDraw.Draw(image)
+            size = rng.randrange(30, 60)
+            cx, cy = rng.randrange(size, 128 - size), rng.randrange(size, 128 - size)
+            color = tuple(rng.randrange(0, 120) for _ in range(3))
+            box = (cx - size, cy - size, cx + size, cy + size)
+            if shape == "circle":
+                draw.ellipse(box, fill=color)
+            elif shape == "square":
+                draw.rectangle(box, fill=color)
+            else:
+                points = [(cx, cy - size), (cx - size, cy + size), (cx + size, cy + size)]
+                draw.polygon(points, fill=color)
+            image.save(folder / f"{shape}-{i:03d}.png")
+    return output
 
 
 def main():
