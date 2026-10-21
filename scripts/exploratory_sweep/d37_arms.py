@@ -55,6 +55,11 @@ TEMPERATURES = (1.0, 1.3)
 BETA = 0.0
 GENERATIONS = 8
 DYNAMIC_DRAWS = 8
+# A per-checkpoint time-matched control stops on the RL arm's active SECONDS, not on an
+# update count; SFT updates are far cheaper than dynamic-sampling GRPO updates, so its update
+# cap must never bind first (arm_exec refuses a time stop it did not reach). The GPU lane's
+# control2 uses the same cap; the trainer has no SFT step cap.
+CONTROL_TIME_MATCH_STEPS = 100000
 UPDATES = 600
 STOPS = [150, 300, 600]
 CONTROL_GRID = {1: (5e-6,), 3: (5e-6, 1e-5, 2e-5)}
@@ -92,7 +97,7 @@ def rl_arm(family, lr, temperature, ctl_lr):
               extra_trainer_args=["--loss-type", "grpo",
                                   "--dynamic-sampling-max-draws", str(DYNAMIC_DRAWS)],
               matched_control_lr=ctl_lr, control_replays="scanned",
-              control_max_steps_total=UPDATES * DYNAMIC_DRAWS, amendment=5, **DEVICE)
+              control_max_steps_total=CONTROL_TIME_MATCH_STEPS, amendment=5, **DEVICE)
     return a
 
 

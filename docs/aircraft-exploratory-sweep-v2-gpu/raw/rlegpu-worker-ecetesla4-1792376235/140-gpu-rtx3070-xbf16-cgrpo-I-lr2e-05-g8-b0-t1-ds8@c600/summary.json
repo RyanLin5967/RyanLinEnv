@@ -1,0 +1,27 @@
+{
+ "arm": "gpu-rtx3070-xbf16-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
+ "endpoints": [
+  {
+   "active_seconds": 9826.966078624479,
+   "label": "step900",
+   "metrics": {
+    "accuracy": 0.765,
+    "adapter_sha256": "95bcd33ed298f663cd27a25f8b06d82d08f5d93b425f30fc6477cae9f76dd549",
+    "assay_seconds": 333.4,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.765,
+    "label": "step900",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.9925
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 900
+  }
+ ],
+ "host": "ecetesla4",
+ "receipt_sha256": "06b3ed1bf84e0d3af9813c300b78ffb4b73a3243985f307edd3abf2d423c079b",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

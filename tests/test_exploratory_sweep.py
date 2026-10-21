@@ -856,6 +856,8 @@ def test_launch_one_passes_mem_and_a_fresh_work_dir(tmp_path, monkeypatch):
     name = runner.launch_one(path, {"id": "a", "mode": "sft"}, "h", "/r", 60, False)
     argv = calls[0]
     assert argv[argv.index("--mem") + 1] == "16"
+    assert argv[argv.index("--disk") + 1] == "1"  # uwrun v5.4 default 5 GB fails iccad hosts
+    assert argv[argv.index("--scratch") + 1] == "shm"
     spec = json.loads((tmp_path / "sweep" / "launch" / name / "arm.json").read_text())
     assert spec["work_id"] == "a~a2"
     assert json.loads(path.read_text())["arms"]["a"]["mem_gb"] == 16
@@ -1625,3 +1627,192 @@ def test_a_beta0_row_without_a_loss_type_is_refused_by_the_trainer(tmp_path, mon
                                                                  None)
     assert local.main(argv[2:]) == 2
     assert "explicit loss_type" in capsys.readouterr().err
+
+
+def _d37():
+    t = json.loads((ROOT / "docs" / "aircraft-exploratory-sweep-v2" / "arms-d37-grpo-I.json")
+                   .read_text())
+    rl = next(a for a in t["arms"] if a["track"] == "rl")
+    ctl = next(a for a in t["arms"] if a.get("control_of") == rl["id"])
+    return rl, ctl
+
+
+def _finished_rl(tmp_path, rl, endpoints):
+    """A finished D37 RL arm: its spec, step endpoints (label, active seconds), receipt and
+    scanned ids (every committed id among them, in scan order)."""
+    res = tmp_path / "rlres"
+    res.mkdir()
+    (tmp_path / "rl.json").write_text(json.dumps(rl))
+    last = int(endpoints[-1][0][4:])
+    committed = [f"p{k}" for k in range(last)]
+    scanned = [x for c in committed for x in (c, f"skip-{c}")]  # dynamic sampling redraws
+    (res / "summary.json").write_text(json.dumps({"endpoints": [
+        {"label": lab, "steps": int(lab[4:]), "active_seconds": sec, "metrics": {}}
+        for lab, sec in endpoints]}))
+    (res / "endpoint_receipt.json").write_text(json.dumps(
+        {"global_step": last, "committed_prompt_ids": committed}))
+    (res / "scanned_ids.json").write_text(json.dumps(
+        {"global_step": last, "scanned_prompt_ids": scanned}))
+    return {"arms": {rl["id"]: {"status": "DONE", "results_dir": str(res),
+                                "spec_path": str(tmp_path / "rl.json"), "host": "iccad7"}}}
+
+
+def test_d37_control_is_time_matched_at_every_rl_checkpoint_on_scanned_rows(tmp_path):
+    rl, ctl = _d37()
+    state = _finished_rl(tmp_path, rl, [("step150", 1000.0), ("step300", 2100.5),
+                                        ("step600", 4400.0)])
+    spec = runner.control_spec(state, ctl)
+    assert spec["time_stops"] == [1000.0, 2100.5, 4400.0] and spec["stops"] == []
+    assert "time_budget_seconds" not in spec
+    assert len(spec["train_ids"]) == 1200 and spec["train_ids"][1] == "skip-p0"  # scanned
+    assert spec["max_steps_total"] >= 100000  # the update cap never binds before the seconds
+    assert [x[0] for x in arm_exec.time_endpoints(spec)] == ["time1", "time2", "time3"]
+
+
+@pytest.mark.parametrize("endpoints,why", [
+    ([("step600", 4400.0)], "time-matched at"),                         # last endpoint only
+    ([("step150", 1000.0), ("step600", 4400.0)], "time-matched at"),    # 300 missing
+    ([("step300", 2000.0), ("step600", 4400.0)], "time-matched at"),    # 150 missing
+    ([("step150", 1000.0), ("step300", 900.0), ("step600", 4400.0)], "strictly increasing"),
+    ([("step150", 0.0), ("step300", 900.0), ("step600", 4400.0)], "strictly increasing"),
+])
+def test_d37_control_refuses_unless_time_matched_at_150_300_and_600(tmp_path, endpoints, why):
+    rl, ctl = _d37()
+    with pytest.raises(SystemExit, match=why):
+        runner.control_spec(_finished_rl(tmp_path, rl, endpoints), ctl)
+
+
+@pytest.mark.parametrize("stops", [[], [0.0, 5.0], [5.0, 5.0], [7.0, 5.0], [-1.0]])
+def test_time_stops_refuse_empty_non_positive_or_non_increasing(stops):
+    with pytest.raises(SystemExit, match="time_stops"):
+        arm_exec.time_endpoints({"time_stops": stops})
+
+
+def test_time_stops_accept_a_positive_increasing_list_and_refuse_both_forms():
+    # the GPU lane's bug (6205487): `not 0 < a < b` refused this valid list
+    assert arm_exec.time_endpoints({"time_stops": [5, 7.5]}) == [("time1", 5.0), ("time2", 7.5)]
+    assert arm_exec.time_endpoints({"time_budget_seconds": 9}) == [("time", 9.0)]
+    with pytest.raises(SystemExit, match="not both"):
+        arm_exec.time_endpoints({"time_budget_seconds": 9, "time_stops": [5]})
+
+
+def test_run_refuses_a_control_whose_update_cap_ends_before_a_time_stop(tmp_path, monkeypatch):
+    (tmp_path / "RECEIPT.json").write_text("{}")
+    spec = {"id": "c", "mode": "sft", "stops": [], "time_stops": [100.0, 200.0, 300.0],
+            "max_steps_total": 50, "features": []}
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "res")
+    stages = []
+    receipts = iter([{"status": "stop_after_active_seconds", "global_step": 20,
+                      "committed_active_seconds": 100.0},
+                     {"status": "total_budget_exhausted", "global_step": 50,
+                      "committed_active_seconds": 180.0}])
+    monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
+    monkeypatch.setattr(arm, "trainer_args", lambda *a, **k: [k.get("stop_seconds")])
+    monkeypatch.setattr(arm, "run_stage",
+                        lambda label, args: stages.append(label) or next(receipts))
+    monkeypatch.setattr(arm, "keep_adapter", lambda label: None)
+    monkeypatch.setattr(arm, "copy_small", lambda: None)
+    monkeypatch.setattr(arm, "assay_isolated", lambda *a: {"accuracy": 0.5})
+    (arm.out / "checkpoint-20").mkdir(parents=True)
+    with pytest.raises(SystemExit, match=r"\['time2', 'time3'\] not reached"):
+        arm_exec.run(arm, False)
+    assert stages == ["train-time1", "train-time2"]
+    kept = json.loads((tmp_path / "res" / "summary.json").read_text())
+    assert [e["label"] for e in kept["endpoints"]] == ["time1", "time2"]  # kept, flagged
+
+
+@pytest.mark.parametrize("features,extras,ok", [
+    (["dynamic_sampling"], ["--dynamic-sampling-max-draws", "8"], True),
+    ([], [], True),
+    (["dynamic_sampling"], [], False),                                  # declared, not enabled
+    ([], ["--dynamic-sampling-max-draws", "8"], False),                 # enabled, not gated
+])
+def test_dynamic_sampling_feature_and_flag_appear_together(features, extras, ok):
+    spec = {"features": features, "extra_trainer_args": extras}
+    if ok:
+        arm_exec.check_feature_flags(spec)
+    else:
+        with pytest.raises(SystemExit, match="must appear together"):
+            arm_exec.check_feature_flags(spec)
+
+
+def test_every_table_row_ties_dynamic_sampling_to_its_flag():
+    d = ROOT / "docs" / "aircraft-exploratory-sweep-v2"
+    rows = [a for f in ("arms-rung1.json", "arms-d37-grpo-I.json", "arms-wave2-rung1.json")
+            for a in json.loads((d / f).read_text())["arms"]]
+    assert len(rows) > 200
+    for a in rows:
+        arm_exec.check_feature_flags(a)
+    assert sum("dynamic_sampling" in (a.get("features") or []) for a in rows) >= 7
+
+
+def test_a_plan_control_keeps_its_budget_cut_time_endpoint_flagged_and_report_skips_it(
+        tmp_path, monkeypatch):
+    (tmp_path / "RECEIPT.json").write_text("{}")
+    spec = {"id": "c", "mode": "sft", "stops": [150], "time_budget_seconds": 20100.0,
+            "max_steps_total": 1500, "features": []}
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "res")
+    receipts = iter([{"status": "stop_after_steps", "global_step": 150,
+                      "committed_active_seconds": 1700.0},
+                     {"status": "total_budget_exhausted", "global_step": 1500,
+                      "committed_active_seconds": 17000.0}])
+    monkeypatch.setattr(arm, "manifest", lambda: tmp_path / "m.jsonl")
+    monkeypatch.setattr(arm, "trainer_args", lambda *a, **k: [])
+    monkeypatch.setattr(arm, "run_stage", lambda label, args: next(receipts))
+    monkeypatch.setattr(arm, "keep_adapter", lambda label: None)
+    monkeypatch.setattr(arm, "copy_small", lambda: None)
+    monkeypatch.setattr(arm, "assay_isolated", lambda *a: {"accuracy": 0.5})
+    (arm.out / "checkpoint-150").mkdir(parents=True)
+    summary = arm_exec.run(arm, False)  # DONE, not refused
+    assert [(e["label"], e.get("time_matched")) for e in summary["endpoints"]] == [
+        ("step150", None), ("time", False)]
+    assert runner.matched_labels(summary, "time") == []
+    assert runner.matched_labels(summary, "step") == ["step150"]
+
+
+def test_d37_control_budget_sits_above_its_last_time_stop(tmp_path):
+    rl, ctl = _d37()
+    state = _finished_rl(tmp_path, rl, [("step150", 60000.0), ("step300", 150000.0),
+                                        ("step600", 300000.0)])  # past the 72 h SFT cap
+    spec = runner.control_spec(state, ctl)
+    assert spec["max_active_seconds"] == 300000.0 * 1.05 + 60.0
+    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
+    argv = arm.trainer_args(tmp_path / "m.jsonl", spec["max_steps_total"], None,
+                            tmp_path / "c", stop_seconds=300000.0)  # refused before the fix
+    assert argv[argv.index("--stop-after-active-seconds") + 1] == repr(300000.0)
+    (tmp_path / "s").mkdir()
+    small = _finished_rl(tmp_path / "s", rl, [("step150", 10.0), ("step300", 20.0),
+                                              ("step600", 30.0)])
+    assert runner.control_spec(small, ctl)["max_active_seconds"] == ctl["max_active_seconds"]
+
+
+def test_bootstrap_declares_a_small_disk_for_the_payload_sync(tmp_path, monkeypatch):
+    pay = tmp_path / "pay"
+    pay.mkdir()
+    (pay / "PAYLOAD.json").write_text(json.dumps({"code_head": "abc1234", "code_dirty": False}))
+    path = setup(tmp_path, monkeypatch, {"arms": {}, "hosts": {}, "uwrun_runs": []})
+    rows = runner.host_table(UWRUN_V5_HOSTS)
+    monkeypatch.setattr(runner, "host_table", lambda: rows)
+    calls = []
+    monkeypatch.setattr(runner, "uw", lambda *x, **k: calls.append(x))
+
+    class A:
+        payload, host, repin = str(pay), ["iccad13"], False
+
+    runner.cmd_bootstrap(A, path)
+    argv = calls[0]
+    assert argv[argv.index("--disk") + 1] == "2" and argv[argv.index("--host") + 1] == "iccad13"
+    assert argv[argv.index("--scratch") + 1] == "shm"
+
+
+def test_every_uwrun_call_claims_as_ryanlinenv(monkeypatch):
+    seen = []
+
+    class P:
+        returncode, stdout, stderr = 0, "ok", ""
+
+    monkeypatch.setenv("UWRUN_OWNER", "ferrodb")  # a caller environment must not leak through
+    monkeypatch.setattr(runner.subprocess, "run",
+                        lambda argv, **k: seen.append((argv, k["env"])) or P())
+    assert runner.uw("status", "x") == "ok"
+    assert seen[0][1]["UWRUN_OWNER"] == "ryanlinenv" and seen[0][0][1:] == ["status", "x"]

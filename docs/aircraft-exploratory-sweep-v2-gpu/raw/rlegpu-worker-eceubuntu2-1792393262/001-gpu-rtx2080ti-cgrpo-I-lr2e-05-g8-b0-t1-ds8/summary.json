@@ -1,0 +1,65 @@
+{
+ "arm": "gpu-rtx2080ti-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
+ "endpoints": [
+  {
+   "active_seconds": 3374.4880456046667,
+   "label": "step150",
+   "metrics": {
+    "accuracy": 0.77125,
+    "adapter_sha256": "3fe2857afc6814fbd082d678bd7a72f96eee4e8fa9f57eddfe2982d7ac618c3b",
+    "assay_seconds": 1301.9,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.77125,
+    "label": "step150",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 150
+  },
+  {
+   "active_seconds": 7014.307250960963,
+   "label": "step300",
+   "metrics": {
+    "accuracy": 0.78,
+    "adapter_sha256": "3f1d4eb7331bdeb7191b09b28dedddcc388a600b599eaa7907c01e9e4ba08f5c",
+    "assay_seconds": 1307.3,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.78,
+    "label": "step300",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.9925
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 300
+  },
+  {
+   "active_seconds": 14755.555935657118,
+   "label": "step600",
+   "metrics": {
+    "accuracy": 0.75875,
+    "adapter_sha256": "ffb7ed7f651865d401ed95240cc3f5f20be55e59c46415631dd55394c63ba1ca",
+    "assay_seconds": 1384.8,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.75875,
+    "label": "step600",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.995
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 600
+  }
+ ],
+ "host": "eceubuntu2",
+ "receipt_sha256": "680767271b53de08ad11d2c2e9548d5baa638338df64ae64ecd92275006113b2",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

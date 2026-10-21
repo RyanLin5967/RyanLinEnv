@@ -1,0 +1,15 @@
+{
+  "checkpoint_file_sha256": {
+    "adapter_model.safetensors": "e86a74789243162da39e156b4be936f8fd387c22fcfd50aff661573158f688c3",
+    "optimizer.pt": "745b6ea51a31449eb77feaeb3cbe8ca49d191752378acea05684ada0fb3bf289",
+    "scheduler.pt": "91c5d0a7f3311bf8012ad1862abe67f6856cced2c2a01433267ca073acd8482b",
+    "trainer_state.json": "72db681b6b7ea9fe2c4af114377cc6816408a7c9f4b54d913ca6d20afe868872"
+  },
+  "committed_active_seconds": 3347.34690921905,
+  "device": "cpu",
+  "exposure_sha256": "a14b425bfcf39518fe32f083e23af21fc61d7c21c5f5b70e8261a65e8a3209a1",
+  "global_step": 100,
+  "schema_version": 1,
+  "scope": "synchronized accumulated optimizer step: generation/reward/reference/forward/backward/optimizer included; data prefetch/decode, evaluation, external logging/reward journal and checkpoint IO excluded",
+  "total_budget_seconds": 172800.0
+}

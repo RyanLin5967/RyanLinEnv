@@ -1,0 +1,10 @@
+{
+ "arm": "sftceil-I-seed42",
+ "host": "iccad5",
+ "run": "sftceil-I-seed42-10",
+ "label": "stopped by root for RL capacity (D38)",
+ "latest_checkpoint": 300,
+ "committed_active_seconds": 11522.774558784207,
+ "last_audit_step": 396,
+ "scored_endpoints": []
+}

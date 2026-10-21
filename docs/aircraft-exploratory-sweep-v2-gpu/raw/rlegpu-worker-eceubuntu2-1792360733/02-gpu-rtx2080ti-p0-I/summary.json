@@ -1,0 +1,107 @@
+{
+ "arm": "gpu-rtx2080ti-p0-I",
+ "endpoints": [],
+ "host": "eceubuntu2",
+ "p0": {
+  "G": 8,
+  "adapter_sha256": "8f27d0ca170284a20b1f5672035c914639ddc2b2058d329da87b57a1cec46af7",
+  "environment_device": {
+   "bf16_native": false,
+   "capability": [
+    7,
+    5
+   ],
+   "device_name": "NVIDIA GeForce RTX 2080 Ti",
+   "torch_cuda": "13.0"
+  },
+  "init": "I",
+  "label_trie_sha256": "656dc02fbb5b121f4cd9a9d7ea10364532639b35b647f0dc9010ad5d80a37eb0",
+  "manifests": {
+   "p0_poolA200.jsonl": {
+    "greedy_accuracy": 0.755,
+    "per_temperature": {
+     "1.0": {
+      "acceptance_u_ge_0_5": 0.285,
+      "all_correct_fraction": 0.525,
+      "all_wrong_fraction": 0.145,
+      "format_only_mixed_fraction": 0.06,
+      "greedy_wrong": 49,
+      "hard_greedy_wrong_and_p_ge_0_02": 0.15,
+      "mean_p_gold": 0.7211473988074747,
+      "median_p_gold": 0.9493352057389304,
+      "n": 200,
+      "p_gold_lt_0_02": 0.095,
+      "pass_at_G_among_greedy_wrong": 0.40816326530612246,
+      "pass_at_G_greedy_wrong_images_fraction_of_all": 0.1,
+      "realised_mixed_fraction": 0.33,
+      "recognition_mixed_fraction": 0.27
+     },
+     "1.3": {
+      "acceptance_u_ge_0_5": 0.455,
+      "all_correct_fraction": 0.4,
+      "all_wrong_fraction": 0.135,
+      "format_only_mixed_fraction": 0.15,
+      "greedy_wrong": 49,
+      "hard_greedy_wrong_and_p_ge_0_02": 0.16,
+      "mean_p_gold": 0.679240055833491,
+      "median_p_gold": 0.8716451992396336,
+      "n": 200,
+      "p_gold_lt_0_02": 0.085,
+      "pass_at_G_among_greedy_wrong": 0.4489795918367347,
+      "pass_at_G_greedy_wrong_images_fraction_of_all": 0.11,
+      "realised_mixed_fraction": 0.465,
+      "recognition_mixed_fraction": 0.315
+     }
+    },
+    "rows": 200,
+    "seconds": 6594.1
+   },
+   "p0_poolB200.jsonl": {
+    "greedy_accuracy": 0.79,
+    "per_temperature": {
+     "1.0": {
+      "acceptance_u_ge_0_5": 0.32,
+      "all_correct_fraction": 0.545,
+      "all_wrong_fraction": 0.12,
+      "format_only_mixed_fraction": 0.055,
+      "greedy_wrong": 42,
+      "hard_greedy_wrong_and_p_ge_0_02": 0.12,
+      "mean_p_gold": 0.747697382364801,
+      "median_p_gold": 0.9384222787566942,
+      "n": 200,
+      "p_gold_lt_0_02": 0.09,
+      "pass_at_G_among_greedy_wrong": 0.42857142857142855,
+      "pass_at_G_greedy_wrong_images_fraction_of_all": 0.09,
+      "realised_mixed_fraction": 0.335,
+      "recognition_mixed_fraction": 0.28
+     },
+     "1.3": {
+      "acceptance_u_ge_0_5": 0.445,
+      "all_correct_fraction": 0.41,
+      "all_wrong_fraction": 0.11,
+      "format_only_mixed_fraction": 0.135,
+      "greedy_wrong": 42,
+      "hard_greedy_wrong_and_p_ge_0_02": 0.145,
+      "mean_p_gold": 0.704532319797892,
+      "median_p_gold": 0.8663097230162226,
+      "n": 200,
+      "p_gold_lt_0_02": 0.065,
+      "pass_at_G_among_greedy_wrong": 0.5,
+      "pass_at_G_greedy_wrong_images_fraction_of_all": 0.105,
+      "realised_mixed_fraction": 0.48,
+      "recognition_mixed_fraction": 0.345
+     }
+    },
+    "rows": 200,
+    "seconds": 6823.0
+   }
+  },
+  "schema": "gpu-lane-p0-v1",
+  "temperatures": [
+   1.0,
+   1.3
+  ]
+ },
+ "receipt_sha256": "a8c69b4610a036673ec7fe41bec82c125601c411c198d8bda7f64c6f4c53d6e3",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

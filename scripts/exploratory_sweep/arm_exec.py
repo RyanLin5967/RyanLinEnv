@@ -52,6 +52,11 @@ def write_json(path: Path, value) -> None:
     tmp.replace(path)
 
 
+# controlled400 endpoints with native VAL scores (payload.py INITS): eval-only inits for the
+# dev800 calibration (root corrections M4). Never a training init.
+CALIBRATION = ("RL400", "SFT1e5E", "SFT5e5E", "SFT1e4E", "SFT5e5T", "SFT1e4T")
+
+
 def _int_at_least(n: int):
     def check(v: str):
         if not re.fullmatch(r"-?[0-9]+", v) or int(v) < n:
@@ -339,6 +344,10 @@ class Arm:
         self.env = dict(os.environ, PYTHONPATH=str(self.payload / "code" / "src"),
                         HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                         VLM_TORCH_THREADS=str(spec.get("threads", 16)))
+        if spec.get("device") == "cuda":
+            # Allocator fragmentation only (no numerics): the fp32 beta>0 GRPO on the 2080 Ti
+            # OOMed needing 274 MiB with 547 MiB reserved-but-unallocated (2026-10-19).
+            self.env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
             self.env[var] = str(spec.get("threads", 16))
         self.log = []
@@ -751,12 +760,32 @@ class Arm:
         return receipt
 
     def init_adapter(self) -> Path:
-        """W or I from the payload, or {"arm", "label"}: a kept endpoint on this host."""
+        """W, I (or an assay-only calibration endpoint) from the payload, or {"arm", "label"}:
+        a kept endpoint on this host."""
         init = self.spec["init"]
         if isinstance(init, str):
-            if init not in ("W", "I"):
+            if init not in ("W", "I") and not (init in CALIBRATION
+                                                and self.spec["mode"] == "eval"):
                 raise SystemExit(f"REFUSE: unknown init {init!r}")
             return self.payload / "adapters" / init / "final_adapter"
+        if "start" in init:
+            # A start adapter staged on this host by another lane (root corrections M2:
+            # RL from sftall*): ROOT/start/<name>/final_adapter with its local_training.json
+            # beside it. Refuses unless its weights hash equals the sha the spec pins (taken
+            # from the producing lane's report), so a missing or different file never trains.
+            name = str(init["start"])
+            if "/" in name or name.startswith("."):
+                raise SystemExit(f"REFUSE: bad start name {name!r}")
+            path = self.root / "start" / name / "final_adapter"
+            want = init.get("weights_sha256")
+            if not want or not (path / "adapter_model.safetensors").is_file():
+                raise SystemExit(f"REFUSE: start adapter {path} missing or unpinned")
+            if sha_file(path / "adapter_model.safetensors") != want:
+                raise SystemExit(f"REFUSE: start adapter {path} differs from its pin {want[:12]}")
+            if not (path.parent / "local_training.json").is_file():
+                raise SystemExit(f"REFUSE: start adapter {path} has no "
+                                 "local_training.json beside it")
+            return path
         path = self.root / "arms" / init["arm"] / "kept" / init["label"] / "final_adapter"
         receipt = json.loads((path.parent / "endpoint_receipt.json").read_text())
         weights = receipt["final_adapter"]["weights_sha256"]
@@ -997,25 +1026,6 @@ def run_e0(arm: Arm, manifest: Path, summary: dict) -> dict:
     return summary
 
 
-def time_endpoints(spec: dict) -> list:
-    """[(label, active seconds)] to stop, keep and assay at after the step stops.
-
-    `time_budget_seconds` (one value; the CPU sweep's and GPU lane's matched control) keeps
-    its label "time". `time_stops` (a strictly increasing list; the RL campaign's per-
-    checkpoint time-matched control) gives "time1", "time2", ... Both at once refuse."""
-    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
-    if one and many:
-        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
-    if one:
-        return [("time", float(one))]
-    stops = [float(x) for x in many or []]
-    # (0, s1), (s1, s2), ...: each stop must exceed the one before it, the first exceed 0.
-    # It read `not 0 < a < b`, which refuses EVERY list (the first pair has a == 0).
-    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
-        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
-    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
-
-
 def write_summary(arm: Arm, summary: dict) -> None:
     """summary.json plus peak resident memory so far (the source for runner.py's --mem table):
     self = this process, which also runs the in-process assay; children = the largest
@@ -1031,8 +1041,46 @@ def write_summary(arm: Arm, summary: dict) -> None:
     write_json(arm.results / "summary.json", summary)
 
 
+def time_endpoints(spec: dict) -> list:
+    """[(label, active seconds)] to stop, keep and assay at after the step stops.
+
+    `time_budget_seconds` (one value; the plan's matched control) keeps its label "time".
+    `time_stops` (a strictly increasing list; a per-checkpoint time-matched control, D37)
+    gives "time1", "time2", ... Both at once refuse. Ported from the GPU lane with its fix
+    (6205487): the check read `not 0 < a < b`, which refused EVERY list (the first pair
+    compares against 0.0)."""
+    one, many = spec.get("time_budget_seconds"), spec.get("time_stops")
+    if one and many:
+        raise SystemExit("REFUSE: pass time_budget_seconds or time_stops, not both")
+    if one:
+        return [("time", float(one))]
+    if many is not None and not many:
+        raise SystemExit("REFUSE: time_stops is empty")
+    stops = [float(x) for x in many or []]
+    if any(not 0 <= a < b for a, b in zip([0.0] + stops, stops)):
+        raise SystemExit("REFUSE: time_stops must be positive and strictly increasing")
+    return [(f"time{i + 1}", x) for i, x in enumerate(stops)]
+
+
+# A trainer feature an arm declares and the extra flag that turns it on travel together
+# (review of PR #36): a row that declares dynamic_sampling without the flag would run plain
+# GRPO on a host gated for it, and a row with the flag but not the feature would skip the
+# receipt gate. Checked on the host before any stage.
+FEATURE_EXTRA_FLAGS = {"dynamic_sampling": "--dynamic-sampling-max-draws"}
+
+
+def check_feature_flags(spec: dict) -> None:
+    flags = {str(x) for x in spec.get("extra_trainer_args") or []}
+    features = set(spec.get("features") or [])
+    for feature, flag in FEATURE_EXTRA_FLAGS.items():
+        if (feature in features) != (flag in flags):
+            raise SystemExit(f"REFUSE: feature {feature} and extra {flag} must appear "
+                             f"together (features {sorted(features)})")
+
+
 def run(arm: Arm, final_check: bool) -> dict:
     s = arm.spec
+    check_feature_flags(s)
     arm.results.mkdir(parents=True, exist_ok=True)
     arm.work.mkdir(parents=True, exist_ok=True)
     write_json(arm.results / "arm.json", s)
@@ -1043,6 +1091,17 @@ def run(arm: Arm, final_check: bool) -> dict:
                "receipt_sha256": sha_file(arm.root / "RECEIPT.json"),
                # an in-place continuation (runner.py continue) carries its earlier endpoints
                "endpoints": list(s.get("prior_endpoints") or [])}
+    if s["mode"] in ("e0", "p0"):  # GPU-lane GATE 0 probes (gpu_probes.py)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import gpu_probes
+
+        fn = gpu_probes.run_e0 if s["mode"] == "e0" else gpu_probes.run_p0
+        summary[s["mode"]] = fn(arm, sha_file) if s["mode"] == "p0" else {
+            k: v for k, v in fn(arm, sha_file).items()
+            if k not in ("reward_groups", "dynamic_sampling")}
+        write_json(arm.results / "stages.json", arm.log)
+        write_json(arm.results / "summary.json", summary)
+        return summary
     if s["mode"] == "eval":
         adapter = arm.init_adapter()
         summary["endpoints"].append({"label": "init", "steps": 0,
@@ -1111,8 +1170,12 @@ def run(arm: Arm, final_check: bool) -> dict:
             break
     exhausted = bool(summary["endpoints"]) and (
         summary["endpoints"][-1].get("receipt_status") == "total_budget_exhausted")
+    # time-matched endpoints (port of the GPU lane's 6205487): `time_budget_seconds` gives
+    # one ("time"), `time_stops` one per RL checkpoint ("time1", "time2", ...), each resuming
+    # the previous stop's boundary checkpoint on the same SFT trajectory
+    wanted = time_endpoints(s)
     resume = arm.out / f"checkpoint-{previous}" if previous else None
-    for label, seconds in time_endpoints(s):
+    for label, seconds in wanted:
         if exhausted:
             break
         if resume is not None and not resume.is_dir():
@@ -1122,14 +1185,25 @@ def run(arm: Arm, final_check: bool) -> dict:
         arm.keep_adapter(label)
         summary["endpoints"].append({
             "label": label, "steps": receipt.get("global_step"),
-            "receipt_status": receipt["status"],
+            "receipt_status": receipt["status"], "target_active_seconds": seconds,
+            # matched only if the trainer stopped on the seconds, not on the update budget
+            "time_matched": receipt["status"] != "total_budget_exhausted",
             "active_seconds": receipt["committed_active_seconds"],
             "metrics": endpoint_assay(arm, label, holdout)})
         arm.copy_small()
-        write_json(arm.results / "summary.json", summary)
-        # every stop (step or active-time) saves its own boundary checkpoint
+        write_summary(arm, summary)
         resume = arm.out / f"checkpoint-{receipt['global_step']}"
         exhausted = receipt["status"] == "total_budget_exhausted"
+    matched = {e["label"] for e in summary["endpoints"] if e.get("time_matched", True)}
+    missing = [label for label, _ in wanted if label not in matched]
+    if missing and s.get("time_stops"):
+        # a per-checkpoint control (D37) that stopped on its update cap before an RL
+        # checkpoint's seconds is not time-matched there: fail loudly (summary kept). A plan
+        # control's single "time" endpoint stays, flagged time_matched false, beside its valid
+        # examples-matched endpoint; report never compares a flagged endpoint.
+        write_summary(arm, summary)
+        raise SystemExit(f"REFUSE: time-matched endpoints {missing} not reached (update "
+                         f"budget {total} exhausted first)")
     arm.copy_small()
     write_json(arm.results / "stages.json", arm.log)
     write_summary(arm, summary)

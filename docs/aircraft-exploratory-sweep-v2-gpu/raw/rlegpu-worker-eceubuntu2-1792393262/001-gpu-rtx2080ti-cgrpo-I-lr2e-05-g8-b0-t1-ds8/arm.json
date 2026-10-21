@@ -1,0 +1,39 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.0,
+ "device": "cuda",
+ "device_class": "rtx2080ti-float32",
+ "dtype": "float32",
+ "extra_trainer_args": [
+  "--dynamic-sampling-max-draws",
+  "8",
+  "--loss-type",
+  "grpo"
+ ],
+ "family": "cgrpo-I",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx2080ti-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
+ "init": "I",
+ "lr": 2e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 1200,
+ "min_pixels": 50176,
+ "mode": "grpo",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  150,
+  300,
+  600
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "rl",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}

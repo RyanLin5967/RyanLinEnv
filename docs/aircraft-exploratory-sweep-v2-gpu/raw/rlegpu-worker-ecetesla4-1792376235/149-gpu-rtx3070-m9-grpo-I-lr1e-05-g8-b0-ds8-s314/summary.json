@@ -1,0 +1,65 @@
+{
+ "arm": "gpu-rtx3070-m9-grpo-I-lr1e-05-g8-b0-ds8-s314",
+ "endpoints": [
+  {
+   "active_seconds": 1789.753690910642,
+   "label": "step150",
+   "metrics": {
+    "accuracy": 0.7725,
+    "adapter_sha256": "cf126688ab9ca916fb6241f07ef6ee6ff050c6f18aee39609119e4bbdc8c3715",
+    "assay_seconds": 557.2,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.7725,
+    "label": "step150",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 150
+  },
+  {
+   "active_seconds": 3275.137570506078,
+   "label": "step300",
+   "metrics": {
+    "accuracy": 0.76125,
+    "adapter_sha256": "5fb934b9bd38e6bceacf67958f237f4b82c9fd1cb1bd599c8a8e0df2ed822f9c",
+    "assay_seconds": 322.3,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.76125,
+    "label": "step300",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 300
+  },
+  {
+   "active_seconds": 5889.988214461133,
+   "label": "step600",
+   "metrics": {
+    "accuracy": 0.76375,
+    "adapter_sha256": "19f09b7b0f21a99ae95308825d0abaeadb77289e740f0ef790a8f03ff25c945c",
+    "assay_seconds": 370.6,
+    "classes": 100,
+    "eos_fraction": 1.0,
+    "equal_class_accuracy": 0.76375,
+    "label": "step600",
+    "manifest": "dev800.jsonl",
+    "manifest_sha256": "b01175a1ea66985384c7d6c615305c9956c12978a1af3528f0e1c0a484be25b5",
+    "n": 800,
+    "valid_fraction": 0.99375
+   },
+   "receipt_status": "boundary_reached",
+   "steps": 600
+  }
+ ],
+ "host": "ecetesla4",
+ "receipt_sha256": "adc52d5dfd2ef98a2337bb27b404daaa9cf9f8fd680b736c007576394d46cd19",
+ "root": "/var/tmp/r226lin-rlesweep-gpu"
+}

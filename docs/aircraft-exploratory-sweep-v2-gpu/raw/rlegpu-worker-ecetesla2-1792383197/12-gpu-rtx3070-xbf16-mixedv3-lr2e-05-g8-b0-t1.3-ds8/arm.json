@@ -1,0 +1,40 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.0,
+ "device": "cuda",
+ "device_class": "rtx3070-bfloat16",
+ "dtype": "bfloat16",
+ "extra_trainer_args": [
+  "--dynamic-sampling-max-draws",
+  "8",
+  "--loss-type",
+  "grpo"
+ ],
+ "family": "xbf16-pool",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx3070-xbf16-mixedv3-lr2e-05-g8-b0-t1.3-ds8",
+ "init": "I",
+ "label": "EXPLORATORY-bf16 P1",
+ "lr": 2e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 1200,
+ "min_pixels": 50176,
+ "mode": "grpo",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  150,
+  300,
+  600
+ ],
+ "temperature": 1.3,
+ "threads": 4,
+ "track": "rl",
+ "train_manifest": "pool_mixedv3_454.jsonl",
+ "wave": 1
+}

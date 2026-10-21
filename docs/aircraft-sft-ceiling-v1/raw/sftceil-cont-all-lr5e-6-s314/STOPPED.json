@@ -1,0 +1,10 @@
+{
+ "arm": "sftceil-cont-all-lr5e-6-s314",
+ "host": "iccad10",
+ "run": "sftceil-cont-all-lr5e-6-s314-2",
+ "label": "stopped by root for RL capacity (D38)",
+ "latest_checkpoint": 0,
+ "committed_active_seconds": null,
+ "last_audit_step": 95,
+ "scored_endpoints": []
+}

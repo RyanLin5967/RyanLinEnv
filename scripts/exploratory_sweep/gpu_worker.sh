@@ -1,4 +1,5 @@
 #!/bin/bash
+export UWRUN_OWNER=ryanlinenv  # uwrun v5.11 owner maps: identify this lane
 # GPU lane worker: run queued arm specs on this host's single GPU, one at a time.
 # (The RL campaign, scripts/rl_campaign/campaign.py, runs the same worker on CPU hosts too.)
 #
@@ -111,8 +112,31 @@ while :; do
   end=$(date +%s)
   printf '{"key": "%s", "rc": %d, "start": %d, "end": %d, "host": "%s", "peak_rss_kb": %d}\n' \
     "$key" "$rc" "$start" "$end" "$(hostname -s)" "$peak" > "$out/worker.json"
+  echo "arm $key rc=$rc wall=$((end - start))s peak_rss_kb=$peak"
+  # Another user's job taking the shared GPU mid-start OOMs the arm's FIRST stage. Such an
+  # arm has no endpoint and no resume point, so it is restarted from scratch: its work dir
+  # is wiped, its results kept aside as <key>.oomN, and the spec goes back to pending (at
+  # most OOM_RETRIES times). Anything else (a later stage, a continuation, any other error)
+  # is filed under failed/ for a person to read.
+  fresh=$("$PY" -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("" if s.get("resume_stop") else s.get("work_id", s["id"]))' "$RUN/$next" 2>/dev/null)
+  tries=$(ls -d "$out".oom* 2>/dev/null | wc -l)
+  # Only a CO-TENANT OOM is retried: torch's OOM message names every other process holding
+  # the card ("Process <pid> has <n> GiB memory in use"); a self-OOM (the arm alone does not
+  # fit, e.g. P=4 on a 3070, 2026-10-19) has no such clause and is filed as failed.
+  # ... and only when those other processes hold >= 1 GiB: a 222 MiB co-tenant beside our own
+  # 10.2 GiB is a self-OOM that a retry cannot fix (2080 Ti, 2026-10-19, 10 futile retries).
+  cotenant=$(grep -h "OutOfMemoryError" "$out/arm_exec.err" "$out"/*.log.txt 2>/dev/null \
+             | grep -oE "Process [0-9]+ has [0-9.]+ [GM]iB memory in use" \
+             | awk '{v = $4; if ($5 == "MiB") v = v / 1024; s += v} END {print (s >= 1.0) ? 1 : 0}')
+  if [ "$rc" -ne 0 ] && [ -n "$fresh" ] && [ ! -f "$out/summary.json" ] \
+     && [ "${cotenant:-0}" -gt 0 ] && [ "$tries" -lt "${OOM_RETRIES:-20}" ]; then
+    rm -rf "$R/arms/$fresh"; mv "$out" "$out.oom$tries"
+    mv "$RUN/$next" "$Q/pending/$next"
+    echo "arm $key OOM in its first stage; wiped and requeued (retry $((tries + 1)))"
+    sleep 120
+    continue
+  fi
   if [ "$rc" -eq 0 ]; then mv "$RUN/$next" "$Q/done/$next"
   else mv "$RUN/$next" "$Q/failed/$next"; fi
-  echo "arm $key rc=$rc wall=$((end - start))s peak_rss_kb=$peak"
 done
 echo "worker end $(date -u +%FT%TZ)"

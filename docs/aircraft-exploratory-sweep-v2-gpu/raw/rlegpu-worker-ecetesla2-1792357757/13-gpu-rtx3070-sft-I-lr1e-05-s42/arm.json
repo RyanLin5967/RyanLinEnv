@@ -1,0 +1,39 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": null,
+ "cycle": true,
+ "device": "cuda",
+ "device_class": "rtx3070-bfloat16",
+ "dtype": "bfloat16",
+ "family": "sft-I",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx3070-sft-I-lr1e-05-s42",
+ "init": "I",
+ "lr": 1e-05,
+ "max_active_seconds": 259200.0,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 4800,
+ "min_pixels": 50176,
+ "mode": "sft",
+ "num_generations": 4,
+ "order": "sequential",
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 42,
+ "stops": [
+  150,
+  300,
+  600,
+  1200,
+  2400,
+  4800
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "sft",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}

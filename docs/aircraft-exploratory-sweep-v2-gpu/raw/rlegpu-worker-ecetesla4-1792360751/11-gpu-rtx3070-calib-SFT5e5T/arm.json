@@ -1,0 +1,28 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.04,
+ "device": "cuda",
+ "device_class": "rtx3070-bfloat16",
+ "dtype": "bfloat16",
+ "family": "calibration",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx3070-calib-SFT5e5T",
+ "init": "SFT5e5T",
+ "lr": 0.0,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "min_pixels": 50176,
+ "mode": "eval",
+ "num_generations": 4,
+ "response_format": "answer_only",
+ "rung": 0,
+ "screen_threshold": null,
+ "seed": 42,
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "baseline",
+ "train_manifest": "s_train_scan_seed42.jsonl",
+ "wave": 1
+}

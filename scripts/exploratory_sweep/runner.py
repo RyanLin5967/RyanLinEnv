@@ -104,9 +104,16 @@ def read_state(path: Path) -> dict:
 
 
 # ---- uwrun ---------------------------------------------------------------------------
+# uwrun v5.11 enforces its owner maps at claim time and names the caller by UWRUN_OWNER
+# (unset counts as "ferrodb"); every sweep call claims as this project, whatever the caller's
+# environment says.
+UWRUN_OWNER = "ryanlinenv"
+
+
 def uw(*args: str, timeout: int = 300, check: bool = True) -> str:
+    import os
     proc = subprocess.run([str(UWRUN), *args], capture_output=True, text=True,
-                          timeout=timeout)
+                          timeout=timeout, env=dict(os.environ, UWRUN_OWNER=UWRUN_OWNER))
     if check and proc.returncode != 0:
         raise SystemExit(f"REFUSE: uwrun {' '.join(args[:2])} rc={proc.returncode}: "
                          f"{(proc.stderr or proc.stdout).strip()[-400:]}")
@@ -158,6 +165,16 @@ def safe_name(text: str) -> str:
 
 # ---- bootstrap and receipts ------------------------------------------------------------
 # uwrun syncs the ~1 GB payload into the host's /var/tmp, often the shared root fs
+# uwrun v5.4 refuses a run whose host lacks --disk GB of scratch (+3 GB on a shared root fs)
+# and defaults --disk to 5, which every AVX-512 iccad host (0-9 GB local) fails. Declared
+# truthfully: a run dir holds only the synced input and fetched results (an arm's results
+# measured under 1 MB; training state lives in the host root, not the run dir); a bootstrap
+# syncs the ~0.93 GB payload.
+# The run dir lives on the RAM disk (--scratch shm; uwrun stops it past --disk and keeps 16 GB
+# of RAM free): /var/tmp on iccad0/9/11 has 0-5 GB, under --disk + 3 GB. Only the run dir
+# moves; the sweep root (venv, model, payload, arms) stays where bootstrap_host.sh put it.
+ARM_DISK_GB = 1
+BOOT_DISK_GB = 2
 MIN_LOCAL_GB = 3.0
 
 
@@ -190,7 +207,8 @@ def cmd_bootstrap(a, state_path: Path) -> int:
         state["payload"] = {"sha256": sha, "dir": str(payload), "code_head": doc["code_head"]}
     for host in a.host:
         name = safe_name(f"rlesweep-boot-{host}-{doc['code_head'][:7]}-{int(time.time())}")
-        uw("run", "--host", host, "--threads", "8", "--timeout", "5400", "--sync",
+        uw("run", "--host", host, "--threads", "8", "--timeout", "5400",
+           "--scratch", "shm", "--disk", str(BOOT_DISK_GB), "--sync",
            str(payload), "--name", name, "--", "bash",
            "code/scripts/exploratory_sweep/bootstrap_host.sh", timeout=1800)
         with state_lock(state_path) as state:
@@ -432,6 +450,15 @@ def control_spec(state: dict, ctl: dict) -> dict:
     if not ids or steps != last["steps"] or len(ids) > ctl["max_steps_total"] * per_step:
         raise SystemExit(f"REFUSE: {ctl['control_of']} receipt does not match its last step")
     spec = dict(ctl)
+    if ctl.get("control_time_match") == "per_checkpoint":
+        # D37 (coordinator 2026-10-19): SFT on the replayed rows (cycling), stopped at the RL
+        # arm's committed active seconds at EACH of its step checkpoints, on one trajectory
+        times = checkpoint_seconds(state, ctl)
+        # the active-seconds budget must sit above the last stop, or the trainer refuses that
+        # stop (stop > budget) or ends on the budget instead (an unmatched endpoint): 5% + 60 s
+        cap = max(float(ctl.get("max_active_seconds") or 0.0), times[-1] * 1.05 + 60.0)
+        spec.update(train_ids=ids, stops=[], time_stops=times, max_active_seconds=cap)
+        return spec
     # examples-matched: one SFT update per prompt the RL arm committed (or, for a
     # scanned-replay control, scored), in its order
     spec.update(train_ids=ids, stops=[len(ids)],
@@ -439,6 +466,32 @@ def control_spec(state: dict, ctl: dict) -> dict:
     if per_step > 1:  # the SFT control's update cap is in images: P x the RL arm's steps
         spec["max_steps_total"] = ctl["max_steps_total"] * per_step
     return spec
+
+
+def matched_labels(summary: dict, prefix: str) -> list:
+    """A control's endpoint labels starting with `prefix`, without any time endpoint the
+    trainer ended on its update budget (arm_exec flags it time_matched false)."""
+    return [e["label"] for e in summary.get("endpoints", [])
+            if e["label"].startswith(prefix) and e.get("time_matched", True)]
+
+
+def checkpoint_seconds(state: dict, ctl: dict) -> list:
+    """The RL arm's committed active seconds at every declared step stop, in order. Refuses
+    unless the finished arm's step endpoints are exactly its declared stops (150, 300, 600
+    for D37) with strictly increasing seconds: a control is never time-matched at a subset."""
+    rl = state["arms"][ctl["control_of"]]
+    declared = [int(x) for x in json.loads(Path(rl["spec_path"]).read_text()).get("stops") or []]
+    summary = json.loads((Path(rl["results_dir"]) / "summary.json").read_text())
+    eps = [e for e in summary["endpoints"] if str(e.get("label", "")).startswith("step")]
+    if not declared or [e["label"] for e in eps] != [f"step{x}" for x in declared]:
+        raise SystemExit(f"REFUSE: control {ctl['id']} is time-matched at "
+                         f"{[f'step{x}' for x in declared]}; {ctl['control_of']} has "
+                         f"{[e['label'] for e in eps]}")
+    times = [float(e["active_seconds"]) for e in eps]
+    if any(not 0 <= a < b for a, b in zip([0.0] + times, times)):
+        raise SystemExit(f"REFUSE: {ctl['control_of']} checkpoint seconds {times} are not "
+                         f"positive and strictly increasing")
+    return times
 
 
 def fresh_work_id(state: dict, spec: dict) -> dict:
@@ -462,7 +515,9 @@ def launch_one(state_path: Path, spec: dict, host: str, root: str, timeout: int,
     inner = (f"R={shlex.quote(root)}; exec \"$R/venv/bin/python\" -I \"$R/{ARM_EXEC}\" "
              f"--root \"$R\" --arm-json arm.json --results results")
     argv = ["run", "--host", host, "--threads", str(spec.get("threads", 16)), "--timeout",
-            str(timeout), *(["--mem", str(mem)] if mem else []), "--sync", str(launch_dir),
+            str(timeout), *(["--mem", str(mem)] if mem else []), "--scratch", "shm",
+            "--disk", str(ARM_DISK_GB),
+            "--sync", str(launch_dir),
             "--name", name, "--", "bash", "-c", inner]
     if dry:
         print("DRY", host, name, " ".join(shlex.quote(x) for x in argv[-3:]))
@@ -1109,8 +1164,7 @@ def cmd_report(a, state_path: Path) -> int:
                 cx = state["arms"][ctl_id]
                 if cx.get("status") == "DONE":
                     s = json.loads((Path(cx["results_dir"]) / "summary.json").read_text())
-                    labels = [e["label"] for e in s["endpoints"]]
-                    pick = [x for x in labels if x.startswith(label)]
+                    pick = matched_labels(s, label)
                     ctl = endpoint(ctl_id, pick[-1]) if pick else None
                 if ctl is None:
                     continue

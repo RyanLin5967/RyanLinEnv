@@ -1,0 +1,59 @@
+[
+ {
+  "correct": 8,
+  "greedy": "DR-400",
+  "greedy_correct": true,
+  "id": "1222829",
+  "label": "DR-400",
+  "p_gold": 0.8345903479527667,
+  "samples": [
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400",
+   "DR-400"
+  ],
+  "u": 0.7646100610940448
+ },
+ {
+  "correct": 8,
+  "greedy": "C-130",
+  "greedy_correct": true,
+  "id": "0977928",
+  "label": "C-130",
+  "p_gold": 0.9999813548278454,
+  "samples": [
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130",
+   "C-130"
+  ],
+  "u": 0.00014915164361095634
+ },
+ {
+  "correct": 0,
+  "greedy": "Falcon 2000",
+  "greedy_correct": false,
+  "id": "1806228",
+  "label": "BAE-125",
+  "p_gold": 0.016276627138147325,
+  "samples": [
+   "Falcon 900",
+   "Falcon 2000",
+   "Falcon 2000",
+   null,
+   "Global Express",
+   "Global Express",
+   "Global Express",
+   null
+  ],
+  "u": 0.12303164697104652
+ }
+]

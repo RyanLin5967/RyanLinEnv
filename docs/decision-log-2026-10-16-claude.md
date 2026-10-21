@@ -486,3 +486,31 @@ D36 is reserved by open PR #31.
 - **Interpretation.** Adapter I sits near a plateau that neither SFT nor these RL recipes leave. P0-I headroom exists: pass@8 among greedy-wrong images is 9.5–10.75% of images, measured on the 400-image clean pool A+B (not dev800). No tested RL recipe converts that headroom into greedy accuracy.
 - **Next (amendment 22, CORRECTIONS M2).** RL from sftall*, the all_train lr5e-6 step-300 adapter, sha-pinned. The comparator is max(sftall*, continued-SFT controls).
 - **No confirmatory (VAL) look is warranted under D35.**
+
+## D44 — Afternoon RL endpoints (2026-10-19), read from the GPU hosts' assay logs (dev800; I = 0.775, best SFT = 0.785)
+These scores were read straight from the hosts' assay logs (`/var/tmp/r226lin-rlesweep-gpu/arms/*/assay-*.log` on ecetesla2, ecetesla4 and eceubuntu2). The lane agent was rate-limited, so they have not been through its report: there are no paired CIs yet.
+- **R2t1 fp32 twin** (2080 Ti, float32, mixed-v3, lr5e-6, β0.04, T1.0, seed 42): 0.775 / 0.7775 / **0.7875** at steps 150 / 300 / 600. This is the best RL endpoint, but it is below the 0.790 flag and is one seed only.
+- **R2 at lr1e-5, β0.04:** 0.7775 / 0.7775 / 0.7638.
+- **R2 at lr5e-6, β0.1:** 0.78625 / 0.7775 / 0.78125.
+- **P=2 at lr1e-5:** 0.77875 at step 600.
+- **P=2 at lr5e-5:** 0.74375 / 0.74125 / 0.73875 (declining).
+- **P5t1 s_train at lr1e-4:** 0.69875 at step 150. LRs at or above 5e-5 hurt.
+- **R2t1 matched controls** (SFT-from-I on the same 454 mixed-v3 rows, time-matched to RL steps 150/300/600):
+  - lr5e-6: 0.755 / 0.735 / 0.75375.
+  - lr1e-5: 0.7425 / 0.73375 (time3 running).
+  - Pool-only SFT forgets. The comparator remains max(I, best SFT).
+- **GPU-lane CPU arms** on iccad0/10: all hit the worker's 43200 s timeout (rc=124) after about 108 of 600 updates (~400 s/update). They need a chunked resume before CPU GRPO is usable.
+- **Next, when the lane resumes:**
+  - R2t1 fp32 at seed 314;
+  - R2t1 continued to 1200;
+  - amendment 22 (RL from sftall*), once the sftall* adapter is exported.
+- **Addendum (review of PR #51): results D44 left out.** These also come from the hosts' assay logs.
+  - R2t1 bf16 seed 314 = 0.775 / 0.775 / 0.77125. The seed-42 gain did not reproduce on a second seed in bf16, so the fp32 twin's 0.7875 is still one seed only.
+  - P=2 lr2e-5 = 0.7775 / 0.77625 / 0.77875.
+  - The R2t1 matched control at lr2e-5 = 0.73875 / 0.72125 / 0.70125. It degrades like the others.
+  - Correction: R2 lr1e-5 β0.04 at step 600 is 0.76375.
+- **On main, after PR #51:**
+  - main's arm_exec refuses bf16 GRPO/RFT (CORRECTIONS C2, float32-only). The lane's EXPLORATORY-bf16 arms, including amendment 22 as specified, ran only from the lane's own payload. Run from main, they must be fp32.
+  - The lane table now declares the `dynamic_sampling` and `prompts_per_update` features that main's guards require.
+  - The lane's `check_record` (an outcome check of the trainer's recorded settings) was not merged. main's `stage_record` and sampler-parity checks govern.
+  - `scripts/sft_ceiling/*` are that lane's operations scripts and hardcode its worktree paths. They are a record, not tools to run from main.

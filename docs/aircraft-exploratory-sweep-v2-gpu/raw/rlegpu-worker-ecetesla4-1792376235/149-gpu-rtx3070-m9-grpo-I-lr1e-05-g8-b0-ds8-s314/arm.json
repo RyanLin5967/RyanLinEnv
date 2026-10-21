@@ -1,0 +1,39 @@
+{
+ "adapter_profile": "legacy-qv-v1",
+ "beta": 0.0,
+ "device": "cuda",
+ "device_class": "rtx3070-bfloat16",
+ "dtype": "bfloat16",
+ "extra_trainer_args": [
+  "--dynamic-sampling-max-draws",
+  "8",
+  "--loss-type",
+  "grpo"
+ ],
+ "family": "m9",
+ "features": [
+  "cuda"
+ ],
+ "id": "gpu-rtx3070-m9-grpo-I-lr1e-05-g8-b0-ds8-s314",
+ "init": "I",
+ "lr": 1e-05,
+ "max_completion_length": 256,
+ "max_pixels": 200704,
+ "max_steps_total": 1200,
+ "min_pixels": 50176,
+ "mode": "grpo",
+ "num_generations": 8,
+ "response_format": "answer_only",
+ "screen_threshold": null,
+ "seed": 314,
+ "stops": [
+  150,
+  300,
+  600
+ ],
+ "temperature": 1.0,
+ "threads": 4,
+ "track": "rl",
+ "train_manifest": "s_train_scan_seed314.jsonl",
+ "wave": 1
+}

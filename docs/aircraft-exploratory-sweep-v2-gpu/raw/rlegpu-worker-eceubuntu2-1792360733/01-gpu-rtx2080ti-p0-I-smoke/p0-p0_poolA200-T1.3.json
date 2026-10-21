@@ -1,0 +1,59 @@
+[
+ {
+  "correct": 8,
+  "greedy": "Hawk T1",
+  "greedy_correct": true,
+  "id": "1244760",
+  "label": "Hawk T1",
+  "p_gold": 0.9666306705791935,
+  "samples": [
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1",
+   "Hawk T1"
+  ],
+  "u": 0.23777258093395987
+ },
+ {
+  "correct": 4,
+  "greedy": "Fokker 100",
+  "greedy_correct": true,
+  "id": "1745719",
+  "label": "Fokker 100",
+  "p_gold": 0.21042139891562744,
+  "samples": [
+   "Fokker 100",
+   "BAE 146-200",
+   "Fokker 100",
+   null,
+   "Fokker 100",
+   "Metroliner",
+   "DC-9-30",
+   "Fokker 100"
+  ],
+  "u": 0.8489314687104388
+ },
+ {
+  "correct": 8,
+  "greedy": "A320",
+  "greedy_correct": true,
+  "id": "1293019",
+  "label": "A320",
+  "p_gold": 0.9997877374530814,
+  "samples": [
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320",
+   "A320"
+  ],
+  "u": 0.0016968393598799647
+ }
+]
