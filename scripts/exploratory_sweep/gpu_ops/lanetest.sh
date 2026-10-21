@@ -8,7 +8,7 @@ T=$(mktemp -d /tmp/rlegpu-lanetest.XXXXXX)
 mkdir -p "$T/scripts/exploratory_sweep" "$T/tests" "$T/docs" "$T/src/vision_rl"
 cp "$WT"/scripts/exploratory_sweep/*.py "$T/scripts/exploratory_sweep/"
 cp "$WT/tests/test_gpu_lane.py" "$WT/tests/test_exploratory_sweep.py" "$T/tests/"
-cp -R "$WT/src/vision_rl/aircraft_assets" "$T/src/vision_rl/"
+cp "$WT"/scripts/exploratory_sweep/*.json "$T/scripts/exploratory_sweep/"
 cp -R "$WT/docs/aircraft-exploratory-sweep-v2" "$WT/docs/aircraft-exploratory-sweep-v2-gpu" "$T/docs/"
 printf '%s\n' 'cd "$(pwd -P)"' \
   '~/.local/bin/uv run -q -p 3.12 --no-project --with pytest python -m pytest -q -p no:cacheprovider tests/test_gpu_lane.py tests/test_exploratory_sweep.py 2>&1 | tail -25' > "$T/run.sh"

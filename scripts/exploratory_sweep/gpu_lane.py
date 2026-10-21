@@ -271,6 +271,20 @@ def corrected_grpo_i() -> list:
     return arms
 
 
+# main's arm_exec.check_feature_flags: a feature and its extra flag appear together, or the
+# arm refuses on the host. Mirrors arm_exec.FEATURE_EXTRA_FLAGS.
+FEATURE_EXTRA_FLAGS = {"dynamic_sampling": "--dynamic-sampling-max-draws"}
+
+
+def declare_features(arm: dict) -> dict:
+    flags = {str(x) for x in arm.get("extra_trainer_args") or []}
+    features = list(arm.get("features") or [])
+    for feature, flag in FEATURE_EXTRA_FLAGS.items():
+        if flag in flags and feature not in features:
+            features.append(feature)
+    return dict(arm, features=features)
+
+
 def cmd_specs(a) -> int:
     arms = evals("ecetesla2") + evals("ecetesla4") + evals("eceubuntu2")
     for lr in (5e-6, 1e-5, 2e-5, 5e-5):
@@ -290,6 +304,7 @@ def cmd_specs(a) -> int:
                 for screened in (False, True):
                     arms.append(grpo(cls, lr, beta, screened, init="I"))
     arms += gate0()
+    arms = [declare_features(x) for x in arms]
     ids = [x["id"] for x in arms]
     if len(set(ids)) != len(ids):
         raise SystemExit("REFUSE: duplicate arm ids")

@@ -504,3 +504,13 @@ These scores were read straight from the hosts' assay logs (`/var/tmp/r226lin-rl
   - R2t1 fp32 at seed 314;
   - R2t1 continued to 1200;
   - amendment 22 (RL from sftall*), once the sftall* adapter is exported.
+- **Addendum (review of PR #51): results D44 left out.** These also come from the hosts' assay logs.
+  - R2t1 bf16 seed 314 = 0.775 / 0.775 / 0.77125. The seed-42 gain did not reproduce on a second seed in bf16, so the fp32 twin's 0.7875 is still one seed only.
+  - P=2 lr2e-5 = 0.7775 / 0.77625 / 0.77875.
+  - The R2t1 matched control at lr2e-5 = 0.73875 / 0.72125 / 0.70125. It degrades like the others.
+  - Correction: R2 lr1e-5 β0.04 at step 600 is 0.76375.
+- **On main, after PR #51:**
+  - main's arm_exec refuses bf16 GRPO/RFT (CORRECTIONS C2, float32-only). The lane's EXPLORATORY-bf16 arms, including amendment 22 as specified, ran only from the lane's own payload. Run from main, they must be fp32.
+  - The lane table now declares the `dynamic_sampling` and `prompts_per_update` features that main's guards require.
+  - The lane's `check_record` (an outcome check of the trainer's recorded settings) was not merged. main's `stage_record` and sampler-parity checks govern.
+  - `scripts/sft_ceiling/*` are that lane's operations scripts and hardcode its worktree paths. They are a record, not tools to run from main.

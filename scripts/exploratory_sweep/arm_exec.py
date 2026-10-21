@@ -720,34 +720,6 @@ class Arm:
         write_json(self.results / "stages.json", self.log)
         return receipt
 
-    def check_record(self, args: list) -> dict:
-        """Read what the trainer RECORDED for this stage (local_training.json) and refuse
-        unless it is the spec: base dtype, device, learning rate, the --train manifest bytes,
-        and (when the spec asks for it) the dynamic-sampling draw count. This guards the
-        outcome, not the argv we meant to send."""
-        s = self.spec
-        rec = json.loads((self.out / "local_training.json").read_text())
-        st, ci = rec["settings"], rec["control_identity"]
-        train = Path(args[args.index("--train") + 1])
-        got = {"dtype": ci["profile"]["dtype"], "device": st["device"],
-               "learning_rate": float(st["learning_rate"]),
-               "train_manifest_sha256": ci["train"]["manifest_sha256"]}
-        want = {"dtype": s.get("dtype", "float32"), "device": s.get("device", "cpu"),
-                "learning_rate": float(s["lr"]), "train_manifest_sha256": sha_file(train)}
-        extras = [str(x) for x in s.get("extra_trainer_args") or []]
-        if "--dynamic-sampling-max-draws" in extras:
-            got["dynamic_sampling_max_draws"] = (st.get("dynamic_sampling") or {}).get("max_draws")
-            want["dynamic_sampling_max_draws"] = int(
-                extras[extras.index("--dynamic-sampling-max-draws") + 1])
-        if "--prompts-per-update" in extras:
-            got["prompts_per_update"] = (st.get("grpo_overrides") or {}).get("prompts_per_update")
-            want["prompts_per_update"] = int(extras[extras.index("--prompts-per-update") + 1])
-        bad = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
-        if bad:
-            write_json(self.results / "stages.json", self.log)
-            raise SystemExit(f"REFUSE: the trainer recorded a run other than the spec: {bad}")
-        return got
-
     def rft_receipt(self) -> dict:
         """The runner-facing endpoint of an RFT stage, derived from the trainer's own bound
         record (local_training.json: status completed, final_adapter_sha256) and its

@@ -1635,7 +1635,8 @@
    ],
    "family": "gate0",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-e0-I-grpo-lr1e-05-g8-b0-ds8",
    "init": "I",
@@ -2180,7 +2181,8 @@
    ],
    "family": "m9",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-m9-grpo-I-lr1e-05-g8-b0-ds8-s42",
    "init": "I",
@@ -2219,7 +2221,8 @@
    ],
    "family": "m9",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-m9-grpo-I-lr1e-05-g8-b0-ds8-s314",
    "init": "I",
@@ -2258,7 +2261,8 @@
    ],
    "family": "m9",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-m9-grpo-I-lr1e-05-g8-b0-ds8-s42",
    "init": "I",
@@ -2297,7 +2301,8 @@
    ],
    "family": "m9",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-m9-grpo-I-lr1e-05-g8-b0-ds8-s314",
    "init": "I",
@@ -2370,7 +2375,8 @@
    ],
    "family": "cgrpo-I",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -2409,7 +2415,8 @@
    ],
    "family": "cgrpo-I",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
    "init": "I",
@@ -2448,7 +2455,8 @@
    ],
    "family": "cgrpo-I",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-cgrpo-I-lr5e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -2487,7 +2495,8 @@
    ],
    "family": "cgrpo-I",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-cgrpo-I-lr1e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -2526,7 +2535,8 @@
    ],
    "family": "cgrpo-I",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-cgrpo-I-lr3e-06-g8-b0-t1.3-ds8",
    "init": "I",
@@ -2564,7 +2574,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
    "init": "I",
    "lr": 2e-05,
@@ -2601,7 +2613,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr5e-05-g8-b0-t1-ds8",
    "init": "I",
    "lr": 5e-05,
@@ -2638,7 +2652,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr1e-05-g8-b0-t1-ds8",
    "init": "I",
    "lr": 1e-05,
@@ -2675,7 +2691,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr3e-06-g8-b0-t1-ds8",
    "init": "I",
    "lr": 3e-06,
@@ -2712,7 +2730,9 @@
     "grpo"
    ],
    "family": "m9",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-m9-grpo-I-lr1e-05-g8-b0-ds8-s42",
    "init": "I",
    "lr": 1e-05,
@@ -2749,7 +2769,9 @@
     "grpo"
    ],
    "family": "m9",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-m9-grpo-I-lr1e-05-g8-b0-ds8-s314",
    "init": "I",
    "lr": 1e-05,
@@ -2786,7 +2808,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr1e-05-g8-b0-t1.3-ds8",
    "init": "I",
    "lr": 1e-05,
@@ -2823,7 +2847,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr5e-05-g8-b0-t1.3-ds8",
    "init": "I",
    "lr": 5e-05,
@@ -2860,7 +2886,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8-s314",
    "init": "I",
    "lr": 2e-05,
@@ -2897,7 +2925,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8-s2718",
    "init": "I",
    "lr": 2e-05,
@@ -2934,7 +2964,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr5e-05-g8-b0-t1.3-ds8-s314",
    "init": "I",
    "lr": 5e-05,
@@ -2971,7 +3003,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr3e-06-g8-b0-t1.3-ds8",
    "init": "I",
    "lr": 3e-06,
@@ -3008,7 +3042,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1-ds8-s314",
    "init": "I",
    "lr": 2e-05,
@@ -3045,7 +3081,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8-s7",
    "init": "I",
    "lr": 2e-05,
@@ -3082,7 +3120,9 @@
     "grpo"
    ],
    "family": "cgrpo-I",
-   "features": [],
+   "features": [
+    "dynamic_sampling"
+   ],
    "id": "cpu-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8-s11",
    "init": "I",
    "lr": 2e-05,
@@ -3120,7 +3160,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-cgrpo-I-lr2e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3160,7 +3201,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-cgrpo-I-lr5e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3200,7 +3242,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-cgrpo-I-lr2e-05-g8-b0-t1-ds8",
    "init": "I",
@@ -3240,7 +3283,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-cgrpo-I-lr5e-05-g8-b0-t1-ds8",
    "init": "I",
@@ -3280,7 +3324,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-mixedv3-lr2e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3320,7 +3365,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-mixedv3-lr5e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3360,7 +3406,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-hardv3-lr2e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3400,7 +3447,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-s_train-lr0.0001-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3440,7 +3488,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-mixedv3-lr2e-05-g8-b0-t1.5-ds8",
    "init": "I",
@@ -3480,7 +3529,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-mixedv3-lr2e-05-g16-b0-t1.3-ds8",
    "init": "I",
@@ -3561,7 +3611,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R2-mixedv3-lr5e-06-g8-b0.04-t1.3-ds8",
    "init": "I",
@@ -3601,7 +3652,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R3-mixedv3strain-lr1e-05-g8-b0-t1.3-ds8",
    "init": "I",
@@ -3641,7 +3693,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-cgrpo-I-lr2e-05-g8-b0-t1-ds8-s314",
    "init": "I",
@@ -3682,7 +3735,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R3t1-mixedv3strain-lr2e-05-g8-b0-t1-ds8",
    "init": "I",
@@ -3722,7 +3776,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8",
    "init": "I",
@@ -3762,7 +3817,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-P5t1-s_train-lr0.0001-g8-b0-t1-ds8",
    "init": "I",
@@ -3804,7 +3860,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-xbf16-P4-s_train-lr2e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -3846,7 +3903,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-xbf16-P2-s_train-lr2e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -3888,7 +3946,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-xbf16-P4-s_train-lr5e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -3930,7 +3989,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-xbf16-P2-s_train-lr5e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -3972,7 +4032,8 @@
    ],
    "family": "probe",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-probe-P4-s_train-lr2e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -4012,7 +4073,8 @@
    ],
    "family": "probe",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-probe-P2-s_train-lr2e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -4052,7 +4114,8 @@
    ],
    "family": "xbf16",
    "features": [
-    "cuda"
+    "cuda",
+    "prompts_per_update"
    ],
    "id": "gpu-rtx3070-xbf16-P2-s_train-lr1e-05-g8-b0-t1-zskip",
    "init": "I",
@@ -4092,7 +4155,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8-s314",
    "init": "I",
@@ -4132,7 +4196,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R2t1-mixedv3-lr1e-05-g8-b0.04-t1-ds8",
    "init": "I",
@@ -4172,7 +4237,8 @@
    ],
    "family": "xbf16-pool",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx3070-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.1-t1-ds8",
    "init": "I",
@@ -4212,7 +4278,8 @@
    ],
    "family": "promo-fp32",
    "features": [
-    "cuda"
+    "cuda",
+    "dynamic_sampling"
    ],
    "id": "gpu-rtx2080ti-promo-xbf16-R2t1-mixedv3-lr5e-06-g8-b0.04-t1-ds8",
    "init": "I",

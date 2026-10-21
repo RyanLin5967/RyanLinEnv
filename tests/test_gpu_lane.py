@@ -171,46 +171,6 @@ def test_lane_extras_pass_and_land_once(tmp_path):
         assert argv.count("--learning-rate") == 1 and argv.count("--train") == 1
 
 
-def _recorded(tmp_path, **over):
-    out = tmp_path / "out"
-    out.mkdir(exist_ok=True)
-    man = tmp_path / "m.jsonl"
-    man.write_text('{"id": "a"}\n')
-    rec = {"settings": {"device": "cpu", "learning_rate": 2e-5,
-                        "dynamic_sampling": {"max_draws": 8}},
-           "control_identity": {"profile": {"dtype": "float32"},
-                                "train": {"manifest_sha256": arm_exec.sha_file(man)}}}
-    for k, v in over.items():
-        if k == "dtype":
-            rec["control_identity"]["profile"]["dtype"] = v
-        elif k == "manifest_sha256":
-            rec["control_identity"]["train"]["manifest_sha256"] = v
-        elif k == "max_draws":
-            rec["settings"]["dynamic_sampling"]["max_draws"] = v
-        else:
-            rec["settings"][k] = v
-    (out / "local_training.json").write_text(json.dumps(rec))
-    return out, man
-
-
-@pytest.mark.parametrize("over", [{"dtype": "bfloat16"}, {"learning_rate": 1e-5},
-                                  {"device": "cuda"}, {"manifest_sha256": "0" * 64},
-                                  {"max_draws": 4}])
-def test_check_record_refuses_a_run_other_than_the_spec(tmp_path, over):
-    spec = dict(lane.corrected_grpo_i()[0], device="cpu")
-    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
-    arm.out, man = _recorded(tmp_path, **over)
-    with pytest.raises(SystemExit):
-        arm.check_record(["--train", str(man)])
-
-
-def test_check_record_accepts_the_spec(tmp_path):
-    spec = dict(lane.corrected_grpo_i()[0], device="cpu")
-    arm = arm_exec.Arm(tmp_path, spec, tmp_path / "r")
-    arm.out, man = _recorded(tmp_path)
-    assert arm.check_record(["--train", str(man)])["dynamic_sampling_max_draws"] == 8
-
-
 def test_promotion_specs_keep_the_recipe_and_change_only_device_or_seed():
     for arm in lane.exploratory_bf16() + lane.pool_arms():
         fp32, s314, s2718 = lane.promotion_specs(arm)
